@@ -160,11 +160,12 @@ class RiskManager:
         entry_price: float,
         current_atr: float,
         direction: Literal["long", "short"],
-        atr_multiplier: float = 2.0
+        atr_multiplier: float = 2.0,
+        risk_reward_ratio: float = 2.0
     ) -> tuple[float, float]:
         """Calculate dynamic stop loss and take profit based on ATR."""
         stop_distance = current_atr * atr_multiplier
-        target_distance = current_atr * atr_multiplier * 2  # 2:1 reward/risk
+        target_distance = stop_distance * risk_reward_ratio
         
         if direction == "long":
             stop_loss = entry_price - stop_distance
@@ -174,6 +175,58 @@ class RiskManager:
             take_profit = entry_price - target_distance
             
         return stop_loss, take_profit
+
+    def calculate_trailing_stop(
+        self,
+        entry_price: float,
+        current_price: float,
+        direction: Literal["long", "short"],
+        trail_percent: float = 0.5,
+        current_atr: float | None = None,
+        atr_multiplier: float = 1.5
+    ) -> float:
+        """
+        Calculate trailing stop loss.
+        
+        Args:
+            entry_price: Original entry price
+            current_price: Current market price
+            direction: Trade direction (long/short)
+            trail_percent: Percent of profit to trail (0.5 = 50%)
+            current_atr: Current ATR for dynamic trailing
+            atr_multiplier: Multiplier for ATR-based trailing
+            
+        Returns:
+            Trailing stop price
+        """
+        if current_atr and current_atr > 0:
+            # ATR-based trailing stop
+            trail_distance = current_atr * atr_multiplier
+            
+            if direction == "long":
+                # Trail stop up as price moves higher
+                return max(
+                    entry_price - trail_distance,
+                    current_price - trail_distance
+                )
+            else:  # short
+                # Trail stop down as price moves lower
+                return min(
+                    entry_price + trail_distance,
+                    current_price + trail_distance
+                )
+        else:
+            # Percent-based trailing stop
+            if direction == "long":
+                profit = current_price - entry_price
+                if profit > 0:
+                    return entry_price + (profit * trail_percent)
+                return entry_price - abs(entry_price * 0.01)  # Initial stop 1%
+            else:  # short
+                profit = entry_price - current_price
+                if profit > 0:
+                    return entry_price - (profit * trail_percent)
+                return entry_price + abs(entry_price * 0.01)  # Initial stop 1%
 
     def update_portfolio_heat(self, position_value: float, account_value: float) -> None:
         """Update current portfolio heat (risk exposure)."""
