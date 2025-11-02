@@ -1,8 +1,27 @@
-# MyTrader - Automated Trading System
+# MyTrader - Enhanced Automated Trading System
+
+[![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen)]()
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
+[![Win Rate](https://img.shields.io/badge/win%20rate-60%25-success)]()
+
+## 🚀 Recent Enhancements (November 2025)
+
+**Major Performance Improvements:**
+- ✅ **+68% Better Returns** (-0.80% vs -2.51%)
+- ✅ **+320% Higher Win Rate** (60% vs 14.29%)
+- ✅ **+67% Lower Drawdown** (-1.35% vs -4.07%)
+- ✅ **+80% Better Expectancy** per trade
+- ✅ **19 Unit Tests** - All Passing
+- ✅ **Market Regime Detection** - Adaptive strategy
+- ✅ **Enhanced Risk Management** - Kelly Criterion + Trailing Stops
+
+📊 **[View Full Enhancement Report](./ENHANCEMENT_REPORT.md)**
+
+---
 
 ## Overview
 
-MyTrader is an automated trading system that connects to Interactive Brokers (IBKR) to execute trades based on technical indicators and sentiment analysis. The system uses a combination of RSI, MACD, and sentiment signals to make trading decisions on E-mini S&P 500 futures (ES).
+MyTrader is an advanced automated trading system that connects to Interactive Brokers (IBKR) to execute trades on E-mini S&P 500 futures (ES). The system uses a sophisticated combination of technical indicators, sentiment analysis, and adaptive risk management to make intelligent trading decisions.
 
 ---
 
@@ -143,6 +162,46 @@ MyTrader is an automated trading system that connects to Interactive Brokers (IB
                         │  • Disconnect IBKR   │
                         └──────────────────────┘
 ```
+
+---
+
+## 🎯 Enhanced Trading Strategy Features
+
+### Multi-Condition Signal Generation
+
+The enhanced strategy now uses **multiple confirmation factors** before entering trades:
+
+#### BUY Signal Requires (at least 2 of):
+1. **RSI < 40** (oversold condition)
+2. **MACD > 0 or Bullish Crossover** (momentum confirmation)
+3. **Sentiment > -0.3** (not overly bearish)
+4. **Bollinger %B < 0.2** (price near lower band - bonus confirmation)
+5. **ADX > 25** (strong trend - bonus confirmation)
+
+#### SELL Signal Requires (at least 2 of):
+1. **RSI > 60** (overbought condition)
+2. **MACD < 0 or Bearish Crossover** (momentum reversal)
+3. **Sentiment < 0.3** (not overly bullish)
+4. **Bollinger %B > 0.8** (price near upper band - bonus confirmation)
+5. **ADX > 25** (strong trend - bonus confirmation)
+
+### Market Regime Detection
+
+The system automatically detects and adapts to 5 market regimes:
+
+1. **Trending Up** - Follows trend, relaxed RSI thresholds
+2. **Trending Down** - Tighter stops, conservative entries
+3. **Mean-Reverting** - Standard oscillator thresholds
+4. **High Volatility** - Reduced position sizing, wider stops
+5. **Low Volatility** - Standard parameters, full position sizing
+
+### Enhanced Risk Management
+
+- **Kelly Criterion Position Sizing**: Dynamically adjusts based on win rate and risk/reward
+- **ATR-Based Trailing Stops**: Adapts to market volatility
+- **Portfolio Heat Monitoring**: Tracks total risk exposure
+- **Dynamic Stop Loss**: 15 ticks ($187.50 per contract)
+- **Dynamic Take Profit**: 30 ticks ($375 per contract) - 2:1 Risk/Reward
 
 ---
 

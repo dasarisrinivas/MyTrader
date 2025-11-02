@@ -136,9 +136,10 @@ def main():
     if result.trades:
         print("\n📋 Sample Trades (first 5):")
         for i, trade in enumerate(result.trades[:5]):
+            pnl = trade.get('realized', 0) if 'realized' in trade else 0
             print(f"   {i+1}. {trade.get('timestamp', 'N/A')}: {trade.get('action', 'N/A'):6s} "
                   f"{trade.get('qty', 0):2d} @ ${trade.get('price', 0):.2f} "
-                  f"PnL: ${trade.get('realized', 0):.2f if 'realized' in trade else 0.0}")
+                  f"PnL: ${pnl:.2f}")
     else:
         print("\n⚠️  No trades were generated!")
         print("   This could be due to:")
