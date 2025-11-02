@@ -44,8 +44,8 @@ class TestRsiMacdSentimentStrategy:
         """Test strategy can be initialized with default parameters."""
         strategy = RsiMacdSentimentStrategy()
         assert strategy.name == "rsi_macd_sentiment"
-        assert strategy.rsi_buy == 35.0
-        assert strategy.rsi_sell == 65.0
+        assert strategy.rsi_buy == 40.0  # Updated default
+        assert strategy.rsi_sell == 60.0  # Updated default
         
     def test_strategy_custom_parameters(self):
         """Test strategy with custom parameters."""
