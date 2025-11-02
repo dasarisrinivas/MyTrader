@@ -11,11 +11,11 @@ from .base import BaseStrategy, Signal
 @dataclass
 class RsiMacdSentimentStrategy(BaseStrategy):
     name: str = "rsi_macd_sentiment"
-    rsi_buy: float = 35.0  # Relaxed from 30 for more signals
-    rsi_sell: float = 65.0  # Relaxed from 70 for more signals
-    sentiment_buy: float = -0.2  # More realistic threshold (above this)
-    sentiment_sell: float = 0.2  # More realistic threshold (below this)
-    use_macd_crossover: bool = True  # Use MACD crossover logic
+    rsi_buy: float = 40.0  # More balanced threshold
+    rsi_sell: float = 60.0  # More balanced threshold
+    sentiment_buy: float = -0.3  # More realistic threshold
+    sentiment_sell: float = 0.3  # More realistic threshold
+    use_macd_crossover: bool = False  # Use direct MACD comparison for more signals
 
     def generate(self, features: pd.DataFrame) -> Signal:
         """Generate enhanced trading signal with multiple confirmation factors."""
