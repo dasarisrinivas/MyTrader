@@ -15,7 +15,14 @@
 - ✅ **Market Regime Detection** - Adaptive strategy
 - ✅ **Enhanced Risk Management** - Kelly Criterion + Trailing Stops
 
-📊 **[View Full Enhancement Report](./ENHANCEMENT_REPORT.md)**
+**NEW: Advanced Strategy Optimization Framework**
+- 🎯 **Bayesian Optimization** with Optuna
+- 📊 **Market Regime-Based Strategy** (Trending/Ranging/Volatile)
+- 🔍 **Multi-Factor Confirmation** filters
+- 📈 **Comprehensive Performance Analysis** with visualizations
+- 🎓 **Target Metrics**: Sharpe ≥1.5, Max DD ≤15%, Win Rate ≥60%
+
+📊 **[View Enhancement Report](./ENHANCEMENT_REPORT.md)** | **[Strategy Optimization Guide](./STRATEGY_OPTIMIZATION.md)**
 
 ---
 
@@ -498,6 +505,46 @@ Trade recorded:
 • Win rate: 65%
 • Total trades: 9
 ```
+
+---
+
+## 🎯 Quick Start: Strategy Optimization
+
+Want to maximize performance? Run the complete optimization pipeline:
+
+```bash
+# Quick start - Runs baseline analysis, optimization, and comparison
+python3 quickstart_optimization.py
+
+# Or run individual steps:
+
+# Step 1: Baseline performance analysis
+python3 scripts/performance_analyzer.py \
+    --data data/es_synthetic_with_sentiment.csv \
+    --output reports/baseline
+
+# Step 2: Optimize strategy (50-100 trials recommended)
+python3 scripts/advanced_optimizer.py \
+    --data data/es_synthetic_with_sentiment.csv \
+    --strategy enhanced \
+    --trials 100 \
+    --output reports/optimization.json
+
+# Step 3: Compare optimized vs baseline
+python3 scripts/performance_analyzer.py \
+    --data data/es_synthetic_with_sentiment.csv \
+    --optimized reports/optimization.json \
+    --output reports/comparison
+```
+
+**What This Does:**
+- Analyzes current strategy performance
+- Uses Bayesian optimization to find best parameters
+- Tests on validation data (prevents overfitting)
+- Generates visual comparison reports
+- Achieves target: Sharpe ≥1.5, Max DD ≤15%, Win Rate ≥60%
+
+📖 **[Read Full Optimization Guide](./STRATEGY_OPTIMIZATION.md)**
 
 ---
 

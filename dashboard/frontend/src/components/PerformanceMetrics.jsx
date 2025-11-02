@@ -14,46 +14,61 @@ export const PerformanceMetrics = ({ performance }) => {
     );
   }
 
+  // Use total_pnl for P&L display, or calculate from total_return if available
+  const totalPnL = performance.total_pnl !== undefined ? performance.total_pnl : 0;
+  const totalReturn = performance.total_return !== undefined ? performance.total_return : 0;
+  const winRate = performance.win_rate !== undefined ? performance.win_rate : 0;
+  const sharpeRatio = performance.sharpe_ratio !== undefined ? performance.sharpe_ratio : 0;
+  const totalTrades = performance.total_trades !== undefined ? performance.total_trades : 0;
+  const maxDrawdown = performance.max_drawdown !== undefined ? performance.max_drawdown : 0;
+
   const metrics = [
     {
       label: 'Total P&L',
-      value: `$${performance.total_return?.toFixed(2) || '0.00'}`,
+      value: `$${totalPnL.toFixed(2)}`,
       icon: DollarSign,
-      color: performance.total_return >= 0 ? 'text-green-500' : 'text-red-500',
-      bgColor: performance.total_return >= 0 ? 'bg-green-50' : 'bg-red-50',
+      color: totalPnL >= 0 ? 'text-green-500' : 'text-red-500',
+      bgColor: totalPnL >= 0 ? 'bg-green-50' : 'bg-red-50',
+    },
+    {
+      label: 'Total Return',
+      value: `${totalReturn.toFixed(2)}%`,
+      icon: totalReturn >= 0 ? TrendingUp : TrendingDown,
+      color: totalReturn >= 0 ? 'text-green-500' : 'text-red-500',
+      bgColor: totalReturn >= 0 ? 'bg-green-50' : 'bg-red-50',
     },
     {
       label: 'Win Rate',
-      value: `${(performance.win_rate * 100 || 0).toFixed(1)}%`,
+      value: `${(winRate * 100).toFixed(1)}%`,
       icon: Target,
-      color: performance.win_rate >= 0.5 ? 'text-green-500' : 'text-yellow-500',
-      bgColor: performance.win_rate >= 0.5 ? 'bg-green-50' : 'bg-yellow-50',
+      color: winRate >= 0.5 ? 'text-green-500' : winRate >= 0.4 ? 'text-yellow-500' : 'text-red-500',
+      bgColor: winRate >= 0.5 ? 'bg-green-50' : winRate >= 0.4 ? 'bg-yellow-50' : 'bg-red-50',
     },
     {
       label: 'Sharpe Ratio',
-      value: performance.sharpe_ratio?.toFixed(2) || '0.00',
+      value: sharpeRatio.toFixed(2),
       icon: Activity,
-      color: performance.sharpe_ratio >= 1 ? 'text-green-500' : 'text-blue-500',
-      bgColor: performance.sharpe_ratio >= 1 ? 'bg-green-50' : 'bg-blue-50',
+      color: sharpeRatio >= 1 ? 'text-green-500' : sharpeRatio >= 0 ? 'text-blue-500' : 'text-red-500',
+      bgColor: sharpeRatio >= 1 ? 'bg-green-50' : sharpeRatio >= 0 ? 'bg-blue-50' : 'bg-red-50',
     },
     {
       label: 'Total Trades',
-      value: performance.total_trades || 0,
-      icon: performance.total_return >= 0 ? TrendingUp : TrendingDown,
+      value: totalTrades,
+      icon: Activity,
       color: 'text-blue-500',
       bgColor: 'bg-blue-50',
     },
     {
       label: 'Max Drawdown',
-      value: `${(performance.max_drawdown * 100 || 0).toFixed(2)}%`,
+      value: `${(maxDrawdown * 100).toFixed(2)}%`,
       icon: TrendingDown,
-      color: 'text-red-500',
-      bgColor: 'bg-red-50',
+      color: Math.abs(maxDrawdown) < 0.05 ? 'text-yellow-500' : 'text-red-500',
+      bgColor: Math.abs(maxDrawdown) < 0.05 ? 'bg-yellow-50' : 'bg-red-50',
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       {metrics.map((metric, index) => {
         const Icon = metric.icon;
         return (

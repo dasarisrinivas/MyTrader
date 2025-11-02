@@ -18,6 +18,9 @@ def summarize_performance(equity_curve: pd.Series, trades: List[Dict] | None = N
     
     # Basic metrics
     total_return = float(equity_curve.iloc[-1] / equity_curve.iloc[0] - 1)
+    initial_capital = float(equity_curve.iloc[0])
+    final_capital = float(equity_curve.iloc[-1])
+    total_pnl = final_capital - initial_capital
     
     # CAGR (Compound Annual Growth Rate)
     days = len(equity_curve)
@@ -52,6 +55,9 @@ def summarize_performance(equity_curve: pd.Series, trades: List[Dict] | None = N
     
     metrics = {
         "total_return": total_return,
+        "total_pnl": total_pnl,
+        "initial_capital": initial_capital,
+        "final_capital": final_capital,
         "cagr": cagr,
         "sharpe": sharpe,
         "sortino": sortino,

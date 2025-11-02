@@ -57,6 +57,18 @@ class StartTradingRequest(BaseModel):
     strategy: str = "rsi_macd_sentiment"
 
 
+class BacktestRequest(BaseModel):
+    start_date: str  # YYYY-MM-DD
+    end_date: str    # YYYY-MM-DD
+    download_data: bool = True  # Whether to download fresh data
+    config_path: str = "config.yaml"
+
+
+class DataDownloadRequest(BaseModel):
+    start_date: str  # YYYY-MM-DD
+    end_date: str    # YYYY-MM-DD
+
+
 class TradeResponse(BaseModel):
     timestamp: str
     action: str
@@ -332,6 +344,183 @@ async def get_reports():
     reports.sort(key=lambda x: x['timestamp'], reverse=True)
     
     return {"reports": reports[:20]}  # Last 20 reports
+
+
+# Backtesting endpoints
+@app.post("/api/backtest/download-data")
+async def download_backtest_data(request: DataDownloadRequest):
+    """Download historical data for backtesting."""
+    try:
+        import subprocess
+        from pathlib import Path
+        
+        # Run the download script
+        script_path = Path("scripts/download_data.py")
+        output_file = f"data/es_{request.start_date}_to_{request.end_date}.csv"
+        
+        cmd = [
+            "python", str(script_path),
+            "--start", request.start_date,
+            "--end", request.end_date,
+            "--output", output_file
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Data download failed: {result.stderr}"
+            )
+        
+        return {
+            "status": "success",
+            "message": "Data downloaded successfully",
+            "file": output_file,
+            "start_date": request.start_date,
+            "end_date": request.end_date
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to download data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backtest/run")
+async def run_backtest(request: BacktestRequest):
+    """Run backtest on historical data."""
+    try:
+        from mytrader.backtesting.engine import BacktestingEngine
+        from mytrader.utils.settings_loader import load_settings
+        from mytrader.features.feature_engineer import add_technical_indicators
+        from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+        from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
+        import pandas as pd
+        
+        # Download data if requested
+        data_file = f"data/es_{request.start_date}_to_{request.end_date}.csv"
+        
+        if request.download_data:
+            download_req = DataDownloadRequest(
+                start_date=request.start_date,
+                end_date=request.end_date
+            )
+            await download_backtest_data(download_req)
+        
+        # Check if data file exists
+        if not Path(data_file).exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Data file not found: {data_file}. Enable download_data=true to fetch it."
+            )
+        
+        # Load configuration
+        config = load_settings(request.config_path)
+        
+        # Load data
+        df = pd.read_csv(data_file, parse_dates=['timestamp'])
+        df = df.set_index('timestamp')
+        
+        # Add technical indicators
+        df = add_technical_indicators(df)
+        
+        # Initialize strategies
+        strategies = [
+            RsiMacdSentimentStrategy(),
+            MomentumReversalStrategy()
+        ]
+        
+        # Initialize backtesting engine with proper config objects
+        engine = BacktestingEngine(
+            strategies=strategies,
+            trading_config=config.trading,
+            backtest_config=config.backtest
+        )
+        
+        # Run backtest
+        result = engine.run(df)
+        
+        # Save results
+        results_file = f"reports/backtest_{request.start_date}_to_{request.end_date}.json"
+        Path("reports").mkdir(exist_ok=True)
+        
+        backtest_report = {
+            "start_date": request.start_date,
+            "end_date": request.end_date,
+            "config": request.config_path,
+            "generated_at": datetime.now().isoformat(),
+            "metrics": result.metrics,
+            "total_trades": len(result.trades),
+            "equity_curve_points": len(result.equity_curve)
+        }
+        
+        with open(results_file, 'w') as f:
+            json.dump(backtest_report, f, indent=2)
+        
+        # Convert equity curve to list for JSON response
+        equity_curve_data = [
+            {"timestamp": ts.isoformat(), "equity": float(equity)}
+            for ts, equity in result.equity_curve.items()
+        ]
+        
+        # Convert trades to list
+        trades_data = [
+            {
+                "timestamp": t["timestamp"].isoformat() if isinstance(t["timestamp"], pd.Timestamp) else t["timestamp"],
+                "action": t["action"],
+                "price": float(t["price"]),
+                "quantity": int(t["qty"]),
+                "pnl": float(t.get("realized", 0))
+            }
+            for t in result.trades
+        ]
+        
+        return {
+            "status": "success",
+            "message": "Backtest completed successfully",
+            "results_file": results_file,
+            "metrics": result.metrics,
+            "equity_curve": equity_curve_data[-200:],  # Last 200 points
+            "trades": trades_data[-50:],  # Last 50 trades
+            "total_trades": len(result.trades)
+        }
+    
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backtest/results")
+async def get_backtest_results():
+    """Get list of available backtest results."""
+    reports_dir = Path("reports")
+    
+    if not reports_dir.exists():
+        return {"results": []}
+    
+    results = []
+    for report_file in reports_dir.glob("backtest_*.json"):
+        try:
+            with open(report_file, 'r') as f:
+                data = json.load(f)
+            
+            results.append({
+                "filename": report_file.name,
+                "start_date": data.get('start_date', 'unknown'),
+                "end_date": data.get('end_date', 'unknown'),
+                "timestamp": data.get('generated_at', 'unknown'),
+                "total_return": data.get('metrics', {}).get('total_return', 0),
+                "sharpe_ratio": data.get('metrics', {}).get('sharpe_ratio', 0),
+                "max_drawdown": data.get('metrics', {}).get('max_drawdown', 0),
+                "total_trades": data.get('total_trades', 0),
+            })
+        except Exception as e:
+            logger.error(f"Error reading backtest result {report_file}: {e}")
+    
+    # Sort by timestamp descending
+    results.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    return {"results": results[:20]}  # Last 20 results
 
 
 # WebSocket endpoint

@@ -95,7 +95,12 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     enriched["MACDsignal_12_26_9"] = signal
     enriched["MACDhist_12_26_9"] = macd - signal
 
+    # SMAs
+    enriched["SMA_20"] = close.rolling(window=20).mean()
+    enriched["SMA_50"] = close.rolling(window=50).mean()
+    
     # EMAs
+    enriched["EMA_20"] = _ema(close, 20)
     enriched["EMA_21"] = _ema(close, 21)
     enriched["EMA_50"] = _ema(close, 50)
     enriched["EMA_200"] = _ema(close, 200)
@@ -104,12 +109,16 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     rolling_mean = close.rolling(window=20).mean()
     rolling_std = close.rolling(window=20).std(ddof=0)
     enriched["BB_mid_20_2"] = rolling_mean
+    enriched["BB_middle"] = rolling_mean  # Alias for strategies
     enriched["BB_upper_20_2"] = rolling_mean + 2 * rolling_std
+    enriched["BB_upper"] = rolling_mean + 2 * rolling_std  # Alias
     enriched["BB_lower_20_2"] = rolling_mean - 2 * rolling_std
+    enriched["BB_lower"] = rolling_mean - 2 * rolling_std  # Alias
     
-    # Bollinger %B
+    # Bollinger %B and Width
     bb_range = enriched["BB_upper_20_2"] - enriched["BB_lower_20_2"]
     enriched["BB_percent"] = ((close - enriched["BB_lower_20_2"]) / bb_range).fillna(0.5)
+    enriched["BB_width"] = bb_range.fillna(0)
 
     # VWAP (cumulative)
     typical_price = (high + low + close) / 3
@@ -196,7 +205,19 @@ def merge_sentiment(df: pd.DataFrame, sentiment: pd.DataFrame) -> pd.DataFrame:
 
 def engineer_features(price_df: pd.DataFrame, sentiment_df: pd.DataFrame | None = None) -> pd.DataFrame:
     base = add_technical_indicators(price_df)
+    
+    # Add sentiment score if we have sentiment columns in the data
     if sentiment_df is not None:
         base = merge_sentiment(base, sentiment_df)
+    elif "sentiment_twitter" in base.columns or "sentiment_news" in base.columns:
+        # Calculate sentiment_score from existing sentiment columns
+        sentiment_cols = [col for col in ["sentiment_twitter", "sentiment_news"] if col in base.columns]
+        if sentiment_cols:
+            base["sentiment_score"] = base[sentiment_cols].mean(axis=1)
+        else:
+            base["sentiment_score"] = 0.0
+    else:
+        base["sentiment_score"] = 0.0
+    
     base.dropna(inplace=True)
     return base

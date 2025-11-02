@@ -1,0 +1,129 @@
+{
+  "generated_at": "2025-11-02T08:05:25.465568",
+  "data_period": {
+    "start": "2024-01-02 09:30:00",
+    "end": "2024-01-08 15:59:00",
+    "total_bars": 1950
+  },
+  "strategies": {
+    "RSI_MACD_Sentiment": {
+      "metrics": {
+        "total_return": -0.017747999999997544,
+        "cagr": -0.0023710199625167627,
+        "sharpe": -1.0827530272387706,
+        "sortino": -0.247638226758355,
+        "max_drawdown": -0.01851599999999687,
+        "avg_drawdown": -0.017626716842102822,
+        "profit_factor": 0.18183623025178638,
+        "calmar_ratio": 0.12805249311499048,
+        "volatility": 0.0021913318466970006,
+        "total_trades": 10,
+        "winning_trades": 0,
+        "losing_trades": 10,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": -162.59999999997945,
+        "largest_win": -15.00000000005457,
+        "largest_loss": -346.4999999999236,
+        "avg_trade": -162.59999999997945,
+        "expectancy": -162.59999999997945,
+        "avg_holding_hours": 0.04333333333333333
+      },
+      "total_trades": 20,
+      "final_equity": 98225.20000000024
+    },
+    "Momentum_Reversal": {
+      "metrics": {
+        "total_return": 0.0,
+        "cagr": 0.0,
+        "sharpe": 0,
+        "sortino": 0,
+        "max_drawdown": 0.0,
+        "avg_drawdown": 0.0,
+        "profit_factor": Infinity,
+        "calmar_ratio": 0,
+        "volatility": 0.0
+      },
+      "total_trades": 0,
+      "final_equity": 100000.0
+    },
+    "Combined_Baseline": {
+      "metrics": {
+        "total_return": -0.017747999999997544,
+        "cagr": -0.0023710199625167627,
+        "sharpe": -1.0827530272387706,
+        "sortino": -0.247638226758355,
+        "max_drawdown": -0.01851599999999687,
+        "avg_drawdown": -0.017626716842102822,
+        "profit_factor": 0.18183623025178638,
+        "calmar_ratio": 0.12805249311499048,
+        "volatility": 0.0021913318466970006,
+        "total_trades": 10,
+        "winning_trades": 0,
+        "losing_trades": 10,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": -162.59999999997945,
+        "largest_win": -15.00000000005457,
+        "largest_loss": -346.4999999999236,
+        "avg_trade": -162.59999999997945,
+        "expectancy": -162.59999999997945,
+        "avg_holding_hours": 0.04333333333333333
+      },
+      "total_trades": 20,
+      "final_equity": 98225.20000000024
+    },
+    "Enhanced_Regime": {
+      "metrics": {
+        "total_return": -0.02113899999999791,
+        "cagr": -0.0028282592473514168,
+        "sharpe": -1.1710809646511093,
+        "sortino": -0.3088644259367916,
+        "max_drawdown": -0.021573421400896686,
+        "avg_drawdown": -0.021136770892386282,
+        "profit_factor": 0.30276783608929775,
+        "calmar_ratio": 0.13109924451917773,
+        "volatility": 0.0024172698574170173,
+        "total_trades": 4,
+        "winning_trades": 0,
+        "losing_trades": 4,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": -512.8749999999513,
+        "largest_win": -416.9999999999618,
+        "largest_loss": -687.99999999992,
+        "avg_trade": -512.8749999999513,
+        "expectancy": -512.8749999999513,
+        "avg_holding_hours": 0.22916666666666669
+      },
+      "total_trades": 8,
+      "final_equity": 97886.10000000021
+    },
+    "Optimized": {
+      "metrics": {
+        "total_return": 0.02112000000000136,
+        "cagr": 0.0027743918397564737,
+        "sharpe": 1.4916783981571662,
+        "sortino": 1.5105578088598246,
+        "max_drawdown": -0.008565049279530168,
+        "avg_drawdown": -0.003964989261172668,
+        "profit_factor": 1.6371751165108628,
+        "calmar_ratio": 0.3239201257588867,
+        "volatility": 0.0018594835967803065,
+        "total_trades": 10,
+        "winning_trades": 7,
+        "losing_trades": 3,
+        "win_rate": 0.7,
+        "avg_win": 440.4285714285769,
+        "avg_loss": -307.66666666666725,
+        "largest_win": 491.49999999999636,
+        "largest_loss": -351.0000000000218,
+        "avg_trade": 216.00000000000364,
+        "expectancy": 216.00000000000364,
+        "avg_holding_hours": 2.428333333333333
+      },
+      "total_trades": 20,
+      "final_equity": 102112.00000000015
+    }
+  }
+}

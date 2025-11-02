@@ -4,6 +4,8 @@ import { TradingControls } from './TradingControls';
 import { PerformanceMetrics } from './PerformanceMetrics';
 import { EquityChart } from './EquityChart';
 import { TradeHistory } from './TradeHistory';
+import BacktestControls from './BacktestControls';
+import BacktestResults from './BacktestResults';
 import { Activity, WifiOff, Wifi } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
@@ -14,6 +16,8 @@ export const Dashboard = () => {
   const [trades, setTrades] = useState([]);
   const [equityCurve, setEquityCurve] = useState([]);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('live'); // 'live' or 'backtest'
+  const [backtestResults, setBacktestResults] = useState(null);
 
   const { isConnected, lastMessage } = useWebSocket();
 
@@ -132,6 +136,10 @@ export const Dashboard = () => {
     }
   };
 
+  const handleBacktestComplete = (results) => {
+    setBacktestResults(results);
+  };
+
   return (
     <div className="min-h-screen bg-apple-gray-50 font-sf">
       {/* Header */}
@@ -168,21 +176,55 @@ export const Dashboard = () => {
           </div>
         )}
 
-        {/* Trading Controls */}
-        <TradingControls 
-          status={status} 
-          onStart={handleStart} 
-          onStop={handleStop} 
-        />
+        {/* Tab Navigation */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="border-b border-gray-200">
+            <nav className="flex -mb-px">
+              <button
+                onClick={() => setActiveTab('live')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'live'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Live Trading
+              </button>
+              <button
+                onClick={() => setActiveTab('backtest')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'backtest'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Backtesting
+              </button>
+            </nav>
+          </div>
+        </div>
 
-        {/* Performance Metrics */}
-        <PerformanceMetrics performance={performance} />
+        {/* Live Trading Tab */}
+        {activeTab === 'live' && (
+          <>
+            <TradingControls 
+              status={status} 
+              onStart={handleStart} 
+              onStop={handleStop} 
+            />
+            <PerformanceMetrics performance={performance} />
+            <EquityChart data={equityCurve} />
+            <TradeHistory trades={trades} />
+          </>
+        )}
 
-        {/* Equity Curve */}
-        <EquityChart data={equityCurve} />
-
-        {/* Trade History */}
-        <TradeHistory trades={trades} />
+        {/* Backtesting Tab */}
+        {activeTab === 'backtest' && (
+          <>
+            <BacktestControls onBacktestComplete={handleBacktestComplete} />
+            <BacktestResults results={backtestResults} />
+          </>
+        )}
       </main>
     </div>
   );

@@ -20,9 +20,22 @@ class StrategyEngine:
         results = [(strategy, strategy.generate(window)) for strategy in self.strategies]
         signals = [sig for _, sig in results]
         action = self._aggregate(signals)
-        matching = [sig.confidence for sig in signals if sig.action == action]
-        confidence = float(np.mean(matching)) if matching else 0.0
-        metadata = {f"{strategy.name}_confidence": sig.confidence for strategy, sig in results}
+        matching_pairs = [(strategy, sig) for strategy, sig in results if sig.action == action]
+        matching_conf = [sig.confidence for _, sig in matching_pairs]
+        confidence = float(np.mean(matching_conf)) if matching_conf else 0.0
+
+        # Start with metadata from the first contributing strategy for richer context
+        if matching_pairs:
+            primary_strategy, primary_signal = matching_pairs[0]
+            metadata = dict(primary_signal.metadata)
+            metadata["signal_source"] = primary_strategy.name
+        else:
+            metadata = {"signal_source": "none"}
+
+        # Add per-strategy confidence transparency
+        for strategy, sig in results:
+            metadata[f"{strategy.name}_confidence"] = sig.confidence
+            metadata[f"{strategy.name}_action"] = sig.action
 
         if returns is not None and len(returns) >= self.sharpe_window:
             sharpe = self._rolling_sharpe(returns[-self.sharpe_window :])
