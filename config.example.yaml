@@ -1,0 +1,40 @@
+data:
+  tradingview_webhook_url: "https://your-server.com/tradingview"
+  tradingview_symbol: "ES"
+  tradingview_interval: "1m"
+  ibkr_host: "127.0.0.1"
+  ibkr_port: 7497
+  ibkr_client_id: 1
+  ibkr_symbol: "ES"
+  ibkr_exchange: "GLOBEX"
+  ibkr_currency: "USD"
+  twitter_bearer_token: ""
+  news_api_keys: []
+  sentiment_refresh_interval: 60
+trading:
+  max_position_size: 4
+  max_daily_loss: 2000.0
+  max_daily_trades: 20
+  initial_capital: 100000.0
+  contract_multiplier: 50.0
+  stop_loss_ticks: 10.0
+  take_profit_ticks: 20.0
+  tick_size: 0.25
+  tick_value: 12.5
+  commission_per_contract: 2.4
+backtest:
+  data_path: "data/historical_spy_es.parquet"
+  start_date: null
+  end_date: null
+  initial_capital: 100000.0
+  slippage: 0.25
+  risk_free_rate: 0.02
+optimization:
+  window_length: 5000
+  retrain_interval: 3600
+  parameter_grid:
+    rsi_period: [14, 21, 28]
+    macd_fast: [12, 16, 20]
+    macd_slow: [26, 30, 35]
+    sentiment_threshold: [0.4, 0.5, 0.6]
+    momentum_lookback: [20, 30, 40]
