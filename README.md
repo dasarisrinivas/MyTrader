@@ -351,6 +351,12 @@ All metrics are displayed live on the dashboard and updated every 5 seconds.
 ### Key Settings (config.yaml)
 
 ```yaml
+data:
+  # Market Data Source (choose one or multiple)
+  tradingview_webhook_url: "http://localhost:8000/tradingview"  # TradingView
+  ibkr_host: "127.0.0.1"        # IBKR (can use for data OR execution only)
+  ibkr_port: 4002
+
 trading:
   max_position_size: 2          # Maximum contracts per trade
   max_daily_loss: 1500.0        # Stop trading if loss exceeds this
@@ -367,6 +373,20 @@ strategies:
       sentiment_buy: -0.82        # Sentiment floor for buying
       sentiment_sell: 0.22        # Sentiment ceiling for selling
 ```
+
+### 💡 Data Provider Options
+
+The system supports **multiple data sources**:
+
+- **IBKR**: Built-in, but has rate limits
+- **TradingView**: Recommended ($15/month, no rate limits) - See [DATA_PROVIDERS.md](DATA_PROVIDERS.md)
+- **Polygon.io**: Professional option ($99/month)
+- **Alpha Vantage**: Free tier available
+- **Yahoo Finance**: Free fallback
+
+**Pro Tip:** Use TradingView/Polygon for market data and IBKR only for execution to avoid rate limits.
+
+📖 **[Read the full Data Providers Guide](DATA_PROVIDERS.md)** for detailed setup instructions.
 
 ---
 
