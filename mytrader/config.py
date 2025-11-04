@@ -13,10 +13,10 @@ class DataSourceConfig:
     tradingview_interval: str = "1m"
 
     ibkr_host: str = "127.0.0.1"
-    ibkr_port: int = 7497
+    ibkr_port: int = 4002  # IB Gateway default (7497 for TWS)
     ibkr_client_id: int = 1
     ibkr_symbol: str = "ES"
-    ibkr_exchange: str = "GLOBEX"
+    ibkr_exchange: str = "CME"  # CME exchange (not GLOBEX) for ES futures
     ibkr_currency: str = "USD"
 
     twitter_bearer_token: Optional[str] = None

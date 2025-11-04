@@ -219,5 +219,13 @@ def engineer_features(price_df: pd.DataFrame, sentiment_df: pd.DataFrame | None 
     else:
         base["sentiment_score"] = 0.0
     
-    base.dropna(inplace=True)
+    # For live trading, we need at least SOME data even if indicators aren't fully populated
+    # Only drop rows where ALL values are NaN (which shouldn't happen)
+    # Instead, forward-fill and back-fill to handle initial NaN values
+    base = base.ffill().bfill()
+    
+    # Drop only if we still have completely empty rows
+    base.dropna(how='all', inplace=True)
+    
     return base
+

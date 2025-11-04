@@ -6,6 +6,7 @@ import { EquityChart } from './EquityChart';
 import { TradeHistory } from './TradeHistory';
 import BacktestControls from './BacktestControls';
 import BacktestResults from './BacktestResults';
+import LiveTradingPanel from './LiveTradingPanel';
 import { Activity, WifiOff, Wifi } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
@@ -207,14 +208,7 @@ export const Dashboard = () => {
         {/* Live Trading Tab */}
         {activeTab === 'live' && (
           <>
-            <TradingControls 
-              status={status} 
-              onStart={handleStart} 
-              onStop={handleStop} 
-            />
-            <PerformanceMetrics performance={performance} />
-            <EquityChart data={equityCurve} />
-            <TradeHistory trades={trades} />
+            <LiveTradingPanel />
           </>
         )}
 

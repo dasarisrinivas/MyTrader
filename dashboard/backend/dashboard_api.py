@@ -17,10 +17,12 @@ from typing import List, Optional, Dict, Any
 import asyncio
 from datetime import datetime
 import json
+import subprocess
 
 from mytrader.utils.settings_loader import load_settings
 from mytrader.monitoring.live_tracker import LivePerformanceTracker
 from mytrader.utils.logger import configure_logging, logger
+from mytrader.execution.live_trading_manager import LiveTradingManager
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -39,6 +41,7 @@ app.add_middleware(
 )
 
 # Global state
+live_trading_manager: Optional[LiveTradingManager] = None
 trading_session = None
 performance_tracker = None
 websocket_clients: List[WebSocket] = []
@@ -105,6 +108,11 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict):
         """Broadcast message to all connected clients."""
+        if not self.active_connections:
+            logger.debug("No active WebSocket connections to broadcast to")
+            return
+            
+        logger.info(f"Broadcasting {message['type']} to {len(self.active_connections)} clients")
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
@@ -157,59 +165,104 @@ async def get_status():
 
 @app.post("/api/trading/start")
 async def start_trading(request: StartTradingRequest):
-    """Start a new trading session."""
-    global trading_session
+    """Start a new live trading session by launching main.py as subprocess."""
+    global live_trading_manager
     
-    if trading_session and getattr(trading_session, 'running', False):
+    if live_trading_manager and live_trading_manager.running:
         raise HTTPException(status_code=400, detail="Trading session already running")
     
     try:
-        # Import here to avoid circular imports
-        from scripts.paper_trade import PaperTradingSession
+        import subprocess
+        import os
         
-        # Create new session
-        trading_session = PaperTradingSession(request.config_path)
+        # Load settings - use absolute path from project root
+        config_path = project_root / request.config_path
         
-        # Run pre-flight checks (async mode to avoid event loop conflicts)
-        checks_passed = trading_session.pre_flight_checks(use_async=True)
+        logger.info(f"Attempting to load config from: {config_path}")
+        logger.info(f"Config exists: {config_path.exists()}")
+        logger.info(f"Project root: {project_root}")
         
-        if not checks_passed:
-            raise HTTPException(status_code=400, detail="Pre-flight checks failed")
+        if not config_path.exists():
+            raise HTTPException(status_code=404, detail=f"Config file not found: {config_path}")
         
-        # Setup components
-        trading_session.setup_components()
+        # Start main.py live trading as a subprocess
+        venv_python = project_root / ".venv" / "bin" / "python3"
+        main_py = project_root / "main.py"
         
-        # Start trading in background
-        asyncio.create_task(run_trading_session())
+        log_file = project_root / "logs" / "live_trading.log"
+        log_file.parent.mkdir(exist_ok=True)
+        
+        # Start the live trading process
+        with open(log_file, "w") as f:
+            process = subprocess.Popen(
+                [str(venv_python), str(main_py), "live", "--config", str(config_path)],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                cwd=str(project_root),
+                env={**os.environ, "PYTHONUNBUFFERED": "1"}
+            )
+        
+        # Create a simple manager to track the process
+        from dataclasses import dataclass
+        
+        @dataclass
+        class ProcessManager:
+            process: subprocess.Popen
+            running: bool = True
+            
+            def stop(self):
+                if self.process:
+                    self.process.terminate()
+                    self.process.wait(timeout=10)
+                self.running = False
+        
+        live_trading_manager = ProcessManager(process)
+        
+        logger.info(f"✅ Started live trading process (PID: {process.pid})")
+        logger.info(f"📝 Logs: {log_file}")
+        
+        # Start log tailer in background
+        asyncio.create_task(tail_logs())
         
         return {
             "status": "started",
-            "message": "Trading session started successfully",
+            "message": f"Live trading session started successfully (PID: {process.pid})",
+            "log_file": str(log_file),
+            "pid": process.pid,
             "timestamp": datetime.now().isoformat()
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to start trading: {e}")
+        logger.error(f"Failed to start live trading: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/trading/stop")
 async def stop_trading():
-    """Stop the current trading session."""
-    global trading_session
+    """Stop the current live trading session."""
+    global live_trading_manager
     
-    if not trading_session:
+    if not live_trading_manager:
         raise HTTPException(status_code=400, detail="No trading session running")
     
     try:
-        trading_session.stop_requested = True
-        trading_session.running = False
+        # Terminate the subprocess gracefully
+        if live_trading_manager.process.poll() is None:
+            live_trading_manager.process.terminate()
+            # Give it 5 seconds to terminate gracefully
+            try:
+                live_trading_manager.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't terminate
+                live_trading_manager.process.kill()
+                live_trading_manager.process.wait()
         
-        # Broadcast stop event
-        await manager.broadcast({
-            "type": "trading_stopped",
-            "timestamp": datetime.now().isoformat()
-        })
+        live_trading_manager.running = False
+        live_trading_manager = None
         
         return {
             "status": "stopped",
@@ -222,52 +275,386 @@ async def stop_trading():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/trading/status")
+async def get_trading_status():
+    """Get detailed live trading status."""
+    global live_trading_manager
+    
+    if not live_trading_manager or not live_trading_manager.running:
+        return {
+            "is_running": False,
+            "message": "No trading session"
+        }
+    
+    # Check if process is still running
+    if live_trading_manager.process.poll() is not None:
+        live_trading_manager.running = False
+        return {
+            "is_running": False,
+            "message": "Trading process terminated"
+        }
+    
+    return {
+        "is_running": True,
+        "pid": live_trading_manager.process.pid,
+        "message": "Trading session running"
+    }
+
+
+@app.get("/api/market/status")
+async def get_market_status():
+    """
+    Get detailed market status including conditions for trading resume.
+    This endpoint provides information about when HOLD signals will transition to active trading.
+    """
+    try:
+        # Read the latest data from the live trading log
+        log_file = project_root / "logs" / "live_trading.log"
+        
+        market_status = {
+            "symbol": "ES",
+            "exchange": "CME",
+            "contract": "ESZ5",
+            "current_price": None,
+            "last_signal": "HOLD",
+            "signal_confidence": 0.0,
+            "market_bias": "neutral",
+            "volatility_level": "medium",
+            "active_strategy": "breakout",
+            "atr": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "resume_conditions": {
+                "breakout_detected": False,
+                "confidence_threshold_met": False,
+                "market_context_changed": False,
+                "strategy_switched": False
+            },
+            "resume_triggers": {
+                "breakout": "Price breaks above resistance or below support levels",
+                "confidence": "Signal confidence exceeds 0.65 threshold",
+                "market_bias": "Market switches from neutral to bullish/bearish",
+                "volatility": "Volatility increases to create trading opportunities",
+                "strategy": "System switches from breakout to mean-reversion or trend-following"
+            },
+            "last_update": datetime.now().isoformat()
+        }
+        
+        # Parse the log file for latest information
+        if log_file.exists():
+            try:
+                with open(log_file, 'r') as f:
+                    lines = f.readlines()
+                    
+                    # Read last 100 lines to get recent data
+                    recent_lines = lines[-100:] if len(lines) > 100 else lines
+                    
+                    for line in reversed(recent_lines):
+                        # Extract current price
+                        if "Got last price:" in line:
+                            try:
+                                price = float(line.split("Got last price:")[1].strip())
+                                if market_status["current_price"] is None:
+                                    market_status["current_price"] = price
+                            except:
+                                pass
+                        
+                        # Extract signal information
+                        if "SIGNAL GENERATED:" in line:
+                            try:
+                                parts = line.split("SIGNAL GENERATED:")[1].strip()
+                                signal_parts = parts.split(",")
+                                if len(signal_parts) >= 2:
+                                    market_status["last_signal"] = signal_parts[0].strip()
+                                    conf_str = signal_parts[1].split("=")[1].strip()
+                                    market_status["signal_confidence"] = float(conf_str)
+                            except:
+                                pass
+                        
+                        # Extract market context
+                        if "Market Context:" in line:
+                            try:
+                                context = line.split("Market Context:")[1].strip()
+                                if "bullish" in context:
+                                    market_status["market_bias"] = "bullish"
+                                elif "bearish" in context:
+                                    market_status["market_bias"] = "bearish"
+                                else:
+                                    market_status["market_bias"] = "neutral"
+                                    
+                                if "high volatility" in context:
+                                    market_status["volatility_level"] = "high"
+                                elif "low volatility" in context:
+                                    market_status["volatility_level"] = "low"
+                                else:
+                                    market_status["volatility_level"] = "medium"
+                            except:
+                                pass
+                        
+                        # Extract strategy
+                        if "Using strategy:" in line:
+                            try:
+                                strategy = line.split("Using strategy:")[1].strip()
+                                market_status["active_strategy"] = strategy
+                            except:
+                                pass
+                        
+                        # Extract ATR
+                        if "📏 ATR:" in line:
+                            try:
+                                atr_str = line.split("📏 ATR:")[1].strip()
+                                market_status["atr"] = float(atr_str)
+                            except:
+                                pass
+                        
+                        # Extract Stop Loss
+                        if "📍 Stop Loss:" in line:
+                            try:
+                                sl_str = line.split("📍 Stop Loss:")[1].strip()
+                                market_status["stop_loss"] = float(sl_str)
+                            except:
+                                pass
+                        
+                        # Extract Take Profit
+                        if "🎯 Take Profit:" in line:
+                            try:
+                                tp_str = line.split("🎯 Take Profit:")[1].strip()
+                                market_status["take_profit"] = float(tp_str)
+                            except:
+                                pass
+                        
+                        # Extract contract
+                        if "Qualified contract:" in line:
+                            try:
+                                contract = line.split("Qualified contract:")[1].split("(")[0].strip()
+                                market_status["contract"] = contract
+                            except:
+                                pass
+                
+                # Determine resume conditions
+                market_status["resume_conditions"]["confidence_threshold_met"] = \
+                    market_status["signal_confidence"] >= 0.65
+                
+                market_status["resume_conditions"]["market_context_changed"] = \
+                    market_status["market_bias"] != "neutral" or market_status["volatility_level"] == "high"
+                
+                market_status["resume_conditions"]["breakout_detected"] = \
+                    market_status["last_signal"] in ["BUY", "SELL"]
+                
+                market_status["resume_conditions"]["strategy_switched"] = \
+                    market_status["active_strategy"] not in ["breakout", ""]
+                
+            except Exception as e:
+                logger.error(f"Error parsing log file: {e}")
+        
+        return market_status
+        
+    except Exception as e:
+        logger.error(f"Error getting market status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/trades")
 async def get_trades(limit: int = 50):
-    """Get recent trades."""
-    global performance_tracker
+    """Get recent trades from live trading log."""
+    log_file = project_root / "logs" / "live_trading.log"
     
-    if not performance_tracker:
-        return {"trades": []}
+    if not log_file.exists():
+        return {"trades": [], "count": 0, "error": "Log file not found"}
     
-    # Get trades from tracker
-    trades = performance_tracker.trades[-limit:] if hasattr(performance_tracker, 'trades') else []
-    
-    return {"trades": trades, "count": len(trades)}
+    try:
+        trades = []
+        orders = []
+        executions = []
+        
+        # Parse log file for order and execution information
+        with open(log_file, 'r') as f:
+            lines = f.readlines()
+            
+        for i, line in enumerate(lines):
+            # Look for SIGNAL GENERATED lines
+            if "SIGNAL GENERATED:" in line and i > 0:
+                try:
+                    timestamp_str = line.split("|")[0].strip()
+                    timestamp = datetime.fromisoformat(timestamp_str.replace(" ", "T"))
+                    
+                    # Extract signal details
+                    if "BUY" in line:
+                        action = "BUY"
+                    elif "SELL" in line:
+                        action = "SELL"
+                    elif "HOLD" in line:
+                        action = "HOLD"
+                    else:
+                        continue
+                    
+                    # Get confidence from the signal line
+                    confidence = 0.0
+                    if "confidence=" in line:
+                        conf_part = line.split("confidence=")[1].split()[0].replace(",", "")
+                        confidence = float(conf_part)
+                    
+                    # Look ahead for price, stop loss, take profit
+                    price = None
+                    stop_loss = None
+                    take_profit = None
+                    atr = None
+                    
+                    for j in range(i+1, min(i+10, len(lines))):
+                        next_line = lines[j]
+                        if "Got last price:" in next_line:
+                            try:
+                                price = float(next_line.split("Got last price:")[1].strip())
+                            except:
+                                pass
+                        if "Stop Loss:" in next_line:
+                            try:
+                                stop_loss = float(next_line.split("Stop Loss:")[1].strip().split()[0])
+                            except:
+                                pass
+                        if "Take Profit:" in next_line:
+                            try:
+                                take_profit = float(next_line.split("Take Profit:")[1].strip().split()[0])
+                            except:
+                                pass
+                        if "ATR:" in next_line:
+                            try:
+                                atr = float(next_line.split("ATR:")[1].strip().split()[0])
+                            except:
+                                pass
+                    
+                    if action != "HOLD":  # Only add actual trade signals
+                        trades.append({
+                            "timestamp": timestamp.isoformat(),
+                            "action": action,
+                            "price": price,
+                            "confidence": confidence,
+                            "stop_loss": stop_loss,
+                            "take_profit": take_profit,
+                            "atr": atr,
+                            "status": "signal"
+                        })
+                        
+                except Exception as e:
+                    logger.debug(f"Error parsing signal line: {e}")
+                    continue
+            
+            # Look for order execution information
+            if "Execution: order_id=" in line or "Order" in line and "status update:" in line:
+                try:
+                    timestamp_str = line.split("|")[0].strip()
+                    timestamp = datetime.fromisoformat(timestamp_str.replace(" ", "T"))
+                    
+                    executions.append({
+                        "timestamp": timestamp.isoformat(),
+                        "message": line.split("|")[-1].strip(),
+                        "type": "execution"
+                    })
+                except:
+                    pass
+            
+            # Look for closed positions
+            if "Closing position:" in line:
+                try:
+                    timestamp_str = line.split("|")[0].strip()
+                    timestamp = datetime.fromisoformat(timestamp_str.replace(" ", "T"))
+                    
+                    orders.append({
+                        "timestamp": timestamp.isoformat(),
+                        "action": "CLOSE",
+                        "message": line.split("|")[-1].strip(),
+                        "type": "close"
+                    })
+                except:
+                    pass
+        
+        # Return most recent trades
+        all_activity = trades + orders + executions
+        all_activity.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return {
+            "trades": all_activity[:limit],
+            "count": len(all_activity),
+            "signals": len(trades),
+            "executions": len(executions),
+            "orders": len(orders)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error parsing trades from log: {e}")
+        return {"trades": [], "count": 0, "error": str(e)}
 
 
 @app.get("/api/performance")
 async def get_performance():
-    """Get current performance metrics."""
-    global performance_tracker
+    """Get current performance metrics from live trading logs."""
+    log_file = project_root / "logs" / "live_trading.log"
     
-    if not performance_tracker:
-        return {
-            "total_pnl": 0.0,
-            "total_return": 0.0,
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
-            "win_rate": 0.0,
-            "total_trades": 0,
-            "winning_trades": 0,
-            "losing_trades": 0
-        }
-    
-    snapshot = performance_tracker.get_snapshot()
-    
-    # Calculate return percentage
-    total_return = (snapshot.equity / performance_tracker.initial_capital - 1) * 100
-    
-    return {
-        "total_pnl": snapshot.total_pnl,
-        "total_return": total_return,
-        "sharpe_ratio": snapshot.sharpe_ratio,
-        "max_drawdown": snapshot.max_drawdown,
-        "win_rate": snapshot.win_rate,
-        "total_trades": snapshot.trade_count,
-        "winning_trades": snapshot.winning_trades,
-        "losing_trades": snapshot.losing_trades,
+    # Default metrics
+    metrics = {
+        "total_pnl": 0.0,
+        "realized_pnl": 0.0,
+        "unrealized_pnl": 0.0,
+        "total_return": 0.0,
+        "current_position": 0,
+        "total_trades": 0,
+        "total_signals": 0,
+        "hold_signals": 0,
+        "buy_signals": 0,
+        "sell_signals": 0
     }
+    
+    if not log_file.exists():
+        return metrics
+    
+    try:
+        # Parse log for position and signal info
+        with open(log_file, 'r') as f:
+            lines = f.readlines()
+        
+        buy_count = 0
+        sell_count = 0
+        hold_count = 0
+        last_position = 0
+        
+        for line in lines:
+            # Count signals
+            if "SIGNAL GENERATED:" in line:
+                if "BUY" in line:
+                    buy_count += 1
+                elif "SELL" in line:
+                    sell_count += 1
+                elif "HOLD" in line:
+                    hold_count += 1
+            
+            # Get latest position
+            if "Current position:" in line and "contracts" in line:
+                try:
+                    # Extract position number
+                    parts = line.split("Current position:")[1].split("contracts")[0]
+                    last_position = int(parts.strip())
+                except:
+                    pass
+        
+        metrics.update({
+            "total_signals": buy_count + sell_count + hold_count,
+            "buy_signals": buy_count,
+            "sell_signals": sell_count,
+            "hold_signals": hold_count,
+            "current_position": last_position,
+            "total_trades": buy_count + sell_count  # Trades excluding HOLD
+        })
+        
+        # Try to get P&L from IBKR if the trading system is connected
+        # Note: P&L values are logged but with format strings, so we can't parse them reliably
+        # The actual P&L is tracked in the executor but not accessible from dashboard
+        metrics["note"] = "P&L values require direct IBKR connection. Check IBKR account for realized P&L."
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return metrics
 
 
 @app.get("/api/equity-curve")
@@ -540,18 +927,122 @@ async def websocket_endpoint(websocket: WebSocket):
         # Keep connection alive and handle incoming messages
         while True:
             data = await websocket.receive_text()
-            # Echo back or handle commands if needed
-            await websocket.send_json({
-                "type": "echo",
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            })
+            if data == "ping":
+                await websocket.send_json({"type": "pong"})
     
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+async def tail_logs():
+    """Tail the live trading log file and broadcast updates via WebSocket."""
+    log_file = project_root / "logs" / "live_trading.log"
+    
+    if not log_file.exists():
+        logger.warning(f"Log file not found: {log_file}")
+        return
+    
+    logger.info(f"Starting log tailer for: {log_file}")
+    
+    try:
+        with open(log_file, 'r') as f:
+            # Start from the beginning to catch all bars
+            f.seek(0, 0)
+            lines_read = 0
+            
+            while live_trading_manager and live_trading_manager.running:
+                line = f.readline()
+                if line:
+                    lines_read += 1
+                    # Parse the log line and send as structured data
+                    parsed = parse_log_line(line)
+                    if parsed:
+                        logger.info(f"Parsed line {lines_read}: {parsed['type']}")
+                        # Broadcast to all connected WebSocket clients
+                        await manager.broadcast(parsed)
+                else:
+                    # No new data, wait a bit
+                    await asyncio.sleep(0.5)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
+        logger.error(f"Error tailing logs: {e}", exc_info=True)
+
+
+def parse_log_line(line: str) -> dict:
+    """Parse a log line into structured data for the UI."""
+    line = line.strip()
+    
+    # Parse signal generation
+    if "📊 SIGNAL GENERATED:" in line:
+        parts = line.split("SIGNAL GENERATED:")[1].strip().split(",")
+        signal = parts[0].strip()
+        confidence = None
+        if len(parts) > 1 and "confidence" in parts[1]:
+            confidence = float(parts[1].split("=")[1].strip())
+        
+        return {
+            "type": "signal",
+            "signal": signal,
+            "confidence": confidence,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    # Parse order placement
+    elif "📤 PLACING ORDER:" in line:
+        parts = line.split("PLACING ORDER:")[1].strip()
+        return {
+            "type": "order",
+            "action": parts,
+            "status": "pending",
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    # Parse order status
+    elif "✅ Order filled" in line or "❌ Order" in line:
+        status = "filled" if "✅" in line else "rejected"
+        return {
+            "type": "order_update",
+            "status": status,
+            "message": line.split(":", 1)[1].strip() if ":" in line else line,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    # Parse data collection progress - handle both formats
+    elif "bars collected" in line.lower() or "Building history:" in line:
+        import re
+        # Try "Building history: X/50 bars" format first
+        match = re.search(r'Building history:\s*(\d+)/(\d+)', line)
+        if match:
+            bars = int(match.group(1))
+            total = int(match.group(2))
+            return {
+                "type": "progress",
+                "bars_collected": bars,
+                "min_bars_needed": total,
+                "timestamp": datetime.now().isoformat()
+            }
+        # Try "X bars collected" format
+        match = re.search(r'(\d+)\s*bars', line)
+        if match:
+            bars = int(match.group(1))
+            return {
+                "type": "progress",
+                "bars_collected": bars,
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    # Parse current price
+    elif "Current price:" in line or "Price:" in line:
+        import re
+        match = re.search(r'(\d+\.\d+)', line)
+        if match:
+            price = float(match.group(1))
+            return {
+                "type": "price_update",
+                "price": price,
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    return None
 
 
 # Background task to run trading session

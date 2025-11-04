@@ -1,0 +1,85 @@
+# Multi-Strategy Trading Configuration
+# 
+# This file allows you to configure the multi-strategy trading system
+# 
+# Available strategies:
+# - "trend_following": Moving average crossovers (best in trending markets)
+# - "breakout": Price breakouts with volume (best in volatile markets)
+# - "mean_reversion": Bollinger Bands + RSI (best in ranging markets)
+# - "auto": Automatically selects best strategy based on market conditions
+#
+# Strategy selection logic (when mode="auto"):
+# - High volatility + trending → Trend Following
+# - Low volatility + sideways → Mean Reversion  
+# - Medium volatility → Breakout
+
+multi_strategy:
+  # Strategy mode: "trend_following", "breakout", "mean_reversion", or "auto"
+  mode: "auto"
+  
+  # Risk Management
+  reward_risk_ratio: 2.0  # Take profit is 2x stop loss distance
+  min_confidence: 0.65    # Minimum signal confidence to trade (0.0 - 1.0)
+  
+  # Stop Loss & Take Profit
+  atr_multiplier:
+    low_volatility: 1.5    # Tighter stops in low volatility
+    medium_volatility: 2.0 # Standard stops
+    high_volatility: 2.5   # Wider stops in high volatility
+  
+  # Trailing Stop
+  use_trailing_stop: true
+  trailing_stop_pct: 0.5  # Move stop loss when profit exceeds 0.5%
+  
+  # Trend Following Strategy Parameters
+  trend_following:
+    short_ma: 10   # Short moving average period
+    long_ma: 50    # Long moving average period
+    min_separation: 0.005  # Minimum 0.5% MA separation for entry
+  
+  # Breakout Strategy Parameters
+  breakout:
+    lookback_period: 20    # Look back 20 bars for high/low
+    volume_threshold: 1.2  # Volume must be 1.2x average
+    min_breakout_pct: 0.003  # Minimum 0.3% breakout strength
+  
+  # Mean Reversion Strategy Parameters  
+  mean_reversion:
+    bb_period: 20      # Bollinger Band period
+    bb_std: 2.0        # Standard deviations
+    rsi_period: 14     # RSI period
+    oversold: 30       # RSI oversold level
+    overbought: 70     # RSI overbought level
+  
+  # Market Context Analysis
+  market_bias:
+    ma_period: 50         # Period for trend determination
+    trend_threshold: 0.01  # 1% above/below MA = trending
+  
+  volatility_analysis:
+    atr_period: 14        # ATR calculation period
+    high_threshold: 1.3   # ATR > 1.3x average = high volatility
+    low_threshold: 0.7    # ATR < 0.7x average = low volatility
+
+# Time-based Trading Rules (optional)
+time_filters:
+  enabled: false
+  avoid_first_minutes: 15   # Skip first 15 minutes (high volatility)
+  avoid_last_minutes: 15    # Skip last 15 minutes
+  prefer_times:             # Best times to trade
+    - "10:00-11:30"
+    - "14:00-15:30"
+
+# Position Sizing
+position_sizing:
+  method: "fixed"  # "fixed", "kelly", "atr_based"
+  fixed_size: 1    # Number of contracts
+  max_position: 3  # Maximum position size
+  scale_in: false  # Add to winning positions
+
+# Trade Logging
+logging:
+  log_all_signals: true      # Log every signal (including HOLD)
+  log_market_context: true   # Log market bias and volatility
+  log_risk_params: true      # Log stop/target levels
+  detailed_exit_reasons: true  # Log why positions were closed
