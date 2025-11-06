@@ -5,7 +5,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from ..utils.logger import logger
 from .data_schema import TradeOutcome, TradeRecommendation, TradingContext
@@ -14,7 +14,7 @@ from .data_schema import TradeOutcome, TradeRecommendation, TradingContext
 class TradeLogger:
     """Logger for storing trades with LLM predictions for learning pipeline."""
     
-    def __init__(self, db_path: str | Path = None):
+    def __init__(self, db_path: Optional[Union[str, Path]] = None):
         """Initialize trade logger with SQLite database.
         
         Args:
@@ -332,7 +332,7 @@ class TradeLogger:
                 "profit_factor": profit_factor,
             }
     
-    def export_training_data(self, output_path: str | Path) -> int:
+    def export_training_data(self, output_path: Union[str, Path]) -> int:
         """Export trade data for LLM training.
         
         Args:
