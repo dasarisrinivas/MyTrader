@@ -1,21 +1,33 @@
 # MyTrader - Enhanced Automated Trading System
 
-[![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-37%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Win Rate](https://img.shields.io/badge/win%20rate-60%25-success)]()
+[![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock%20LLM-orange)]()
 
 ## 🚀 Recent Enhancements (November 2025)
+
+**🤖 NEW: AWS Bedrock LLM Integration**
+- ✨ **AI-Powered Trade Decisions** - Claude 3 / Titan LLM integration
+- 🧠 **Intelligent Analysis** - Multi-factor reasoning and confidence scoring
+- 📚 **Continuous Learning** - Automated model fine-tuning from trade outcomes
+- 🎯 **Adaptive Risk Management** - LLM-suggested stops and position sizing
+- 📊 **Performance Tracking** - SQLite-based trade logging with LLM predictions
+- 🔗 **AWS Comprehend** - Sentiment analysis integration
+- 🚀 **Training Pipeline** - S3-based data storage and retraining workflow
+
+📖 **[LLM Integration Guide](./LLM_INTEGRATION.md)** - Complete setup and usage documentation
 
 **Major Performance Improvements:**
 - ✅ **+68% Better Returns** (-0.80% vs -2.51%)
 - ✅ **+320% Higher Win Rate** (60% vs 14.29%)
 - ✅ **+67% Lower Drawdown** (-1.35% vs -4.07%)
 - ✅ **+80% Better Expectancy** per trade
-- ✅ **19 Unit Tests** - All Passing
+- ✅ **37 Unit Tests** - All Passing (19 original + 18 LLM)
 - ✅ **Market Regime Detection** - Adaptive strategy
 - ✅ **Enhanced Risk Management** - Kelly Criterion + Trailing Stops
 
-**NEW: Advanced Strategy Optimization Framework**
+**Advanced Strategy Optimization Framework**
 - 🎯 **Bayesian Optimization** with Optuna
 - 📊 **Market Regime-Based Strategy** (Trending/Ranging/Volatile)
 - 🔍 **Multi-Factor Confirmation** filters
@@ -28,7 +40,7 @@
 
 ## Overview
 
-MyTrader is an advanced automated trading system that connects to Interactive Brokers (IBKR) to execute trades on E-mini S&P 500 futures (ES). The system uses a sophisticated combination of technical indicators, sentiment analysis, and adaptive risk management to make intelligent trading decisions.
+MyTrader is an advanced automated trading system that connects to Interactive Brokers (IBKR) to execute trades on E-mini S&P 500 futures (ES). The system uses a sophisticated combination of technical indicators, sentiment analysis, AWS Bedrock LLM intelligence, and adaptive risk management to make intelligent trading decisions.
 
 ---
 
@@ -169,6 +181,80 @@ MyTrader is an advanced automated trading system that connects to Interactive Br
                         │  • Disconnect IBKR   │
                         └──────────────────────┘
 ```
+
+---
+
+## 🤖 AWS Bedrock LLM Intelligence
+
+### AI-Enhanced Trading Decisions
+
+MyTrader now integrates AWS Bedrock LLM (Claude 3 or Titan) to provide intelligent trade analysis and recommendations:
+
+#### Key Features
+
+1. **Real-Time LLM Analysis**
+   - Analyzes technical indicators, sentiment, and market regime
+   - Provides structured JSON recommendations with reasoning
+   - Confidence scoring (0.0 - 1.0) for each recommendation
+
+2. **Multiple Operating Modes**
+   - **Consensus Mode** (Default): Both traditional and LLM signals must agree
+   - **Override Mode**: LLM can override traditional strategy decisions
+   - **Advisory Mode**: LLM provides recommendations without affecting execution
+
+3. **Continuous Learning**
+   - Logs all trades with LLM predictions and actual outcomes
+   - Automated training pipeline for model fine-tuning
+   - S3-based data storage for historical analysis
+   - Weekly/monthly retraining with recent trade data
+
+4. **Enhanced Sentiment Analysis**
+   - AWS Comprehend integration for news and social media
+   - Multi-source sentiment aggregation
+   - Normalized sentiment scores (-1.0 to +1.0)
+
+5. **Intelligent Risk Management**
+   - LLM-suggested position sizes based on confidence
+   - Dynamic stop-loss and take-profit recommendations
+   - Risk assessment for each trade decision
+
+#### Example LLM Recommendation
+
+```json
+{
+  "trade_decision": "BUY",
+  "confidence": 0.85,
+  "suggested_position_size": 2,
+  "suggested_stop_loss": 4945.0,
+  "suggested_take_profit": 4960.0,
+  "reasoning": "Strong oversold signal with RSI at 28.5, bullish MACD crossover, and positive sentiment improving. Market regime is mean-reverting, favorable for entry.",
+  "key_factors": [
+    "RSI oversold (28.5 < 30)",
+    "Bullish MACD histogram divergence",
+    "Sentiment improving (0.2, up from -0.3)",
+    "ATR suggests controlled volatility"
+  ],
+  "risk_assessment": "Low risk entry with 2:1 reward ratio. Stop placement below recent support at 4945."
+}
+```
+
+#### Quick Start with LLM
+
+```python
+from mytrader.strategies.llm_enhanced_strategy import LLMEnhancedStrategy
+
+# Create LLM-enhanced strategy
+strategy = LLMEnhancedStrategy(
+    enable_llm=True,
+    min_llm_confidence=0.7,  # Only execute if confidence >= 70%
+    llm_override_mode=False,  # Require consensus
+)
+
+# The strategy automatically queries AWS Bedrock before trades
+signal = strategy.generate(features_df)
+```
+
+📖 **[Complete LLM Integration Guide](./LLM_INTEGRATION.md)** - Setup, configuration, and advanced features
 
 ---
 

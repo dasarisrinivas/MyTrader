@@ -38,3 +38,31 @@ optimization:
     macd_slow: [26, 30, 35]
     sentiment_threshold: [0.4, 0.5, 0.6]
     momentum_lookback: [20, 30, 40]
+
+# AWS Bedrock LLM Integration (Optional)
+llm:
+  # Enable/disable LLM enhancement
+  enabled: false  # Set to true to enable LLM features
+  
+  # AWS Bedrock settings
+  model_id: "anthropic.claude-3-sonnet-20240229-v1:0"  # or "anthropic.claude-3-haiku-20240307-v1:0" for faster/cheaper
+  region_name: "us-east-1"
+  max_tokens: 2048
+  temperature: 0.3  # Lower = more deterministic (0.0-1.0)
+  
+  # Trade advisor settings
+  min_confidence_threshold: 0.7  # Only execute trades if LLM confidence >= 0.7
+  override_mode: false  # false = consensus mode, true = LLM can override traditional signals
+  
+  # AWS Comprehend sentiment analysis
+  enable_sentiment: true
+  sentiment_region: "us-east-1"
+  
+  # Training pipeline settings
+  s3_bucket: "your-trading-data-bucket"  # S3 bucket for training data
+  s3_prefix: "llm-training-data"
+  retrain_interval_days: 7  # Retrain model every N days
+  min_training_trades: 100  # Minimum trades required for retraining
+  
+  # Database settings
+  trade_log_db_path: "data/llm_trades.db"  # SQLite database for trade logging
