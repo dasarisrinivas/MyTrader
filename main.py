@@ -5,7 +5,11 @@ import argparse
 import asyncio
 from pathlib import Path
 
+import nest_asyncio
 import pandas as pd
+
+# Apply nest_asyncio to allow nested event loops (required for ib_insync)
+nest_asyncio.apply()
 
 from mytrader.backtesting.engine import BacktestingEngine
 from mytrader.config import Settings

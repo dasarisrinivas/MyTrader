@@ -21,6 +21,8 @@ import subprocess
 
 from mytrader.utils.settings_loader import load_settings
 from mytrader.monitoring.live_tracker import LivePerformanceTracker
+from mytrader.monitoring.order_tracker import OrderTracker
+from mytrader.monitoring.pnl_calculator import calculate_pnl_for_orders, calculate_unrealized_pnl
 from mytrader.utils.logger import configure_logging, logger
 from mytrader.execution.live_trading_manager import LiveTradingManager
 
@@ -585,6 +587,665 @@ async def get_trades(limit: int = 50):
         return {"trades": [], "count": 0, "error": str(e)}
 
 
+@app.get("/api/orders/detailed")
+async def get_detailed_orders():
+    """Get detailed order information from SQLite database."""
+    try:
+        tracker = OrderTracker()
+        orders = tracker.get_all_orders(limit=100)
+        
+        logger.info(f"📥 Got {len(orders)} orders from database")
+        
+        # Transform for frontend
+        formatted_orders = []
+        for order in orders:
+            logger.info(f"Processing order {order['order_id']}")
+            # Get detailed info including events
+            details = tracker.get_order_details(order['order_id'])
+            if not details:
+                logger.warning(f"No details for order {order['order_id']}, skipping")
+                continue
+            
+            formatted_order = {
+                "order_id": order['order_id'],
+                "parent_order_id": order.get('parent_order_id'),
+                "timestamp": order['timestamp'],
+                "symbol": order['symbol'],
+                "action": order['action'],
+                "quantity": order['quantity'],
+                "order_type": order['order_type'],
+                "entry_price": order.get('entry_price'),
+                "stop_loss": order.get('stop_loss'),
+                "take_profit": order.get('take_profit'),
+                "status": order['status'],
+                "filled_quantity": order.get('filled_quantity', 0),
+                "avg_fill_price": order.get('avg_fill_price'),
+                "confidence": order.get('confidence'),
+                "atr": order.get('atr'),
+                "commission": order.get('commission'),
+                "realized_pnl": order.get('realized_pnl'),
+                "execution_time": None,
+                "updates": []
+            }
+            
+            # Add events as updates
+            for event in details.get('events', []):
+                update = {
+                    "timestamp": event['timestamp'],
+                    "status": event.get('status', event['event_type']),
+                    "message": event.get('message', '')
+                }
+                formatted_order['updates'].append(update)
+                
+                # Set execution time on first fill
+                if event.get('status') == 'Filled' and not formatted_order['execution_time']:
+                    formatted_order['execution_time'] = event['timestamp']
+            
+            # Add execution details
+            if details.get('executions'):
+                exec_info = []
+                for exec_detail in details['executions']:
+                    exec_info.append({
+                        "timestamp": exec_detail['timestamp'],
+                        "quantity": exec_detail['quantity'],
+                        "price": exec_detail['price'],
+                        "commission": exec_detail.get('commission'),
+                        "realized_pnl": exec_detail.get('realized_pnl')
+                    })
+                formatted_order['executions'] = exec_info
+            
+            formatted_orders.append(formatted_order)
+        
+        # Calculate P&L for all orders
+        formatted_orders = calculate_pnl_for_orders(formatted_orders)
+        
+        # Ensure orders are sorted by order_id DESC (latest/highest ID first)
+        # Using order_id ensures consistent ordering as IB assigns sequential IDs
+        formatted_orders.sort(key=lambda x: x['order_id'], reverse=True)
+        
+        logger.info(f"📊 Returning {len(formatted_orders)} orders from SQLite database")
+        return {
+            "orders": formatted_orders,
+            "count": len(formatted_orders)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting orders from database: {e}")
+        return {"orders": [], "count": 0, "error": str(e)}
+    
+    try:
+        orders_map = {}  # order_id -> order_info
+        
+        with open(log_file, 'r') as f:
+            lines = f.readlines()
+        
+        current_order = None
+        
+        for i, line in enumerate(lines):
+            try:
+                # Extract timestamp
+                timestamp_str = line.split("|")[0].strip()
+                timestamp = datetime.fromisoformat(timestamp_str.replace(" ", "T"))
+                
+                # Look for "Placing ORDER" lines - match actual log format
+                if "Placing" in line and "order for" in line.lower() and ("BUY" in line or "SELL" in line) and "contracts" in line:
+                    action = "BUY" if "BUY" in line else "SELL"
+                    
+                    # Extract quantity
+                    quantity = 0
+                    if "for" in line and "contracts" in line:
+                        try:
+                            qty_str = line.split("for")[1].split("contracts")[0].strip()
+                            quantity = int(qty_str)
+                        except:
+                            pass
+                    
+                    # Look back and ahead for context
+                    price = None
+                    stop_loss = None
+                    take_profit = None
+                    confidence = 0.0
+                    atr = None
+                    status = "Placed"  # Default status
+                    
+                    # Look back for signal, price, and trade levels
+                    for j in range(max(0, i-15), i):
+                        prev_line = lines[j]
+                        if "SIGNAL GENERATED:" in prev_line and action in prev_line:
+                            if "confidence=" in prev_line:
+                                conf_str = prev_line.split("confidence=")[1].split()[0].replace(",", "")
+                                confidence = float(conf_str)
+                        if "Got last price:" in prev_line or "Current price:" in prev_line:
+                            try:
+                                price_str = prev_line.split(":")[-1].strip()
+                                price = float(price_str)
+                            except:
+                                pass
+                        if "📏 ATR:" in prev_line or "ATR=" in prev_line:
+                            try:
+                                atr_str = prev_line.split("ATR")[-1].replace(":", "").replace("=", "").strip().split()[0]
+                                atr = float(atr_str)
+                            except:
+                                pass
+                        # Look for trade levels line
+                        if "Trade levels:" in prev_line:
+                            try:
+                                if "stop=" in prev_line:
+                                    stop_str = prev_line.split("stop=")[1].split()[0]
+                                    stop_loss = float(stop_str)
+                                if "target=" in prev_line:
+                                    target_str = prev_line.split("target=")[1].split()[0]
+                                    take_profit = float(target_str)
+                                if "entry=" in prev_line:
+                                    entry_str = prev_line.split("entry=")[1].split()[0]
+                                    price = float(entry_str)
+                            except:
+                                pass
+                    
+                    # Look ahead for order details (order ID and status)
+                    found_order = False
+                    for j in range(i+1, min(i+20, len(lines))):
+                        next_line = lines[j]
+                        
+                        # Look for "Order result:" line with status
+                        if "Order result:" in next_line or "✅ Order result:" in next_line:
+                            if "status=" in next_line:
+                                status_part = next_line.split("status=")[1].split(",")[0].strip()
+                                status = status_part
+                            if "filled=" in next_line:
+                                filled_str = next_line.split("filled=")[1].split()[0].strip()
+                                try:
+                                    quantity = int(filled_str)
+                                except:
+                                    pass
+                        
+                        # Look for "Order ... placed: orderId=" pattern
+                        if "placed: orderId=" in next_line or ("Order" in next_line and "orderId=" in next_line):
+                            # Extract order ID
+                            order_id_str = next_line.split("orderId=")[1].split()[0]
+                            order_id = int(order_id_str)
+                            
+                            # Extract status if present
+                            if "status=" in next_line:
+                                status = next_line.split("status=")[1].strip()
+                            
+                            found_order = True
+                            break
+                    
+                    # Create order entry even if we don't have orderId (use timestamp as ID)
+                    if not found_order:
+                        order_id = int(timestamp.timestamp() * 1000)  # Use timestamp as pseudo ID
+                    
+                    # Create order entry
+                    current_order = {
+                        "order_id": order_id,
+                        "timestamp": timestamp.isoformat(),
+                        "action": action,
+                        "quantity": quantity,
+                        "entry_price": price,
+                        "stop_loss": stop_loss,
+                        "take_profit": take_profit,
+                        "status": status,
+                        "confidence": confidence,
+                        "atr": atr,
+                        "filled_quantity": 0,
+                        "avg_fill_price": None,
+                        "execution_time": None,
+                        "updates": [{"timestamp": timestamp.isoformat(), "status": "Placed", "message": f"{action} {quantity} contracts"}]
+                    }
+                    
+                    orders_map[order_id] = current_order
+                    logger.info(f"Detected order from log: id={order_id}, action={action}, qty={quantity}, entry={price}, SL={stop_loss}, TP={take_profit}")
+                
+                # Look for order status updates
+                if "Order" in line and "status update:" in line:
+                    try:
+                        order_id = int(line.split("Order ")[1].split()[0])
+                        status = line.split("status update:")[1].strip()
+                        
+                        if order_id in orders_map:
+                            orders_map[order_id]["status"] = status
+                            orders_map[order_id]["updates"].append({
+                                "timestamp": timestamp.isoformat(),
+                                "status": status,
+                                "message": status
+                            })
+                            
+                            if status == "Filled" and not orders_map[order_id]["execution_time"]:
+                                orders_map[order_id]["execution_time"] = timestamp.isoformat()
+                    except:
+                        pass
+                
+                # Look for execution details
+                if "Execution: order_id=" in line:
+                    try:
+                        order_id = int(line.split("order_id=")[1].split()[0])
+                        qty = int(line.split("qty=")[1].split()[0])
+                        fill_price = float(line.split("price=")[1].strip().split()[0])
+                        
+                        if order_id in orders_map:
+                            orders_map[order_id]["filled_quantity"] = qty
+                            orders_map[order_id]["avg_fill_price"] = fill_price
+                            if not orders_map[order_id]["entry_price"]:
+                                orders_map[order_id]["entry_price"] = fill_price
+                            orders_map[order_id]["updates"].append({
+                                "timestamp": timestamp.isoformat(),
+                                "status": "Executed",
+                                "message": f"Filled {qty} @ {fill_price:.2f}"
+                            })
+                    except:
+                        pass
+                
+                # Look for stop loss/take profit triggers
+                if ("Stop loss triggered" in line or "Take profit triggered" in line or 
+                    "Trailing stop updated" in line):
+                    msg = line.split("|")[-1].strip()
+                    # Try to associate with most recent order
+                    if orders_map:
+                        latest_order_id = max(orders_map.keys())
+                        orders_map[latest_order_id]["updates"].append({
+                            "timestamp": timestamp.isoformat(),
+                            "status": "Update",
+                            "message": msg
+                        })
+                
+            except Exception as e:
+                logger.debug(f"Error parsing order line: {e}")
+                continue
+        
+        # Convert to list and sort by timestamp
+        orders_list = list(orders_map.values())
+        orders_list.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        logger.info(f"Returning {len(orders_list)} orders from API")
+        return {
+            "orders": orders_list[:50],  # Last 50 orders
+            "count": len(orders_list)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting orders from database: {e}")
+        return {"orders": [], "count": 0, "error": str(e)}
+
+
+@app.get("/api/pnl/summary")
+async def get_pnl_summary():
+    """Get P&L summary from order database."""
+    try:
+        tracker = OrderTracker()
+        orders = tracker.get_all_orders(limit=1000)
+        
+        # Calculate P&L
+        enhanced_orders = calculate_pnl_for_orders(orders)
+        
+        # Calculate summary
+        total_realized_pnl = 0.0
+        total_commission = 0.0
+        total_trades = 0
+        winning_trades = 0
+        losing_trades = 0
+        
+        # Track current position for unrealized P&L
+        current_position = 0
+        avg_entry_price = 0.0
+        
+        for order in enhanced_orders:
+            if order['status'] == 'Filled':
+                total_trades += 1
+                
+                # Add realized P&L from round trips
+                if 'calculated_pnl' in order and order['calculated_pnl']:
+                    pnl = order['calculated_pnl']
+                    total_realized_pnl += pnl
+                    if pnl > 0:
+                        winning_trades += 1
+                    elif pnl < 0:
+                        losing_trades += 1
+                
+                # Track commission
+                if order.get('commission'):
+                    total_commission += order['commission']
+                
+                # Update current position
+                if 'position_after' in order:
+                    current_position = order['position_after']
+                if 'avg_entry_price' in order and order['avg_entry_price']:
+                    avg_entry_price = order['avg_entry_price']
+        
+        # Get current price for unrealized P&L
+        unrealized_pnl = 0.0
+        current_price = None
+        try:
+            # Try to get current price from trading status
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get('http://localhost:8000/api/trading/status') as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        current_price = data.get('current_price')
+        except:
+            pass
+        
+        if current_price and current_position != 0 and avg_entry_price > 0:
+            unrealized_pnl = calculate_unrealized_pnl(current_position, avg_entry_price, current_price)
+        
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+        
+        return {
+            "total_realized_pnl": round(total_realized_pnl, 2),
+            "unrealized_pnl": round(unrealized_pnl, 2),
+            "total_pnl": round(total_realized_pnl + unrealized_pnl, 2),
+            "total_commission": round(total_commission, 2),
+            "net_pnl": round(total_realized_pnl + unrealized_pnl - total_commission, 2),
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate": round(win_rate, 2),
+            "current_position": current_position,
+            "avg_entry_price": round(avg_entry_price, 2) if avg_entry_price > 0 else None,
+            "current_price": round(current_price, 2) if current_price else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating P&L summary: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/account/balance")
+async def get_account_balance():
+    """Get account balance from Interactive Brokers."""
+    try:
+        from ib_insync import IB
+        import nest_asyncio
+        nest_asyncio.apply()
+        
+        # Load settings
+        settings = load_settings()
+        
+        # Try to connect
+        client_ids_to_try = [998, 997, 996, 995, 994]
+        ib = IB()
+        connected = False
+        
+        for client_id in client_ids_to_try:
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        ib.connect,
+                        settings.data.ibkr_host,
+                        settings.data.ibkr_port,
+                        clientId=client_id,
+                        timeout=10,
+                        readonly=True
+                    ),
+                    timeout=15.0
+                )
+                
+                if ib.isConnected():
+                    connected = True
+                    logger.info(f"✅ Connected to IB for account balance (client {client_id})")
+                    break
+            except:
+                if ib.isConnected():
+                    try:
+                        await asyncio.to_thread(ib.disconnect)
+                    except:
+                        pass
+                continue
+        
+        if not connected:
+            return {
+                "success": False,
+                "message": "Could not connect to IB"
+            }
+        
+        try:
+            # Get account summary
+            account_values = await asyncio.to_thread(lambda: ib.accountSummary())
+            
+            # Extract relevant values
+            balance_info = {
+                "net_liquidation": 0.0,
+                "total_cash_value": 0.0,
+                "buying_power": 0.0,
+                "excess_liquidity": 0.0,
+                "available_funds": 0.0,
+                "gross_position_value": 0.0,
+                "unrealized_pnl": 0.0,
+                "realized_pnl": 0.0,
+                "currency": "USD"
+            }
+            
+            for av in account_values:
+                if av.tag == "NetLiquidation" and av.currency == "USD":
+                    balance_info["net_liquidation"] = float(av.value)
+                elif av.tag == "TotalCashValue" and av.currency == "USD":
+                    balance_info["total_cash_value"] = float(av.value)
+                elif av.tag == "BuyingPower" and av.currency == "USD":
+                    balance_info["buying_power"] = float(av.value)
+                elif av.tag == "ExcessLiquidity" and av.currency == "USD":
+                    balance_info["excess_liquidity"] = float(av.value)
+                elif av.tag == "AvailableFunds" and av.currency == "USD":
+                    balance_info["available_funds"] = float(av.value)
+                elif av.tag == "GrossPositionValue" and av.currency == "USD":
+                    balance_info["gross_position_value"] = float(av.value)
+                elif av.tag == "UnrealizedPnL" and av.currency == "USD":
+                    balance_info["unrealized_pnl"] = float(av.value)
+                elif av.tag == "RealizedPnL" and av.currency == "USD":
+                    balance_info["realized_pnl"] = float(av.value)
+            
+            # Disconnect
+            await asyncio.to_thread(ib.disconnect)
+            
+            return {
+                "success": True,
+                **balance_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting account balance: {e}")
+            if ib.isConnected():
+                try:
+                    await asyncio.to_thread(ib.disconnect)
+                except:
+                    pass
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to retrieve account balance"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error setting up account balance request: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Failed to initialize connection for account balance"
+        }
+
+
+@app.post("/api/orders/sync")
+async def sync_orders_from_ib():
+    """Sync orders from Interactive Brokers API to database."""
+    try:
+        from ib_insync import IB
+        import nest_asyncio
+        nest_asyncio.apply()
+        
+        # Load settings to get IB connection info
+        settings = load_settings()
+        
+        # Try multiple client IDs in case some are in use
+        client_ids_to_try = [999, 998, 997, 996, 995]
+        ib = IB()
+        connected = False
+        used_client_id = None
+        
+        logger.info("🔌 Attempting to connect to IB for order sync...")
+        
+        for client_id in client_ids_to_try:
+            try:
+                logger.info(f"Trying client ID {client_id}...")
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        ib.connect,
+                        settings.data.ibkr_host,
+                        settings.data.ibkr_port,
+                        clientId=client_id,
+                        timeout=15,
+                        readonly=True  # Read-only connection
+                    ),
+                    timeout=20.0
+                )
+                
+                if ib.isConnected():
+                    connected = True
+                    used_client_id = client_id
+                    logger.info(f"✅ Connected to IB with client ID {client_id}")
+                    break
+            except Exception as e:
+                logger.debug(f"Client ID {client_id} failed: {e}")
+                if ib.isConnected():
+                    try:
+                        await asyncio.to_thread(ib.disconnect)
+                    except:
+                        pass
+                continue
+        
+        if not connected:
+            return {
+                "success": False,
+                "error": "Connection failed",
+                "message": "Could not connect to IB Gateway/TWS. All client IDs in use or IB not running."
+            }
+        
+        try:
+            # Get all trades (open and completed) - run in thread pool
+            trades = await asyncio.to_thread(lambda: ib.trades())
+            logger.info(f"📥 Found {len(trades)} trades from IB")
+            
+            # Get order IDs from IB
+            ib_order_ids = set(trade.order.orderId for trade in trades)
+            
+            tracker = OrderTracker()
+            synced_count = 0
+            updated_count = 0
+            deleted_count = 0
+            
+            # First, delete orders from DB that are not in IB anymore
+            db_orders = tracker.get_all_orders(limit=10000)
+            logger.info(f"📊 Checking {len(db_orders)} DB orders vs {len(ib_order_ids)} IB orders")
+            
+            for db_order in db_orders:
+                order_id = db_order['order_id']
+                order_status = db_order['status']
+                
+                # Check if order is in IB
+                if order_id not in ib_order_ids:
+                    # Delete non-filled, non-cancelled orders
+                    if order_status not in ['Filled', 'Cancelled']:
+                        try:
+                            tracker.conn.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
+                            tracker.conn.execute("DELETE FROM order_events WHERE order_id = ?", (order_id,))
+                            tracker.conn.execute("DELETE FROM executions WHERE order_id = ?", (order_id,))
+                            tracker.conn.commit()
+                            deleted_count += 1
+                            logger.info(f"🗑️ Deleted {order_id} (status={order_status})")
+                        except Exception as e:
+                            logger.error(f"Error deleting {order_id}: {e}")
+                    else:
+                        logger.info(f"📋 Keeping {order_id} (status={order_status}, historical)")
+            
+            logger.info(f"🧹 Deleted {deleted_count} stale orders")
+            
+            # Now sync orders from IB
+            for trade in trades:
+                try:
+                    order = trade.order
+                    contract = trade.contract
+                    order_status = trade.orderStatus
+                    
+                    # Check if order already exists in database
+                    existing = tracker.get_order_details(order.orderId)
+                    
+                    if existing:
+                        # Update existing order
+                        tracker.update_order_status(
+                            order_id=order.orderId,
+                            status=order_status.status,
+                            filled=int(order_status.filled),
+                            remaining=int(order_status.remaining),
+                            avg_fill_price=float(order_status.avgFillPrice) if order_status.avgFillPrice > 0 else None
+                        )
+                        updated_count += 1
+                    else:
+                        # Add new order to database
+                        tracker.record_order_placement(
+                            order_id=order.orderId,
+                            parent_order_id=order.parentId if order.parentId > 0 else None,
+                            symbol=contract.symbol,
+                            action=order.action,
+                            quantity=int(order.totalQuantity),
+                            order_type=order.orderType,
+                            entry_price=float(order.lmtPrice) if order.lmtPrice else None,
+                            stop_loss=float(order.auxPrice) if order.auxPrice else None,
+                            take_profit=None,  # Will be set from bracket orders
+                            confidence=None,
+                            atr=None
+                        )
+                        synced_count += 1
+                    
+                    # Record fills if available
+                    if order_status.filled > 0 and order_status.avgFillPrice > 0:
+                        # Check if execution already recorded
+                        details = tracker.get_order_details(order.orderId)
+                        if details and not details.get('executions'):
+                            tracker.record_execution(
+                                order_id=order.orderId,
+                                quantity=int(order_status.filled),
+                                price=float(order_status.avgFillPrice),
+                                commission=float(order_status.commission) if order_status.commission else None,
+                                realized_pnl=float(order_status.realizedPNL) if order_status.realizedPNL else None
+                            )
+                except Exception as e:
+                    logger.error(f"Error processing trade {trade.order.orderId}: {e}")
+                    continue
+            
+            # Disconnect
+            await asyncio.to_thread(ib.disconnect)
+            logger.info(f"✅ Sync complete: {synced_count} new, {updated_count} updated, {deleted_count} deleted")
+            
+            return {
+                "success": True,
+                "synced": synced_count,
+                "updated": updated_count,
+                "deleted": deleted_count,
+                "total": len(trades),
+                "message": f"Synced {synced_count} new, updated {updated_count}, deleted {deleted_count} stale orders from IB"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error during IB sync: {e}")
+            if ib.isConnected():
+                try:
+                    await asyncio.to_thread(ib.disconnect)
+                except:
+                    pass
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to sync orders from IB: {str(e)}"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error setting up IB sync: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Failed to initialize IB connection for sync"
+        }
+
+
 @app.get("/api/performance")
 async def get_performance():
     """Get current performance metrics from live trading logs."""
@@ -986,25 +1647,108 @@ def parse_log_line(line: str) -> dict:
             "timestamp": datetime.now().isoformat()
         }
     
-    # Parse order placement
-    elif "📤 PLACING ORDER:" in line:
-        parts = line.split("PLACING ORDER:")[1].strip()
+    # Parse order placement with details - updated to match actual log format
+    elif "� Placing" in line and ("BUY" in line or "SELL" in line):
+        action = "BUY" if "BUY" in line else "SELL"
+        # Extract quantity if present
+        quantity = None
+        if "for" in line and "contracts" in line:
+            try:
+                qty_part = line.split("for")[1].split("contracts")[0].strip()
+                quantity = int(qty_part)
+            except:
+                pass
+        
         return {
-            "type": "order",
-            "action": parts,
-            "status": "pending",
+            "type": "order_placing",
+            "action": action,
+            "quantity": quantity,
+            "status": "placing",
+            "message": line.split(":")[-1].strip() if ":" in line else line,
             "timestamp": datetime.now().isoformat()
         }
     
-    # Parse order status
+    # Parse order placed confirmation with ID
+    elif "Order" in line and "placed: orderId=" in line:
+        try:
+            order_id = int(line.split("orderId=")[1].split()[0])
+            action = "BUY" if "BUY" in line else "SELL"
+            status = "Submitted"
+            if "status=" in line:
+                status = line.split("status=")[1].strip()
+            
+            return {
+                "type": "order_placed",
+                "order_id": order_id,
+                "action": action,
+                "status": status,
+                "timestamp": datetime.now().isoformat()
+            }
+        except:
+            pass
+    
+    # Parse order status updates
     elif "✅ Order filled" in line or "❌ Order" in line:
         status = "filled" if "✅" in line else "rejected"
+        order_info = {}
+        
+        # Try to extract order ID
+        if "order_id=" in line or "Order" in line:
+            try:
+                if "order_id=" in line:
+                    order_id = int(line.split("order_id=")[1].split()[0])
+                    order_info["order_id"] = order_id
+            except:
+                pass
+        
         return {
             "type": "order_update",
             "status": status,
             "message": line.split(":", 1)[1].strip() if ":" in line else line,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            **order_info
         }
+    
+    # Parse execution details
+    elif "Execution: order_id=" in line:
+        try:
+            order_id = int(line.split("order_id=")[1].split()[0])
+            qty = int(line.split("qty=")[1].split()[0])
+            price = float(line.split("price=")[1].strip().split()[0])
+            
+            return {
+                "type": "execution",
+                "order_id": order_id,
+                "quantity": qty,
+                "price": price,
+                "status": "Filled",
+                "timestamp": datetime.now().isoformat()
+            }
+        except:
+            pass
+    
+    # Parse stop loss and take profit
+    elif "📍 Stop Loss:" in line:
+        try:
+            stop_loss = float(line.split("📍 Stop Loss:")[1].strip().split()[0])
+            return {
+                "type": "stop_loss",
+                "stop_loss": stop_loss,
+                "timestamp": datetime.now().isoformat()
+            }
+        except:
+            pass
+    
+    elif "🎯 Take Profit:" in line:
+        try:
+            take_profit = float(line.split("🎯 Take Profit:")[1].strip().split()[0])
+            return {
+                "type": "take_profit",
+                "take_profit": take_profit,
+                "timestamp": datetime.now().isoformat()
+            }
+        except:
+            pass
     
     # Parse data collection progress - handle both formats
     elif "bars collected" in line.lower() or "Building history:" in line:

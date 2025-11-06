@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Play, Square, Activity, TrendingUp, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import MarketStatus from './MarketStatus';
+import OrderBook from './OrderBook';
 
 const API_URL = 'http://localhost:8000';
 const WS_URL = 'ws://localhost:8000/ws';
@@ -81,7 +82,8 @@ export default function LiveTradingPanel() {
         const newSignal = {
           action: message.signal,
           confidence: message.confidence,
-          timestamp: message.timestamp
+          timestamp: message.timestamp,
+          price: status?.current_price
         };
         setSignals(prev => [newSignal, ...prev].slice(0, 20));
         
@@ -93,8 +95,45 @@ export default function LiveTradingPanel() {
         }));
         break;
       
+      case 'order_placing':
+        // Order is being placed
+        const placingOrder = {
+          action: message.action,
+          status: 'placing',
+          timestamp: message.timestamp,
+          message: message.message
+        };
+        setOrders(prev => [placingOrder, ...prev].slice(0, 50));
+        break;
+      
+      case 'order_placed':
+        // Order was placed with ID
+        setOrders(prev => {
+          const updated = [...prev];
+          // Update the most recent order with the same action
+          const idx = updated.findIndex(o => o.action === message.action && o.status === 'placing');
+          if (idx >= 0) {
+            updated[idx] = {
+              ...updated[idx],
+              order_id: message.order_id,
+              status: message.status,
+              timestamp: message.timestamp
+            };
+          } else {
+            // Add new order if not found
+            updated.unshift({
+              order_id: message.order_id,
+              action: message.action,
+              status: message.status,
+              timestamp: message.timestamp
+            });
+          }
+          return updated.slice(0, 50);
+        });
+        break;
+      
       case 'order':
-        // Add new order
+        // Legacy order format
         const newOrder = {
           action: message.action,
           status: message.status,
@@ -107,11 +146,68 @@ export default function LiveTradingPanel() {
         // Update order status
         setOrders(prev => {
           const updated = [...prev];
-          if (updated.length > 0) {
+          if (message.order_id) {
+            // Find order by ID
+            const idx = updated.findIndex(o => o.order_id === message.order_id);
+            if (idx >= 0) {
+              updated[idx] = {
+                ...updated[idx],
+                status: message.status,
+                message: message.message
+              };
+            }
+          } else if (updated.length > 0) {
+            // Update most recent order
             updated[0] = {
               ...updated[0],
               status: message.status,
               message: message.message
+            };
+          }
+          return updated;
+        });
+        break;
+      
+      case 'execution':
+        // Order execution details
+        setOrders(prev => {
+          const updated = [...prev];
+          const idx = updated.findIndex(o => o.order_id === message.order_id);
+          if (idx >= 0) {
+            updated[idx] = {
+              ...updated[idx],
+              status: 'Filled',
+              filled_quantity: message.quantity,
+              fill_price: message.price,
+              avg_fill_price: message.price
+            };
+          }
+          return updated;
+        });
+        break;
+      
+      case 'stop_loss':
+        // Update most recent order with stop loss
+        setOrders(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[0] = {
+              ...updated[0],
+              stop_loss: message.stop_loss
+            };
+          }
+          return updated;
+        });
+        break;
+      
+      case 'take_profit':
+        // Update most recent order with take profit
+        setOrders(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[0] = {
+              ...updated[0],
+              take_profit: message.take_profit
             };
           }
           return updated;
@@ -560,6 +656,9 @@ export default function LiveTradingPanel() {
           </div>
         </div>
       </div>
+
+      {/* Order Book - Full Width Below */}
+      <OrderBook />
     </div>
   );
 }

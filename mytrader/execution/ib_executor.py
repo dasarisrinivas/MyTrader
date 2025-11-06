@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, Trade
 
 from ..config import TradingConfig
+from ..monitoring.order_tracker import OrderTracker
 from ..utils.logger import logger
 
 
@@ -55,9 +56,17 @@ class TradeExecutor:
         self.currency = currency
         self.active_orders: Dict[int, Trade] = {}
         self.positions: Dict[str, PositionInfo] = {}
+        self.order_tracker = OrderTracker()  # SQLite-based order tracking
+        self.order_history: List[Dict] = []
         self.realized_pnl = 0.0
         self.order_history: List[Dict] = []
         self._qualified_contract: Contract | None = None  # Cache the qualified front month contract
+        
+        # Store connection parameters for auto-reconnect
+        self._connection_host: str = "127.0.0.1"
+        self._connection_port: int = 4002
+        self._connection_client_id: int = 2
+        self._keepalive_task: Optional[object] = None
 
     def contract(self) -> Contract:
         return Future(symbol=self.symbol, exchange=self.exchange, currency=self.currency)
@@ -65,6 +74,22 @@ class TradeExecutor:
     async def get_qualified_contract(self) -> Contract | None:
         """Get the fully qualified front month contract."""
         try:
+            # Check connection health before making API call
+            if not self.ib.isConnected():
+                logger.warning("IB connection lost, attempting to reconnect...")
+                try:
+                    # Try to reconnect with stored connection parameters
+                    await self.ib.connectAsync(
+                        self._connection_host, 
+                        self._connection_port, 
+                        clientId=self._connection_client_id, 
+                        timeout=30
+                    )
+                    logger.info("Reconnection successful")
+                except Exception as reconnect_error:
+                    logger.error(f"Reconnection failed: {reconnect_error}")
+                    return None
+            
             contract = self.contract()
             details = await self.ib.reqContractDetailsAsync(contract)
             if not details:
@@ -87,6 +112,12 @@ class TradeExecutor:
         """Connect to IBKR and set up event handlers."""
         if self.ib.isConnected():
             return
+        
+        # Store connection parameters for auto-reconnect
+        self._connection_host = host
+        self._connection_port = port
+        self._connection_client_id = client_id
+        
         logger.info("Connecting executor to IBKR %s:%s (client_id=%d, timeout=%ds)", 
                    host, port, client_id, timeout)
         try:
@@ -110,6 +141,9 @@ class TradeExecutor:
         
         # Request initial positions
         await self._reconcile_positions()
+        
+        # Start connection keepalive task
+        await self._start_keepalive()
     
     async def _cancel_all_existing_orders(self) -> None:
         """Cancel all existing orders for this symbol on startup."""
@@ -154,8 +188,21 @@ class TradeExecutor:
         """Callback for order status updates."""
         order_id = trade.order.orderId
         status = trade.orderStatus.status
+        filled = trade.orderStatus.filled
+        remaining = trade.orderStatus.remaining
+        avg_fill_price = trade.orderStatus.avgFillPrice
         
-        logger.info("Order %d status update: %s", order_id, status)
+        logger.info(f"📊 Order {order_id} status: {status} (filled={filled}, remaining={remaining}, avg={avg_fill_price:.2f})")
+        
+        # Update order tracker
+        self.order_tracker.update_order_status(
+            order_id=order_id,
+            status=status,
+            filled=filled,
+            remaining=remaining,
+            avg_fill_price=avg_fill_price if avg_fill_price > 0 else None,
+            message=f"Status: {status}"
+        )
         
         if status in ("Filled", "Cancelled", "Inactive"):
             if order_id in self.active_orders:
@@ -166,21 +213,35 @@ class TradeExecutor:
             "timestamp": datetime.utcnow(),
             "order_id": order_id,
             "status": status,
-            "filled": trade.orderStatus.filled,
-            "remaining": trade.orderStatus.remaining,
-            "avg_fill_price": trade.orderStatus.avgFillPrice
+            "filled": filled,
+            "remaining": remaining,
+            "avg_fill_price": avg_fill_price
         })
 
     def _on_execution(self, trade: Trade, fill) -> None:
         """Callback for execution details."""
-        logger.info("Execution: order_id=%d qty=%d price=%.2f", 
-                   trade.order.orderId, fill.execution.shares, fill.execution.price)
+        order_id = trade.order.orderId
+        quantity = fill.execution.shares
+        price = fill.execution.price
+        commission = fill.commissionReport.commission if hasattr(fill, 'commissionReport') else None
+        realized_pnl = None
+        
+        logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, commission={commission}")
         
         # Update realized PnL
-        if hasattr(fill.commissionReport, 'realizedPNL'):
-            self.realized_pnl += float(fill.commissionReport.realizedPNL)
-            logger.info("Realized PnL updated: %.2f (total: %.2f)", 
-                       fill.commissionReport.realizedPNL, self.realized_pnl)
+        if hasattr(fill, 'commissionReport') and hasattr(fill.commissionReport, 'realizedPNL'):
+            realized_pnl = float(fill.commissionReport.realizedPNL)
+            self.realized_pnl += realized_pnl
+            logger.info(f"💰 Realized PnL: {realized_pnl:.2f} (total: {self.realized_pnl:.2f})")
+        
+        # Record execution in tracker
+        self.order_tracker.record_execution(
+            order_id=order_id,
+            quantity=quantity,
+            price=price,
+            commission=commission,
+            realized_pnl=realized_pnl
+        )
 
     async def place_order(
         self,
@@ -192,6 +253,13 @@ class TradeExecutor:
         metadata: Dict | None = None,
     ) -> OrderResult:
         """Place an order with optional bracket orders for risk management."""
+        # Check connection health before placing order
+        if not self.ib.isConnected():
+            logger.error("IB not connected - cannot place order")
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(trade=dummy_trade, status="Cancelled", message="Not connected to IB")
+        
         # Check if we have too many active orders (IB limit is 15 per side)
         open_trades = self.ib.openTrades()
         active_count = sum(1 for t in open_trades if t.contract.symbol == self.symbol and t.orderStatus.status in ('PreSubmitted', 'Submitted'))
@@ -242,6 +310,26 @@ class TradeExecutor:
         parent_trade = self.ib.placeOrder(contract, order)
         parent_id = parent_trade.order.orderId
         
+        # Get current price for entry tracking
+        current_price = limit_price if limit_price else None
+        if metadata and 'entry_price' in metadata:
+            current_price = metadata['entry_price']
+        
+        # Record order placement in tracker
+        self.order_tracker.record_order_placement(
+            order_id=parent_id,
+            symbol=self.symbol,
+            action=action,
+            quantity=quantity,
+            order_type="LIMIT" if limit_price else "MARKET",
+            limit_price=limit_price,
+            entry_price=current_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            confidence=metadata.get('confidence') if metadata else None,
+            atr=metadata.get('atr_value') if metadata else None,
+        )
+        
         # Track active order
         self.active_orders[parent_id] = parent_trade
         
@@ -250,12 +338,28 @@ class TradeExecutor:
             child.parentId = parent_id
         for i, child in enumerate(bracket_children):
             child_trade = self.ib.placeOrder(contract, child)
-            self.active_orders[child_trade.order.orderId] = child_trade
-            logger.info("Placed bracket order %d (parent=%d)", 
-                       child_trade.order.orderId, parent_id)
+            child_id = child_trade.order.orderId
+            self.active_orders[child_id] = child_trade
+            
+            # Record child order (SL/TP)
+            child_type = "STOP" if isinstance(child, StopOrder) else "LIMIT"
+            # StopOrder uses auxPrice, LimitOrder uses lmtPrice
+            child_price = child.auxPrice if isinstance(child, StopOrder) else child.lmtPrice
+            self.order_tracker.record_order_placement(
+                order_id=child_id,
+                parent_order_id=parent_id,
+                symbol=self.symbol,
+                action=child.action,
+                quantity=child.totalQuantity,
+                order_type=child_type,
+                stop_price=child_price if isinstance(child, StopOrder) else None,
+                limit_price=child_price if isinstance(child, LimitOrder) else None,
+            )
+            
+            logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
-        # Wait for initial status update
-        await self.ib.waitOnUpdate()
+        # Wait for initial status update (waitOnUpdate is synchronous, not async)
+        self.ib.waitOnUpdate()
         status = parent_trade.orderStatus.status
         
         # Store position metadata for trailing stops
@@ -297,7 +401,7 @@ class TradeExecutor:
         try:
             trade = self.active_orders[order_id]
             self.ib.cancelOrder(trade.order)
-            await self.ib.waitOnUpdate()
+            self.ib.waitOnUpdate()  # waitOnUpdate is synchronous, not async
             logger.info("Cancelled order %d", order_id)
             return True
         except Exception as e:
@@ -441,6 +545,23 @@ class TradeExecutor:
         import asyncio
         
         try:
+            # Check connection health before making API call
+            if not self.ib.isConnected():
+                logger.warning("IB connection lost, attempting to reconnect...")
+                try:
+                    await self.ib.connectAsync(
+                        self._connection_host, 
+                        self._connection_port, 
+                        clientId=self._connection_client_id, 
+                        timeout=30
+                    )
+                    # Re-request market data type after reconnection
+                    self.ib.reqMarketDataType(3)
+                    logger.info("Reconnection successful")
+                except Exception as reconnect_error:
+                    logger.error(f"Reconnection failed: {reconnect_error}")
+                    return None
+            
             # Get the qualified front month contract
             front_month = await self.get_qualified_contract()
             if not front_month:
@@ -474,5 +595,58 @@ class TradeExecutor:
             logger.error(f"Failed to get current price: {e}")
             logger.exception("Full traceback:")
             return None
+
+    async def _start_keepalive(self) -> None:
+        """Start background keepalive task to monitor connection health."""
+        import asyncio
+        
+        if self._keepalive_task is not None:
+            logger.warning("Keepalive task already running")
+            return
+        
+        async def keepalive_loop():
+            """Background task that checks connection every 30 seconds."""
+            logger.info("Starting connection keepalive task (checking every 30s)")
+            while True:
+                try:
+                    await asyncio.sleep(30)
+                    
+                    if not self.ib.isConnected():
+                        logger.warning("⚠️  Connection lost, attempting auto-reconnect...")
+                        try:
+                            await self.ib.connectAsync(
+                                self._connection_host,
+                                self._connection_port,
+                                clientId=self._connection_client_id,
+                                timeout=30
+                            )
+                            # Re-setup after reconnection
+                            self.ib.reqMarketDataType(3)
+                            self.ib.orderStatusEvent += self._on_order_status
+                            self.ib.execDetailsEvent += self._on_execution
+                            logger.info("✅ Auto-reconnection successful")
+                        except Exception as reconnect_error:
+                            logger.error(f"❌ Auto-reconnection failed: {reconnect_error}")
+                    else:
+                        # Connection is healthy, just log periodically
+                        logger.debug("Connection health check: OK")
+                        
+                except Exception as e:
+                    logger.error(f"Error in keepalive loop: {e}")
+                    
+        # Start the background task
+        self._keepalive_task = asyncio.create_task(keepalive_loop())
+        logger.info("Keepalive task started")
+
+    async def stop_keepalive(self) -> None:
+        """Stop the keepalive background task."""
+        if self._keepalive_task is not None:
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            self._keepalive_task = None
+            logger.info("Keepalive task stopped")
 
 
