@@ -45,6 +45,7 @@ logs/*.info
 # Data files (can be large)
 data/*.csv
 data/*.parquet
+data/*.db
 !data/.gitkeep
 
 # Reports
