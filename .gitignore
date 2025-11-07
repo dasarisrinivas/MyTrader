@@ -118,3 +118,11 @@ dmypy.json
 
 # Compiled documentation
 docs/_build/
+
+# Backup files
+*_OLD.*
+*.backup
+*.bak
+
+# Obsolete/duplicate documentation (cleaned up)
+docs/README_OLD.md

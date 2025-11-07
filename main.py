@@ -57,6 +57,24 @@ async def run_live(settings: Settings) -> None:
         min_confidence=0.65
     )
     
+    # Wrap multi-strategy with LLM enhancement if enabled in config
+    from mytrader.strategies.llm_enhanced_strategy import LLMEnhancedStrategy
+    
+    # Force enable LLM for trading decisions
+    llm_enabled = True  # Hardcoded to use AWS Bedrock Claude
+    
+    if llm_enabled:
+        logger.info("🤖 LLM Enhancement ENABLED - using AWS Bedrock Claude for signal analysis")
+        multi_strategy = LLMEnhancedStrategy(
+            base_strategy=multi_strategy,
+            enable_llm=True,
+            min_llm_confidence=0.55,  # Only execute if AI confidence >= 55% (lowered for testing)
+            llm_override_mode=True  # Override mode: Let LLM override weak traditional signals
+        )
+        logger.info("   📋 LLM Config: model=claude-3-sonnet, min_confidence=0.55, mode=override")
+    else:
+        logger.info("⚠️  LLM Enhancement DISABLED - using traditional signals only")
+    
     # Keep original strategies as fallback
     strategies = [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]
     optimizer = ParameterOptimizer(strategies)
@@ -72,11 +90,44 @@ async def run_live(settings: Settings) -> None:
     )
 
     # Create IB instance and connect
-    logger.info("Initializing IB connection to %s:%s", settings.data.ibkr_host, settings.data.ibkr_port)
+    import random
+    from ib_insync import util
+    util.logToConsole('ERROR')  # Reduce log noise
+    
+    client_id = random.randint(10, 999)  # Use random client ID to avoid conflicts
+    logger.info("Initializing IB connection to %s:%s (client_id=%d)", settings.data.ibkr_host, settings.data.ibkr_port, client_id)
     ib = IB()
+    
+    # Connect directly first to test
+    try:
+        logger.info("Attempting direct IB connection...")
+        await asyncio.wait_for(
+            ib.connectAsync(settings.data.ibkr_host, settings.data.ibkr_port, clientId=client_id, timeout=10),
+            timeout=15
+        )
+        logger.info("✅ Connected to IBKR successfully")
+    except asyncio.TimeoutError:
+        logger.error("❌ Connection timeout after 15 seconds")
+        logger.error("Check: 1) IB Gateway is running 2) API is enabled 3) Port 4002 is open")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Connection failed: {e}")
+        raise
+    
+    # Now wrap with executor
     executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol, settings.data.ibkr_exchange)
-    await executor.connect(settings.data.ibkr_host, settings.data.ibkr_port, client_id=2)
-    logger.info("✅ Connected to IBKR successfully")
+    executor._connection_host = settings.data.ibkr_host
+    executor._connection_port = settings.data.ibkr_port
+    executor._connection_client_id = client_id
+    
+    # Set up executor event handlers
+    ib.reqMarketDataType(3)  # Delayed market data
+    logger.info("Using delayed market data (15-min delay, free)")
+    ib.orderStatusEvent += executor._on_order_status
+    ib.execDetailsEvent += executor._on_execution
+    await executor._cancel_all_existing_orders()
+    await executor._reconcile_positions()
+    await executor._start_keepalive()
 
     account_value = settings.trading.initial_capital
     step = 0
@@ -85,7 +136,7 @@ async def run_live(settings: Settings) -> None:
     
     # Initialize price history buffer (we'll build this from live data)
     price_history = []
-    min_bars_needed = 50  # Minimum bars for feature engineering
+    min_bars_needed = 15  # Minimum bars for feature engineering (reduced for faster start)
     poll_interval = 5  # seconds between price checks
 
     logger.info("Starting live trading loop (polling every %ds)...", poll_interval)
@@ -162,40 +213,66 @@ async def run_live(settings: Settings) -> None:
                 current_qty = current_position.quantity if current_position else 0
                 logger.info(f"📦 Current position: {current_qty} contracts")
 
-                # Generate trading signal using multi-strategy
-                logger.info(f"🤔 Evaluating multi-strategy with {len(features)} feature rows...")
+                # Generate trading signal using multi-strategy (with optional LLM enhancement)
+                logger.info(f"🤔 Evaluating strategy with {len(features)} feature rows...")
                 try:
-                    # Use multi-strategy for signal generation
-                    action, confidence, risk_params = multi_strategy.generate_signal(
-                        df=features,
-                        current_position=current_qty
-                    )
-                    
-                    # Create signal object compatible with existing code
-                    from dataclasses import dataclass
-                    @dataclass
-                    class Signal:
-                        action: str
-                        confidence: float
-                        metadata: dict = None
-                    
-                    signal = Signal(
-                        action=action,
-                        confidence=confidence,
-                        metadata={
-                            "strategy": "multi_strategy",
-                            "risk_params": risk_params,
-                            "market_bias": multi_strategy.market_bias,
-                            "volatility": multi_strategy.volatility_level
-                        }
-                    )
+                    # Check if we're using LLM-enhanced strategy
+                    if isinstance(multi_strategy, LLMEnhancedStrategy):
+                        # Use the enhanced generate method which calls LLM
+                        signal = multi_strategy.generate(features)
+                        action = signal.action
+                        confidence = signal.confidence
+                        
+                        # Extract risk params from metadata if base strategy provided them
+                        risk_params = signal.metadata.get("risk_params", {})
+                        
+                        # Log LLM details if available
+                        if "llm_recommendation" in signal.metadata:
+                            llm_rec = signal.metadata["llm_recommendation"]
+                            logger.info(f"🤖 LLM Recommendation: {llm_rec.get('action')} (confidence: {llm_rec.get('confidence', 0):.2f})")
+                            logger.info(f"   💬 Reasoning: {llm_rec.get('reasoning', 'N/A')[:100]}...")
+                        
+                        # Get market context from base strategy if it's a MultiStrategy
+                        if hasattr(multi_strategy.base_strategy, 'market_bias'):
+                            market_bias = multi_strategy.base_strategy.market_bias
+                            volatility_level = multi_strategy.base_strategy.volatility_level
+                        else:
+                            market_bias = "unknown"
+                            volatility_level = "unknown"
+                    else:
+                        # Traditional multi-strategy without LLM
+                        action, confidence, risk_params = multi_strategy.generate_signal(
+                            df=features,
+                            current_position=current_qty
+                        )
+                        market_bias = multi_strategy.market_bias
+                        volatility_level = multi_strategy.volatility_level
+                        
+                        # Create signal object for compatibility
+                        from dataclasses import dataclass
+                        @dataclass
+                        class Signal:
+                            action: str
+                            confidence: float
+                            metadata: dict = None
+                        
+                        signal = Signal(
+                            action=action,
+                            confidence=confidence,
+                            metadata={
+                                "strategy": "multi_strategy",
+                                "risk_params": risk_params,
+                                "market_bias": market_bias,
+                                "volatility": volatility_level
+                            }
+                        )
                     
                     logger.info(f"📊 SIGNAL GENERATED: {signal.action}, confidence={signal.confidence:.2f}")
                     if risk_params:
                         logger.info(f"   📍 Stop Loss: {risk_params.get('stop_loss_long', 'N/A'):.2f}")
                         logger.info(f"   🎯 Take Profit: {risk_params.get('take_profit_long', 'N/A'):.2f}")
                         logger.info(f"   📏 ATR: {risk_params.get('atr', 'N/A'):.2f}")
-                    logger.info(f"   📊 Market: {multi_strategy.market_bias}, Volatility: {multi_strategy.volatility_level}")
+                    logger.info(f"   📊 Market: {market_bias}, Volatility: {volatility_level}")
                     
                 except Exception as signal_error:
                     logger.error(f"❌ Error generating signal: {signal_error}")
@@ -209,6 +286,7 @@ async def run_live(settings: Settings) -> None:
                     tracker.update_equity(current_price, realized_pnl=0.0)
                     
                     # Check exit conditions using multi-strategy risk management
+                    logger.info(f"🔍 Checking exit: position={current_position.quantity}, avg_cost={current_position.avg_cost:.2f}, current={current_price:.2f}, risk_params={risk_params}")
                     if risk_params and hasattr(current_position, 'avg_cost'):
                         should_exit, exit_reason = multi_strategy.should_exit_position(
                             df=features,
@@ -216,6 +294,7 @@ async def run_live(settings: Settings) -> None:
                             position=current_position.quantity,
                             risk_params=risk_params
                         )
+                        logger.info(f"   → Exit check result: should_exit={should_exit}, reason={exit_reason}")
                         
                         if should_exit:
                             logger.info(f"🛑 EXIT SIGNAL: {exit_reason}")

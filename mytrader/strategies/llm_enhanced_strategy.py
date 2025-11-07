@@ -90,7 +90,23 @@ class LLMEnhancedStrategy(BaseStrategy):
             return Signal(action="HOLD", confidence=0.0, metadata={})
         
         # Get traditional signal from base strategy
-        traditional_signal = self.base_strategy.generate(features)
+        # MultiStrategy uses generate_signal(), not generate() and returns a tuple
+        if hasattr(self.base_strategy, 'generate'):
+            traditional_signal = self.base_strategy.generate(features)
+        elif hasattr(self.base_strategy, 'generate_signal'):
+            # generate_signal returns tuple: (action, confidence, risk_params)
+            result = self.base_strategy.generate_signal(features)
+            if isinstance(result, tuple):
+                action, confidence, risk_params = result
+                traditional_signal = Signal(
+                    action=action,
+                    confidence=confidence,
+                    metadata={"risk_params": risk_params} if risk_params else {}
+                )
+            else:
+                traditional_signal = result
+        else:
+            raise AttributeError(f"Base strategy {type(self.base_strategy).__name__} has no generate() or generate_signal() method")
         
         # If LLM disabled, return traditional signal
         if not self.enable_llm:
@@ -110,6 +126,10 @@ class LLMEnhancedStrategy(BaseStrategy):
             if llm_rec:
                 enhanced_signal.metadata.update({
                     "llm_recommendation": llm_rec.to_dict(),
+                    "llm_decision": llm_rec.trade_decision,
+                    "llm_confidence": llm_rec.confidence,
+                    "llm_sentiment": llm_rec.sentiment_score,
+                    "llm_reasoning": llm_rec.reasoning,
                     "strategy": "llm_enhanced"
                 })
             
@@ -120,6 +140,60 @@ class LLMEnhancedStrategy(BaseStrategy):
             # Fallback to traditional signal on error
             traditional_signal.metadata["llm_error"] = str(e)
             return traditional_signal
+    
+    def should_exit_position(
+        self,
+        df: pd.DataFrame,
+        entry_price: float,
+        position: int,
+        risk_params: dict,
+        entry_index: Optional[int] = None
+    ) -> tuple[bool, str]:
+        """Determine if current position should be exited.
+        
+        Delegates to base strategy for position management.
+        
+        Args:
+            df: DataFrame with market data
+            entry_price: Price at which position was entered
+            position: Current position size (positive=long, negative=short, 0=flat)
+            risk_params: Dictionary with stop_loss/take_profit levels
+            entry_index: Optional index where trade was entered
+            
+        Returns:
+            Tuple of (should_exit: bool, exit_reason: str)
+        """
+        # Delegate to base strategy (MultiStrategy)
+        if hasattr(self.base_strategy, 'should_exit_position'):
+            return self.base_strategy.should_exit_position(
+                df=df,
+                entry_price=entry_price,
+                position=position,
+                risk_params=risk_params,
+                entry_index=entry_index
+            )
+        
+        # Fallback: basic stop loss / take profit check
+        if len(df) == 0 or position == 0:
+            return False, "No position"
+        
+        current_price = float(df.iloc[-1].get("close", entry_price))
+        
+        # Check long position
+        if position > 0:
+            if 'stop_loss_long' in risk_params and current_price <= risk_params['stop_loss_long']:
+                return True, f"Stop loss hit: {current_price:.2f} <= {risk_params['stop_loss_long']:.2f}"
+            if 'take_profit_long' in risk_params and current_price >= risk_params['take_profit_long']:
+                return True, f"Take profit hit: {current_price:.2f} >= {risk_params['take_profit_long']:.2f}"
+        
+        # Check short position
+        elif position < 0:
+            if 'stop_loss_short' in risk_params and current_price >= risk_params['stop_loss_short']:
+                return True, f"Stop loss hit: {current_price:.2f} >= {risk_params['stop_loss_short']:.2f}"
+            if 'take_profit_short' in risk_params and current_price <= risk_params['take_profit_short']:
+                return True, f"Take profit hit: {current_price:.2f} <= {risk_params['take_profit_short']:.2f}"
+        
+        return False, ""
     
     def update_config(
         self,

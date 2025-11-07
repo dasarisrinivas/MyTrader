@@ -69,12 +69,32 @@ class StrategyConfig:
 
 
 @dataclass
+class LLMConfig:
+    """Configuration for AWS Bedrock LLM integration."""
+    enabled: bool = False
+    model_id: str = "anthropic.claude-3-sonnet-20240229-v1:0"
+    region_name: str = "us-east-1"
+    max_tokens: int = 2048
+    temperature: float = 0.3
+    min_confidence_threshold: float = 0.7
+    override_mode: bool = False
+    enable_sentiment: bool = True
+    sentiment_region: str = "us-east-1"
+    s3_bucket: str = ""
+    s3_prefix: str = "llm-training-data"
+    retrain_interval_days: int = 7
+    min_training_trades: int = 100
+    trade_log_db_path: str = "data/llm_trades.db"
+
+
+@dataclass
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     strategies: List[StrategyConfig] = field(default_factory=list)
+    llm: LLMConfig = field(default_factory=LLMConfig)
 
     def validate(self) -> None:
         if self.trading.initial_capital <= 0:

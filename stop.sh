@@ -38,9 +38,27 @@ if [ -f "$LOGS_DIR/frontend.pid" ]; then
     rm "$LOGS_DIR/frontend.pid"
 fi
 
+if [ -f "$LOGS_DIR/bot.pid" ]; then
+    BOT_PID=$(cat "$LOGS_DIR/bot.pid")
+    if kill -0 $BOT_PID 2>/dev/null; then
+        echo -e "${YELLOW}Gracefully stopping trading bot...${NC}"
+        kill -SIGTERM $BOT_PID
+        sleep 3
+        # Force kill if still running
+        if kill -0 $BOT_PID 2>/dev/null; then
+            kill -9 $BOT_PID
+            echo -e "${GREEN}✅ Stopped bot (PID: $BOT_PID) [forced]${NC}"
+        else
+            echo -e "${GREEN}✅ Stopped bot (PID: $BOT_PID)${NC}"
+        fi
+    fi
+    rm "$LOGS_DIR/bot.pid"
+fi
+
 # Fallback: kill by process name
 pkill -f "dashboard_api.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped dashboard_api.py${NC}"
 pkill -f "vite" 2>/dev/null && echo -e "${GREEN}✅ Stopped vite${NC}"
+pkill -f "main.py live" 2>/dev/null && echo -e "${GREEN}✅ Stopped trading bot${NC}"
 
 # Kill by port if needed
 lsof -ti:8000 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 8000${NC}"
@@ -48,7 +66,9 @@ lsof -ti:5173 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 517
 
 # Clean up
 rm -f "$LOGS_DIR/services.info"
+rm -f "$LOGS_DIR/all_services.info"
 
 echo ""
 echo -e "${GREEN}✨ All services stopped${NC}"
+echo -e "${BLUE}Dashboard and trading bot are no longer running${NC}"
 echo ""

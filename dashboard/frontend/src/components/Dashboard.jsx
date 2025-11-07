@@ -1,42 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { TradingControls } from './TradingControls';
-import { PerformanceMetrics } from './PerformanceMetrics';
-import { EquityChart } from './EquityChart';
-import { TradeHistory } from './TradeHistory';
+import BotOverview from './BotOverview';
+import DecisionIntelligence from './DecisionIntelligence';
+import LiveTradeTrail from './LiveTradeTrail';
+import RealTimeCharts from './RealTimeCharts';
+import BotHealthIndicator from './BotHealthIndicator';
 import BacktestControls from './BacktestControls';
 import BacktestResults from './BacktestResults';
-import LiveTradingPanel from './LiveTradingPanel';
-import { Activity, WifiOff, Wifi } from 'lucide-react';
+import { Activity, Play, Square, BarChart2 } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
 
 export const Dashboard = () => {
   const [status, setStatus] = useState(null);
-  const [performance, setPerformance] = useState(null);
-  const [trades, setTrades] = useState([]);
-  const [equityCurve, setEquityCurve] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('live'); // 'live' or 'backtest'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'intelligence', 'trail', 'charts', 'backtest'
   const [backtestResults, setBacktestResults] = useState(null);
+  const [starting, setStarting] = useState(false);
 
   const { isConnected, lastMessage } = useWebSocket();
 
-  // Fetch initial data
+  // Fetch initial status
   useEffect(() => {
     fetchStatus();
-    fetchPerformance();
-    fetchTrades();
-    fetchEquityCurve();
-
-    // Poll for updates every 5 seconds
-    const interval = setInterval(() => {
-      fetchStatus();
-      fetchPerformance();
-      fetchTrades();
-      fetchEquityCurve();
-    }, 5000);
-
+    const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -44,66 +32,35 @@ export const Dashboard = () => {
   useEffect(() => {
     if (lastMessage) {
       console.log('WebSocket update:', lastMessage);
-      
       if (lastMessage.type === 'status_update') {
         setStatus(lastMessage.data);
-      } else if (lastMessage.type === 'performance_update') {
-        setPerformance(lastMessage.data);
-      } else if (lastMessage.type === 'trade') {
-        setTrades(prev => [lastMessage.data, ...prev].slice(0, 20));
+        setIsRunning(lastMessage.data.is_running);
       }
     }
   }, [lastMessage]);
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/status`);
+      const response = await fetch(`${API_URL}/api/trading/status`);
       const data = await response.json();
       setStatus(data);
+      setIsRunning(data.is_running);
     } catch (err) {
       console.error('Failed to fetch status:', err);
     }
   };
 
-  const fetchPerformance = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/performance`);
-      const data = await response.json();
-      setPerformance(data);
-    } catch (err) {
-      console.error('Failed to fetch performance:', err);
-    }
-  };
-
-  const fetchTrades = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/trades?limit=20`);
-      const data = await response.json();
-      // API returns {trades: [...]}
-      setTrades(data.trades || []);
-    } catch (err) {
-      console.error('Failed to fetch trades:', err);
-    }
-  };
-
-  const fetchEquityCurve = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/equity-curve`);
-      const data = await response.json();
-      // API returns {data: [...]}
-      setEquityCurve(data.data || []);
-    } catch (err) {
-      console.error('Failed to fetch equity curve:', err);
-    }
-  };
-
   const handleStart = async () => {
     try {
+      setStarting(true);
       setError(null);
       const response = await fetch(`${API_URL}/api/trading/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          config_path: 'config.yaml',
+          strategy: 'rsi_macd_sentiment'
+        }),
       });
       
       if (!response.ok) {
@@ -112,9 +69,12 @@ export const Dashboard = () => {
       }
       
       await fetchStatus();
+      setIsRunning(true);
     } catch (err) {
       setError(err.message);
       console.error('Failed to start trading:', err);
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -131,6 +91,7 @@ export const Dashboard = () => {
       }
       
       await fetchStatus();
+      setIsRunning(false);
     } catch (err) {
       setError(err.message);
       console.error('Failed to stop trading:', err);
@@ -142,26 +103,40 @@ export const Dashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-apple-gray-50 font-sf">
+    <div className="min-h-screen bg-gray-950 font-sf">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      <header className="bg-gradient-to-r from-gray-900 to-gray-800 border-b border-gray-700 shadow-2xl">
+        <div className="max-w-7xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Activity className="w-8 h-8 text-blue-500" />
-              <h1 className="text-2xl font-semibold text-apple-gray-800">MyTrader Dashboard</h1>
+            <div className="flex items-center space-x-4">
+              <div className="p-2 bg-blue-600 rounded-lg">
+                <Activity className="w-7 h-7 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">MyTrader AI</h1>
+                <p className="text-gray-400 text-sm">Autonomous Trading Bot Dashboard</p>
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              {isConnected ? (
-                <>
-                  <Wifi className="w-5 h-5 text-green-500" />
-                  <span className="text-sm text-green-600 font-medium">Live</span>
-                </>
+            
+            {/* Bot Control */}
+            <div className="flex items-center gap-4">
+              {!isRunning ? (
+                <button
+                  onClick={handleStart}
+                  disabled={starting}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-500 hover:to-green-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg"
+                >
+                  <Play className="w-5 h-5" />
+                  {starting ? 'Starting...' : 'Start Bot'}
+                </button>
               ) : (
-                <>
-                  <WifiOff className="w-5 h-5 text-red-500" />
-                  <span className="text-sm text-red-600 font-medium">Disconnected</span>
-                </>
+                <button
+                  onClick={handleStop}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-500 text-white rounded-lg hover:from-red-500 hover:to-red-400 transition-all shadow-lg"
+                >
+                  <Square className="w-5 h-5" />
+                  Stop Bot
+                </button>
               )}
             </div>
           </div>
@@ -170,55 +145,93 @@ export const Dashboard = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        {/* Bot Health Indicator */}
+        <BotHealthIndicator />
+
         {/* Error Alert */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-            <p className="text-red-700">{error}</p>
+          <div className="bg-red-900/20 border border-red-700 rounded-xl p-4">
+            <p className="text-red-400">{error}</p>
           </div>
         )}
 
         {/* Tab Navigation */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="border-b border-gray-200">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-2xl border border-gray-700">
+          <div className="border-b border-gray-700">
             <nav className="flex -mb-px">
               <button
-                onClick={() => setActiveTab('live')}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'live'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                onClick={() => setActiveTab('overview')}
+                className={`px-6 py-4 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'overview'
+                    ? 'border-blue-500 text-blue-400 bg-blue-900/20'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
                 }`}
               >
-                Live Trading
+                <Activity className="w-4 h-4 inline mr-2" />
+                Overview
+              </button>
+              <button
+                onClick={() => setActiveTab('intelligence')}
+                className={`px-6 py-4 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'intelligence'
+                    ? 'border-purple-500 text-purple-400 bg-purple-900/20'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                🧠 AI Intelligence
+              </button>
+              <button
+                onClick={() => setActiveTab('trail')}
+                className={`px-6 py-4 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'trail'
+                    ? 'border-green-500 text-green-400 bg-green-900/20'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                📜 Trade Trail
+              </button>
+              <button
+                onClick={() => setActiveTab('charts')}
+                className={`px-6 py-4 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'charts'
+                    ? 'border-yellow-500 text-yellow-400 bg-yellow-900/20'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                📊 Analytics
               </button>
               <button
                 onClick={() => setActiveTab('backtest')}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-6 py-4 text-sm font-semibold border-b-2 transition-all ${
                   activeTab === 'backtest'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-orange-500 text-orange-400 bg-orange-900/20'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
                 }`}
               >
-                Backtesting
+                <BarChart2 className="w-4 h-4 inline mr-2" />
+                Backtest
               </button>
             </nav>
           </div>
         </div>
 
-        {/* Live Trading Tab */}
-        {activeTab === 'live' && (
-          <>
-            <LiveTradingPanel />
-          </>
-        )}
-
-        {/* Backtesting Tab */}
-        {activeTab === 'backtest' && (
-          <>
-            <BacktestControls onBacktestComplete={handleBacktestComplete} />
-            <BacktestResults results={backtestResults} />
-          </>
-        )}
+        {/* Tab Content */}
+        <div className="animate-fadeIn">
+          {activeTab === 'overview' && <BotOverview />}
+          
+          {activeTab === 'intelligence' && <DecisionIntelligence />}
+          
+          {activeTab === 'trail' && <LiveTradeTrail />}
+          
+          {activeTab === 'charts' && <RealTimeCharts />}
+          
+          {activeTab === 'backtest' && (
+            <div className="space-y-6">
+              <BacktestControls onBacktestComplete={handleBacktestComplete} />
+              <BacktestResults results={backtestResults} />
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

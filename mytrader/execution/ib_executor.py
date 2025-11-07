@@ -108,7 +108,7 @@ class TradeExecutor:
             logger.error(f"Failed to get qualified contract: {e}")
             return None
 
-    async def connect(self, host: str, port: int, client_id: int, timeout: int = 30) -> None:
+    async def connect(self, host: str, port: int, client_id: int, timeout: int = 120) -> None:
         """Connect to IBKR and set up event handlers."""
         if self.ib.isConnected():
             return
@@ -171,16 +171,18 @@ class TradeExecutor:
             positions = self.ib.positions()
             for position in positions:
                 if position.contract.symbol == self.symbol:
+                    # IBKR avgCost is total cost, divide by quantity to get per-contract price
+                    per_contract_cost = float(position.avgCost) / abs(position.position) if position.position != 0 else 0.0
                     self.positions[self.symbol] = PositionInfo(
                         symbol=self.symbol,
                         quantity=int(position.position),
-                        avg_cost=float(position.avgCost),
-                        market_value=float(position.position * position.avgCost),
+                        avg_cost=per_contract_cost,
+                        market_value=float(position.position * per_contract_cost),
                         unrealized_pnl=float(position.unrealizedPNL) if hasattr(position, 'unrealizedPNL') else 0.0,
                         realized_pnl=0.0
                     )
-                    logger.info("Reconciled position: %s qty=%d avg_cost=%.2f", 
-                               self.symbol, position.position, position.avgCost)
+                    logger.info("Reconciled position: %s qty=%d avg_cost=%.2f (total_cost=%.2f)", 
+                               self.symbol, position.position, per_contract_cost, position.avgCost)
         except Exception as e:
             logger.error("Failed to reconcile positions: %s", e)
 

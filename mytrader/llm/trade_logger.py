@@ -14,6 +14,9 @@ from .data_schema import TradeOutcome, TradeRecommendation, TradingContext
 class TradeLogger:
     """Logger for storing trades with LLM predictions for learning pipeline."""
     
+    # Database schema version for migration tracking
+    SCHEMA_VERSION = 2
+    
     def __init__(self, db_path: Optional[Union[str, Path]] = None):
         """Initialize trade logger with SQLite database.
         
@@ -29,87 +32,128 @@ class TradeLogger:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_database()
     
-    def _init_database(self) -> None:
-        """Create tables if they don't exist."""
+    def _get_schema_version(self) -> int:
+        """Get current database schema version."""
         with sqlite3.connect(self.db_path) as conn:
-            # Table for trade outcomes
+            try:
+                cursor = conn.execute(
+                    "SELECT version FROM schema_version ORDER BY id DESC LIMIT 1"
+                )
+                row = cursor.fetchone()
+                return row[0] if row else 0
+            except sqlite3.OperationalError:
+                # Table doesn't exist, schema version is 0
+                return 0
+    
+    def _set_schema_version(self, version: int) -> None:
+        """Set database schema version."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO schema_version (version, updated_at) VALUES (?, ?)",
+                (version, datetime.utcnow().isoformat())
+            )
+            conn.commit()
+    
+    def _init_database(self) -> None:
+        """Create tables if they don't exist and handle migrations."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Create schema version table
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS trade_outcomes (
+                CREATE TABLE IF NOT EXISTS schema_version (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    order_id INTEGER NOT NULL,
-                    symbol TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    quantity INTEGER NOT NULL,
-                    entry_price REAL NOT NULL,
-                    exit_price REAL,
-                    realized_pnl REAL DEFAULT 0.0,
-                    trade_duration_minutes REAL DEFAULT 0.0,
-                    outcome TEXT DEFAULT 'OPEN',
-                    entry_context TEXT,
-                    exit_context TEXT,
-                    created_at TEXT NOT NULL,
+                    version INTEGER NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
             
-            # Table for LLM recommendations
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS llm_recommendations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trade_outcome_id INTEGER,
-                    trade_decision TEXT NOT NULL,
-                    confidence REAL NOT NULL,
-                    suggested_position_size INTEGER,
-                    suggested_stop_loss REAL,
-                    suggested_take_profit REAL,
-                    reasoning TEXT,
-                    key_factors TEXT,
-                    risk_assessment TEXT,
-                    model_name TEXT,
-                    timestamp TEXT NOT NULL,
-                    processing_time_ms REAL,
-                    raw_response TEXT,
-                    FOREIGN KEY (trade_outcome_id) REFERENCES trade_outcomes (id)
-                )
-            """)
+            current_version = self._get_schema_version()
             
-            # Table for aggregated performance metrics
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS performance_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT NOT NULL,
-                    total_trades INTEGER DEFAULT 0,
-                    winning_trades INTEGER DEFAULT 0,
-                    losing_trades INTEGER DEFAULT 0,
-                    win_rate REAL DEFAULT 0.0,
-                    total_pnl REAL DEFAULT 0.0,
-                    avg_win REAL DEFAULT 0.0,
-                    avg_loss REAL DEFAULT 0.0,
-                    profit_factor REAL DEFAULT 0.0,
-                    sharpe_ratio REAL DEFAULT 0.0,
-                    max_drawdown REAL DEFAULT 0.0,
-                    llm_accuracy REAL DEFAULT 0.0,
-                    created_at TEXT NOT NULL
-                )
-            """)
-            
-            # Indexes for performance
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_trade_outcomes_timestamp 
-                ON trade_outcomes (timestamp)
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_trade_outcomes_symbol 
-                ON trade_outcomes (symbol)
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_trade_outcomes_outcome 
-                ON trade_outcomes (outcome)
-            """)
+            if current_version < self.SCHEMA_VERSION:
+                logger.info(f"Upgrading database schema from v{current_version} to v{self.SCHEMA_VERSION}")
+                self._create_tables(conn)
+                self._set_schema_version(self.SCHEMA_VERSION)
             
             conn.commit()
             logger.info(f"Trade logger database initialized: {self.db_path}")
+    
+    def _create_tables(self, conn: sqlite3.Connection) -> None:
+        """Create all database tables."""
+        # Table for trade outcomes
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trade_outcomes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                action TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL,
+                realized_pnl REAL DEFAULT 0.0,
+                trade_duration_minutes REAL DEFAULT 0.0,
+                outcome TEXT DEFAULT 'OPEN',
+                entry_context TEXT,
+                exit_context TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        
+        # Table for LLM recommendations
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS llm_recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_outcome_id INTEGER,
+                trade_decision TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                sentiment_score REAL DEFAULT 0.0,
+                suggested_position_size INTEGER,
+                suggested_stop_loss REAL,
+                suggested_take_profit REAL,
+                reasoning TEXT,
+                key_factors TEXT,
+                risk_assessment TEXT,
+                model_name TEXT,
+                timestamp TEXT NOT NULL,
+                processing_time_ms REAL,
+                raw_response TEXT,
+                FOREIGN KEY (trade_outcome_id) REFERENCES trade_outcomes (id)
+            )
+        """)
+        
+        # Table for aggregated performance metrics
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS performance_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                total_trades INTEGER DEFAULT 0,
+                winning_trades INTEGER DEFAULT 0,
+                losing_trades INTEGER DEFAULT 0,
+                win_rate REAL DEFAULT 0.0,
+                total_pnl REAL DEFAULT 0.0,
+                avg_win REAL DEFAULT 0.0,
+                avg_loss REAL DEFAULT 0.0,
+                profit_factor REAL DEFAULT 0.0,
+                sharpe_ratio REAL DEFAULT 0.0,
+                max_drawdown REAL DEFAULT 0.0,
+                llm_accuracy REAL DEFAULT 0.0,
+                created_at TEXT NOT NULL
+            )
+        """)
+        
+        # Indexes for performance
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trade_outcomes_timestamp 
+            ON trade_outcomes (timestamp)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trade_outcomes_symbol 
+            ON trade_outcomes (symbol)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trade_outcomes_outcome 
+            ON trade_outcomes (outcome)
+        """)
     
     def log_trade_entry(
         self,
@@ -163,16 +207,17 @@ class TradeLogger:
                 conn.execute(
                     """
                     INSERT INTO llm_recommendations (
-                        trade_outcome_id, trade_decision, confidence,
+                        trade_outcome_id, trade_decision, confidence, sentiment_score,
                         suggested_position_size, suggested_stop_loss, suggested_take_profit,
                         reasoning, key_factors, risk_assessment,
                         model_name, timestamp, processing_time_ms, raw_response
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trade_outcome_id,
                         llm_recommendation.trade_decision,
                         llm_recommendation.confidence,
+                        llm_recommendation.sentiment_score,
                         llm_recommendation.suggested_position_size,
                         llm_recommendation.suggested_stop_loss,
                         llm_recommendation.suggested_take_profit,
@@ -265,7 +310,7 @@ class TradeLogger:
             query = """
                 SELECT 
                     t.*,
-                    l.trade_decision, l.confidence, l.reasoning,
+                    l.trade_decision, l.confidence, l.sentiment_score, l.reasoning,
                     l.key_factors, l.model_name
                 FROM trade_outcomes t
                 LEFT JOIN llm_recommendations l ON t.id = l.trade_outcome_id

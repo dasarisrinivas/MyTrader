@@ -80,6 +80,7 @@ class TradeAdvisor:
                         **traditional_signal.metadata,
                         "llm_decision": llm_rec.trade_decision,
                         "llm_confidence": llm_rec.confidence,
+                        "llm_sentiment": llm_rec.sentiment_score,
                         "llm_reasoning": llm_rec.reasoning,
                         "reason": "LLM confidence below threshold"
                     }
@@ -97,13 +98,14 @@ class TradeAdvisor:
                         "traditional_confidence": traditional_signal.confidence,
                         "llm_decision": llm_rec.trade_decision,
                         "llm_confidence": llm_rec.confidence,
+                        "llm_sentiment": llm_rec.sentiment_score,
                         "llm_reasoning": llm_rec.reasoning,
                         "mode": "llm_override"
                     }
                 )
                 logger.info(
                     f"LLM override: {traditional_signal.action} -> {llm_rec.trade_decision} "
-                    f"(confidence: {llm_rec.confidence:.2f})"
+                    f"(confidence: {llm_rec.confidence:.2f}, sentiment: {llm_rec.sentiment_score:+.2f})"
                 )
                 return enhanced_signal, llm_rec
             
@@ -121,6 +123,7 @@ class TradeAdvisor:
                         **traditional_signal.metadata,
                         "llm_decision": llm_rec.trade_decision,
                         "llm_confidence": llm_rec.confidence,
+                        "llm_sentiment": llm_rec.sentiment_score,
                         "llm_reasoning": llm_rec.reasoning,
                         "consensus": True,
                         "mode": "consensus"
@@ -128,7 +131,7 @@ class TradeAdvisor:
                 )
                 logger.info(
                     f"Signals agree: {traditional_signal.action} "
-                    f"(confidence boosted to {enhanced_confidence:.2f})"
+                    f"(confidence boosted to {enhanced_confidence:.2f}, sentiment: {llm_rec.sentiment_score:+.2f})"
                 )
                 return enhanced_signal, llm_rec
             
@@ -142,19 +145,20 @@ class TradeAdvisor:
                         "traditional_action": traditional_signal.action,
                         "llm_decision": llm_rec.trade_decision,
                         "llm_confidence": llm_rec.confidence,
+                        "llm_sentiment": llm_rec.sentiment_score,
                         "llm_reasoning": llm_rec.reasoning,
                         "reason": "LLM suggests caution",
                         "mode": "consensus"
                     }
                 )
-                logger.info(f"LLM suggests caution: {traditional_signal.action} -> HOLD")
+                logger.info(f"LLM suggests caution: {traditional_signal.action} -> HOLD (sentiment: {llm_rec.sentiment_score:+.2f})")
                 return enhanced_signal, llm_rec
             
             else:
                 # Conflicting signals - be conservative
                 logger.warning(
                     f"Signal conflict: Traditional={traditional_signal.action}, "
-                    f"LLM={llm_rec.trade_decision}. Defaulting to HOLD."
+                    f"LLM={llm_rec.trade_decision} (sentiment: {llm_rec.sentiment_score:+.2f}). Defaulting to HOLD."
                 )
                 enhanced_signal = Signal(
                     action="HOLD",
@@ -165,6 +169,7 @@ class TradeAdvisor:
                         "traditional_confidence": traditional_signal.confidence,
                         "llm_decision": llm_rec.trade_decision,
                         "llm_confidence": llm_rec.confidence,
+                        "llm_sentiment": llm_rec.sentiment_score,
                         "llm_reasoning": llm_rec.reasoning,
                         "reason": "Signal conflict - conservative hold",
                         "mode": "consensus"

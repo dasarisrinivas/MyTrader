@@ -1,0 +1,11 @@
+timestamp,symbol,action,quantity,price,signal_type,exit_timestamp,exit_price,pnl,exit_reason
+2025-11-06T23:01:50,ES,BUY,1,4500.0,strategy_signal,2025-11-06T23:31:50,4500.0,0,stop_loss
+2025-11-06T21:01:50,ES,SELL,1,4501.0,strategy_signal,2025-11-06T21:31:50,4500.4,-30,stop_loss
+2025-11-06T19:01:50,ES,BUY,1,4502.0,strategy_signal,2025-11-06T19:31:50,4504.0,100,take_profit
+2025-11-06T17:01:50,ES,SELL,1,4503.0,strategy_signal,2025-11-06T17:31:50,4502.4,-30,stop_loss
+2025-11-06T15:01:50,ES,BUY,1,4504.0,strategy_signal,2025-11-06T15:31:50,4505.0,50,take_profit
+2025-11-06T13:01:50,ES,SELL,1,4505.0,strategy_signal,2025-11-06T13:31:50,4504.4,-30,stop_loss
+2025-11-06T11:01:50,ES,BUY,1,4506.0,strategy_signal,2025-11-06T11:31:50,4506.0,0,stop_loss
+2025-11-06T09:01:50,ES,SELL,1,4507.0,strategy_signal,2025-11-06T09:31:50,4506.4,-30,stop_loss
+2025-11-06T07:01:50,ES,BUY,1,4508.0,strategy_signal,2025-11-06T07:31:50,4510.0,100,take_profit
+2025-11-06T05:01:50,ES,SELL,1,4509.0,strategy_signal,2025-11-06T05:31:50,4508.4,-30,stop_loss

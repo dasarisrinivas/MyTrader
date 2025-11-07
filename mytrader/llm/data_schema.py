@@ -96,6 +96,9 @@ class TradeRecommendation:
     key_factors: list[str] = field(default_factory=list)
     risk_assessment: str = ""
     
+    # Sentiment analysis
+    sentiment_score: float = 0.0  # -1.0 (very bearish) to +1.0 (very bullish)
+    
     # Metadata
     model_name: str = ""
     timestamp: datetime = field(default_factory=datetime.utcnow)
@@ -115,6 +118,7 @@ class TradeRecommendation:
             "reasoning": self.reasoning,
             "key_factors": self.key_factors,
             "risk_assessment": self.risk_assessment,
+            "sentiment_score": self.sentiment_score,
             "model_name": self.model_name,
             "timestamp": self.timestamp.isoformat(),
             "processing_time_ms": self.processing_time_ms,

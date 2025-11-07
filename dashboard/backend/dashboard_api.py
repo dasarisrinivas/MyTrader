@@ -25,6 +25,7 @@ from mytrader.monitoring.order_tracker import OrderTracker
 from mytrader.monitoring.pnl_calculator import calculate_pnl_for_orders, calculate_unrealized_pnl
 from mytrader.utils.logger import configure_logging, logger
 from mytrader.execution.live_trading_manager import LiveTradingManager
+from mytrader.execution.ib_executor import TradeExecutor
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -125,6 +126,414 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def run_integrated_live_trading(settings):
+    """
+    Integrated live trading loop that runs inside the dashboard process.
+    This is the same logic as main.py but integrated for real-time UI updates.
+    """
+    from mytrader.strategies.multi_strategy import MultiStrategy
+    from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
+    from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+    from mytrader.features.feature_engineer import engineer_features
+    from mytrader.risk.manager import RiskManager
+    from mytrader.monitoring.live_tracker import LivePerformanceTracker
+    from ib_insync import IB
+    import pandas as pd
+    from datetime import datetime, timezone
+    
+    try:
+        # Initialize multi-strategy system
+        multi_strategy = MultiStrategy(
+            strategy_mode="auto",
+            reward_risk_ratio=2.0,
+            use_trailing_stop=True,
+            trailing_stop_pct=0.5,
+            min_confidence=0.65
+        )
+        
+        # Wrap with LLM enhancement if enabled in config
+        from mytrader.strategies.llm_enhanced_strategy import LLMEnhancedStrategy
+        llm_enabled = settings.llm.enabled if hasattr(settings, 'llm') else False
+        
+        if llm_enabled:
+            logger.info("🤖 LLM Enhancement ENABLED - using AWS Bedrock Claude")
+            multi_strategy = LLMEnhancedStrategy(
+                base_strategy=multi_strategy,
+                enable_llm=True,
+                min_llm_confidence=settings.llm.min_confidence_threshold,
+                llm_override_mode=settings.llm.override_mode
+            )
+            
+            # Broadcast LLM status
+            await manager.broadcast({
+                "type": "system",
+                "message": "🤖 LLM Enhancement Active - AWS Bedrock Claude analyzing trades",
+                "timestamp": datetime.now().isoformat()
+            })
+        else:
+            logger.info("⚠️  LLM Enhancement DISABLED")
+        
+        # Initialize risk manager with Kelly Criterion support
+        risk = RiskManager(settings.trading, position_sizing_method="kelly")
+        
+        # Initialize live performance tracker
+        tracker = LivePerformanceTracker(
+            initial_capital=settings.trading.initial_capital,
+            risk_free_rate=settings.backtest.risk_free_rate
+        )
+        
+        # Create IB instance and connect
+        logger.info("🔌 Connecting to IBKR from dashboard...")
+        ib = IB()
+        executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol, settings.data.ibkr_exchange)
+        await executor.connect(settings.data.ibkr_host, settings.data.ibkr_port, client_id=3)
+        logger.info("✅ Connected to IBKR successfully")
+        
+        # Broadcast connection status
+        await manager.broadcast({
+            "type": "system",
+            "message": "Connected to IBKR and starting trading",
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        account_value = settings.trading.initial_capital
+        price_history = []
+        min_bars_needed = 50
+        poll_interval = 5
+        
+        logger.info("🚀 Starting integrated live trading loop...")
+        
+        while live_trading_manager and live_trading_manager.running:
+            try:
+                # Get current market price
+                current_price = await executor.get_current_price()
+                if not current_price:
+                    logger.warning("No price data available, retrying...")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Broadcast price update
+                await manager.broadcast({
+                    "type": "price_update",
+                    "price": current_price,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                # Add to price history
+                price_bar = {
+                    'timestamp': datetime.now(timezone.utc),
+                    'open': current_price,
+                    'high': current_price,
+                    'low': current_price,
+                    'close': current_price,
+                    'volume': 0
+                }
+                price_history.append(price_bar)
+                
+                # Keep only recent history
+                if len(price_history) > 500:
+                    price_history = price_history[-500:]
+                
+                # Need minimum bars before we can trade
+                if len(price_history) < min_bars_needed:
+                    logger.info(f"Building history: {len(price_history)}/{min_bars_needed} bars")
+                    await manager.broadcast({
+                        "type": "progress",
+                        "bars_collected": len(price_history),
+                        "min_bars_needed": min_bars_needed,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Convert to DataFrame and engineer features
+                df = pd.DataFrame(price_history)
+                df.set_index('timestamp', inplace=True)
+                
+                features = engineer_features(df[['open', 'high', 'low', 'close', 'volume']], None)
+                
+                if features.empty:
+                    logger.warning("Feature engineering returned empty DataFrame")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Get current position
+                current_position = await executor.get_current_position()
+                current_qty = current_position.quantity if current_position else 0
+                
+                # Generate trading signal using multi-strategy (with optional LLM)
+                try:
+                    # Check if using LLM-enhanced strategy
+                    if isinstance(multi_strategy, LLMEnhancedStrategy):
+                        # Use enhanced generate method which calls LLM
+                        signal = multi_strategy.generate(features)
+                        action = signal.action
+                        confidence = signal.confidence
+                        risk_params = signal.metadata.get("risk_params", {})
+                        
+                        # Broadcast LLM recommendation if available
+                        if "llm_recommendation" in signal.metadata:
+                            llm_rec = signal.metadata["llm_recommendation"]
+                            await manager.broadcast({
+                                "type": "llm_analysis",
+                                "action": llm_rec.get('trade_decision'),
+                                "confidence": llm_rec.get('confidence'),
+                                "sentiment_score": llm_rec.get('sentiment_score', 0.0),
+                                "reasoning": llm_rec.get('reasoning', '')[:200],
+                                "timestamp": datetime.now().isoformat()
+                            })
+                            logger.info(
+                                f"🤖 LLM: {llm_rec.get('trade_decision')} "
+                                f"(conf: {llm_rec.get('confidence', 0):.2f}, "
+                                f"sentiment: {llm_rec.get('sentiment_score', 0):+.2f})"
+                            )
+                        
+                        # Get market context from base strategy
+                        if hasattr(multi_strategy.base_strategy, 'market_bias'):
+                            market_bias = multi_strategy.base_strategy.market_bias
+                            volatility_level = multi_strategy.base_strategy.volatility_level
+                        else:
+                            market_bias = "unknown"
+                            volatility_level = "unknown"
+                    else:
+                        # Traditional multi-strategy
+                        action, confidence, risk_params = multi_strategy.generate_signal(
+                            df=features,
+                            current_position=current_qty
+                        )
+                        market_bias = multi_strategy.market_bias
+                        volatility_level = multi_strategy.volatility_level
+                    
+                    # Broadcast signal to UI
+                    await manager.broadcast({
+                        "type": "signal",
+                        "signal": action,
+                        "confidence": confidence,
+                        "market_bias": market_bias,
+                        "volatility": volatility_level,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    logger.info(f"📊 SIGNAL: {action}, confidence={confidence:.2f}")
+                    
+                except Exception as signal_error:
+                    logger.error(f"Error generating signal: {signal_error}")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Update tracker
+                if current_position:
+                    unrealized_pnl = await executor.get_unrealized_pnl()
+                    tracker.update_equity(current_price, realized_pnl=0.0)
+                    
+                    # Check exit conditions
+                    if risk_params and hasattr(current_position, 'avg_cost'):
+                        should_exit, exit_reason = multi_strategy.should_exit_position(
+                            df=features,
+                            entry_price=current_position.avg_cost,
+                            position=current_position.quantity,
+                            risk_params=risk_params
+                        )
+                        
+                        if should_exit:
+                            logger.info(f"🛑 EXIT SIGNAL: {exit_reason}")
+                            await manager.broadcast({
+                                "type": "exit_signal",
+                                "reason": exit_reason,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                            
+                            close_result = await executor.close_position()
+                            if close_result and close_result.fill_price:
+                                tracker.record_trade(
+                                    action="SELL" if current_position.quantity > 0 else "BUY",
+                                    price=close_result.fill_price,
+                                    quantity=abs(current_position.quantity)
+                                )
+                                realized = (close_result.fill_price - current_position.avg_cost) * current_position.quantity
+                                risk.update_pnl(realized)
+                                tracker.update_equity(current_price, realized)
+                                
+                                # Broadcast trade execution
+                                await manager.broadcast({
+                                    "type": "trade_executed",
+                                    "action": "CLOSE",
+                                    "price": close_result.fill_price,
+                                    "quantity": abs(current_position.quantity),
+                                    "pnl": realized,
+                                    "timestamp": datetime.now().isoformat()
+                                })
+                            
+                            await asyncio.sleep(poll_interval)
+                            continue
+                    
+                    # Update trailing stops
+                    atr_val = float(features.iloc[-1].get("ATR_14", 0.0))
+                    await executor.update_trailing_stops(current_price, atr_val)
+                    
+                    # Check for opposite signal
+                    direction = "BUY" if current_position.quantity > 0 else "SELL"
+                    opposite_action = "SELL" if direction == "BUY" else "BUY"
+                    if action == opposite_action and action != "HOLD":
+                        logger.info("🔄 Opposite signal - closing position")
+                        close_result = await executor.close_position()
+                        if close_result and close_result.fill_price:
+                            tracker.record_trade(
+                                action=opposite_action,
+                                price=close_result.fill_price,
+                                quantity=abs(current_position.quantity)
+                            )
+                            realized = (close_result.fill_price - current_position.avg_cost) * current_position.quantity
+                            risk.update_pnl(realized)
+                            tracker.update_equity(current_price, realized)
+                            
+                            await manager.broadcast({
+                                "type": "trade_executed",
+                                "action": "CLOSE_OPPOSITE",
+                                "price": close_result.fill_price,
+                                "quantity": abs(current_position.quantity),
+                                "pnl": realized,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        await asyncio.sleep(poll_interval)
+                        continue
+                
+                if action == "HOLD":
+                    logger.info("⏸️ HOLD signal")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Don't open new position if we already have one
+                if current_position and current_position.quantity != 0:
+                    logger.info("Already have position, skipping")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Position sizing
+                risk_stats = risk.get_statistics()
+                qty = risk.position_size(
+                    account_value, 
+                    confidence,
+                    win_rate=risk_stats.get("win_rate"),
+                    avg_win=risk_stats.get("avg_win"),
+                    avg_loss=risk_stats.get("avg_loss")
+                )
+                
+                metadata = {}
+                scaler = float(metadata.get("position_scaler", 1.0))
+                if scaler > 0:
+                    qty = max(1, int(round(qty * scaler)))
+                
+                qty = min(qty, settings.trading.max_position_size)
+                
+                if not risk.can_trade(qty):
+                    logger.warning("Risk limits exceeded")
+                    await manager.broadcast({
+                        "type": "risk_limit",
+                        "message": "Risk limits exceeded, skipping trade",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Calculate stop-loss and take-profit
+                direction = 1 if action == "BUY" else -1
+                row = features.iloc[-1]
+                atr = float(row.get("ATR_14", 0.0))
+                
+                tick_size = settings.trading.tick_size
+                default_stop_offset = settings.trading.stop_loss_ticks * tick_size
+                default_target_offset = settings.trading.take_profit_ticks * tick_size
+                
+                stop_offset = default_stop_offset
+                stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
+                
+                risk_reward = 2.0
+                target_offset = default_target_offset
+                take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
+                
+                logger.info(f"📈 Trade levels: entry={current_price:.2f} stop={stop_loss:.2f} target={take_profit:.2f}")
+                
+                # Broadcast order placement
+                await manager.broadcast({
+                    "type": "order_placing",
+                    "action": action,
+                    "quantity": qty,
+                    "entry_price": current_price,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                # Place order
+                result = await executor.place_order(
+                    action=action,
+                    quantity=qty,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    metadata={"atr_value": atr}
+                )
+                
+                logger.info(f"✅ Order result: {result.status}")
+                
+                # Broadcast order result
+                await manager.broadcast({
+                    "type": "order_placed",
+                    "action": action,
+                    "status": result.status,
+                    "filled_quantity": result.filled_quantity,
+                    "fill_price": result.fill_price,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                if result.status not in {"Cancelled", "Inactive"}:
+                    risk.register_trade()
+                    if result.fill_price:
+                        tracker.record_trade(
+                            action=action,
+                            price=result.fill_price,
+                            quantity=qty
+                        )
+                        
+                        await manager.broadcast({
+                            "type": "trade_executed",
+                            "action": action,
+                            "price": result.fill_price,
+                            "quantity": qty,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                
+                await asyncio.sleep(poll_interval)
+                
+            except Exception as loop_error:
+                logger.exception(f"Live loop error: {loop_error}")
+                await manager.broadcast({
+                    "type": "error",
+                    "message": str(loop_error),
+                    "timestamp": datetime.now().isoformat()
+                })
+                await asyncio.sleep(poll_interval)
+    
+    except asyncio.CancelledError:
+        logger.info("Trading loop cancelled")
+        if ib.isConnected():
+            ib.disconnect()
+        raise
+    except Exception as e:
+        logger.exception(f"Fatal error in trading loop: {e}")
+        await manager.broadcast({
+            "type": "fatal_error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        })
+        if ib.isConnected():
+            ib.disconnect()
+    finally:
+        logger.info("Trading loop stopped")
+        if ib.isConnected():
+            ib.disconnect()
+
+
 # API Endpoints
 @app.get("/")
 async def root():
@@ -167,14 +576,13 @@ async def get_status():
 
 @app.post("/api/trading/start")
 async def start_trading(request: StartTradingRequest):
-    """Start a new live trading session by launching main.py as subprocess."""
+    """Start a new live trading session - runs the trading bot integrated into dashboard."""
     global live_trading_manager
     
     if live_trading_manager and live_trading_manager.running:
         raise HTTPException(status_code=400, detail="Trading session already running")
     
     try:
-        import subprocess
         import os
         
         # Load settings - use absolute path from project root
@@ -187,51 +595,48 @@ async def start_trading(request: StartTradingRequest):
         if not config_path.exists():
             raise HTTPException(status_code=404, detail=f"Config file not found: {config_path}")
         
-        # Start main.py live trading as a subprocess
-        venv_python = project_root / ".venv" / "bin" / "python3"
-        main_py = project_root / "main.py"
+        # Import the live trading function
+        from mytrader.config import Settings
+        from mytrader.utils.settings_loader import load_settings as load_settings_func
         
-        log_file = project_root / "logs" / "live_trading.log"
-        log_file.parent.mkdir(exist_ok=True)
+        # Load settings
+        settings = load_settings_func(config_path)
         
-        # Start the live trading process
-        with open(log_file, "w") as f:
-            process = subprocess.Popen(
-                [str(venv_python), str(main_py), "live", "--config", str(config_path)],
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                cwd=str(project_root),
-                env={**os.environ, "PYTHONUNBUFFERED": "1"}
-            )
-        
-        # Create a simple manager to track the process
+        # Create a manager to track the trading session
         from dataclasses import dataclass
+        import asyncio
         
         @dataclass
-        class ProcessManager:
-            process: subprocess.Popen
+        class IntegratedTradingManager:
+            task: asyncio.Task
             running: bool = True
+            settings: Settings = None
             
-            def stop(self):
-                if self.process:
-                    self.process.terminate()
-                    self.process.wait(timeout=10)
+            async def stop(self):
+                """Stop the trading session gracefully."""
                 self.running = False
+                if self.task and not self.task.done():
+                    self.task.cancel()
+                    try:
+                        await self.task
+                    except asyncio.CancelledError:
+                        pass
         
-        live_trading_manager = ProcessManager(process)
+        # Start the live trading loop as a background task
+        trading_task = asyncio.create_task(run_integrated_live_trading(settings))
+        live_trading_manager = IntegratedTradingManager(task=trading_task, settings=settings)
         
-        logger.info(f"✅ Started live trading process (PID: {process.pid})")
-        logger.info(f"📝 Logs: {log_file}")
-        
-        # Start log tailer in background
-        asyncio.create_task(tail_logs())
+        logger.info(f"✅ Started integrated live trading session")
+        logger.info(f"� Strategy: {request.strategy}")
+        logger.info(f"⚙️  Config: {config_path}")
         
         return {
             "status": "started",
-            "message": f"Live trading session started successfully (PID: {process.pid})",
-            "log_file": str(log_file),
-            "pid": process.pid,
-            "timestamp": datetime.now().isoformat()
+            "message": "Live trading session started successfully (integrated mode)",
+            "strategy": request.strategy,
+            "config": str(config_path),
+            "timestamp": datetime.now().isoformat(),
+            "mode": "integrated"
         }
     
     except HTTPException:
@@ -252,19 +657,11 @@ async def stop_trading():
         raise HTTPException(status_code=400, detail="No trading session running")
     
     try:
-        # Terminate the subprocess gracefully
-        if live_trading_manager.process.poll() is None:
-            live_trading_manager.process.terminate()
-            # Give it 5 seconds to terminate gracefully
-            try:
-                live_trading_manager.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                # Force kill if it doesn't terminate
-                live_trading_manager.process.kill()
-                live_trading_manager.process.wait()
-        
-        live_trading_manager.running = False
+        # Stop the integrated trading session
+        await live_trading_manager.stop()
         live_trading_manager = None
+        
+        logger.info("✅ Trading session stopped successfully")
         
         return {
             "status": "stopped",
@@ -288,18 +685,18 @@ async def get_trading_status():
             "message": "No trading session"
         }
     
-    # Check if process is still running
-    if live_trading_manager.process.poll() is not None:
+    # Check if task is still running
+    if live_trading_manager.task.done():
         live_trading_manager.running = False
         return {
             "is_running": False,
-            "message": "Trading process terminated"
+            "message": "Trading task completed or crashed"
         }
     
     return {
         "is_running": True,
-        "pid": live_trading_manager.process.pid,
-        "message": "Trading session running"
+        "mode": "integrated",
+        "message": "Trading session running (integrated mode)"
     }
 
 
@@ -1595,39 +1992,6 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
-async def tail_logs():
-    """Tail the live trading log file and broadcast updates via WebSocket."""
-    log_file = project_root / "logs" / "live_trading.log"
-    
-    if not log_file.exists():
-        logger.warning(f"Log file not found: {log_file}")
-        return
-    
-    logger.info(f"Starting log tailer for: {log_file}")
-    
-    try:
-        with open(log_file, 'r') as f:
-            # Start from the beginning to catch all bars
-            f.seek(0, 0)
-            lines_read = 0
-            
-            while live_trading_manager and live_trading_manager.running:
-                line = f.readline()
-                if line:
-                    lines_read += 1
-                    # Parse the log line and send as structured data
-                    parsed = parse_log_line(line)
-                    if parsed:
-                        logger.info(f"Parsed line {lines_read}: {parsed['type']}")
-                        # Broadcast to all connected WebSocket clients
-                        await manager.broadcast(parsed)
-                else:
-                    # No new data, wait a bit
-                    await asyncio.sleep(0.5)
-    except Exception as e:
-        logger.error(f"Error tailing logs: {e}", exc_info=True)
-
-
 def parse_log_line(line: str) -> dict:
     """Parse a log line into structured data for the UI."""
     line = line.strip()
@@ -1834,6 +2198,205 @@ async def run_trading_session():
         })
 
 
+# =============================================================================
+# SPY FUTURES DAILY INSIGHTS API
+# =============================================================================
+
+class SPYTradingSummaryRequest(BaseModel):
+    """Request model for SPY Futures trading summary."""
+    date: str  # YYYY-MM-DD
+    performance: Dict[str, Any]
+    observations: List[str]
+    suggestions: Dict[str, Any]
+    warnings: Optional[List[str]] = []
+    insights: Optional[List[Dict]] = []
+    profitable_patterns: Optional[List[str]] = []
+    losing_patterns: Optional[List[str]] = []
+
+
+@app.post("/api/trading-summary")
+async def post_trading_summary(summary: SPYTradingSummaryRequest):
+    """
+    Receive SPY Futures daily trading summary and insights.
+    
+    This endpoint receives structured daily performance data and LLM insights
+    for SPY Futures trading, stores it, and broadcasts to connected clients.
+    """
+    try:
+        logger.info(f"Received SPY trading summary for {summary.date}")
+        
+        # Save to file for persistence
+        reports_dir = Path("dashboard/backend/reports")
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        
+        summary_file = reports_dir / f"spy_summary_{summary.date}.json"
+        with open(summary_file, 'w') as f:
+            json.dump(summary.dict(), f, indent=2, default=str)
+        
+        logger.info(f"Saved summary to {summary_file}")
+        
+        # Broadcast to all connected WebSocket clients
+        await manager.broadcast({
+            "type": "spy_trading_summary",
+            "data": summary.dict(),
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return {
+            "status": "success",
+            "message": f"Trading summary received for {summary.date}",
+            "saved_to": str(summary_file)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error processing trading summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/spy-futures/latest-summary")
+async def get_latest_spy_summary():
+    """
+    Get the most recent SPY Futures trading summary.
+    
+    Returns the latest saved summary from the reports directory.
+    """
+    try:
+        reports_dir = Path("dashboard/backend/reports")
+        
+        if not reports_dir.exists():
+            return {
+                "status": "no_data",
+                "message": "No reports directory found"
+            }
+        
+        # Find most recent summary file
+        summary_files = list(reports_dir.glob("spy_summary_*.json"))
+        
+        if not summary_files:
+            return {
+                "status": "no_data",
+                "message": "No SPY Futures summaries found"
+            }
+        
+        # Get most recent file
+        latest_file = max(summary_files, key=lambda p: p.stat().st_mtime)
+        
+        # Load and return
+        with open(latest_file, 'r') as f:
+            data = json.load(f)
+        
+        return {
+            "status": "success",
+            "data": data,
+            "file": str(latest_file),
+            "timestamp": datetime.fromtimestamp(latest_file.stat().st_mtime).isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error loading latest summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/spy-futures/summary-history")
+async def get_spy_summary_history(days: int = 7):
+    """
+    Get SPY Futures summary history for the last N days.
+    
+    Args:
+        days: Number of days of history to retrieve (default: 7)
+    """
+    try:
+        reports_dir = Path("dashboard/backend/reports")
+        
+        if not reports_dir.exists():
+            return {
+                "status": "no_data",
+                "message": "No reports directory found",
+                "summaries": []
+            }
+        
+        # Find all summary files
+        summary_files = list(reports_dir.glob("spy_summary_*.json"))
+        
+        if not summary_files:
+            return {
+                "status": "no_data",
+                "message": "No SPY Futures summaries found",
+                "summaries": []
+            }
+        
+        # Sort by modification time (most recent first)
+        summary_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        
+        # Load recent summaries
+        summaries = []
+        for filepath in summary_files[:days]:
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    summaries.append(data)
+            except Exception as e:
+                logger.warning(f"Could not load {filepath}: {e}")
+                continue
+        
+        return {
+            "status": "success",
+            "count": len(summaries),
+            "summaries": summaries
+        }
+    
+    except Exception as e:
+        logger.error(f"Error loading summary history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/spy-futures/run-analysis")
+async def run_spy_analysis(days: int = 1):
+    """
+    Trigger SPY Futures daily analysis manually.
+    
+    This endpoint runs the complete analysis pipeline:
+    1. Load recent SPY Futures trades
+    2. Compute performance metrics
+    3. Generate LLM insights
+    4. Save and broadcast results
+    
+    Args:
+        days: Number of days to analyze (default: 1)
+    """
+    try:
+        logger.info(f"Running SPY Futures analysis for last {days} day(s)")
+        
+        # Import here to avoid circular dependencies
+        from mytrader.llm.spy_futures_orchestrator import run_spy_futures_daily_review
+        
+        # Run analysis
+        result = await asyncio.to_thread(run_spy_futures_daily_review, days=days)
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Analysis failed")
+            )
+        
+        # Broadcast results via WebSocket
+        await manager.broadcast({
+            "type": "spy_analysis_complete",
+            "data": result.get("report", {}),
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return {
+            "status": "success",
+            "message": "SPY Futures analysis completed",
+            "result": result
+        }
+    
+    except Exception as e:
+        logger.error(f"Error running SPY analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
@@ -1843,6 +2406,7 @@ async def startup_event():
     
     # Check if reports directory exists
     Path("reports").mkdir(exist_ok=True)
+    Path("dashboard/backend/reports").mkdir(parents=True, exist_ok=True)
 
 
 # Shutdown event

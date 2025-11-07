@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -176,11 +177,24 @@ class LLMTrainingPipeline:
         # Note: The actual Bedrock fine-tuning API may differ
         # This is a conceptual implementation
         try:
+            # Get IAM role from environment or use default
+            iam_role = os.environ.get(
+                "BEDROCK_FINETUNING_ROLE_ARN",
+                ""  # User must set this environment variable
+            )
+            
+            if not iam_role:
+                logger.error(
+                    "BEDROCK_FINETUNING_ROLE_ARN environment variable not set. "
+                    "Please set this to your IAM role ARN with Bedrock fine-tuning permissions."
+                )
+                raise ValueError("Missing BEDROCK_FINETUNING_ROLE_ARN")
+            
             # For Claude models, use custom model import
             response = self.bedrock_client.create_model_customization_job(
                 jobName=job_name,
                 customModelName=f"trading-optimized-{job_name}",
-                roleArn=f"arn:aws:iam::ACCOUNT_ID:role/BedrockFineTuningRole",  # Replace with actual role
+                roleArn=iam_role,
                 baseModelIdentifier=base_model_id,
                 trainingDataConfig={
                     "s3Uri": training_data_uri

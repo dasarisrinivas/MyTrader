@@ -125,11 +125,23 @@ export AWS_DEFAULT_REGION=us-east-1
 
 ### 3. Request Bedrock Model Access
 
-1. Go to AWS Console → Bedrock → Model access
-2. Request access to:
-   - **Claude 3 Sonnet** (recommended): `anthropic.claude-3-sonnet-20240229-v1:0`
-   - **Claude 3 Haiku** (faster): `anthropic.claude-3-haiku-20240307-v1:0`
-   - **Titan Text** (alternative): `amazon.titan-text-express-v1`
+**Good News!** As of 2024, AWS Bedrock automatically enables access to all serverless foundation models. No manual approval needed!
+
+**Available Models:**
+- **Claude 3 Sonnet**: `anthropic.claude-3-sonnet-20240229-v1:0` (recommended)
+- **Claude 3 Haiku**: `anthropic.claude-3-haiku-20240307-v1:0` (faster/cheaper)
+- **Claude 3.5 Sonnet**: `anthropic.claude-3-5-sonnet-20240620-v1:0` (most advanced)
+
+**First-time Anthropic Users:**
+- Some users may need to submit use case details on first access
+- Visit the [Bedrock Model Catalog](https://console.aws.amazon.com/bedrock/home#/model-catalog)
+- Select a model and open it in the playground
+- Complete any required use case information
+
+**Optional Access Control:**
+- Use IAM policies to restrict model access as needed
+- Configure Service Control Policies for organization-wide restrictions
+- See [IAM policies documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/security_iam_id-based-policy-examples.html)
 
 ## Configuration
 
@@ -459,9 +471,11 @@ pip install boto3 botocore
 ```
 
 ### Issue: "Access denied to model"
-1. Go to AWS Console → Bedrock → Model access
-2. Request access to your desired model
-3. Wait for approval (usually instant for Claude)
+- ✅ **Good news:** Model access is now automatic for all Bedrock models
+- First-time Anthropic users may need to submit use case details
+- Visit [Bedrock Model Catalog](https://console.aws.amazon.com/bedrock/home#/model-catalog)
+- Select your model and complete any required information
+- Verify IAM permissions include `bedrock:InvokeModel` action
 
 ### Issue: "LLM returning None"
 - Check AWS credentials are configured correctly
