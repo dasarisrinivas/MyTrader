@@ -7,7 +7,10 @@ import RealTimeCharts from './RealTimeCharts';
 import BotHealthIndicator from './BotHealthIndicator';
 import BacktestControls from './BacktestControls';
 import BacktestResults from './BacktestResults';
-import { Activity, Play, Square, BarChart2, AlertTriangle } from 'lucide-react';
+import RAGStatusIndicator from './RAGStatusIndicator';
+import TradingSignalDisplay from './TradingSignalDisplay';
+import { ErrorNotification, ConnectionStatus, BackendStatusCard } from './ErrorStates';
+import { Activity, Play, Square, BarChart2, AlertTriangle, Brain } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
 
@@ -15,11 +18,12 @@ export const Dashboard = () => {
   const [status, setStatus] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'intelligence', 'trail', 'charts', 'backtest'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'intelligence', 'trail', 'charts', 'backtest', 'signals'
   const [backtestResults, setBacktestResults] = useState(null);
   const [starting, setStarting] = useState(false);
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [isEmergencyExiting, setIsEmergencyExiting] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const { isConnected, lastMessage } = useWebSocket();
 
@@ -41,15 +45,40 @@ export const Dashboard = () => {
     }
   }, [lastMessage]);
 
+  // Auto-retry connection
+  useEffect(() => {
+    if (!isConnected && !isRetrying) {
+      const retryTimer = setTimeout(() => {
+        handleRetryConnection();
+      }, 5000);
+      
+      return () => clearTimeout(retryTimer);
+    }
+  }, [isConnected]);
+
   const fetchStatus = async () => {
     try {
       const response = await fetch(`${API_URL}/api/trading/status`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       setStatus(data);
       setIsRunning(data.is_running);
+      setError(null); // Clear error on successful fetch
     } catch (err) {
       console.error('Failed to fetch status:', err);
+      if (!error) { // Only set error if not already set
+        setError(`Failed to connect to backend: ${err.message}`);
+      }
     }
+  };
+
+  const handleRetryConnection = () => {
+    setIsRetrying(true);
+    fetchStatus().finally(() => {
+      setIsRetrying(false);
+    });
   };
 
   const handleStart = async () => {
