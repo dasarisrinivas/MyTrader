@@ -98,6 +98,165 @@ class MultiStrategy:
         current_position: int = 0
     ) -> Tuple[str, float, Optional[Dict]]:
         """
+        Generate trading signal with enhanced validation and safeguards.
+        
+        Args:
+            df: DataFrame with OHLCV and technical indicators
+            current_position: Current position size
+            
+        Returns:
+            Tuple of (action, confidence, risk_params)
+        """
+        # Safeguard 1: Validate input data
+        if df is None or df.empty:
+            logger.error("❌ Invalid data: DataFrame is None or empty")
+            return "HOLD", 0.0, None
+        
+        # Safeguard 2: Check minimum data length
+        min_required_rows = 50
+        if len(df) < min_required_rows:
+            logger.warning(f"⚠️  Insufficient data: {len(df)} rows (need {min_required_rows})")
+            return "HOLD", 0.0, None
+        
+        # Safeguard 3: Validate required columns
+        required_columns = ['open', 'high', 'low', 'close']
+        missing_cols = [col for col in required_columns if col not in df.columns]
+        if missing_cols:
+            logger.error(f"❌ Missing required columns: {missing_cols}")
+            return "HOLD", 0.0, None
+        
+        # Safeguard 4: Check for NaN values in critical columns
+        critical_cols = ['close', 'high', 'low']
+        for col in critical_cols:
+            if df[col].isna().any():
+                nan_count = df[col].isna().sum()
+                logger.warning(f"⚠️  NaN values detected in {col}: {nan_count} rows")
+                # Fill NaN with forward fill as a recovery measure
+                df[col] = df[col].fillna(method='ffill')
+        
+        # Safeguard 5: Validate price data sanity
+        last_close = df['close'].iloc[-1]
+        if last_close <= 0 or not np.isfinite(last_close):
+            logger.error(f"❌ Invalid price data: close={last_close}")
+            return "HOLD", 0.0, None
+        
+        # Safeguard 6: Check for extreme price movements (possible data error)
+        if len(df) > 1:
+            price_change_pct = abs((df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2])
+            if price_change_pct > 0.2:  # 20% change in one bar
+                logger.warning(f"⚠️  Extreme price movement detected: {price_change_pct*100:.1f}%")
+                # Continue but with caution flag
+        
+        try:
+            # Analyze market context first
+            market_context = self.analyze_market_context(df)
+            
+            # Safeguard 7: Validate market context
+            if not market_context or 'bias' not in market_context:
+                logger.warning("⚠️  Invalid market context, using defaults")
+                market_context = {'bias': 'neutral', 'volatility': 'medium', 'atr': 1.0}
+            
+            # Auto-select best strategy or use specified mode
+            if self.strategy_mode == "auto":
+                strategy_to_use = self._select_best_strategy(market_context)
+            else:
+                strategy_to_use = self.strategy_mode
+            
+            logger.debug(f"Using strategy: {strategy_to_use}")
+            
+            # Generate signal based on strategy
+            if strategy_to_use == "trend_following":
+                action, confidence, risk_params = self._trend_following_signal(df, current_position)
+            elif strategy_to_use == "breakout":
+                action, confidence, risk_params = self._breakout_signal(df, current_position)
+            elif strategy_to_use == "mean_reversion":
+                action, confidence, risk_params = self._mean_reversion_signal(df, current_position)
+            else:
+                logger.error(f"❌ Unknown strategy mode: {strategy_to_use}")
+                return "HOLD", 0.0, None
+            
+            # Safeguard 8: Validate generated signal
+            if action not in ["BUY", "SELL", "HOLD"]:
+                logger.error(f"❌ Invalid action generated: {action}")
+                return "HOLD", 0.0, None
+            
+            if not (0.0 <= confidence <= 1.0):
+                logger.warning(f"⚠️  Confidence out of range: {confidence}, clamping to [0,1]")
+                confidence = max(0.0, min(1.0, confidence))
+            
+            # Safeguard 9: Validate risk parameters
+            if risk_params:
+                risk_params = self._validate_risk_params(risk_params, df['close'].iloc[-1])
+            
+            # Apply minimum confidence threshold
+            if confidence < self.min_confidence:
+                logger.info(f"📉 Signal confidence {confidence:.2f} below threshold {self.min_confidence}")
+                return "HOLD", confidence, risk_params
+            
+            # RAG validation (if enabled)
+            if self.rag_validator.enabled:
+                logger.info(f"🔍 Validating signal with RAG: {action} (confidence={confidence:.2f})")
+                action, confidence, validation_reason = self.rag_validator.validate_signal(
+                    action=action,
+                    confidence=confidence,
+                    risk_params=risk_params or {},
+                    market_context=market_context,
+                    df=df
+                )
+                
+                if validation_reason:
+                    logger.info(f"   RAG: {validation_reason}")
+            
+            return action, confidence, risk_params
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating signal: {e}")
+            logger.exception("Signal generation traceback:")
+            return "HOLD", 0.0, None
+    
+    def _validate_risk_params(self, risk_params: Dict, current_price: float) -> Dict:
+        """Validate and sanitize risk parameters.
+        
+        Args:
+            risk_params: Risk parameters dict
+            current_price: Current market price
+            
+        Returns:
+            Validated risk parameters
+        """
+        validated = risk_params.copy()
+        
+        # Validate stop loss levels
+        for key in ['stop_loss_long', 'stop_loss_short']:
+            if key in validated:
+                stop_value = validated[key]
+                if not isinstance(stop_value, (int, float)) or not np.isfinite(stop_value):
+                    logger.warning(f"⚠️  Invalid {key}: {stop_value}, removing")
+                    del validated[key]
+                elif stop_value <= 0:
+                    logger.warning(f"⚠️  Non-positive {key}: {stop_value}, removing")
+                    del validated[key]
+        
+        # Validate take profit levels
+        for key in ['take_profit_long', 'take_profit_short']:
+            if key in validated:
+                tp_value = validated[key]
+                if not isinstance(tp_value, (int, float)) or not np.isfinite(tp_value):
+                    logger.warning(f"⚠️  Invalid {key}: {tp_value}, removing")
+                    del validated[key]
+                elif tp_value <= 0:
+                    logger.warning(f"⚠️  Non-positive {key}: {tp_value}, removing")
+                    del validated[key]
+        
+        # Validate ATR
+        if 'atr' in validated:
+            atr = validated['atr']
+            if not isinstance(atr, (int, float)) or not np.isfinite(atr) or atr <= 0:
+                logger.warning(f"⚠️  Invalid ATR: {atr}, using default 1.0")
+                validated['atr'] = 1.0
+        
+        return validated
+        """
         Generate trading signal based on selected strategy.
         
         Returns:
