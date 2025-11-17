@@ -167,20 +167,24 @@ async def ingest_documents(request: DocumentIngestionRequest):
     try:
         rag_engine = get_rag_engine()
         
-        # Ingest documents
-        rag_engine.ingest_documents(
+        # Ingest documents (now returns dict with stats)
+        result = rag_engine.ingest_documents(
             documents=request.documents,
             clear_existing=request.clear_existing,
             batch_size=request.batch_size
         )
         
+        # Handle the dict response
+        if not result.get("success", False):
+            logger.warning(f"Document ingestion had issues: {result.get('message')}")
+        
         stats = rag_engine.get_stats()
         
         return DocumentIngestionResponse(
-            success=True,
-            num_documents_ingested=len(request.documents),
+            success=result.get("success", False),
+            num_documents_ingested=result.get("num_documents", 0),
             total_documents=stats["num_documents"],
-            message=f"Successfully ingested {len(request.documents)} documents"
+            message=result.get("message", "Ingestion completed")
         )
         
     except Exception as e:

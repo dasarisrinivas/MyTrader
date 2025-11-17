@@ -1,0 +1,42 @@
+{
+  "stop_loss": {
+    "type": "atr_based",
+    "fixed_ticks": 10.0,
+    "atr_multiplier": 2.0,
+    "percentage": 1.0,
+    "use_trailing": true,
+    "trailing_type": "atr_based",
+    "trailing_distance_ticks": 5.0,
+    "trailing_atr_multiplier": 1.5
+  },
+  "take_profit": {
+    "type": "risk_reward_ratio",
+    "fixed_ticks": 20.0,
+    "risk_reward_ratio": 2.0,
+    "atr_multiplier": 3.0,
+    "percentage": 2.0,
+    "use_partial_exits": false,
+    "partial_exit_levels": [0.5, 0.75],
+    "partial_exit_sizes": [0.3, 0.3]
+  },
+  "position_sizing": {
+    "method": "kelly",
+    "fixed_size": 1,
+    "kelly_fraction": 0.5,
+    "risk_per_trade_pct": 1.0,
+    "max_contracts": 4,
+    "scale_by_confidence": true,
+    "min_confidence_for_max_size": 0.85
+  },
+  "limits": {
+    "max_daily_loss": 2000.0,
+    "max_daily_trades": 20,
+    "max_consecutive_losses": 5,
+    "max_position_size": 4,
+    "max_total_exposure": 0.5,
+    "no_trade_hours": [],
+    "no_trade_days": [],
+    "enable_circuit_breaker": true,
+    "circuit_breaker_loss_pct": 5.0
+  }
+}
