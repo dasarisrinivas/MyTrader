@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 try:
     import boto3
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError, EndpointConnectionError, BotoCoreError
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
@@ -25,6 +25,21 @@ except ImportError:
 
 from ..utils.logger import logger
 from .bedrock_client import BedrockClient
+
+
+class RAGEngineError(Exception):
+    """Base exception for RAG engine errors."""
+    pass
+
+
+class EmbeddingError(RAGEngineError):
+    """Exception raised when embedding generation fails."""
+    pass
+
+
+class RetrievalError(RAGEngineError):
+    """Exception raised when document retrieval fails."""
+    pass
 
 
 class RAGEngine:
@@ -68,11 +83,29 @@ class RAGEngine:
         self.cache_enabled = cache_enabled
         self.cache_ttl_seconds = cache_ttl_seconds
         
+        # Retry configuration
+        self.max_retries = 3
+        self.retry_delay = 1.0  # Initial delay in seconds
+        self.retry_backoff = 2.0  # Exponential backoff multiplier
+        
+        # Latency tracking
+        self.embedding_latencies: List[float] = []
+        self.max_latency_samples = 100
+        
+        # Error tracking
+        self.error_count = 0
+        self.last_error_time: Optional[float] = None
+        
         # Initialize Bedrock runtime client for embeddings
-        self.bedrock_runtime = boto3.client(
-            service_name="bedrock-runtime",
-            region_name=region_name
-        )
+        try:
+            self.bedrock_runtime = boto3.client(
+                service_name="bedrock-runtime",
+                region_name=region_name
+            )
+            logger.info(f"Initialized Bedrock runtime client for region {region_name}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Bedrock runtime client: {e}")
+            raise RAGEngineError(f"Bedrock client initialization failed: {e}")
         
         # Initialize FAISS index (Inner Product for cosine similarity with normalized vectors)
         self.index = faiss.IndexFlatIP(dimension)
@@ -90,22 +123,33 @@ class RAGEngine:
         if self.vector_store_path:
             index_file = self.vector_store_path.with_suffix(".faiss")
             if index_file.exists():
-                self._load_index()
-                logger.info(f"Loaded RAG index with {len(self.documents)} documents")
+                try:
+                    self._load_index()
+                    logger.info(f"✅ Loaded RAG index with {len(self.documents)} documents")
+                except Exception as e:
+                    logger.error(f"Failed to load index: {e}")
+                    logger.warning("Initializing new empty index")
+                    self._clear_index()
             else:
                 logger.info("Initialized new RAG index")
         else:
-            logger.info("Initialized new RAG index")
+            logger.info("Initialized new RAG index (no persistence)")
     
-    def _get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding vector for text using AWS Titan Embeddings.
+    def _get_embedding_with_retry(self, text: str, retry_count: int = 0) -> np.ndarray:
+        """Get embedding with retry logic and latency tracking.
         
         Args:
             text: Input text to embed
+            retry_count: Current retry attempt
             
         Returns:
             Normalized embedding vector
+            
+        Raises:
+            EmbeddingError: If embedding fails after all retries
         """
+        start_time = time.time()
+        
         try:
             # Prepare request body
             body = json.dumps({"inputText": text})
@@ -127,14 +171,69 @@ class RAGEngine:
             if norm > 0:
                 embedding = embedding / norm
             
+            # Track latency
+            latency = time.time() - start_time
+            self._record_latency(latency)
+            
+            if latency > 2.0:  # Warn if embedding takes more than 2 seconds
+                logger.warning(f"Slow embedding generation: {latency:.2f}s for {len(text)} chars")
+            
             return embedding
             
-        except ClientError as e:
-            logger.error(f"AWS Bedrock embedding error: {e}")
-            raise
+        except (ClientError, EndpointConnectionError, BotoCoreError) as e:
+            self.error_count += 1
+            self.last_error_time = time.time()
+            
+            error_msg = str(e)
+            logger.error(f"AWS Bedrock embedding error (attempt {retry_count + 1}/{self.max_retries}): {error_msg}")
+            
+            # Retry with exponential backoff
+            if retry_count < self.max_retries:
+                delay = self.retry_delay * (self.retry_backoff ** retry_count)
+                logger.info(f"Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                return self._get_embedding_with_retry(text, retry_count + 1)
+            else:
+                raise EmbeddingError(f"Failed to generate embedding after {self.max_retries} attempts: {error_msg}")
+                
         except Exception as e:
-            logger.error(f"Error generating embedding: {e}")
-            raise
+            self.error_count += 1
+            self.last_error_time = time.time()
+            logger.error(f"Unexpected error generating embedding: {e}")
+            raise EmbeddingError(f"Unexpected embedding error: {e}")
+    
+    def _get_embedding(self, text: str) -> np.ndarray:
+        """Get embedding vector for text using AWS Titan Embeddings.
+        
+        Args:
+            text: Input text to embed
+            
+        Returns:
+            Normalized embedding vector
+        """
+        return self._get_embedding_with_retry(text, retry_count=0)
+    
+    def _record_latency(self, latency: float) -> None:
+        """Record embedding latency for monitoring.
+        
+        Args:
+            latency: Latency in seconds
+        """
+        self.embedding_latencies.append(latency)
+        
+        # Keep only recent samples
+        if len(self.embedding_latencies) > self.max_latency_samples:
+            self.embedding_latencies = self.embedding_latencies[-self.max_latency_samples:]
+    
+    def get_avg_latency(self) -> float:
+        """Get average embedding latency.
+        
+        Returns:
+            Average latency in seconds, or 0 if no samples
+        """
+        if not self.embedding_latencies:
+            return 0.0
+        return sum(self.embedding_latencies) / len(self.embedding_latencies)
     
     def _batch_embeddings(self, texts: List[str], batch_size: int = 10) -> np.ndarray:
         """Generate embeddings for multiple texts with batching.
@@ -174,46 +273,135 @@ class RAGEngine:
         documents: List[str],
         clear_existing: bool = False,
         batch_size: int = 10
-    ) -> None:
-        """Ingest documents into the vector store.
+    ) -> Dict[str, any]:
+        """Ingest documents into the vector store with enhanced error handling.
         
         Args:
             documents: List of document texts to ingest
             clear_existing: Clear existing documents before ingestion
             batch_size: Number of documents to embed at once
+            
+        Returns:
+            Dictionary with ingestion statistics and errors
         """
         if not documents:
             logger.warning("No documents provided for ingestion")
-            return
+            return {
+                "success": False,
+                "num_documents": 0,
+                "num_errors": 0,
+                "message": "No documents provided"
+            }
         
-        logger.info(f"Ingesting {len(documents)} documents into RAG index...")
+        logger.info(f"🔄 Ingesting {len(documents)} documents into RAG index...")
         
         if clear_existing:
             self._clear_index()
-            logger.info("Cleared existing index")
+            logger.info("✅ Cleared existing index")
         
-        # Generate embeddings
+        # Validate documents
+        valid_documents = []
+        invalid_count = 0
+        
+        for i, doc in enumerate(documents):
+            if not doc or not isinstance(doc, str):
+                logger.warning(f"Skipping invalid document at index {i}: {type(doc)}")
+                invalid_count += 1
+                continue
+            
+            # Trim excessive whitespace
+            doc = doc.strip()
+            if len(doc) < 10:  # Skip very short documents
+                logger.warning(f"Skipping very short document at index {i}: {len(doc)} chars")
+                invalid_count += 1
+                continue
+            
+            valid_documents.append(doc)
+        
+        if invalid_count > 0:
+            logger.warning(f"⚠️  Skipped {invalid_count} invalid documents")
+        
+        if not valid_documents:
+            logger.error("No valid documents to ingest")
+            return {
+                "success": False,
+                "num_documents": 0,
+                "num_errors": invalid_count,
+                "message": "No valid documents"
+            }
+        
+        # Generate embeddings with error tracking
         start_time = time.time()
-        embeddings = self._batch_embeddings(documents, batch_size=batch_size)
-        elapsed = time.time() - start_time
+        embeddings = []
+        embedding_errors = 0
         
-        # Add to FAISS index
-        self.index.add(embeddings)
-        
-        # Store documents
-        self.documents.extend(documents)
-        
-        # Clear cache after ingestion
-        self.query_cache.clear()
-        
-        logger.info(
-            f"Successfully ingested {len(documents)} documents "
-            f"(total: {len(self.documents)}) in {elapsed:.2f}s"
-        )
-        
-        # Persist index
-        if self.vector_store_path:
-            self._save_index()
+        try:
+            for i in range(0, len(valid_documents), batch_size):
+                batch = valid_documents[i:i + batch_size]
+                
+                for doc in batch:
+                    try:
+                        embedding = self._get_embedding(doc)
+                        embeddings.append(embedding)
+                        
+                        # Rate limiting: small delay between requests
+                        time.sleep(0.1)
+                        
+                    except EmbeddingError as e:
+                        logger.error(f"Failed to embed document (length {len(doc)}): {e}")
+                        embedding_errors += 1
+                        # Use zero vector as fallback
+                        embeddings.append(np.zeros(self.dimension, dtype=np.float32))
+                
+                # Progress logging
+                progress = min(i + batch_size, len(valid_documents))
+                logger.info(f"📊 Progress: {progress}/{len(valid_documents)} documents embedded")
+            
+            embeddings_array = np.array(embeddings, dtype=np.float32)
+            elapsed = time.time() - start_time
+            
+            # Add to FAISS index
+            self.index.add(embeddings_array)
+            
+            # Store documents
+            self.documents.extend(valid_documents)
+            
+            # Clear cache after ingestion
+            self.query_cache.clear()
+            
+            logger.info(
+                f"✅ Successfully ingested {len(valid_documents)} documents "
+                f"(total: {len(self.documents)}) in {elapsed:.2f}s"
+            )
+            
+            if embedding_errors > 0:
+                logger.warning(f"⚠️  Encountered {embedding_errors} embedding errors (using fallback vectors)")
+            
+            # Persist index
+            if self.vector_store_path:
+                try:
+                    self._save_index()
+                except Exception as e:
+                    logger.error(f"Failed to persist index: {e}")
+                    # Don't fail the entire operation
+            
+            return {
+                "success": True,
+                "num_documents": len(valid_documents),
+                "num_errors": invalid_count + embedding_errors,
+                "total_documents": len(self.documents),
+                "elapsed_seconds": elapsed,
+                "message": f"Ingested {len(valid_documents)} documents successfully"
+            }
+            
+        except Exception as e:
+            logger.error(f"Fatal error during document ingestion: {e}")
+            return {
+                "success": False,
+                "num_documents": len(embeddings),
+                "num_errors": invalid_count + embedding_errors + 1,
+                "message": f"Ingestion failed: {str(e)}"
+            }
     
     def retrieve_context(
         self,
@@ -221,7 +409,7 @@ class RAGEngine:
         top_k: int = 3,
         score_threshold: float = 0.5
     ) -> List[Tuple[str, float]]:
-        """Retrieve relevant documents for a query.
+        """Retrieve relevant documents for a query with enhanced error handling.
         
         Args:
             query: Query text
@@ -230,7 +418,19 @@ class RAGEngine:
             
         Returns:
             List of (document, score) tuples, sorted by relevance
+            
+        Raises:
+            RetrievalError: If retrieval fails critically
         """
+        if not query or not isinstance(query, str):
+            logger.error(f"Invalid query type: {type(query)}")
+            return []
+        
+        query = query.strip()
+        if not query:
+            logger.warning("Empty query provided")
+            return []
+        
         if len(self.documents) == 0:
             logger.warning("No documents in index for retrieval")
             return []
@@ -241,16 +441,20 @@ class RAGEngine:
             cached_result = self._get_cached_query(query_hash)
             
             if cached_result is not None:
-                logger.debug(f"Cache hit for query: {query[:50]}...")
+                logger.debug(f"✅ Cache hit for query: {query[:50]}...")
                 return cached_result[:top_k]
         
-        # Generate query embedding
+        # Generate query embedding with error handling
         try:
             query_embedding = self._get_embedding(query)
             query_embedding = query_embedding.reshape(1, -1)
             
-        except Exception as e:
+        except EmbeddingError as e:
             logger.error(f"Failed to generate query embedding: {e}")
+            # Return empty results instead of crashing
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error generating query embedding: {e}")
             return []
         
         # Search FAISS index
@@ -259,10 +463,16 @@ class RAGEngine:
             search_k = min(top_k * 2, len(self.documents))
             scores, indices = self.index.search(query_embedding, search_k)
             
-            # Build results
+            # Build results with validation
             results = []
             for score, idx in zip(scores[0], indices[0]):
-                if idx < len(self.documents) and score >= score_threshold:
+                # Validate index
+                if idx < 0 or idx >= len(self.documents):
+                    logger.warning(f"Invalid document index returned: {idx}")
+                    continue
+                
+                # Filter by score threshold
+                if score >= score_threshold:
                     results.append((self.documents[idx], float(score)))
             
             # Sort by score descending
@@ -275,12 +485,17 @@ class RAGEngine:
             if self.cache_enabled and results:
                 self._cache_query(query_hash, results)
             
-            logger.info(f"Retrieved {len(results)} documents for query (top_k={top_k})")
+            logger.info(f"📚 Retrieved {len(results)}/{top_k} documents (threshold={score_threshold})")
+            
+            if results:
+                avg_score = sum(s for _, s in results) / len(results)
+                logger.debug(f"   Average relevance score: {avg_score:.3f}")
+            
             return results
             
         except Exception as e:
-            logger.error(f"Error during retrieval: {e}")
-            return []
+            logger.error(f"Error during FAISS retrieval: {e}")
+            raise RetrievalError(f"Document retrieval failed: {e}")
     
     def generate_with_rag(
         self,
@@ -473,11 +688,13 @@ ANSWER:"""
             self._clear_index()
     
     def get_stats(self) -> Dict:
-        """Get RAG engine statistics.
+        """Get RAG engine statistics with enhanced monitoring metrics.
         
         Returns:
-            Dictionary with statistics
+            Dictionary with comprehensive statistics
         """
+        avg_latency = self.get_avg_latency()
+        
         return {
             "num_documents": len(self.documents),
             "embedding_dimension": self.dimension,
@@ -485,5 +702,32 @@ ANSWER:"""
             "cache_enabled": self.cache_enabled,
             "vector_store_path": str(self.vector_store_path) if self.vector_store_path else None,
             "embedding_model": self.embedding_model_id,
-            "llm_model": self.bedrock_client.model_id
+            "llm_model": self.bedrock_client.model_id,
+            "avg_embedding_latency_ms": round(avg_latency * 1000, 2),
+            "error_count": self.error_count,
+            "last_error_time": self.last_error_time,
+            "health_status": self._get_health_status()
         }
+    
+    def _get_health_status(self) -> str:
+        """Determine health status of RAG engine.
+        
+        Returns:
+            Health status string: "healthy", "degraded", or "unhealthy"
+        """
+        # Check if we have documents
+        if len(self.documents) == 0:
+            return "unhealthy"  # No knowledge base
+        
+        # Check recent error rate
+        if self.error_count > 0 and self.last_error_time:
+            time_since_error = time.time() - self.last_error_time
+            if time_since_error < 60:  # Error within last minute
+                return "degraded"
+        
+        # Check latency
+        avg_latency = self.get_avg_latency()
+        if avg_latency > 3.0:  # Slow embeddings
+            return "degraded"
+        
+        return "healthy"

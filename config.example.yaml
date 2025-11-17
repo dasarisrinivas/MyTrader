@@ -66,3 +66,33 @@ llm:
   
   # Database settings
   trade_log_db_path: "data/llm_trades.db"  # SQLite database for trade logging
+  
+  # Call interval to prevent excessive API calls
+  call_interval_seconds: 60  # Minimum seconds between LLM calls
+
+# Retrieval-Augmented Generation (RAG) Configuration
+rag:
+  # Enable/disable RAG functionality
+  enabled: false  # Set to true to enable RAG knowledge base
+  
+  # AWS Bedrock embedding settings
+  embedding_model_id: "amazon.titan-embed-text-v1"  # Titan Embeddings model
+  region_name: "us-east-1"
+  
+  # Vector store settings
+  vector_store_path: "data/rag_index"  # Path to persist FAISS index
+  embedding_dimension: 1536  # Titan v1 embedding dimension
+  
+  # Retrieval settings
+  top_k_results: 3  # Number of documents to retrieve
+  score_threshold: 0.5  # Minimum similarity score (0-1)
+  
+  # Cache settings for query optimization
+  cache_enabled: true
+  cache_ttl_seconds: 3600  # Cache time-to-live in seconds
+  
+  # Batch processing
+  batch_size: 10  # Number of documents to embed at once
+  
+  # Knowledge base
+  knowledge_base_path: "data/knowledge_base"  # Directory containing trading knowledge documents
