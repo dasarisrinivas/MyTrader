@@ -26,7 +26,8 @@ class MultiStrategy:
         reward_risk_ratio: float = 2.0,
         use_trailing_stop: bool = True,
         trailing_stop_pct: float = 0.5,  # 0.5% trailing stop
-        min_confidence: float = 0.65
+        min_confidence: float = 0.65,
+        rag_engine=None  # Optional RAG engine for signal validation
     ):
         self.strategy_mode = strategy_mode
         self.reward_risk_ratio = reward_risk_ratio
@@ -38,7 +39,14 @@ class MultiStrategy:
         self.market_bias = "neutral"  # "bullish", "bearish", "neutral"
         self.volatility_level = "medium"  # "low", "medium", "high"
         
-        logger.info(f"Initialized MultiStrategy: mode={strategy_mode}, R:R={reward_risk_ratio}")
+        # FIX: Strategy locking to prevent mid-position switching
+        self.position_strategy = None  # Lock strategy when position is open
+        
+        # RAG validator for signal validation
+        from .rag_validator import RAGSignalValidator
+        self.rag_validator = RAGSignalValidator(rag_engine=rag_engine)
+        
+        logger.info(f"Initialized MultiStrategy: mode={strategy_mode}, R:R={reward_risk_ratio}, RAG={rag_engine is not None}")
     
     def analyze_market_context(self, df: pd.DataFrame) -> Dict:
         """
@@ -107,13 +115,24 @@ class MultiStrategy:
         # Calculate risk parameters
         risk_params = self._calculate_risk_params(df)
         
-        # Auto-select strategy based on market conditions
-        if self.strategy_mode == "auto":
-            strategy = self._select_best_strategy(context, df)
+        # FIX: Lock strategy when holding position to prevent mid-trade switching
+        if current_position != 0:
+            if self.position_strategy is None:
+                # Position opened without strategy lock (shouldn't happen, but handle it)
+                self.position_strategy = self.strategy_mode if self.strategy_mode != "auto" else "trend_following"
+            strategy = self.position_strategy
+            logger.info(f"🔒 Strategy locked: {strategy} (holding position)")
         else:
-            strategy = self.strategy_mode
-        
-        logger.info(f"🎯 Using strategy: {strategy}")
+            # No position - can change strategy
+            self.position_strategy = None
+            
+            # Auto-select strategy based on market conditions
+            if self.strategy_mode == "auto":
+                strategy = self._select_best_strategy(context, df)
+            else:
+                strategy = self.strategy_mode
+            
+            logger.info(f"🎯 Using strategy: {strategy}")
         
         # Generate signal based on selected strategy
         if strategy == "trend_following":
@@ -131,9 +150,26 @@ class MultiStrategy:
         elif current_position < 0 and action == "SELL":
             action = "HOLD"  # Already short
         
-        # Apply minimum confidence threshold
+        # Apply minimum confidence threshold (before RAG validation)
         if confidence < self.min_confidence:
             action = "HOLD"
+        
+        # RAG-enhanced signal validation
+        if action != "HOLD" and current_position == 0:  # Only validate new entry signals
+            action, confidence, validation_reason = self.rag_validator.validate_signal(
+                action=action,
+                confidence=confidence,
+                risk_params=risk_params,
+                market_context=context,
+                df=df
+            )
+            if validation_reason:
+                logger.info(f"📚 RAG: {validation_reason}")
+            
+            # Lock strategy if we're entering a position
+            if action != "HOLD":
+                self.position_strategy = strategy
+                logger.info(f"🔒 Strategy locked to: {strategy}")
         
         logger.info(f"📊 SIGNAL: {action} (confidence={confidence:.2f})")
         
@@ -202,6 +238,27 @@ class MultiStrategy:
             # Strong downtrend, consider holding/selling
             return "SELL", 0.6
         
+        # NEW: Detect strong momentum moves (4+ point drops/rises on ES)
+        # Calculate recent price change over last 5 bars
+        if len(df) >= 5:
+            price_5_bars_ago = df['close'].iloc[-5]
+            price_change_points = current_price - price_5_bars_ago
+            price_change_pct = (current_price - price_5_bars_ago) / price_5_bars_ago
+            
+            # Strong downward momentum: 3+ point drop (~0.045%) in 5 bars
+            if price_change_points < -3.0 and price_change_pct < -0.0004:
+                confidence = 0.65
+                if price_change_points < -5.0:  # Very strong drop
+                    confidence = 0.75
+                return "SELL", confidence
+            
+            # Strong upward momentum: 3+ point rise (~0.045%) in 5 bars  
+            elif price_change_points > 3.0 and price_change_pct > 0.0004:
+                confidence = 0.65
+                if price_change_points > 5.0:  # Very strong rise
+                    confidence = 0.75
+                return "BUY", confidence
+        
         return "HOLD", 0.0
     
     def _breakout_signal(self, df: pd.DataFrame, context: Dict) -> Tuple[str, float]:
@@ -243,9 +300,9 @@ class MultiStrategy:
             if context['bias'] == "bullish":
                 confidence += 0.1
             
-            # Strong breakout (> 0.3% above high)
+            # Strong breakout (> 0.05% above high = ~3 points on ES)
             breakout_strength = (current_price - prev_high) / prev_high
-            if breakout_strength > 0.003:
+            if breakout_strength > 0.0005:  # Reduced from 0.003 to 0.0005 for ES sensitivity
                 confidence += 0.1
             
             return "BUY", min(confidence, 1.0)
@@ -260,7 +317,7 @@ class MultiStrategy:
                 confidence += 0.1
             
             breakout_strength = (prev_low - current_price) / prev_low
-            if breakout_strength > 0.003:
+            if breakout_strength > 0.0005:  # Reduced from 0.003 to 0.0005 for ES sensitivity
                 confidence += 0.1
             
             return "SELL", min(confidence, 1.0)

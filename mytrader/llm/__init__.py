@@ -12,4 +12,5 @@ __all__ = [
     "AutonomousTradingOrchestrator",
     "SafetyConstraints",
     "StrategyAdjustment",
+    "RAGEngine",
 ]

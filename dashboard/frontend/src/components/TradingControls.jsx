@@ -1,8 +1,10 @@
-import { Play, Square, RefreshCw } from 'lucide-react';
+import { Play, Square, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 
-export const TradingControls = ({ status, onStart, onStop }) => {
+export const TradingControls = ({ status, onStart, onStop, onEmergencyExit }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isEmergencyExiting, setIsEmergencyExiting] = useState(false);
+  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
 
   const handleStart = async () => {
     setIsLoading(true);
@@ -19,6 +21,16 @@ export const TradingControls = ({ status, onStart, onStop }) => {
       await onStop();
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleEmergencyExit = async () => {
+    setIsEmergencyExiting(true);
+    try {
+      await onEmergencyExit();
+      setShowEmergencyConfirm(false);
+    } finally {
+      setIsEmergencyExiting(false);
     }
   };
 
@@ -76,26 +88,86 @@ export const TradingControls = ({ status, onStart, onStop }) => {
               )}
             </button>
           ) : (
-            <button
-              onClick={handleStop}
-              disabled={isLoading}
-              className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium transition-colors duration-200 shadow-apple hover:shadow-apple-lg"
-            >
-              {isLoading ? (
-                <>
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>Stopping...</span>
-                </>
-              ) : (
-                <>
-                  <Square className="w-5 h-5" />
-                  <span>Stop Trading</span>
-                </>
-              )}
-            </button>
+            <>
+              <button
+                onClick={handleStop}
+                disabled={isLoading || isEmergencyExiting}
+                className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium transition-colors duration-200 shadow-apple hover:shadow-apple-lg"
+              >
+                {isLoading ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Stopping...</span>
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-5 h-5" />
+                    <span>Stop Trading</span>
+                  </>
+                )}
+              </button>
+              
+              <button
+                onClick={() => setShowEmergencyConfirm(true)}
+                disabled={isLoading || isEmergencyExiting}
+                className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium transition-colors duration-200 shadow-apple hover:shadow-apple-lg"
+              >
+                <AlertTriangle className="w-5 h-5" />
+                <span>Emergency Exit</span>
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {/* Emergency Exit Confirmation Modal */}
+      {showEmergencyConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertTriangle className="w-8 h-8 text-orange-600" />
+              <h3 className="text-2xl font-bold text-gray-900">Emergency Exit</h3>
+            </div>
+            
+            <p className="text-gray-700 mb-6">
+              This will immediately:
+            </p>
+            <ul className="list-disc list-inside text-gray-700 mb-6 space-y-2">
+              <li>Close all open positions (market order)</li>
+              <li>Cancel all pending orders</li>
+              <li>Stop the trading bot</li>
+            </ul>
+            
+            <p className="text-red-600 font-semibold mb-6">
+              ⚠️ This action cannot be undone!
+            </p>
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowEmergencyConfirm(false)}
+                disabled={isEmergencyExiting}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-800 px-6 py-3 rounded-xl font-medium transition-colors duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEmergencyExit}
+                disabled={isEmergencyExiting}
+                className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium transition-colors duration-200 flex items-center justify-center space-x-2"
+              >
+                {isEmergencyExiting ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Exiting...</span>
+                  </>
+                ) : (
+                  <span>Confirm Emergency Exit</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {status?.current_position && (
         <div className="mt-4 pt-4 border-t border-gray-200">

@@ -37,6 +37,9 @@ joblib>=1.3.2
 boto3>=1.34.0
 botocore>=1.34.0
 
+# RAG (Retrieval-Augmented Generation)
+faiss-cpu>=1.7.4  # or faiss-gpu for GPU support
+
 # Testing
 pytest>=7.4.0
 pytest-mock>=3.12.0

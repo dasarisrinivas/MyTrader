@@ -47,33 +47,118 @@ async def run_live(settings: Settings) -> None:
     # 
     # This avoids Error 162 from historical data requests in the data pipeline
     
-    # Initialize multi-strategy system
+    # Initialize multi-strategy system (RAG engine will be added below)
     # You can change strategy_mode: "trend_following", "breakout", "mean_reversion", or "auto"
-    multi_strategy = MultiStrategy(
-        strategy_mode="auto",  # Auto-selects best strategy based on market conditions
-        reward_risk_ratio=2.0,  # 2:1 reward:risk
-        use_trailing_stop=True,
-        trailing_stop_pct=0.5,  # 0.5% trailing stop
-        min_confidence=0.65
-    )
+    multi_strategy = None  # Will be initialized after RAG setup
     
-    # Wrap multi-strategy with LLM enhancement if enabled in config
+    # Wrap multi-strategy with RAG-enhanced LLM intelligence
     from mytrader.strategies.llm_enhanced_strategy import LLMEnhancedStrategy
+    from mytrader.llm.bedrock_client import BedrockClient
+    from mytrader.llm.rag_engine import RAGEngine
+    from mytrader.llm.rag_trade_advisor import RAGEnhancedTradeAdvisor
     
-    # Force enable LLM for trading decisions
-    llm_enabled = True  # Hardcoded to use AWS Bedrock Claude
+    # Check if RAG and LLM are enabled in config
+    rag_enabled = settings.rag.enabled if hasattr(settings, 'rag') else False
+    llm_enabled = settings.llm.enabled if hasattr(settings, 'llm') else True
     
     if llm_enabled:
-        logger.info("🤖 LLM Enhancement ENABLED - using AWS Bedrock Claude for signal analysis")
-        multi_strategy = LLMEnhancedStrategy(
-            base_strategy=multi_strategy,
-            enable_llm=True,
-            min_llm_confidence=0.55,  # Only execute if AI confidence >= 55% (lowered for testing)
-            llm_override_mode=True  # Override mode: Let LLM override weak traditional signals
-        )
-        logger.info("   📋 LLM Config: model=claude-3-sonnet, min_confidence=0.55, mode=override")
-    else:
+        try:
+            # Initialize Bedrock client
+            bedrock_client = BedrockClient(
+                model_id=settings.llm.model_id if hasattr(settings, 'llm') else "anthropic.claude-3-sonnet-20240229-v1:0",
+                region_name=settings.llm.region_name if hasattr(settings, 'llm') else "us-east-1",
+                max_tokens=settings.llm.max_tokens if hasattr(settings, 'llm') else 2048,
+                temperature=settings.llm.temperature if hasattr(settings, 'llm') else 0.3
+            )
+            
+            if rag_enabled:
+                logger.info("🤖 RAG + LLM Enhancement ENABLED - Knowledge-grounded AI decisions")
+                logger.info("   📚 Loading trading knowledge base...")
+                
+                # Initialize RAG engine
+                rag_engine = RAGEngine(
+                    bedrock_client=bedrock_client,
+                    embedding_model_id=settings.rag.embedding_model_id,
+                    region_name=settings.rag.region_name,
+                    vector_store_path=settings.rag.vector_store_path,
+                    dimension=settings.rag.embedding_dimension,
+                    cache_enabled=settings.rag.cache_enabled,
+                    cache_ttl_seconds=settings.rag.cache_ttl_seconds
+                )
+                
+                # Get stats
+                stats = rag_engine.get_stats()
+                logger.info(f"   ✅ Knowledge base loaded: {stats['num_documents']} documents")
+                
+                if stats['num_documents'] == 0:
+                    logger.warning("   ⚠️  No documents in knowledge base - run: python bin/test_rag.py")
+                
+                # FIX: Initialize multi-strategy WITH RAG engine for signal validation
+                multi_strategy_base = MultiStrategy(
+                    strategy_mode="auto",
+                    reward_risk_ratio=2.0,
+                    use_trailing_stop=True,
+                    trailing_stop_pct=0.5,
+                    min_confidence=0.75,  # Increased threshold
+                    rag_engine=rag_engine  # Pass RAG engine for validation
+                )
+                
+                # Create RAG-enhanced advisor
+                rag_advisor = RAGEnhancedTradeAdvisor(
+                    bedrock_client=bedrock_client,
+                    rag_engine=rag_engine,
+                    min_confidence_threshold=settings.llm.min_confidence_threshold,
+                    enable_llm=True,
+                    enable_rag=True,
+                    llm_override_mode=settings.llm.override_mode,
+                    rag_top_k=settings.rag.top_k_results,
+                    rag_score_threshold=settings.rag.score_threshold,
+                    call_interval_seconds=settings.llm.call_interval_seconds
+                )
+                
+                # Wrap strategy with LLM enhancement
+                multi_strategy = LLMEnhancedStrategy(
+                    base_strategy=multi_strategy_base,  # Use RAG-enhanced base
+                    enable_llm=True,
+                    min_llm_confidence=settings.llm.min_confidence_threshold,
+                    llm_override_mode=settings.llm.override_mode
+                )
+                
+                # Override the trade advisor with RAG-enhanced one
+                multi_strategy.trade_advisor = rag_advisor
+                
+                logger.info("   📋 RAG Config:")
+                logger.info(f"      Model: {settings.llm.model_id}")
+                logger.info(f"      Min Confidence: {settings.llm.min_confidence_threshold}")
+                logger.info(f"      Override Mode: {settings.llm.override_mode}")
+                logger.info(f"      Call Interval: {settings.llm.call_interval_seconds}s")
+                logger.info(f"      RAG Top-K: {settings.rag.top_k_results}")
+                logger.info(f"      RAG Threshold: {settings.rag.score_threshold}")
+            else:
+                logger.info("🤖 LLM Enhancement ENABLED - using AWS Bedrock Claude (no RAG)")
+                multi_strategy = LLMEnhancedStrategy(
+                    base_strategy=multi_strategy,
+                    enable_llm=True,
+                    min_llm_confidence=settings.llm.min_confidence_threshold if hasattr(settings, 'llm') else 0.55,
+                    llm_override_mode=settings.llm.override_mode if hasattr(settings, 'llm') else True
+                )
+                logger.info(f"   📋 LLM Config: model=claude-3-sonnet, min_confidence={settings.llm.min_confidence_threshold if hasattr(settings, 'llm') else 0.55}, mode={'override' if (hasattr(settings, 'llm') and settings.llm.override_mode) else 'consensus'}")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize LLM/RAG: {e}")
+            logger.error("Falling back to traditional strategy")
+            llm_enabled = False
+    
+    # If LLM/RAG failed, create basic multi-strategy without RAG
+    if not llm_enabled or multi_strategy is None:
         logger.info("⚠️  LLM Enhancement DISABLED - using traditional signals only")
+        multi_strategy = MultiStrategy(
+            strategy_mode="auto",
+            reward_risk_ratio=2.0,
+            use_trailing_stop=True,
+            trailing_stop_pct=0.5,
+            min_confidence=0.75,  # Use increased threshold even without RAG
+            rag_engine=None  # No RAG validation
+        )
     
     # Keep original strategies as fallback
     strategies = [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]

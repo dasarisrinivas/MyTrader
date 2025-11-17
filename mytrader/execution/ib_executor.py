@@ -221,14 +221,34 @@ class TradeExecutor:
         })
 
     def _on_execution(self, trade: Trade, fill) -> None:
-        """Callback for execution details."""
+        """Callback for execution details with slippage protection."""
         order_id = trade.order.orderId
         quantity = fill.execution.shares
         price = fill.execution.price
         commission = fill.commissionReport.commission if hasattr(fill, 'commissionReport') else None
         realized_pnl = None
         
-        logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, commission={commission}")
+        # FIX: Check for excessive slippage
+        order = trade.order
+        expected_price = None
+        
+        if hasattr(order, 'lmtPrice') and order.lmtPrice > 0:
+            expected_price = order.lmtPrice
+        
+        if expected_price:
+            slippage = abs(price - expected_price)
+            slippage_pct = (slippage / expected_price) * 100
+            
+            # Alert on excessive slippage (> $5 or 0.1%)
+            max_slippage_dollars = 5.0
+            max_slippage_pct = 0.1
+            
+            if slippage > max_slippage_dollars or slippage_pct > max_slippage_pct:
+                logger.warning(f"⚠️  HIGH SLIPPAGE: Order {order_id}, expected={expected_price:.2f}, filled={price:.2f}, slippage=${slippage:.2f} ({slippage_pct:.3f}%)")
+            else:
+                logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, slippage=${slippage:.2f}")
+        else:
+            logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, commission={commission}")
         
         # Update realized PnL
         if hasattr(fill, 'commissionReport') and hasattr(fill.commissionReport, 'realizedPNL'):
@@ -284,7 +304,20 @@ class TradeExecutor:
         if limit_price is not None:
             order = LimitOrder(action, quantity, limit_price)
         else:
-            order = MarketOrder(action, quantity)
+            # FIX: Use LIMIT orders instead of MARKET to prevent slippage
+            # Get current price and add small buffer (0.25 = 1 tick for ES)
+            current_price = await self.get_current_price()
+            if current_price is None:
+                logger.error("Cannot get current price for limit order")
+                from ib_insync import Trade as IBTrade
+                dummy_trade = IBTrade()
+                return OrderResult(trade=dummy_trade, status="Cancelled", message="No current price")
+            
+            # Add 1-tick buffer: BUY higher, SELL lower to ensure fill
+            tick_buffer = 0.25  # ES tick size
+            limit_price = current_price + tick_buffer if action == "BUY" else current_price - tick_buffer
+            order = LimitOrder(action, quantity, limit_price)
+            logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")
 
         bracket_children: list[Order] = []
         if stop_loss is not None or take_profit is not None:

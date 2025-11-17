@@ -18,6 +18,7 @@ import asyncio
 from datetime import datetime
 import json
 import subprocess
+import random
 
 from mytrader.utils.settings_loader import load_settings
 from mytrader.monitoring.live_tracker import LivePerformanceTracker
@@ -26,6 +27,14 @@ from mytrader.monitoring.pnl_calculator import calculate_pnl_for_orders, calcula
 from mytrader.utils.logger import configure_logging, logger
 from mytrader.execution.live_trading_manager import LiveTradingManager
 from mytrader.execution.ib_executor import TradeExecutor
+
+# Import RAG API router
+try:
+    from dashboard.backend.rag_api import include_rag_router
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    logger.warning("RAG API not available - install dependencies: pip install faiss-cpu")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -183,11 +192,39 @@ async def run_integrated_live_trading(settings):
         )
         
         # Create IB instance and connect
-        logger.info("🔌 Connecting to IBKR from dashboard...")
+        client_id = random.randint(100, 999)  # Use random client ID like standalone bot
+        logger.info(f"🔌 Connecting to IBKR from dashboard (client_id={client_id})...")
         ib = IB()
         executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol, settings.data.ibkr_exchange)
-        await executor.connect(settings.data.ibkr_host, settings.data.ibkr_port, client_id=3)
-        logger.info("✅ Connected to IBKR successfully")
+        
+        try:
+            await executor.connect(
+                settings.data.ibkr_host, 
+                settings.data.ibkr_port, 
+                client_id=client_id,
+                timeout=30  # Shorter timeout like standalone bot
+            )
+            logger.info(f"✅ Connected to IBKR successfully (client_id={client_id})")
+        except TimeoutError as e:
+            error_msg = f"❌ Failed to connect to IB Gateway (timeout): {e}"
+            logger.error(error_msg)
+            await manager.broadcast({
+                "type": "error",
+                "message": error_msg,
+                "timestamp": datetime.now().isoformat()
+            })
+            live_trading_manager = None
+            raise HTTPException(status_code=503, detail=error_msg)
+        except Exception as e:
+            error_msg = f"❌ Failed to connect to IB Gateway: {e}"
+            logger.error(error_msg)
+            await manager.broadcast({
+                "type": "error",
+                "message": error_msg,
+                "timestamp": datetime.now().isoformat()
+            })
+            live_trading_manager = None
+            raise HTTPException(status_code=503, detail=error_msg)
         
         # Broadcast connection status
         await manager.broadcast({
@@ -671,6 +708,81 @@ async def stop_trading():
     
     except Exception as e:
         logger.error(f"Failed to stop trading: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trading/emergency-exit")
+async def emergency_exit():
+    """Emergency exit: Close all positions and stop the bot."""
+    global live_trading_manager
+    
+    try:
+        positions_closed = 0
+        errors = []
+        
+        # Step 1: Close all open positions
+        if live_trading_manager and live_trading_manager.executor:
+            try:
+                executor = live_trading_manager.executor
+                current_position = await executor.get_current_position()
+                
+                if current_position != 0:
+                    logger.info(f"🚨 EMERGENCY EXIT: Closing position of {current_position} contracts")
+                    
+                    # Close position with market order for immediate execution
+                    action = "SELL" if current_position > 0 else "BUY"
+                    quantity = abs(current_position)
+                    
+                    order_id = await executor.place_market_order(
+                        action=action,
+                        quantity=quantity,
+                        reason="EMERGENCY_EXIT"
+                    )
+                    
+                    if order_id:
+                        positions_closed = quantity
+                        logger.info(f"✅ Emergency exit order placed: {order_id}")
+                    else:
+                        errors.append("Failed to place exit order")
+                else:
+                    logger.info("No open positions to close")
+                    
+            except Exception as e:
+                error_msg = f"Failed to close positions: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        
+        # Step 2: Cancel all pending orders
+        if live_trading_manager and live_trading_manager.executor:
+            try:
+                await live_trading_manager.executor.cancel_all_orders()
+                logger.info("✅ All pending orders cancelled")
+            except Exception as e:
+                error_msg = f"Failed to cancel orders: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        
+        # Step 3: Stop the trading bot
+        if live_trading_manager:
+            try:
+                await live_trading_manager.stop()
+                live_trading_manager = None
+                logger.info("✅ Trading bot stopped")
+            except Exception as e:
+                error_msg = f"Failed to stop bot: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        
+        return {
+            "status": "completed",
+            "positions_closed": positions_closed,
+            "errors": errors,
+            "timestamp": datetime.now().isoformat(),
+            "message": "Emergency exit completed" if not errors else "Emergency exit completed with errors"
+        }
+        
+    except Exception as e:
+        logger.error(f"Emergency exit failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2407,6 +2519,14 @@ async def startup_event():
     # Check if reports directory exists
     Path("reports").mkdir(exist_ok=True)
     Path("dashboard/backend/reports").mkdir(parents=True, exist_ok=True)
+    
+    # Include RAG API endpoints if available
+    if RAG_AVAILABLE:
+        try:
+            include_rag_router(app)
+            logger.info("RAG API endpoints enabled")
+        except Exception as e:
+            logger.warning(f"Failed to enable RAG API: {e}")
 
 
 # Shutdown event

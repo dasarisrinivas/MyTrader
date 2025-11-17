@@ -78,6 +78,7 @@ class LLMConfig:
     temperature: float = 0.3
     min_confidence_threshold: float = 0.7
     override_mode: bool = False
+    call_interval_seconds: int = 60  # Minimum seconds between LLM calls
     enable_sentiment: bool = True
     sentiment_region: str = "us-east-1"
     s3_bucket: str = ""
@@ -88,6 +89,22 @@ class LLMConfig:
 
 
 @dataclass
+class RAGConfig:
+    """Configuration for Retrieval-Augmented Generation (RAG)."""
+    enabled: bool = False
+    embedding_model_id: str = "amazon.titan-embed-text-v1"
+    region_name: str = "us-east-1"
+    vector_store_path: str = "data/rag_index"
+    embedding_dimension: int = 1536
+    top_k_results: int = 3
+    score_threshold: float = 0.5
+    cache_enabled: bool = True
+    cache_ttl_seconds: int = 3600
+    batch_size: int = 10
+    knowledge_base_path: str = "data/knowledge_base"
+
+
+@dataclass
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
@@ -95,6 +112,7 @@ class Settings:
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     strategies: List[StrategyConfig] = field(default_factory=list)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    rag: RAGConfig = field(default_factory=RAGConfig)
 
     def validate(self) -> None:
         if self.trading.initial_capital <= 0:

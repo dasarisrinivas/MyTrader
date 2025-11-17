@@ -1,9 +1,10 @@
 #!/bin/bash
 
 ################################################################################
-# MyTrader - Dashboard Quick Start
+# MyTrader - Dashboard Only Start
 # 
-# This script starts both the backend API and frontend dashboard
+# This script starts ONLY the dashboard (backend API and frontend)
+# NOTE: Trading bot must be started separately with: python3 main.py live --config config.yaml
 ################################################################################
 
 set -e
@@ -22,7 +23,7 @@ VENV_PATH="$PROJECT_ROOT/.venv"
 
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}          🚀 MyTrader - Live Trading Dashboard 🚀              ${NC}"
+echo -e "${BLUE}          � MyTrader - Dashboard Only �                      ${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
@@ -54,25 +55,34 @@ fi
 echo -e "${GREEN}✅ All dependencies installed${NC}"
 echo ""
 
-# Check IB Gateway
-IB_PORT=4002
-if ! lsof -Pi :$IB_PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+# Check if trading bot is running
+if pgrep -f "python3 main.py live" > /dev/null; then
+    echo -e "${GREEN}✅ Trading bot is already running${NC}"
+else
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}                        ⚠️  WARNING ⚠️                           ${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}IB Gateway/TWS is NOT running on port $IB_PORT${NC}"
+    echo -e "${YELLOW}Trading bot is NOT running!${NC}"
     echo ""
-    echo "To use live trading, you need to:"
-    echo "  1. Start IB Gateway or TWS"
-    echo "  2. Configure API (port $IB_PORT, allow connections from 127.0.0.1)"
-    echo "  3. UNCHECK 'Read-Only API' option"
+    echo "Dashboard will start, but you won't see live trading data."
     echo ""
-    read -p "Continue anyway? (Dashboard will work but trading won't) [y/N] " -n 1 -r
+    echo "To start the trading bot:"
+    echo -e "  ${GREEN}python3 main.py live --config config.yaml${NC}"
+    echo ""
+    read -p "Continue with dashboard only? [y/N] " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Cancelled. Start IB Gateway/TWS and try again."
+        echo "Cancelled. Start the trading bot first."
         exit 0
     fi
+fi
+
+# Check IB Gateway (informational only)
+IB_PORT=4002
+if ! lsof -Pi :$IB_PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+    echo ""
+    echo -e "${YELLOW}ℹ️  IB Gateway/TWS not detected on port $IB_PORT${NC}"
+    echo "   (This is OK if the trading bot is handling the connection)"
 else
     echo -e "${GREEN}✅ IB Gateway/TWS is running${NC}"
 fi

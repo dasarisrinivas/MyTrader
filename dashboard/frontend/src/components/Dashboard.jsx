@@ -7,7 +7,7 @@ import RealTimeCharts from './RealTimeCharts';
 import BotHealthIndicator from './BotHealthIndicator';
 import BacktestControls from './BacktestControls';
 import BacktestResults from './BacktestResults';
-import { Activity, Play, Square, BarChart2 } from 'lucide-react';
+import { Activity, Play, Square, BarChart2, AlertTriangle } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
 
@@ -18,6 +18,8 @@ export const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'intelligence', 'trail', 'charts', 'backtest'
   const [backtestResults, setBacktestResults] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
+  const [isEmergencyExiting, setIsEmergencyExiting] = useState(false);
 
   const { isConnected, lastMessage } = useWebSocket();
 
@@ -98,6 +100,41 @@ export const Dashboard = () => {
     }
   };
 
+  const handleEmergencyExit = async () => {
+    try {
+      setIsEmergencyExiting(true);
+      setError(null);
+      const response = await fetch(`${API_URL}/api/trading/emergency-exit`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Failed to execute emergency exit');
+      }
+      
+      const result = await response.json();
+      console.log('Emergency exit result:', result);
+      
+      // Show success message with details
+      if (result.positions_closed > 0) {
+        alert(`Emergency exit successful!\n\nPositions closed: ${result.positions_closed}\n${result.errors.length > 0 ? '\nWarnings: ' + result.errors.join(', ') : ''}`);
+      } else {
+        alert('Emergency exit completed. No positions were open.');
+      }
+      
+      await fetchStatus();
+      setIsRunning(false);
+      setShowEmergencyConfirm(false);
+    } catch (err) {
+      setError(err.message);
+      console.error('Failed to execute emergency exit:', err);
+      alert(`Emergency exit failed: ${err.message}`);
+    } finally {
+      setIsEmergencyExiting(false);
+    }
+  };
+
   const handleBacktestComplete = (results) => {
     setBacktestResults(results);
   };
@@ -120,28 +157,85 @@ export const Dashboard = () => {
             
             {/* Bot Control */}
             <div className="flex items-center gap-4">
-              {!isRunning ? (
-                <button
-                  onClick={handleStart}
-                  disabled={starting}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-500 hover:to-green-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg"
-                >
-                  <Play className="w-5 h-5" />
-                  {starting ? 'Starting...' : 'Start Bot'}
-                </button>
-              ) : (
-                <button
-                  onClick={handleStop}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-500 text-white rounded-lg hover:from-red-500 hover:to-red-400 transition-all shadow-lg"
-                >
-                  <Square className="w-5 h-5" />
-                  Stop Bot
-                </button>
-              )}
+              <button
+                onClick={handleStart}
+                disabled={starting || isRunning}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-500 hover:to-green-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg"
+              >
+                <Play className="w-5 h-5" />
+                {starting ? 'Starting...' : 'Start Bot'}
+              </button>
+              
+              <button
+                onClick={handleStop}
+                disabled={!isRunning || isEmergencyExiting}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-red-500 text-white rounded-lg hover:from-red-500 hover:to-red-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg"
+              >
+                <Square className="w-5 h-5" />
+                Stop Bot
+              </button>
+              
+              <button
+                onClick={() => setShowEmergencyConfirm(true)}
+                disabled={!isRunning || isEmergencyExiting}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg hover:from-orange-500 hover:to-orange-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg"
+              >
+                <AlertTriangle className="w-5 h-5" />
+                Emergency Exit
+              </button>
             </div>
           </div>
         </div>
       </header>
+
+      {/* Emergency Exit Confirmation Modal */}
+      {showEmergencyConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertTriangle className="w-8 h-8 text-orange-500" />
+              <h3 className="text-2xl font-bold text-white">Emergency Exit</h3>
+            </div>
+            
+            <p className="text-gray-300 mb-6">
+              This will immediately:
+            </p>
+            <ul className="list-disc list-inside text-gray-300 mb-6 space-y-2">
+              <li>Close all open positions (market order)</li>
+              <li>Cancel all pending orders</li>
+              <li>Stop the trading bot</li>
+            </ul>
+            
+            <p className="text-orange-400 font-semibold mb-6 bg-orange-900/20 p-3 rounded-lg border border-orange-700">
+              ⚠️ This action cannot be undone!
+            </p>
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowEmergencyConfirm(false)}
+                disabled={isEmergencyExiting}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEmergencyExit}
+                disabled={isEmergencyExiting}
+                className="flex-1 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2"
+              >
+                {isEmergencyExiting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Exiting...</span>
+                  </>
+                ) : (
+                  <span>Confirm Emergency Exit</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
