@@ -156,17 +156,45 @@ async def run_live(settings: Settings) -> None:
             reward_risk_ratio=2.0,
             use_trailing_stop=True,
             trailing_stop_pct=0.5,
-            min_confidence=0.75,  # Use increased threshold even without RAG
+            min_confidence=settings.trading.min_weighted_confidence,  # Use config value
             rag_engine=None  # No RAG validation
         )
     
     # Keep original strategies as fallback
     strategies = [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]
-    optimizer = ParameterOptimizer(strategies)
-    engine = StrategyEngine(strategies)
     
-    # Initialize risk manager with Kelly Criterion support
-    risk = RiskManager(settings.trading, position_sizing_method="kelly")
+    # Load optimized parameters at startup (daily optimization)
+    from mytrader.optimization.daily_optimizer import load_optimized_params, apply_optimized_params
+    optimized_params = load_optimized_params(settings.optimization.optimized_params_path)
+    if optimized_params:
+        apply_optimized_params(strategies, optimized_params)
+    
+    # Note: Parameter optimizer REMOVED from real-time loop (runs daily after market close)
+    
+    # Initialize risk manager with fixed fractional sizing (NOT Kelly)
+    risk = RiskManager(
+        settings.trading, 
+        position_sizing_method=settings.trading.position_sizing_method  # Use config
+    )
+    
+    # Initialize market regime filter
+    from mytrader.strategies.market_regime_filter import MarketRegimeFilter
+    regime_filter = MarketRegimeFilter(
+        min_atr_threshold=settings.trading.min_atr_threshold,
+        max_spread_ticks=settings.trading.max_spread_ticks,
+    )
+    
+    # Initialize background LLM worker (if LLM enabled and background mode)
+    llm_worker = None
+    if llm_enabled and hasattr(settings.llm, 'use_background_thread') and settings.llm.use_background_thread:
+        from mytrader.llm.background_worker import BackgroundLLMWorker
+        if isinstance(multi_strategy, LLMEnhancedStrategy) and hasattr(multi_strategy, 'trade_advisor'):
+            llm_worker = BackgroundLLMWorker(
+                trade_advisor=multi_strategy.trade_advisor,
+                cache_timeout_seconds=settings.llm.cache_timeout_seconds,
+            )
+            llm_worker.start()
+            logger.info("✅ Background LLM worker started (non-blocking mode)")
     
     # Initialize live performance tracker
     tracker = LivePerformanceTracker(
@@ -216,20 +244,37 @@ async def run_live(settings: Settings) -> None:
 
     account_value = settings.trading.initial_capital
     step = 0
-    opt_interval = max(1, settings.optimization.retrain_interval // 60)
     status_log_interval = 10  # Log performance every 10 iterations
     
     # Initialize price history buffer (we'll build this from live data)
     price_history = []
-    min_bars_needed = 15  # Minimum bars for feature engineering (reduced for faster start)
+    # INCREASED WARM-UP: Now requires 200 bars (was 15)
+    min_bars_needed = settings.trading.min_bars_for_signals
     poll_interval = 5  # seconds between price checks
+    
+    # Trade cooldown tracking
+    last_trade_time = None
+    trade_cooldown_seconds = settings.trading.trade_cooldown_minutes * 60
+    
+    # Position tracking for time-based exit
+    position_entry_time = None
+    max_trade_duration_seconds = settings.trading.max_trade_duration_minutes * 60
 
     logger.info("Starting live trading loop (polling every %ds)...", poll_interval)
-    logger.info("Will start generating signals after collecting %d bars", min_bars_needed)
+    logger.info("Will start generating signals after collecting %d bars (INCREASED WARM-UP)", min_bars_needed)
+    logger.info(f"Safety parameters:")
+    logger.info(f"  - Disaster stop: {settings.trading.disaster_stop_pct*100:.1f}%")
+    logger.info(f"  - Max trade duration: {settings.trading.max_trade_duration_minutes} minutes")
+    logger.info(f"  - Trade cooldown: {settings.trading.trade_cooldown_minutes} minutes")
+    logger.info(f"  - Position sizing: {settings.trading.position_sizing_method}")
+    logger.info(f"  - Risk per trade: {settings.trading.risk_per_trade_pct*100:.2f}%")
 
     try:
         while True:
             try:
+                # LATENCY GUARD: Measure loop iteration time
+                loop_start_time = time.time()
+                
                 # Get current market price from IBKR
                 current_price = await executor.get_current_price()
                 if not current_price:
@@ -240,6 +285,7 @@ async def run_live(settings: Settings) -> None:
                 # Add to price history (simplified: using last price for OHLC)
                 # In production, you'd want proper bar aggregation
                 from datetime import datetime, timezone
+                import time
                 price_bar = {
                     'timestamp': datetime.now(timezone.utc),
                     'open': current_price,
@@ -281,43 +327,155 @@ async def run_live(settings: Settings) -> None:
                 returns = features["close"].pct_change().dropna()
                 logger.info(f"📈 Returns calculated: {len(returns)} values")
 
-                # Periodic optimization
-                if (
-                    settings.optimization.parameter_grid
-                    and step % opt_interval == 0
-                    and len(features) >= settings.optimization.window_length
-                ):
-                    window = features.tail(settings.optimization.window_length)
-                    result = optimizer.optimize(window, settings.optimization.parameter_grid)
-                    logger.info("Optimizer applied params %s (score %.4f)", result.best_params, result.best_score)
+                # REMOVED: Periodic optimization (now runs daily after market close)
+                # The optimizer has been moved to a daily batch process
 
                 step += 1
+                
+                # MARKET REGIME FILTER: Check if conditions suitable for trading
+                regime_result = regime_filter.check_regime(
+                    df=features,
+                    current_time=datetime.now(timezone.utc),
+                    bid_price=None,  # Would need to get from executor
+                    ask_price=None,
+                    vix_value=None,  # Could add VIX data feed
+                    tick_size=settings.trading.tick_size,
+                )
+                
+                if not regime_result.tradable:
+                    logger.warning(f"⚠️  Market regime not tradable: {regime_result.reason}")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                regime_filter.log_regime_status(regime_result)
 
                 # Get current position before generating signal
                 current_position = await executor.get_current_position()
                 current_qty = current_position.quantity if current_position else 0
                 logger.info(f"📦 Current position: {current_qty} contracts")
+                
+                # DISASTER STOP: Check if position has moved too far against us
+                if current_position and current_qty != 0:
+                    entry_price = current_position.avg_cost
+                    price_change_pct = abs((current_price - entry_price) / entry_price)
+                    
+                    # Check if we're losing money
+                    is_losing = (current_qty > 0 and current_price < entry_price) or \
+                               (current_qty < 0 and current_price > entry_price)
+                    
+                    if is_losing and price_change_pct > settings.trading.disaster_stop_pct:
+                        logger.error(f"🚨 DISASTER STOP TRIGGERED!")
+                        logger.error(f"   Position moved {price_change_pct*100:.2f}% against us")
+                        logger.error(f"   Threshold: {settings.trading.disaster_stop_pct*100:.1f}%")
+                        logger.error(f"   Force-closing position immediately")
+                        
+                        close_result = await executor.close_position()
+                        if close_result and close_result.fill_price:
+                            realized = (close_result.fill_price - entry_price) * current_qty
+                            risk.update_pnl(realized)
+                            tracker.update_equity(current_price, realized)
+                            logger.info(f"Position closed by disaster stop, realized PnL: {realized:.2f}")
+                        
+                        # Reset position tracking
+                        position_entry_time = None
+                        
+                        # Apply cooldown
+                        last_trade_time = datetime.now(timezone.utc)
+                        
+                        await asyncio.sleep(poll_interval)
+                        continue
+                
+                # TIME-BASED EXIT: Check if trade has been open too long
+                if current_position and current_qty != 0 and position_entry_time:
+                    time_in_trade = (datetime.now(timezone.utc) - position_entry_time).total_seconds()
+                    
+                    if time_in_trade > max_trade_duration_seconds:
+                        logger.warning(f"⏰ TIME-BASED EXIT triggered")
+                        logger.warning(f"   Trade open for {time_in_trade/60:.1f} minutes")
+                        logger.warning(f"   Max duration: {max_trade_duration_seconds/60:.1f} minutes")
+                        logger.warning(f"   Closing at market")
+                        
+                        close_result = await executor.close_position()
+                        if close_result and close_result.fill_price:
+                            realized = (close_result.fill_price - current_position.avg_cost) * current_qty
+                            risk.update_pnl(realized)
+                            tracker.update_equity(current_price, realized)
+                            logger.info(f"Position closed by time limit, realized PnL: {realized:.2f}")
+                        
+                        # Reset tracking
+                        position_entry_time = None
+                        last_trade_time = datetime.now(timezone.utc)
+                        
+                        await asyncio.sleep(poll_interval)
+                        continue
+                
+                # TRADE COOLDOWN: Check if enough time has passed since last trade
+                if last_trade_time and current_qty == 0:  # Only check cooldown when flat
+                    time_since_trade = (datetime.now(timezone.utc) - last_trade_time).total_seconds()
+                    
+                    if time_since_trade < trade_cooldown_seconds:
+                        remaining = trade_cooldown_seconds - time_since_trade
+                        logger.info(f"⏸️  Trade cooldown active: {remaining/60:.1f} minutes remaining")
+                        await asyncio.sleep(poll_interval)
+                        continue
 
                 # Generate trading signal using multi-strategy (with optional LLM enhancement)
                 logger.info(f"🤔 Evaluating strategy with {len(features)} feature rows...")
                 try:
+                    # Check if we're using LLM-enhanced strategy with background worker
+                    llm_commentary = None
+                    if llm_worker:
+                        # Get cached LLM commentary (non-blocking)
+                        llm_commentary = llm_worker.get_latest_commentary()
+                        if llm_commentary:
+                            logger.info(f"💬 LLM Commentary: {llm_commentary[:150]}...")
+                    
                     # Check if we're using LLM-enhanced strategy
                     if isinstance(multi_strategy, LLMEnhancedStrategy):
-                        # Use the enhanced generate method which calls LLM
-                        signal = multi_strategy.generate(features)
-                        action = signal.action
-                        confidence = signal.confidence
+                        # IMPORTANT: Get base signal FIRST (quant signals decide trades)
+                        # LLM is used ONLY for commentary, NOT for overriding decisions
                         
-                        # Extract risk params from metadata if base strategy provided them
-                        risk_params = signal.metadata.get("risk_params", {})
+                        # Get traditional quant signal from base strategy
+                        if hasattr(multi_strategy.base_strategy, 'generate_signal'):
+                            action, confidence, risk_params = multi_strategy.base_strategy.generate_signal(
+                                df=features,
+                                current_position=current_qty
+                            )
+                        else:
+                            action, confidence, risk_params = "HOLD", 0.0, {}
                         
-                        # Log LLM details if available
-                        if "llm_recommendation" in signal.metadata:
-                            llm_rec = signal.metadata["llm_recommendation"]
-                            logger.info(f"🤖 LLM Recommendation: {llm_rec.get('action')} (confidence: {llm_rec.get('confidence', 0):.2f})")
-                            logger.info(f"   💬 Reasoning: {llm_rec.get('reasoning', 'N/A')[:100]}...")
+                        # Create signal object
+                        from dataclasses import dataclass
+                        @dataclass
+                        class Signal:
+                            action: str
+                            confidence: float
+                            metadata: dict = None
                         
-                        # Get market context from base strategy if it's a MultiStrategy
+                        signal = Signal(
+                            action=action,
+                            confidence=confidence,
+                            metadata={
+                                "strategy": "multi_strategy",
+                                "risk_params": risk_params,
+                            }
+                        )
+                        
+                        # LLM commentary only (non-blocking if background worker)
+                        if llm_worker and action != "HOLD":
+                            # Submit request to background worker (non-blocking)
+                            request_id = llm_worker.submit_request(
+                                features=features,
+                                signal=signal,
+                                context={
+                                    'symbol': settings.data.ibkr_symbol,
+                                    'position': current_qty,
+                                }
+                            )
+                            # Don't wait for response - just log if available
+                            logger.info(f"📤 LLM analysis request submitted (background): {request_id}")
+                        
+                        # Get market context from base strategy
                         if hasattr(multi_strategy.base_strategy, 'market_bias'):
                             market_bias = multi_strategy.base_strategy.market_bias
                             volatility_level = multi_strategy.base_strategy.volatility_level
@@ -394,6 +552,11 @@ async def run_live(settings: Settings) -> None:
                                 risk.update_pnl(realized)
                                 tracker.update_equity(current_price, realized)
                                 logger.info(f"✅ Position closed: {exit_reason}, realized PnL: {realized:.2f}")
+                                
+                                # Reset tracking and apply cooldown
+                                position_entry_time = None
+                                last_trade_time = datetime.now(timezone.utc)
+                            
                             await asyncio.sleep(poll_interval)
                             continue
                     
@@ -418,6 +581,11 @@ async def run_live(settings: Settings) -> None:
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
                             logger.info("Position closed on opposite signal, realized PnL: %.2f", realized)
+                            
+                            # Reset tracking and apply cooldown
+                            position_entry_time = None
+                            last_trade_time = datetime.now(timezone.utc)
+                        
                         await asyncio.sleep(poll_interval)
                         continue
                 
@@ -433,8 +601,18 @@ async def run_live(settings: Settings) -> None:
                     continue
 
                 logger.info(f"🎯 Preparing to execute {signal.action} signal...")
+                
+                # ENHANCED LOGGING: Entry reason and market conditions
+                logger.info(f"📋 Entry Decision:")
+                logger.info(f"   Action: {signal.action}")
+                logger.info(f"   Confidence: {signal.confidence:.3f}")
+                logger.info(f"   Market Bias: {market_bias}")
+                logger.info(f"   Volatility: {volatility_level}")
+                logger.info(f"   ATR: {regime_result.atr:.2f}" if regime_result.atr else "   ATR: N/A")
+                if llm_commentary:
+                    logger.info(f"   LLM Commentary: {llm_commentary[:100]}...")
 
-                # Position sizing with Kelly Criterion
+                # Position sizing (uses config method: fixed_fraction or kelly)
                 risk_stats = risk.get_statistics()
                 qty = risk.position_size(
                     account_value, 
@@ -443,6 +621,11 @@ async def run_live(settings: Settings) -> None:
                     avg_win=risk_stats.get("avg_win"),
                     avg_loss=risk_stats.get("avg_loss")
                 )
+                
+                logger.info(f"💰 Position Sizing:")
+                logger.info(f"   Method: {settings.trading.position_sizing_method}")
+                logger.info(f"   Risk per trade: {settings.trading.risk_per_trade_pct*100:.2f}%")
+                logger.info(f"   Calculated contracts: {qty}")
                 
                 # Apply position scaler from metadata (like backtest)
                 metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
@@ -540,10 +723,22 @@ async def run_live(settings: Settings) -> None:
                             price=result.fill_price,
                             quantity=qty
                         )
+                        
+                        # Track position entry time for time-based exit
+                        position_entry_time = datetime.now(timezone.utc)
+                        logger.info(f"⏱️  Position entry time recorded: {position_entry_time}")
                 
                 # Periodic performance logging
                 if step % status_log_interval == 0:
                     tracker.log_status()
+                
+                # LATENCY GUARD: Check loop iteration time
+                loop_duration = time.time() - loop_start_time
+                if loop_duration > settings.trading.max_loop_latency_seconds:
+                    logger.warning(f"⚠️  Loop latency high: {loop_duration:.2f}s (max: {settings.trading.max_loop_latency_seconds}s)")
+                    logger.warning(f"   Skipping next trading cycle to catch up")
+                else:
+                    logger.debug(f"✓ Loop completed in {loop_duration:.2f}s")
                 
                 # Wait before next poll
                 await asyncio.sleep(poll_interval)
@@ -558,6 +753,13 @@ async def run_live(settings: Settings) -> None:
         tracker.export_snapshot("reports/final_performance.json")
         logger.info("Final performance snapshot saved")
     finally:
+        # Stop background LLM worker if running
+        if llm_worker:
+            logger.info("Stopping background LLM worker...")
+            llm_worker.stop()
+            stats = llm_worker.get_statistics()
+            logger.info(f"LLM Worker Stats: {stats}")
+        
         if ib.isConnected():
             ib.disconnect()
 

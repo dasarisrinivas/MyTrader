@@ -89,12 +89,28 @@ class RiskManager:
             return self._fixed_fraction_size(account_value, confidence)
 
     def _fixed_fraction_size(self, account_value: float, confidence: float) -> int:
-        """Fixed fractional position sizing based on confidence."""
-        fraction = min(0.5, confidence)
-        dollar_risk = account_value * fraction * 0.01  # Risk 0.5-1% per trade
+        """
+        Fixed fractional position sizing based on risk percentage.
+        
+        This is the RECOMMENDED method for position sizing (not Kelly).
+        Risks a fixed percentage of account per trade (e.g., 0.5% or 1%).
+        """
+        # Get risk percentage from config (default 0.5%)
+        risk_pct = getattr(self.config, 'risk_per_trade_pct', 0.005)
+        
+        # Calculate dollar risk
+        dollar_risk = account_value * risk_pct
+        
+        # Calculate contracts based on stop distance
         tick_value = self.config.tick_value
         stop_ticks = max(1.0, self.config.stop_loss_ticks)
-        contracts = int(dollar_risk / (tick_value * stop_ticks))
+        dollar_risk_per_contract = tick_value * stop_ticks
+        
+        contracts = int(dollar_risk / dollar_risk_per_contract)
+        
+        # Apply confidence scaling (optional - can be removed for pure fixed fractional)
+        # contracts = int(contracts * min(1.0, confidence))
+        
         return max(1, min(self.config.max_position_size, contracts))
 
     def _kelly_criterion_size(
