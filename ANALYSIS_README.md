@@ -52,6 +52,25 @@ This directory contains comprehensive analysis of the MyTrader trading bot codeb
 
 ---
 
+### 4. BOT_FLOW_DIAGRAM.md
+**Comprehensive flow diagrams** showing every decision point in the trading bot.
+
+**Contents (10 sections with Mermaid diagrams):**
+1. Bot Initialization Flow
+2. Main Trading Loop Flow
+3. Signal Generation Flow
+4. Strategy Selection Flow (Trend Following, Breakout, Mean Reversion)
+5. Risk Management & Position Sizing
+6. Entry Signal Decision (detailed strategy logic)
+7. Stop-Loss & Take-Profit Calculation
+8. Exit Signal Decision (all exit conditions)
+9. LLM/RAG Enhancement Flow
+10. Order Execution Flow
+
+**Best for:** Understanding when/why bot buys, sells, sets stops, takes profit, and exits positions
+
+---
+
 ## 🎯 Quick Navigation by Role
 
 ### I'm a Product Manager
@@ -66,9 +85,10 @@ This directory contains comprehensive analysis of the MyTrader trading bot codeb
 4. Reference **RAG_PIPELINE_FLOW.md** for visual understanding
 
 ### I'm a New Team Member
-1. Read **RAG_PIPELINE_FLOW.md** section 1 (architecture) (10 min)
-2. Read **CODEBASE_ANALYSIS.md** sections 1-3 (15 min)
-3. Reference other sections as needed
+1. Read **BOT_FLOW_DIAGRAM.md** (complete overview) (20 min)
+2. Read **RAG_PIPELINE_FLOW.md** section 1 (architecture) (10 min)
+3. Read **CODEBASE_ANALYSIS.md** sections 1-3 (15 min)
+4. Reference other sections as needed
 
 ### I'm Debugging an Issue
 1. Check **RAG_PIPELINE_FLOW.md** section 5 (error propagation)
@@ -85,9 +105,15 @@ This directory contains comprehensive analysis of the MyTrader trading bot codeb
 - **Main integration**: `main.py` lines 54-161, `mytrader/llm/rag_engine.py`
 
 ### How are trading decisions made?
+- **BOT_FLOW_DIAGRAM.md** (complete decision flow with all connection points)
 - **RAG_PIPELINE_FLOW.md**, Section 3 (decision tree)
 - **CODEBASE_ANALYSIS.md**, Section 3 (trading decision flow)
 - **Key files**: `mytrader/strategies/multi_strategy.py`, `mytrader/strategies/llm_enhanced_strategy.py`
+
+### When does the bot buy/sell/exit?
+- **BOT_FLOW_DIAGRAM.md**, "Complete Decision Flow Summary" section
+- Shows exact conditions for BUY, SELL, stop-loss, take-profit, and exits
+- **Key files**: `main.py` lines 231-554, `mytrader/strategies/multi_strategy.py`
 
 ### Why is the frontend not showing signals?
 - **CODEBASE_ANALYSIS.md**, Section 4.3 (data propagation issues)
@@ -230,7 +256,12 @@ If you have questions about the analysis or need clarification:
 
 ---
 
-**Last Updated**: 2025-11-17
-**Analysis Version**: 1.0
+**Last Updated**: 2025-11-18
+**Analysis Version**: 1.1
 **Files Covered**: 15+ source files, 5000+ lines of code
-**Total Documentation**: 47KB across 4 markdown files
+**Total Documentation**: 70KB+ across 5 markdown files
+  - ANALYSIS_SUMMARY.md (8 KB)
+  - CODEBASE_ANALYSIS.md (20 KB)
+  - RAG_PIPELINE_FLOW.md (28 KB)
+  - BOT_FLOW_DIAGRAM.md (23 KB)
+  - ANALYSIS_README.md (8 KB)
