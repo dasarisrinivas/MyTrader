@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, Trade
+from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, StopLimitOrder, Trade
 
 from ..config import TradingConfig
 from ..monitoring.order_tracker import OrderTracker
@@ -331,10 +331,21 @@ class TradeExecutor:
                 logger.info("Adding take-profit order at %.2f", take_profit)
             
             if stop_loss is not None:
-                sl_order = StopOrder(opposite, quantity, stop_loss)
+                # Use STOP-LIMIT instead of STOP-MARKET to reduce slippage
+                # Set limit price with small offset (1-2 ticks) from stop price
+                tick_size = self.config.tick_size
+                offset_ticks = 2  # Allow 2 ticks of slippage
+                
+                if action == "BUY":  # Long position, stop is below
+                    limit_price = stop_loss - (offset_ticks * tick_size)
+                else:  # Short position, stop is above
+                    limit_price = stop_loss + (offset_ticks * tick_size)
+                
+                sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price)
                 sl_order.transmit = False
                 bracket_children.append(sl_order)
-                logger.info("Adding stop-loss order at %.2f", stop_loss)
+                logger.info("Adding stop-loss order: stop=%.2f, limit=%.2f (STOP-LIMIT)", 
+                           stop_loss, limit_price)
             
             if bracket_children:
                 bracket_children[-1].transmit = True
@@ -377,9 +388,18 @@ class TradeExecutor:
             self.active_orders[child_id] = child_trade
             
             # Record child order (SL/TP)
-            child_type = "STOP" if isinstance(child, StopOrder) else "LIMIT"
-            # StopOrder uses auxPrice, LimitOrder uses lmtPrice
-            child_price = child.auxPrice if isinstance(child, StopOrder) else child.lmtPrice
+            child_type = "STOP_LIMIT" if isinstance(child, StopLimitOrder) else "STOP" if isinstance(child, StopOrder) else "LIMIT"
+            # StopLimitOrder has both stopPrice and lmtPrice
+            if isinstance(child, StopLimitOrder):
+                child_stop_price = child.stopPrice
+                child_limit_price = child.lmtPrice
+            elif isinstance(child, StopOrder):
+                child_stop_price = child.auxPrice
+                child_limit_price = None
+            else:  # LimitOrder
+                child_stop_price = None
+                child_limit_price = child.lmtPrice
+            
             self.order_tracker.record_order_placement(
                 order_id=child_id,
                 parent_order_id=parent_id,
@@ -387,8 +407,8 @@ class TradeExecutor:
                 action=child.action,
                 quantity=child.totalQuantity,
                 order_type=child_type,
-                stop_price=child_price if isinstance(child, StopOrder) else None,
-                limit_price=child_price if isinstance(child, LimitOrder) else None,
+                stop_price=child_stop_price,
+                limit_price=child_limit_price,
             )
             
             logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
