@@ -25,6 +25,9 @@ fastapi>=0.120.0
 uvicorn>=0.38.0
 websockets>=15.0
 
+# Telegram notifications
+aiohttp>=3.9.0
+
 # Reinforcement learning (optional)
 # stable-baselines3>=2.2.1
 # gymnasium>=0.29.1

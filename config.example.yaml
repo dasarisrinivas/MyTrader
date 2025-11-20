@@ -126,3 +126,17 @@ rag:
   
   # Knowledge base
   knowledge_base_path: "data/knowledge_base"  # Directory containing trading knowledge documents
+
+# Telegram Notifications Configuration
+telegram:
+  # Enable/disable Telegram notifications
+  enabled: false  # Set to true to enable Telegram alerts
+  
+  # Bot credentials (obtain from @BotFather on Telegram)
+  bot_token: "your-bot-token-here"  # Your Telegram Bot API token
+  chat_id: "your-chat-id-here"  # Your Telegram chat/channel ID
+  
+  # Notification preferences
+  notify_on_trade: true  # Send alert when trade is executed
+  notify_on_signal: false  # Send alert when signal is generated (can be noisy)
+  notify_on_error: true  # Send alert on trading errors/warnings

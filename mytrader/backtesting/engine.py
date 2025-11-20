@@ -55,6 +55,8 @@ class BacktestingEngine:
         self.risk.reset()
         returns = features["close"].pct_change().fillna(0)
 
+        max_abs_position = 0
+
         for idx, row in features.iterrows():
             price = float(row["close"])
             history = features.loc[:idx]
@@ -154,6 +156,12 @@ class BacktestingEngine:
                 scaler = self._safe_float(metadata.get("position_scaler")) or 1.0
                 if scaler > 0:
                     qty = max(1, int(round(qty * scaler)))
+                
+                # Enforce hard cap
+                hard_cap = self.trading_config.max_contracts_limit
+                qty = min(qty, hard_cap)
+                
+                # Also respect max_position_size if it's lower (though they should be synced)
                 qty = min(qty, self.trading_config.max_position_size)
 
                 if qty > 0 and self.risk.can_trade(qty):
@@ -183,6 +191,9 @@ class BacktestingEngine:
                     if metadata:
                         entry_record["metadata"] = metadata
                     trades.append(entry_record)
+            
+            # Track max concurrent contracts
+            max_abs_position = max(max_abs_position, abs(position))
 
             pnl = (price - entry_price) * position * self.trading_config.contract_multiplier if position != 0 else 0.0
             equity = capital + pnl
@@ -220,6 +231,7 @@ class BacktestingEngine:
             curve = pd.Series(dtype=float)
 
         metrics = self._compute_metrics(curve, trades)
+        metrics["max_concurrent_contracts"] = float(max_abs_position)
         logger.info("Backtest completed: {}", metrics)
         return BacktestResult(equity_curve=curve, trades=trades, metrics=metrics)
 

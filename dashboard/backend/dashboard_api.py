@@ -191,11 +191,28 @@ async def run_integrated_live_trading(settings):
             risk_free_rate=settings.backtest.risk_free_rate
         )
         
+        # Initialize Telegram notifier if configured
+        from mytrader.utils.telegram_notifier import TelegramNotifier
+        telegram_notifier = None
+        if hasattr(settings, 'telegram') and settings.telegram.enabled:
+            telegram_notifier = TelegramNotifier(
+                bot_token=settings.telegram.bot_token,
+                chat_id=settings.telegram.chat_id,
+                enabled=True
+            )
+            logger.info("✅ Telegram notifications initialized")
+        
         # Create IB instance and connect
         client_id = random.randint(100, 999)  # Use random client ID like standalone bot
         logger.info(f"🔌 Connecting to IBKR from dashboard (client_id={client_id})...")
         ib = IB()
-        executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol, settings.data.ibkr_exchange)
+        executor = TradeExecutor(
+            ib, 
+            settings.trading, 
+            settings.data.ibkr_symbol, 
+            settings.data.ibkr_exchange,
+            telegram_notifier=telegram_notifier
+        )
         
         try:
             await executor.connect(

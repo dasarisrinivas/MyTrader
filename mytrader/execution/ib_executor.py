@@ -1,6 +1,7 @@
 """Trade execution via Interactive Brokers."""
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -10,6 +11,7 @@ from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, Stop
 from ..config import TradingConfig
 from ..monitoring.order_tracker import OrderTracker
 from ..utils.logger import logger
+from ..utils.telegram_notifier import TelegramNotifier
 
 
 @dataclass
@@ -47,7 +49,8 @@ class TradeExecutor:
         config: TradingConfig, 
         symbol: str, 
         exchange: str = "GLOBEX", 
-        currency: str = "USD"
+        currency: str = "USD",
+        telegram_notifier: Optional[TelegramNotifier] = None
     ) -> None:
         self.ib = ib
         self.config = config
@@ -66,7 +69,15 @@ class TradeExecutor:
         self._connection_host: str = "127.0.0.1"
         self._connection_port: int = 4002
         self._connection_client_id: int = 2
+        self._connection_client_id: int = 2
         self._keepalive_task: Optional[object] = None
+        
+        # Telegram notifications
+        self.telegram = telegram_notifier
+        
+        # Initialize PositionManager
+        from .position_manager import PositionManager
+        self.position_manager = PositionManager(ib, config, symbol)
 
     def contract(self) -> Contract:
         return Future(symbol=self.symbol, exchange=self.exchange, currency=self.currency)
@@ -264,6 +275,38 @@ class TradeExecutor:
             commission=commission,
             realized_pnl=realized_pnl
         )
+        
+        # Send Telegram notification (non-blocking)
+        if self.telegram and self.telegram.enabled:
+            try:
+                # Get current position
+                current_position = self.positions.get(self.symbol)
+                position_qty = current_position.quantity if current_position else None
+                
+                # Get stop loss and take profit from position metadata
+                stop_loss = current_position.stop_loss if current_position else None
+                take_profit = current_position.take_profit if current_position else None
+                
+                # Determine side from order action
+                side = order.action  # "BUY" or "SELL"
+                
+                # Send notification in background (fire-and-forget)
+                self.telegram.send_trade_alert_background(
+                    symbol=self.symbol,
+                    side=side,
+                    quantity=quantity,
+                    fill_price=price,
+                    timestamp=datetime.utcnow(),
+                    current_position=position_qty,
+                    order_id=order_id,
+                    commission=commission,
+                    realized_pnl=realized_pnl,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit
+                )
+            except Exception as e:
+                # Never let Telegram errors affect trading
+                logger.error(f"❌ Failed to send Telegram notification: {e}")
 
     async def place_order(
         self,
@@ -299,6 +342,24 @@ class TradeExecutor:
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Failed to qualify contract")
+
+        # SAFETY CHECK: Position Manager
+        # Note: quantity is always positive in the argument, action determines direction
+        signed_quantity = quantity if action == "BUY" else -quantity
+        decision = await self.position_manager.can_place_order(signed_quantity)
+        
+        if decision.allowed_contracts == 0:
+            logger.warning(f"⛔ Order rejected by PositionManager: {decision.reason}")
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(trade=dummy_trade, status="Cancelled", message=f"Rejected: {decision.reason}")
+            
+        if abs(decision.allowed_contracts) < quantity:
+            logger.warning(f"⚠️ Order size reduced by PositionManager: {quantity} -> {abs(decision.allowed_contracts)} ({decision.reason})")
+            quantity = abs(decision.allowed_contracts)
+            # Update signed quantity for logic below if needed, though we just use 'quantity'
+        
+        logger.info(f"✅ PositionManager approved: {quantity} contracts (Reason: {decision.reason})")
 
         order: Order
         if limit_price is not None:
@@ -390,10 +451,10 @@ class TradeExecutor:
             
             # Record child order (SL/TP)
             child_type = "STOP_LIMIT" if isinstance(child, StopLimitOrder) else "STOP" if isinstance(child, StopOrder) else "LIMIT"
-            # StopLimitOrder has both stopPrice and lmtPrice
+            # StopLimitOrder has both auxPrice (stop trigger) and lmtPrice (limit price)
             if isinstance(child, StopLimitOrder):
-                child_stop_price = child.stopPrice
-                child_limit_price = child.lmtPrice
+                child_stop_price = child.auxPrice  # Stop trigger price
+                child_limit_price = child.lmtPrice  # Limit price after stop triggered
             elif isinstance(child, StopOrder):
                 child_stop_price = child.auxPrice
                 child_limit_price = None
@@ -414,8 +475,8 @@ class TradeExecutor:
             
             logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
-        # Wait for initial status update (waitOnUpdate is synchronous, not async)
-        self.ib.waitOnUpdate()
+        # Wait briefly for order status updates (use asyncio.sleep instead of blocking waitOnUpdate)
+        await asyncio.sleep(0.1)  # Small delay to allow order status callbacks to fire
         status = parent_trade.orderStatus.status
         
         # Store position metadata for trailing stops
@@ -621,7 +682,10 @@ class TradeExecutor:
             # Get the qualified front month contract
             front_month = await self.get_qualified_contract()
             if not front_month:
+                logger.warning("Could not get qualified contract")
                 return None
+            
+            logger.info(f"Requesting market data for {front_month.localSymbol}...")
             
             # Request market data snapshot - snapshot=True auto-cancels after first update
             # No manual cancellation needed for snapshots
@@ -630,6 +694,8 @@ class TradeExecutor:
             # Wait for ticker to populate with data
             for attempt in range(10):  # Try for up to 5 seconds
                 await asyncio.sleep(0.5)
+                
+                logger.debug(f"Attempt {attempt+1}/10: last={ticker.last}, close={ticker.close}, bid={ticker.bid}, ask={ticker.ask}")
                 
                 # Check if we have any price data
                 if ticker.last and ticker.last > 0:

@@ -58,11 +58,25 @@ fi
 # Fallback: kill by process name
 pkill -f "dashboard_api.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped dashboard_api.py${NC}"
 pkill -f "vite" 2>/dev/null && echo -e "${GREEN}✅ Stopped vite${NC}"
-pkill -f "main.py live" 2>/dev/null && echo -e "${GREEN}✅ Stopped trading bot${NC}"
+pkill -f "main.py live" 2>/dev/null && echo -e "${GREEN}✅ Stopped main.py${NC}"
+pkill -f "run_bot.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped run_bot.py${NC}"
+pkill -f "run_autonomous_trading.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped autonomous trading${NC}"
+pkill -f "run_llm_trading.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped LLM trading${NC}"
 
-# Kill by port if needed
-lsof -ti:8000 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 8000${NC}"
-lsof -ti:5173 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 5173${NC}"
+# Force kill any remaining Python processes related to MyTrader
+MYTRADER_PROCS=$(ps aux | grep -i "mytrader" | grep -v "grep" | awk '{print $2}')
+if [ ! -z "$MYTRADER_PROCS" ]; then
+    for PID in $MYTRADER_PROCS; do
+        kill -9 $PID 2>/dev/null && echo -e "${GREEN}✅ Stopped MyTrader process (PID: $PID)${NC}"
+    done
+fi
+
+# Kill by port if needed (backend, frontend, and any other services)
+lsof -ti:8000 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 8000 (backend)${NC}"
+lsof -ti:5173 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 5173 (frontend)${NC}"
+lsof -ti:8001 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 8001${NC}"
+lsof -ti:4001 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 4001 (IB Gateway)${NC}"
+lsof -ti:7497 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 7497 (TWS API)${NC}"
 
 # Clean up
 rm -f "$LOGS_DIR/services.info"

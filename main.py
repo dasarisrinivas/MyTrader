@@ -244,8 +244,25 @@ async def run_live(settings: Settings) -> None:
                 logger.error(f"❌ Connection failed: {e}")
                 raise
     
+    # Initialize Telegram notifier if configured
+    from mytrader.utils.telegram_notifier import TelegramNotifier
+    telegram_notifier = None
+    if hasattr(settings, 'telegram') and settings.telegram.enabled:
+        telegram_notifier = TelegramNotifier(
+            bot_token=settings.telegram.bot_token,
+            chat_id=settings.telegram.chat_id,
+            enabled=True
+        )
+        logger.info("✅ Telegram notifications initialized")
+    
     # Now wrap with executor
-    executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol, settings.data.ibkr_exchange)
+    executor = TradeExecutor(
+        ib, 
+        settings.trading, 
+        settings.data.ibkr_symbol, 
+        settings.data.ibkr_exchange,
+        telegram_notifier=telegram_notifier
+    )
     executor._connection_host = settings.data.ibkr_host
     executor._connection_port = settings.data.ibkr_port
     executor._connection_client_id = client_id

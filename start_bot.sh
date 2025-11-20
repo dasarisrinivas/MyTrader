@@ -20,7 +20,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Check if bot is already running
-if pgrep -f "python.*main.py live" > /dev/null; then
+if pgrep -f "python.*run_bot.py" > /dev/null; then
     echo -e "${YELLOW}⚠️  Trading bot is already running!${NC}"
     echo ""
     echo "To restart the bot:"
@@ -74,9 +74,14 @@ else
     echo -e "${YELLOW}   Using system Python${NC}"
 fi
 
+# Set environment variables for safety
+export MAX_CONTRACTS=${MAX_CONTRACTS:-5}
+export IBKR_HOST=${IBKR_HOST:-"127.0.0.1"}
+export IBKR_PORT=${IBKR_PORT:-4002}
+
 # Start the bot in the background
-echo -e "${BLUE}[INFO]${NC} Starting trading bot..."
-nohup python main.py live --config config.yaml > logs/bot.log 2>&1 &
+echo -e "${BLUE}[INFO]${NC} Starting trading bot (MAX_CONTRACTS=$MAX_CONTRACTS)..."
+nohup python run_bot.py > logs/bot.log 2>&1 &
 BOT_PID=$!
 
 # Wait a bit and check if it's still running
