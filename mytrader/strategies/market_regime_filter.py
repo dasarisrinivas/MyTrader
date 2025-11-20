@@ -193,11 +193,26 @@ class MarketRegimeFilter:
     
     def _is_regular_trading_hours(self, dt: datetime) -> bool:
         """Check if time is within regular trading hours (9:30 AM - 4:00 PM ET)."""
-        # Convert to ET time zone if needed (simplified - assumes ET for now)
-        current_time = dt.time()
+        # Convert to ET time zone
+        try:
+            from zoneinfo import ZoneInfo
+            et_tz = ZoneInfo("America/New_York")
+        except ImportError:
+            # Fallback for Python < 3.9
+            import pytz
+            et_tz = pytz.timezone("America/New_York")
+        
+        # Convert to ET
+        if dt.tzinfo is None:
+            # Assume UTC if no timezone
+            from datetime import timezone as tz
+            dt = dt.replace(tzinfo=tz.utc)
+        
+        dt_et = dt.astimezone(et_tz)
+        current_time = dt_et.time()
         
         # Skip weekends
-        if dt.weekday() >= 5:  # Saturday=5, Sunday=6
+        if dt_et.weekday() >= 5:  # Saturday=5, Sunday=6
             return False
         
         # Regular hours: 9:30 AM - 4:00 PM ET

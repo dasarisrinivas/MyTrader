@@ -26,7 +26,8 @@ class DataSourceConfig:
 
 @dataclass
 class TradingConfig:
-    max_position_size: int = 4
+    max_position_size: int = 5  # Maximum total contracts
+    contracts_per_order: int = 1  # Contracts per single order
     max_daily_loss: float = 2000.0
     max_daily_trades: int = 20
     initial_capital: float = 100_000.0

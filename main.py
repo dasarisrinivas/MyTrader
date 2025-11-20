@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import time
 from pathlib import Path
 
 import nest_asyncio
@@ -99,7 +100,7 @@ async def run_live(settings: Settings) -> None:
                     reward_risk_ratio=2.0,
                     use_trailing_stop=True,
                     trailing_stop_pct=0.5,
-                    min_confidence=0.75,  # Increased threshold
+                    min_confidence=settings.trading.min_weighted_confidence,  # Use config value (0.70)
                     rag_engine=rag_engine  # Pass RAG engine for validation
                 )
                 
@@ -211,21 +212,37 @@ async def run_live(settings: Settings) -> None:
     logger.info("Initializing IB connection to %s:%s (client_id=%d)", settings.data.ibkr_host, settings.data.ibkr_port, client_id)
     ib = IB()
     
-    # Connect directly first to test
-    try:
-        logger.info("Attempting direct IB connection...")
-        await asyncio.wait_for(
-            ib.connectAsync(settings.data.ibkr_host, settings.data.ibkr_port, clientId=client_id, timeout=10),
-            timeout=15
-        )
-        logger.info("✅ Connected to IBKR successfully")
-    except asyncio.TimeoutError:
-        logger.error("❌ Connection timeout after 15 seconds")
-        logger.error("Check: 1) IB Gateway is running 2) API is enabled 3) Port 4002 is open")
-        raise
-    except Exception as e:
-        logger.error(f"❌ Connection failed: {e}")
-        raise
+    # Connect with retry logic
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting IB connection (attempt {attempt + 1}/{max_retries})...")
+            await asyncio.wait_for(
+                ib.connectAsync(settings.data.ibkr_host, settings.data.ibkr_port, clientId=client_id, timeout=5),
+                timeout=8
+            )
+            logger.info("✅ Connected to IBKR successfully")
+            break
+        except asyncio.TimeoutError:
+            if attempt < max_retries - 1:
+                logger.warning(f"⚠️  Connection timeout, retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                # Try a different client ID
+                client_id = random.randint(10, 999)
+            else:
+                logger.error("❌ Connection failed after all retries")
+                logger.error("Check: 1) IB Gateway is running 2) API is enabled 3) Port 4002 is open 4) No other bots connected")
+                raise
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"⚠️  Connection error: {e}, retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                client_id = random.randint(10, 999)
+            else:
+                logger.error(f"❌ Connection failed: {e}")
+                raise
     
     # Now wrap with executor
     executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol, settings.data.ibkr_exchange)
@@ -285,7 +302,6 @@ async def run_live(settings: Settings) -> None:
                 # Add to price history (simplified: using last price for OHLC)
                 # In production, you'd want proper bar aggregation
                 from datetime import datetime, timezone
-                import time
                 price_bar = {
                     'timestamp': datetime.now(timezone.utc),
                     'open': current_price,
@@ -612,28 +628,46 @@ async def run_live(settings: Settings) -> None:
                 if llm_commentary:
                     logger.info(f"   LLM Commentary: {llm_commentary[:100]}...")
 
-                # Position sizing (uses config method: fixed_fraction or kelly)
-                risk_stats = risk.get_statistics()
-                qty = risk.position_size(
-                    account_value, 
-                    signal.confidence,
-                    win_rate=risk_stats.get("win_rate"),
-                    avg_win=risk_stats.get("avg_win"),
-                    avg_loss=risk_stats.get("avg_loss")
-                )
+                # FIXED POSITION SIZING: Use contracts_per_order (1) and respect max_position_size (5)
+                # Check current total position
+                current_abs_position = abs(current_qty)
+                max_allowed = settings.trading.max_position_size
                 
                 logger.info(f"💰 Position Sizing:")
-                logger.info(f"   Method: {settings.trading.position_sizing_method}")
-                logger.info(f"   Risk per trade: {settings.trading.risk_per_trade_pct*100:.2f}%")
-                logger.info(f"   Calculated contracts: {qty}")
+                logger.info(f"   Current position: {current_qty} contracts")
+                logger.info(f"   Max allowed total: {max_allowed} contracts")
+                logger.info(f"   Contracts per order: {settings.trading.contracts_per_order}")
                 
-                # Apply position scaler from metadata (like backtest)
-                metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
-                scaler = float(metadata.get("position_scaler", 1.0))
-                if scaler > 0:
-                    qty = max(1, int(round(qty * scaler)))
+                # STRICT POSITION CHECK: Don't add to existing position in same direction
+                # If we have a position and signal is same direction, skip
+                if current_qty != 0:
+                    signal_direction = 1 if signal.action == "BUY" else -1
+                    position_direction = 1 if current_qty > 0 else -1
+                    if signal_direction == position_direction:
+                        logger.warning(f"⚠️  Already have {abs(current_qty)} contract position in {signal.action} direction, skipping new trade")
+                        await asyncio.sleep(poll_interval)
+                        continue
                 
-                qty = min(qty, settings.trading.max_position_size)
+                # Check if we're at max position
+                if current_abs_position >= max_allowed:
+                    logger.warning(f"⚠️  Already at maximum position ({current_abs_position}/{max_allowed}), skipping new trade")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                # Only trade 1 contract per order (from config)
+                qty = settings.trading.contracts_per_order
+                
+                # Ensure we don't exceed max position size
+                if current_abs_position + qty > max_allowed:
+                    qty = max_allowed - current_abs_position
+                    logger.info(f"   Adjusted to {qty} contract(s) to stay within max limit")
+                
+                if qty <= 0:
+                    logger.warning("⚠️  Cannot trade: would exceed position limit")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                logger.info(f"   ✅ Placing order for {qty} contract(s)")
                 
                 if not risk.can_trade(qty):
                     logger.warning("Risk limits exceeded. Skipping trade.")
@@ -645,6 +679,7 @@ async def run_live(settings: Settings) -> None:
                 row = features.iloc[-1]
                 
                 # Check for explicit prices in metadata first
+                metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
                 raw_stop = metadata.get("stop_loss_price")
                 stop_loss = float(raw_stop) if isinstance(raw_stop, (int, float)) else None
                 
@@ -668,10 +703,18 @@ async def run_live(settings: Settings) -> None:
                     else:
                         stop_offset = default_stop_offset
                     
+                    # PROFESSIONAL STOP-LOSS: Minimum 10 points ($500) for ES futures
+                    # This prevents stop-hunting and allows normal market volatility
+                    min_stop_points = 10.0  # 10 ES points = $500 per contract
+                    if stop_offset < min_stop_points:
+                        logger.info(f"   📏 Widening stop from {stop_offset:.2f} to {min_stop_points:.2f} points (min threshold)")
+                        stop_offset = min_stop_points
+                    
                     if stop_offset <= 0:
-                        stop_offset = default_stop_offset
+                        stop_offset = min_stop_points
                     
                     stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
+                    logger.info(f"   🛡️  Stop-loss: {stop_offset:.2f} points from entry (${stop_offset * 50:.0f} risk per contract)")
                 
                 # Calculate take-profit if not provided
                 if take_profit is None:

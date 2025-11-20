@@ -158,7 +158,7 @@ class TradeExecutor:
                     logger.info(f"Canceling existing order {trade.order.orderId} for {self.symbol}")
             
             if canceled_count > 0:
-                await self.ib.sleep(2)  # Give time for cancellations to process
+                await asyncio.sleep(2)  # Give time for cancellations to process
                 logger.info(f"✅ Canceled {canceled_count} existing orders for {self.symbol}")
             else:
                 logger.info("No existing orders to cancel")
@@ -289,7 +289,7 @@ class TradeExecutor:
         if active_count >= 12:  # Stay below the 15 limit with some buffer
             logger.warning(f"⚠️  Too many active orders ({active_count}), canceling old orders first...")
             await self._cancel_all_existing_orders()
-            await self.ib.sleep(2)  # Wait for cancellations
+            await asyncio.sleep(2)  # Wait for cancellations
         
         # Get the qualified front month contract
         contract = await self.get_qualified_contract()
@@ -304,8 +304,8 @@ class TradeExecutor:
         if limit_price is not None:
             order = LimitOrder(action, quantity, limit_price)
         else:
-            # FIX: Use LIMIT orders instead of MARKET to prevent slippage
-            # Get current price and add small buffer (0.25 = 1 tick for ES)
+            # PROFESSIONAL ENTRY: Use LIMIT orders with reasonable buffer
+            # Get current price and add buffer to ensure fill without excessive slippage
             current_price = await self.get_current_price()
             if current_price is None:
                 logger.error("Cannot get current price for limit order")
@@ -313,8 +313,9 @@ class TradeExecutor:
                 dummy_trade = IBTrade()
                 return OrderResult(trade=dummy_trade, status="Cancelled", message="No current price")
             
-            # Add 1-tick buffer: BUY higher, SELL lower to ensure fill
-            tick_buffer = 0.25  # ES tick size
+            # Use 2-tick buffer for ES (0.25 * 2 = 0.50 points)
+            # This ensures fill while avoiding market orders
+            tick_buffer = 0.50  # 2 ticks for ES
             limit_price = current_price + tick_buffer if action == "BUY" else current_price - tick_buffer
             order = LimitOrder(action, quantity, limit_price)
             logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")
@@ -331,10 +332,10 @@ class TradeExecutor:
                 logger.info("Adding take-profit order at %.2f", take_profit)
             
             if stop_loss is not None:
-                # Use STOP-LIMIT instead of STOP-MARKET to reduce slippage
-                # Set limit price with small offset (1-2 ticks) from stop price
+                # PROFESSIONAL STOP-LOSS: Use STOP-LIMIT with wider buffer
+                # For ES futures, allow 1-2 points (4-8 ticks) of slippage on stop
                 tick_size = self.config.tick_size
-                offset_ticks = 2  # Allow 2 ticks of slippage
+                offset_ticks = 4  # Allow 1 point (4 ticks = $50) of slippage
                 
                 if action == "BUY":  # Long position, stop is below
                     limit_price = stop_loss - (offset_ticks * tick_size)
@@ -344,8 +345,8 @@ class TradeExecutor:
                 sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price)
                 sl_order.transmit = False
                 bracket_children.append(sl_order)
-                logger.info("Adding stop-loss order: stop=%.2f, limit=%.2f (STOP-LIMIT)", 
-                           stop_loss, limit_price)
+                logger.info("Adding stop-loss order: stop=%.2f, limit=%.2f (STOP-LIMIT with %.2f buffer)", 
+                           stop_loss, limit_price, abs(stop_loss - limit_price))
             
             if bracket_children:
                 bracket_children[-1].transmit = True

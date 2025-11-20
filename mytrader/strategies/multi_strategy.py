@@ -158,19 +158,25 @@ class MultiStrategy:
             
             # Auto-select best strategy or use specified mode
             if self.strategy_mode == "auto":
-                strategy_to_use = self._select_best_strategy(market_context)
+                strategy_to_use = self._select_best_strategy(market_context, df)
             else:
                 strategy_to_use = self.strategy_mode
             
             logger.debug(f"Using strategy: {strategy_to_use}")
             
+            # Analyze market context
+            context = self.analyze_market_context(df)
+            
+            # Calculate risk parameters
+            risk_params = self._calculate_risk_params(df)
+            
             # Generate signal based on strategy
             if strategy_to_use == "trend_following":
-                action, confidence, risk_params = self._trend_following_signal(df, current_position)
+                action, confidence = self._trend_following_signal(df, context)
             elif strategy_to_use == "breakout":
-                action, confidence, risk_params = self._breakout_signal(df, current_position)
+                action, confidence = self._breakout_signal(df, context)
             elif strategy_to_use == "mean_reversion":
-                action, confidence, risk_params = self._mean_reversion_signal(df, current_position)
+                action, confidence = self._mean_reversion_signal(df, context)
             else:
                 logger.error(f"❌ Unknown strategy mode: {strategy_to_use}")
                 return "HOLD", 0.0, None
@@ -397,25 +403,33 @@ class MultiStrategy:
             # Strong downtrend, consider holding/selling
             return "SELL", 0.6
         
-        # NEW: Detect strong momentum moves (4+ point drops/rises on ES)
-        # Calculate recent price change over last 5 bars
-        if len(df) >= 5:
-            price_5_bars_ago = df['close'].iloc[-5]
-            price_change_points = current_price - price_5_bars_ago
-            price_change_pct = (current_price - price_5_bars_ago) / price_5_bars_ago
+        # NEW: Detect momentum moves (using 20-bar lookback for better signal quality)
+        # Calculate recent price change over last 20 bars (100 seconds at 5sec polling)
+        lookback_bars = min(20, len(df))  # Use 20 bars or less if not enough data
+        
+        if len(df) >= lookback_bars:
+            price_n_bars_ago = df['close'].iloc[-lookback_bars]
+            price_change_points = current_price - price_n_bars_ago
+            price_change_pct = (current_price - price_n_bars_ago) / price_n_bars_ago
             
-            # Strong downward momentum: 3+ point drop (~0.045%) in 5 bars
-            if price_change_points < -3.0 and price_change_pct < -0.0004:
-                confidence = 0.65
+            # Downward momentum: 2+ point drop over lookback period
+            if price_change_points < -2.0 and price_change_pct < -0.0003:
+                confidence = 0.55  # Base confidence for smaller moves
+                if price_change_points < -3.0:  # Stronger drop
+                    confidence = 0.65
                 if price_change_points < -5.0:  # Very strong drop
                     confidence = 0.75
+                logger.info(f"📉 Momentum SELL: {price_change_points:.2f} points over {lookback_bars} bars")
                 return "SELL", confidence
             
-            # Strong upward momentum: 3+ point rise (~0.045%) in 5 bars  
-            elif price_change_points > 3.0 and price_change_pct > 0.0004:
-                confidence = 0.65
+            # Upward momentum: 2+ point rise over lookback period
+            elif price_change_points > 2.0 and price_change_pct > 0.0003:
+                confidence = 0.55  # Base confidence for smaller moves
+                if price_change_points > 3.0:  # Stronger rise
+                    confidence = 0.65
                 if price_change_points > 5.0:  # Very strong rise
                     confidence = 0.75
+                logger.info(f"📈 Momentum BUY: {price_change_points:.2f} points over {lookback_bars} bars")
                 return "BUY", confidence
         
         return "HOLD", 0.0
