@@ -258,6 +258,17 @@ class LiveTradingManager:
                         await asyncio.sleep(poll_interval)
                         continue
                     
+                    # On first cycle after warmup, verify position state
+                    if self.status.bars_collected == self.status.min_bars_needed and not hasattr(self, '_position_verified'):
+                        logger.info("🔍 Warmup complete. Verifying existing positions before trading...")
+                        existing_position = await self.executor.get_current_position()
+                        if existing_position and existing_position.quantity != 0:
+                            logger.warning(f"⚠️  EXISTING POSITION DETECTED: {existing_position.quantity} contracts @ {existing_position.avg_cost:.2f}")
+                            logger.warning(f"⚠️  Bot will manage this position. Use opposite signals to exit.")
+                        else:
+                            logger.info("✅ No existing positions. Ready to trade fresh.")
+                        self._position_verified = True
+                    
                     # Process trading logic
                     logger.debug("Processing trading cycle...")
                     await self._process_trading_cycle(current_price)
@@ -361,7 +372,8 @@ class LiveTradingManager:
         original_confidence = signal.confidence
         signal.confidence = max(0.0, min(1.0, signal.confidence + rag_adjustment))
 
-
+        # DEBUG: Log every signal generated
+        logger.info(f"📊 Signal: action={signal.action}, confidence={signal.confidence:.3f} (original={original_confidence:.3f}, rag_adj={rag_adjustment:+.3f})")
         
         if rag_adjustment != 0:
             logger.info(f"RAG adjusted confidence: {original_confidence:.2f} -> {signal.confidence:.2f} ({rag_rationale.get('adjustment')})")
@@ -389,14 +401,61 @@ class LiveTradingManager:
         
         # Execute trading logic
         if signal.action == "HOLD":
+            logger.info(f"  ↳ Signal is HOLD, skipping order placement")
             return
         
-        # Don't open new position if we already have one
-        if current_position and current_position.quantity != 0:
+        # CRITICAL: Check for active orders FIRST - don't place ANY order (entry or exit) if we have pending orders
+        active_orders = self.executor.get_active_order_count(sync=True)
+        if active_orders > 0:
+            logger.info(f"  ↳ {active_orders} active orders pending, waiting for completion before placing new orders")
             return
+        
+        # Check if we should exit existing position
+        if current_position and current_position.quantity != 0:
+            # Exit logic: opposite signal closes position
+            if (current_position.quantity > 0 and signal.action == "SELL") or \
+               (current_position.quantity < 0 and signal.action == "BUY"):
+                logger.info(f"  ↳ EXIT SIGNAL: Position={current_position.quantity}, Signal={signal.action}, closing position")
+                # Place exit order (flatten position)
+                exit_qty = abs(current_position.quantity)
+                await self._place_exit_order(signal.action, exit_qty, current_price)
+                return
+            else:
+                logger.info(f"  ↳ Position already open (qty={current_position.quantity}), signal={signal.action}, no action (same direction)")
+                return
         
         # Place order
+        logger.info(f"  ↳ Attempting to place order: {signal.action}")
         await self._place_order(signal, current_price, features)
+    
+    async def _place_exit_order(self, action: str, quantity: int, current_price: float):
+        """Place a market order to exit existing position."""
+        logger.info(f"🚪 Placing EXIT order: {action} {quantity} contracts @ market price ~{current_price:.2f}")
+        
+        try:
+            # Place market order to flatten position
+            order_id = await self.executor.place_order(
+                action=action,  # BUY to close SHORT, SELL to close LONG
+                quantity=quantity,
+                limit_price=current_price,
+                stop_loss=None,  # No stops for exit orders
+                take_profit=None
+            )
+            
+            logger.info(f"✅ Exit order placed: ID={order_id}")
+            
+            # Broadcast exit
+            await self._broadcast_order_update({
+                "type": "EXIT",
+                "action": action,
+                "quantity": quantity,
+                "price": current_price,
+                "order_id": order_id
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to place exit order: {e}")
+            await self._broadcast_error(f"Exit order failed: {e}")
     
     async def _place_order(self, signal, current_price: float, features):
         """Place an order based on signal."""

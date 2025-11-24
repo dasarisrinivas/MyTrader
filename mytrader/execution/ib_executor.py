@@ -65,6 +65,9 @@ class TradeExecutor:
         self.order_history: List[Dict] = []
         self._qualified_contract: Contract | None = None  # Cache the qualified front month contract
         
+        # Store stop loss / take profit for each order (for Telegram notifications)
+        self.order_targets: Dict[int, Dict[str, float]] = {}  # {order_id: {'stop_loss': float, 'take_profit': float}}
+        
         # Store connection parameters for auto-reconnect
         self._connection_host: str = "127.0.0.1"
         self._connection_port: int = 4002
@@ -157,12 +160,14 @@ class TradeExecutor:
         await self._start_keepalive()
     
     async def _cancel_all_existing_orders(self) -> None:
-        """Cancel all existing orders for this symbol on startup."""
+        """Cancel any existing orders for this symbol and sync order state."""
         try:
+            # Get current open trades from IB
             open_trades = self.ib.openTrades()
             canceled_count = 0
+            
+            # Cancel orders for our symbol
             for trade in open_trades:
-                # Cancel orders for our symbol
                 if trade.contract.symbol == self.symbol:
                     self.ib.cancelOrder(trade.order)
                     canceled_count += 1
@@ -171,10 +176,42 @@ class TradeExecutor:
             if canceled_count > 0:
                 await asyncio.sleep(2)  # Give time for cancellations to process
                 logger.info(f"✅ Canceled {canceled_count} existing orders for {self.symbol}")
-            else:
-                logger.info("No existing orders to cancel")
+            
+            # Reconcile order state with IB after cancellations
+            await self._reconcile_orders()
+            
         except Exception as e:
             logger.error(f"Failed to cancel existing orders: {e}")
+    
+    async def _reconcile_orders(self) -> None:
+        """Reconcile active orders with IB Gateway."""
+        try:
+            # Clear current tracking
+            old_count = len(self.active_orders)
+            self.active_orders.clear()
+            
+            # Get current open trades from IB
+            open_trades = self.ib.openTrades()
+            
+            for trade in open_trades:
+                if trade.contract.symbol == self.symbol:
+                    order_id = trade.order.orderId
+                    status = trade.orderStatus.status
+                    
+                    # Only track truly active orders (not cancelled/filled)
+                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
+                        self.active_orders[order_id] = trade.order
+                        logger.info(f"📋 Active order found: {order_id} - {trade.order.action} {trade.order.totalQuantity} {self.symbol} (status: {status})")
+                    else:
+                        logger.debug(f"Skipping order {order_id} with status: {status}")
+            
+            if old_count > 0 or len(self.active_orders) > 0:
+                logger.info(f"🔄 Order reconciliation: {old_count} → {len(self.active_orders)} active orders")
+            else:
+                logger.info("✅ No active orders")
+                
+        except Exception as e:
+            logger.error(f"Failed to reconcile orders: {e}")
 
     async def _reconcile_positions(self) -> None:
         """Reconcile current positions with IBKR."""
@@ -277,19 +314,22 @@ class TradeExecutor:
         )
         
         # Send Telegram notification (non-blocking)
+        logger.info(f"📱 Checking Telegram: enabled={self.telegram.enabled if self.telegram else False}")
         if self.telegram and self.telegram.enabled:
             try:
                 # Get current position
                 current_position = self.positions.get(self.symbol)
                 position_qty = current_position.quantity if current_position else None
                 
-                # Get stop loss and take profit from position metadata
-                stop_loss = current_position.stop_loss if current_position else None
-                take_profit = current_position.take_profit if current_position else None
+                # Get stop loss and take profit from stored order targets
+                targets = self.order_targets.get(order_id, {})
+                stop_loss = targets.get('stop_loss')
+                take_profit = targets.get('take_profit')
                 
                 # Determine side from order action
                 side = order.action  # "BUY" or "SELL"
                 
+                logger.info(f"📱 Sending Telegram alert: {side} {quantity} @ {price}, SL={stop_loss}, TP={take_profit}")
                 # Send notification in background (fire-and-forget)
                 self.telegram.send_trade_alert_background(
                     symbol=self.symbol,
@@ -304,6 +344,7 @@ class TradeExecutor:
                     stop_loss=stop_loss,
                     take_profit=take_profit
                 )
+                logger.info(f"📱 Telegram alert queued successfully")
             except Exception as e:
                 # Never let Telegram errors affect trading
                 logger.error(f"❌ Failed to send Telegram notification: {e}")
@@ -390,7 +431,7 @@ class TradeExecutor:
                 tp_order = LimitOrder(opposite, quantity, take_profit)
                 tp_order.transmit = False
                 bracket_children.append(tp_order)
-                logger.info("Adding take-profit order at %.2f", take_profit)
+                logger.info(f"Adding take-profit order at {take_profit:.2f}")
             
             if stop_loss is not None:
                 # PROFESSIONAL STOP-LOSS: Use STOP-LIMIT with wider buffer
@@ -406,8 +447,7 @@ class TradeExecutor:
                 sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price)
                 sl_order.transmit = False
                 bracket_children.append(sl_order)
-                logger.info("Adding stop-loss order: stop=%.2f, limit=%.2f (STOP-LIMIT with %.2f buffer)", 
-                           stop_loss, limit_price, abs(stop_loss - limit_price))
+                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price):.2f} buffer)")
             
             if bracket_children:
                 bracket_children[-1].transmit = True
@@ -417,6 +457,12 @@ class TradeExecutor:
         # Place parent order
         parent_trade = self.ib.placeOrder(contract, order)
         parent_id = parent_trade.order.orderId
+        
+        # Store stop_loss and take_profit for this order (for Telegram notifications)
+        self.order_targets[parent_id] = {
+            'stop_loss': stop_loss,
+            'take_profit': take_profit
+        }
         
         # Get current price for entry tracking
         current_price = limit_price if limit_price else None
@@ -548,8 +594,27 @@ class TradeExecutor:
         """Get total realized PnL."""
         return self.realized_pnl
 
-    def get_active_order_count(self) -> int:
-        """Get number of active orders."""
+    def get_active_order_count(self, sync: bool = False) -> int:
+        """Get number of active orders.
+        
+        Args:
+            sync: If True, reconcile with IB Gateway first (slower but accurate)
+        """
+        if sync:
+            # Do a quick sync with IB to ensure accuracy
+            open_trades = self.ib.openTrades()
+            synced_orders = {}
+            for trade in open_trades:
+                if trade.contract.symbol == self.symbol:
+                    status = trade.orderStatus.status
+                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
+                        synced_orders[trade.order.orderId] = trade.order
+            
+            # Update active_orders if different
+            if len(synced_orders) != len(self.active_orders):
+                logger.debug(f"Order count sync: {len(self.active_orders)} → {len(synced_orders)}")
+                self.active_orders = synced_orders
+        
         return len(self.active_orders)
 
     def get_order_history(self, limit: int = 100) -> List[Dict]:

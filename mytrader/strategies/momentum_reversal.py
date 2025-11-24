@@ -12,7 +12,7 @@ from .base import BaseStrategy, Signal
 class MomentumReversalStrategy(BaseStrategy):
     name: str = "momentum_reversal"
     lookback: int = 20
-    threshold: float = 0.01
+    threshold: float = 0.0001
 
     def generate(self, features: pd.DataFrame) -> Signal:
         if len(features) < 2:
