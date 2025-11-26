@@ -42,6 +42,9 @@ class OrderTracker:
                     take_profit REAL,
                     confidence REAL,
                     atr REAL,
+                    rationale TEXT,
+                    features TEXT,
+                    market_regime TEXT,
                     status TEXT NOT NULL,
                     filled_quantity INTEGER DEFAULT 0,
                     avg_fill_price REAL,
@@ -51,6 +54,20 @@ class OrderTracker:
                     updated_at TEXT NOT NULL
                 )
             """)
+            
+            # Migration: Add new columns if they don't exist
+            try:
+                cursor = conn.execute("PRAGMA table_info(orders)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if "rationale" not in columns:
+                    conn.execute("ALTER TABLE orders ADD COLUMN rationale TEXT")
+                if "features" not in columns:
+                    conn.execute("ALTER TABLE orders ADD COLUMN features TEXT")
+                if "market_regime" not in columns:
+                    conn.execute("ALTER TABLE orders ADD COLUMN market_regime TEXT")
+            except Exception as e:
+                logger.error(f"Migration failed: {e}")
             
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS order_events (
@@ -98,6 +115,9 @@ class OrderTracker:
         confidence: Optional[float] = None,
         atr: Optional[float] = None,
         parent_order_id: Optional[int] = None,
+        rationale: Optional[str] = None,
+        features: Optional[str] = None,
+        market_regime: Optional[str] = None,
     ) -> None:
         """Record a new order placement."""
         now = datetime.utcnow().isoformat()
@@ -107,12 +127,14 @@ class OrderTracker:
                 INSERT OR REPLACE INTO orders (
                     order_id, parent_order_id, timestamp, symbol, action, quantity,
                     order_type, limit_price, stop_price, entry_price, stop_loss,
-                    take_profit, confidence, atr, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    take_profit, confidence, atr, rationale, features, market_regime,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 order_id, parent_order_id, now, symbol, action, quantity,
                 order_type, limit_price, stop_price, entry_price, stop_loss,
-                take_profit, confidence, atr, "Placed", now, now
+                take_profit, confidence, atr, rationale, features, market_regime,
+                "Placed", now, now
             ))
             
             conn.execute("""

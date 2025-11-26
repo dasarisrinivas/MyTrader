@@ -100,6 +100,10 @@ def get_regime_parameters(regime: MarketRegime) -> dict:
             "sentiment_sell": 0.3,
             "use_macd_crossover": True,
             "position_multiplier": 1.2,
+            # Risk parameters
+            "atr_multiplier_sl": 2.0,
+            "atr_multiplier_tp": 4.0,
+            "risk_reward_ratio": 2.0,
         }
     elif regime == MarketRegime.TRENDING_DOWN:
         return {
@@ -109,6 +113,10 @@ def get_regime_parameters(regime: MarketRegime) -> dict:
             "sentiment_sell": 0.2,
             "use_macd_crossover": True,
             "position_multiplier": 0.8,
+            # Risk parameters
+            "atr_multiplier_sl": 2.0,
+            "atr_multiplier_tp": 4.0,
+            "risk_reward_ratio": 2.0,
         }
     elif regime == MarketRegime.HIGH_VOLATILITY:
         return {
@@ -118,6 +126,10 @@ def get_regime_parameters(regime: MarketRegime) -> dict:
             "sentiment_sell": 0.2,
             "use_macd_crossover": False,
             "position_multiplier": 0.7,  # Reduce position size in high vol
+            # Risk parameters - Wider stops to avoid noise
+            "atr_multiplier_sl": 2.5,
+            "atr_multiplier_tp": 5.0,  # Aim for larger moves
+            "risk_reward_ratio": 2.0,
         }
     elif regime == MarketRegime.LOW_VOLATILITY:
         return {
@@ -127,6 +139,10 @@ def get_regime_parameters(regime: MarketRegime) -> dict:
             "sentiment_sell": 0.2,
             "use_macd_crossover": True,
             "position_multiplier": 1.0,
+            # Risk parameters - Tighter stops in quiet market
+            "atr_multiplier_sl": 1.5,
+            "atr_multiplier_tp": 2.5,  # Smaller targets
+            "risk_reward_ratio": 1.67,
         }
     else:  # MEAN_REVERTING
         return {
@@ -136,4 +152,8 @@ def get_regime_parameters(regime: MarketRegime) -> dict:
             "sentiment_sell": 0.2,
             "use_macd_crossover": False,
             "position_multiplier": 1.0,
+            # Risk parameters
+            "atr_multiplier_sl": 2.0,
+            "atr_multiplier_tp": 3.0,
+            "risk_reward_ratio": 1.5,
         }

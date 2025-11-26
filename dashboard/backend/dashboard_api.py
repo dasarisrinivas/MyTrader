@@ -1148,6 +1148,9 @@ async def get_detailed_orders():
                 "avg_fill_price": order.get('avg_fill_price'),
                 "confidence": order.get('confidence'),
                 "atr": order.get('atr'),
+                "rationale": order.get('rationale'),
+                "features": order.get('features'),
+                "market_regime": order.get('market_regime'),
                 "commission": order.get('commission'),
                 "realized_pnl": order.get('realized_pnl'),
                 "execution_time": None,
@@ -1770,6 +1773,110 @@ async def sync_orders_from_ib():
             "error": str(e),
             "message": "Failed to initialize IB connection for sync"
         }
+
+
+class PerformanceAnalysisRequest(BaseModel):
+    period: str = "today"  # today, yesterday, week, all
+
+
+@app.post("/api/analysis/performance")
+async def analyze_performance(request: PerformanceAnalysisRequest):
+    """Generate AI analysis of trading performance."""
+    try:
+        from mytrader.llm.bedrock_client import BedrockClient
+        from mytrader.utils.settings_loader import load_settings
+        
+        # Get trades
+        tracker = OrderTracker()
+        orders = tracker.get_all_orders(limit=100)
+        enhanced_orders = calculate_pnl_for_orders(orders)
+        
+        # Filter by period
+        now = datetime.now()
+        filtered_orders = []
+        
+        for order in enhanced_orders:
+            order_time = datetime.fromisoformat(order['timestamp'])
+            
+            if request.period == "today":
+                if order_time.date() == now.date():
+                    filtered_orders.append(order)
+            elif request.period == "yesterday":
+                if order_time.date() == (now - timedelta(days=1)).date():
+                    filtered_orders.append(order)
+            elif request.period == "week":
+                if order_time > (now - timedelta(days=7)):
+                    filtered_orders.append(order)
+            else:
+                filtered_orders.append(order)
+        
+        if not filtered_orders:
+            return {
+                "analysis": "No trades found for the specified period.",
+                "period": request.period
+            }
+        
+        # Prepare data for LLM
+        trades_summary = []
+        total_pnl = 0
+        wins = 0
+        losses = 0
+        
+        for order in filtered_orders:
+            if order['status'] == 'Filled':
+                pnl = order.get('calculated_pnl', 0)
+                total_pnl += pnl
+                if pnl > 0: wins += 1
+                elif pnl < 0: losses += 1
+                
+                trades_summary.append(
+                    f"Action: {order['action']}, Symbol: {order['symbol']}, "
+                    f"PnL: ${pnl:.2f}, Rationale: {order.get('rationale', 'N/A')}, "
+                    f"Market Regime: {order.get('market_regime', 'N/A')}"
+                )
+        
+        summary_text = "\n".join(trades_summary)
+        
+        # Generate analysis
+        settings = load_settings()
+        client = BedrockClient(
+            model_id=settings.llm.model_id,
+            region_name=settings.llm.region_name
+        )
+        
+        prompt = f"""
+        Analyze the following trading performance for {request.period}:
+        
+        Total PnL: ${total_pnl:.2f}
+        Win Rate: {wins}/{wins+losses} ({wins/(wins+losses)*100:.1f}%)
+        
+        Trades:
+        {summary_text}
+        
+        Please provide:
+        1. A summary of what happened.
+        2. Analysis of why losses occurred (look at rationale and regime).
+        3. Suggestions for improvement.
+        4. Assessment of whether the strategy respected the market regime.
+        
+        Keep it concise and actionable.
+        """
+        
+        analysis = client.generate_text(prompt)
+        
+        return {
+            "analysis": analysis,
+            "period": request.period,
+            "stats": {
+                "total_pnl": total_pnl,
+                "trades": len(filtered_orders),
+                "win_rate": wins/(wins+losses) if (wins+losses) > 0 else 0
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/performance")

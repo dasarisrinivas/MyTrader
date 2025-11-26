@@ -367,6 +367,9 @@ class TradeExecutor:
         stop_loss: float | None = None,
         take_profit: float | None = None,
         metadata: Dict | None = None,
+        rationale: Dict | None = None,
+        features: Dict | None = None,
+        market_regime: str | None = None,
     ) -> OrderResult:
         """Place an order with optional bracket orders for risk management."""
         # Check connection health before placing order
@@ -432,6 +435,10 @@ class TradeExecutor:
             order = LimitOrder(action, quantity, limit_price)
             logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")
 
+        # Add metadata to order reference for tracking
+        if metadata:
+            order.orderRef = f"MyTrader_{metadata.get('signal_source', 'manual')}"
+        
         bracket_children: list[Order] = []
         if stop_loss is not None or take_profit is not None:
             order.transmit = False
@@ -450,14 +457,14 @@ class TradeExecutor:
                 offset_ticks = 4  # Allow 1 point (4 ticks = $50) of slippage
                 
                 if action == "BUY":  # Long position, stop is below
-                    limit_price = stop_loss - (offset_ticks * tick_size)
+                    limit_price_sl = stop_loss - (offset_ticks * tick_size)
                 else:  # Short position, stop is above
-                    limit_price = stop_loss + (offset_ticks * tick_size)
+                    limit_price_sl = stop_loss + (offset_ticks * tick_size)
                 
-                sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price)
+                sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price_sl)
                 sl_order.transmit = False
                 bracket_children.append(sl_order)
-                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price):.2f} buffer)")
+                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price_sl:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price_sl):.2f} buffer)")
             
             if bracket_children:
                 bracket_children[-1].transmit = True
@@ -483,6 +490,10 @@ class TradeExecutor:
             current_price = metadata['entry_price']
         
         # Record order placement in tracker
+        import json
+        rationale_str = json.dumps(rationale) if rationale else None
+        features_str = json.dumps(features) if features else None
+        
         self.order_tracker.record_order_placement(
             order_id=parent_id,
             symbol=self.symbol,
@@ -495,6 +506,9 @@ class TradeExecutor:
             take_profit=take_profit,
             confidence=metadata.get('confidence') if metadata else None,
             atr=metadata.get('atr_value') if metadata else None,
+            rationale=rationale_str,
+            features=features_str,
+            market_regime=market_regime
         )
         
         # Track active order

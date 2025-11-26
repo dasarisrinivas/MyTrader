@@ -75,6 +75,27 @@ export default function DecisionIntelligence() {
 
   const sentimentLabel = getSentimentLabel(sentiment);
 
+  const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const handleAnalyze = async (period) => {
+    setAnalyzing(true);
+    setAnalysis(null);
+    try {
+      const response = await fetch(`${API_URL}/api/analysis/performance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period })
+      });
+      const data = await response.json();
+      setAnalysis(data);
+    } catch (error) {
+      console.error('Analysis failed:', error);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -113,10 +134,9 @@ export default function DecisionIntelligence() {
           <div className="mb-4">
             <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
               <div
-                className={`h-full transition-all duration-500 ${
-                  latestSignal.confidence >= 0.7 ? 'bg-green-500' :
-                  latestSignal.confidence >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
+                className={`h-full transition-all duration-500 ${latestSignal.confidence >= 0.7 ? 'bg-green-500' :
+                    latestSignal.confidence >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'
+                  }`}
                 style={{ width: `${latestSignal.confidence * 100}%` }}
               />
             </div>
@@ -221,6 +241,66 @@ export default function DecisionIntelligence() {
           )}
         </div>
       )}
+
+      {/* Performance Analysis */}
+      <div className="bg-gradient-to-br from-purple-900/20 to-purple-800/10 border border-purple-800/50 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Brain className="w-5 h-5 text-purple-400" />
+            Performance Analysis
+          </h3>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleAnalyze('today')}
+              disabled={analyzing}
+              className="px-3 py-1.5 text-xs font-medium bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              {analyzing ? 'Analyzing...' : 'Analyze Today'}
+            </button>
+            <button
+              onClick={() => handleAnalyze('yesterday')}
+              disabled={analyzing}
+              className="px-3 py-1.5 text-xs font-medium bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              Yesterday
+            </button>
+          </div>
+        </div>
+
+        {analysis ? (
+          <div className="space-y-4 animate-in fade-in duration-500">
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-purple-900/30 rounded-lg p-3 text-center">
+                <div className="text-xs text-purple-300 mb-1">Total PnL</div>
+                <div className={`font-bold ${analysis.stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  ${analysis.stats.total_pnl.toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-purple-900/30 rounded-lg p-3 text-center">
+                <div className="text-xs text-purple-300 mb-1">Win Rate</div>
+                <div className="font-bold text-white">
+                  {(analysis.stats.win_rate * 100).toFixed(1)}%
+                </div>
+              </div>
+              <div className="bg-purple-900/30 rounded-lg p-3 text-center">
+                <div className="text-xs text-purple-300 mb-1">Trades</div>
+                <div className="font-bold text-white">
+                  {analysis.stats.trades}
+                </div>
+              </div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-4">
+              <pre className="whitespace-pre-wrap text-sm text-gray-300 font-sans leading-relaxed">
+                {analysis.analysis}
+              </pre>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500 text-sm">
+            Click analyze to generate AI insights on trading performance.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

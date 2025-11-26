@@ -18,7 +18,9 @@ from ..risk.manager import RiskManager
 from ..optimization.optimizer import ParameterOptimizer
 from ..llm.rag_storage import RAGStorage, TradeRecord as RAGTradeRecord
 from ..strategies.momentum_reversal import MomentumReversalStrategy
+from ..strategies.momentum_reversal import MomentumReversalStrategy
 from ..strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+from ..strategies.market_regime import detect_market_regime, get_regime_parameters, MarketRegime
 
 
 @dataclass
@@ -484,17 +486,46 @@ class LiveTradingManager:
         direction = 1 if signal.action == "BUY" else -1
         row = features.iloc[-1]
         
+        # Capture features for logging
+        self.current_trade_features = {
+            'confidence': signal.confidence,
+            'atr': float(row.get("ATR_14", 0.0)),
+            'volatility': float(row.get('volatility_5m', 0.0)),
+            'rsi': float(row.get("RSI_14", 0.0)),
+            'macd': float(row.get("MACD", 0.0)),
+            'close': float(row["close"]),
+            'volume': int(row.get("volume", 0))
+        }
+        
         atr = float(metadata.get("atr_value", 0.0))
         if atr <= 0:
             atr = float(row.get("ATR_14", 0.0))
         
-        tick_size = self.settings.trading.tick_size
-        default_stop_offset = self.settings.trading.stop_loss_ticks * tick_size
-        default_target_offset = self.settings.trading.take_profit_ticks * tick_size
+        # Detect market regime for dynamic risk parameters
+        regime, regime_conf = detect_market_regime(features)
+        regime_params = get_regime_parameters(regime)
         
-        stop_offset = default_stop_offset
+        logger.info(f"📊 Market Regime: {regime.value} (conf={regime_conf:.2f}) - Using dynamic stops")
+        
+        # Get multipliers from regime params
+        atr_mult_sl = regime_params.get("atr_multiplier_sl", 2.0)
+        atr_mult_tp = regime_params.get("atr_multiplier_tp", 4.0)
+        
+        # Calculate dynamic distances
+        if atr > 0:
+            stop_offset = atr * atr_mult_sl
+            target_offset = atr * atr_mult_tp
+        else:
+            # Fallback to fixed ticks if ATR is invalid
+            tick_size = self.settings.trading.tick_size
+            stop_offset = self.settings.trading.stop_loss_ticks * tick_size
+            target_offset = self.settings.trading.take_profit_ticks * tick_size
+            logger.warning("⚠️ ATR is 0 or invalid, using fixed ticks fallback")
+            
         stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
-        take_profit = current_price + default_target_offset if direction > 0 else current_price - default_target_offset
+        take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
+        
+        logger.info(f"🎯 Dynamic Risk: ATR={atr:.2f}, SL={atr_mult_sl}x ({stop_offset:.2f}), TP={atr_mult_tp}x ({target_offset:.2f})")
         
         # Broadcast order intent
         await self._broadcast_order_update({
@@ -503,7 +534,8 @@ class LiveTradingManager:
             "quantity": qty,
             "entry_price": current_price,
             "stop_loss": stop_loss,
-            "take_profit": take_profit
+            "take_profit": take_profit,
+            "regime": regime.value
         })
         
         # Place order
@@ -512,7 +544,10 @@ class LiveTradingManager:
             quantity=qty,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            metadata=metadata
+            metadata=metadata,
+            rationale=self.current_trade_rationale,
+            features=self.current_trade_features,
+            market_regime=regime.value
         )
         
         # Broadcast result
