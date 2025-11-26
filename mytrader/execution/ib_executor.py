@@ -68,6 +68,9 @@ class TradeExecutor:
         # Store stop loss / take profit for each order (for Telegram notifications)
         self.order_targets: Dict[int, Dict[str, float]] = {}  # {order_id: {'stop_loss': float, 'take_profit': float}}
         
+        # Track order creation times to detect stuck orders
+        self.order_creation_times: Dict[int, datetime] = {}  # {order_id: creation_time}
+        
         # Store connection parameters for auto-reconnect
         self._connection_host: str = "127.0.0.1"
         self._connection_port: int = 4002
@@ -229,8 +232,7 @@ class TradeExecutor:
                         unrealized_pnl=float(position.unrealizedPNL) if hasattr(position, 'unrealizedPNL') else 0.0,
                         realized_pnl=0.0
                     )
-                    logger.info("Reconciled position: %s qty=%d avg_cost=%.2f (total_cost=%.2f)", 
-                               self.symbol, position.position, per_contract_cost, position.avgCost)
+                    logger.info(f"Reconciled position: {self.symbol} qty={position.position} avg_cost={per_contract_cost:.2f} (total_cost={position.avgCost:.2f})")
         except Exception as e:
             logger.error("Failed to reconcile positions: %s", e)
 
@@ -257,6 +259,11 @@ class TradeExecutor:
         if status in ("Filled", "Cancelled", "Inactive"):
             if order_id in self.active_orders:
                 del self.active_orders[order_id]
+            # Clean up tracking dictionaries
+            if order_id in self.order_creation_times:
+                del self.order_creation_times[order_id]
+            if order_id in self.order_targets:
+                del self.order_targets[order_id]
         
         # Log to history
         self.order_history.append({
@@ -312,6 +319,9 @@ class TradeExecutor:
             commission=commission,
             realized_pnl=realized_pnl
         )
+        
+        # Reconcile positions after execution to get updated position from IB
+        self._reconcile_positions()
         
         # Send Telegram notification (non-blocking)
         logger.info(f"📱 Checking Telegram: enabled={self.telegram.enabled if self.telegram else False}")
@@ -458,6 +468,9 @@ class TradeExecutor:
         parent_trade = self.ib.placeOrder(contract, order)
         parent_id = parent_trade.order.orderId
         
+        # Track order creation time
+        self.order_creation_times[parent_id] = datetime.utcnow()
+        
         # Store stop_loss and take_profit for this order (for Telegram notifications)
         self.order_targets[parent_id] = {
             'stop_loss': stop_loss,
@@ -494,6 +507,9 @@ class TradeExecutor:
             child_trade = self.ib.placeOrder(contract, child)
             child_id = child_trade.order.orderId
             self.active_orders[child_id] = child_trade
+            
+            # Track bracket order creation time
+            self.order_creation_times[child_id] = datetime.utcnow()
             
             # Record child order (SL/TP)
             child_type = "STOP_LIMIT" if isinstance(child, StopLimitOrder) else "STOP" if isinstance(child, StopOrder) else "LIMIT"
@@ -604,16 +620,41 @@ class TradeExecutor:
             # Do a quick sync with IB to ensure accuracy
             open_trades = self.ib.openTrades()
             synced_orders = {}
+            current_time = datetime.utcnow()
+            stuck_order_threshold_minutes = 60  # Cancel orders stuck for > 60 minutes
+            
             for trade in open_trades:
                 if trade.contract.symbol == self.symbol:
                     status = trade.orderStatus.status
+                    order_id = trade.order.orderId
+                    
+                    # Log what IB is reporting
+                    logger.debug(f"IB reports order {order_id}: {trade.order.action} {trade.order.totalQuantity} @ {getattr(trade.order, 'lmtPrice', 'MKT')}, status={status}")
+                    
                     if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
-                        synced_orders[trade.order.orderId] = trade.order
+                        # Check if order is stuck (been active too long)
+                        if order_id in self.order_creation_times:
+                            order_age = (current_time - self.order_creation_times[order_id]).total_seconds() / 60
+                            if order_age > stuck_order_threshold_minutes:
+                                logger.warning(f"⚠️  Order {order_id} has been active for {order_age:.1f} minutes, canceling stuck order")
+                                try:
+                                    self.ib.cancelOrder(trade.order)
+                                    logger.info(f"✅ Canceled stuck order {order_id}")
+                                    continue  # Don't add to synced_orders
+                                except Exception as e:
+                                    logger.error(f"Failed to cancel stuck order {order_id}: {e}")
+                        
+                        synced_orders[order_id] = trade.order
             
-            # Update active_orders if different
+            # Always log the sync result for debugging
             if len(synced_orders) != len(self.active_orders):
-                logger.debug(f"Order count sync: {len(self.active_orders)} → {len(synced_orders)}")
+                logger.info(f"🔄 Order count sync: {len(self.active_orders)} → {len(synced_orders)} active orders")
+                if synced_orders:
+                    logger.info(f"   Active order IDs: {list(synced_orders.keys())}")
                 self.active_orders = synced_orders
+            elif synced_orders:
+                # Log even when count is same but periodically
+                logger.debug(f"Order sync: {len(synced_orders)} orders remain active: {list(synced_orders.keys())}")
         
         return len(self.active_orders)
 
