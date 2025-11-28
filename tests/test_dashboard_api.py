@@ -76,6 +76,10 @@ def test_analyze_performance(mock_order_tracker, mock_bedrock, mock_settings):
             'symbol': 'ES',
             'action': 'BUY',
             'status': 'Filled',
+            'quantity': 1,
+            'filled_quantity': 1,
+            'entry_price': 5000.0,
+            'avg_fill_price': 5000.0,
             'calculated_pnl': 100.0,
             'rationale': 'Bullish',
             'market_regime': 'TRENDING'

@@ -178,6 +178,24 @@ export default function LiveTradeTrail() {
                             <div className="text-sm font-semibold text-white">{trade.symbol}</div>
                           </div>
                           <div className="bg-gray-900/30 rounded-lg p-3">
+                            <div className="text-xs text-gray-500 mb-1">Fill Price</div>
+                            <div className="text-sm font-semibold text-white">
+                              ${price.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="bg-gray-900/30 rounded-lg p-3">
+                            <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
+                            <div className="text-sm font-semibold text-red-400">
+                              {trade.stop_loss ? `$${trade.stop_loss.toFixed(2)}` : 'N/A'}
+                            </div>
+                          </div>
+                          <div className="bg-gray-900/30 rounded-lg p-3">
+                            <div className="text-xs text-gray-500 mb-1">Take Profit</div>
+                            <div className="text-sm font-semibold text-green-400">
+                              {trade.take_profit ? `$${trade.take_profit.toFixed(2)}` : 'N/A'}
+                            </div>
+                          </div>
+                          <div className="bg-gray-900/30 rounded-lg p-3">
                             <div className="text-xs text-gray-500 mb-1">Confidence</div>
                             <div className="text-sm font-semibold text-white">
                               {trade.confidence ? `${(trade.confidence * 100).toFixed(0)}%` : 'N/A'}
@@ -193,6 +211,12 @@ export default function LiveTradeTrail() {
                             <div className="text-xs text-gray-500 mb-1">ATR</div>
                             <div className="text-sm font-semibold text-white">
                               {trade.atr?.toFixed(2) || 'N/A'}
+                            </div>
+                          </div>
+                          <div className="bg-gray-900/30 rounded-lg p-3">
+                            <div className="text-xs text-gray-500 mb-1">Realized P&L</div>
+                            <div className={`text-sm font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                             </div>
                           </div>
                         </div>

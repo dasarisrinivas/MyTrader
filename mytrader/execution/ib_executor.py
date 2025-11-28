@@ -890,5 +890,9 @@ class TradeExecutor:
                 pass
             self._keepalive_task = None
             logger.info("Keepalive task stopped")
+    
+    def clear_active_orders(self):
+        """Manually clear all tracked active orders (one-time fix)."""
+        self.active_orders.clear()
 
 

@@ -117,7 +117,8 @@ class LiveTradingManager:
                 self.settings.data.ibkr_port,
                 client_id=3
             )
-            
+            # Force reconciliation of active orders after IB connection
+            await self.force_order_reconciliation()
             # Initialize RAG Storage
             try:
                 self.rag_storage = RAGStorage()
@@ -619,6 +620,13 @@ class LiveTradingManager:
         
         await self._broadcast_status()
         logger.info("Trading session stopped")
+    
+    async def force_order_reconciliation(self):
+        """Force reconciliation of active orders with IBKR."""
+        if self.executor:
+            logger.info("Forcing reconciliation of active orders with IBKR...")
+            await self.executor._reconcile_orders()
+            logger.info("Order reconciliation complete.")
     
     # Broadcasting methods
     async def _broadcast_status(self):
