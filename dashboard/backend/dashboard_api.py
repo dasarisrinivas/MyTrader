@@ -2633,6 +2633,214 @@ async def run_spy_analysis(days: int = 1):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# HYBRID BEDROCK ARCHITECTURE ENDPOINTS
+# =============================================================================
+
+# Global Bedrock components (initialized on demand)
+_hybrid_bedrock_client = None
+_event_detector = None
+
+
+def _get_bedrock_client():
+    """Get or initialize the hybrid Bedrock client."""
+    global _hybrid_bedrock_client
+    
+    if _hybrid_bedrock_client is None:
+        try:
+            from mytrader.llm.bedrock_hybrid_client import init_bedrock_client
+            settings = load_settings()
+            
+            _hybrid_bedrock_client = init_bedrock_client(
+                model_id=settings.llm.model_id if hasattr(settings, 'llm') else None,
+                region_name=settings.llm.region_name if hasattr(settings, 'llm') else None,
+                max_tokens=300,
+                db_path="data/bedrock_hybrid.db",
+            )
+            logger.info("Initialized hybrid Bedrock client for API")
+        except Exception as e:
+            logger.error(f"Failed to initialize Bedrock client: {e}")
+            raise HTTPException(status_code=500, detail=f"Bedrock initialization failed: {e}")
+    
+    return _hybrid_bedrock_client
+
+
+def _get_event_detector():
+    """Get or initialize the event detector."""
+    global _event_detector
+    
+    if _event_detector is None:
+        try:
+            from mytrader.llm.event_detector import create_event_detector
+            settings = load_settings()
+            
+            symbol = settings.data.ibkr_symbol if settings.data.ibkr_symbol in ["MES", "ES"] else "MES"
+            _event_detector = create_event_detector(symbol=symbol)
+            logger.info(f"Initialized event detector for {symbol}")
+        except Exception as e:
+            logger.error(f"Failed to initialize event detector: {e}")
+            raise HTTPException(status_code=500, detail=f"Event detector initialization failed: {e}")
+    
+    return _event_detector
+
+
+class TriggerBedrockRequest(BaseModel):
+    """Request model for manual Bedrock trigger."""
+    notes: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class TriggerBedrockResponse(BaseModel):
+    """Response model for Bedrock trigger."""
+    request_id: str
+    status: str
+    message: str
+    result: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/trigger-bedrock", response_model=TriggerBedrockResponse)
+async def trigger_bedrock(request: TriggerBedrockRequest):
+    """
+    Manually trigger a Bedrock analysis.
+    
+    This endpoint allows manual triggering of Bedrock LLM analysis
+    for market assessment. The result is a bias modifier, not a trade signal.
+    
+    Security: Localhost only or requires auth.
+    """
+    try:
+        from mytrader.llm.rag_context_builder import RAGContextBuilder
+        from mytrader.llm.event_detector import EventPayload
+        import uuid
+        
+        # Generate request ID
+        request_id = str(uuid.uuid4())[:8]
+        
+        # Get Bedrock client
+        bedrock_client = _get_bedrock_client()
+        
+        # Build context from request or use defaults
+        settings = load_settings()
+        symbol = settings.data.ibkr_symbol if settings.data.ibkr_symbol in ["MES", "ES"] else "MES"
+        
+        context_builder = RAGContextBuilder(instrument=symbol)
+        
+        # Create payload from request context or use defaults
+        if request.context:
+            context = context_builder.build_context_from_snapshot(
+                snapshot=request.context,
+                trigger_type="manual",
+                reason=request.notes or "Manual trigger via API"
+            )
+        else:
+            # Create minimal context
+            payload = EventPayload(
+                trigger_type="manual",
+                reason=request.notes or "Manual trigger via API",
+                timestamp=datetime.now(),
+                symbol=symbol,
+                current_price=request.context.get("current_price", 0.0) if request.context else 0.0,
+            )
+            context = context_builder.build_context(payload)
+        
+        # Call Bedrock
+        result = bedrock_client.bedrock_analyze(
+            context=context,
+            trigger="manual",
+        )
+        
+        # Also mark manual trigger in event detector for main loop
+        event_detector = _get_event_detector()
+        event_detector.set_manual_trigger(notes=request.notes)
+        
+        return TriggerBedrockResponse(
+            request_id=request_id,
+            status="success",
+            message=f"Bedrock analysis complete: {result.get('bias', 'NEUTRAL')}",
+            result=result
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in trigger-bedrock: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BedrockStatusResponse(BaseModel):
+    """Response model for Bedrock status."""
+    model_id: str
+    region: str
+    daily_calls: int
+    daily_cost: float
+    quota_status: str
+    within_quota: bool
+    recent_calls: List[Dict[str, Any]]
+    total_estimated_cost: float
+
+
+@app.get("/api/bedrock-status", response_model=BedrockStatusResponse)
+async def get_bedrock_status():
+    """
+    Get Bedrock usage status and recent calls.
+    
+    Returns:
+        - Model configuration
+        - Daily call count and cost
+        - Quota status
+        - Last 10 Bedrock calls with details
+    """
+    try:
+        bedrock_client = _get_bedrock_client()
+        
+        # Get status
+        status = bedrock_client.get_status()
+        
+        # Get recent calls
+        recent_calls = bedrock_client.get_recent_calls(limit=10)
+        
+        # Calculate total cost from recent calls
+        total_cost = sum(call.get("cost_estimate", 0.0) for call in recent_calls)
+        
+        return BedrockStatusResponse(
+            model_id=status.get("model_id", "unknown"),
+            region=status.get("region", "unknown"),
+            daily_calls=status.get("daily_calls", 0),
+            daily_cost=status.get("daily_cost", 0.0),
+            quota_status=status.get("quota_status", "unknown"),
+            within_quota=status.get("within_quota", True),
+            recent_calls=recent_calls,
+            total_estimated_cost=total_cost
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bedrock-status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bedrock-detector-status")
+async def get_bedrock_detector_status():
+    """
+    Get event detector status.
+    
+    Returns the current state of the event detector including:
+    - Market open/close trigger status
+    - Volatility baseline
+    - Cooldown status
+    """
+    try:
+        event_detector = _get_event_detector()
+        return event_detector.get_status()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bedrock-detector-status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():

@@ -13,4 +13,9 @@ __all__ = [
     "SafetyConstraints",
     "StrategyAdjustment",
     "RAGEngine",
+    # Hybrid Bedrock Architecture
+    "HybridBedrockClient",
+    "EventDetector",
+    "RAGContextBuilder",
+    "BedrockSQLiteManager",
 ]

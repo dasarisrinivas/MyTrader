@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import queue
+import threading
 import time
 from pathlib import Path
 
@@ -196,6 +198,108 @@ async def run_live(settings: Settings) -> None:
             )
             llm_worker.start()
             logger.info("✅ Background LLM worker started (non-blocking mode)")
+    
+    # =========================================================================
+    # HYBRID BEDROCK ARCHITECTURE - Event-driven intelligent analysis
+    # =========================================================================
+    hybrid_bedrock_client = None
+    event_detector = None
+    rag_context_builder = None
+    bedrock_bias_modifier = {"bias": "NEUTRAL", "confidence": 0.0}  # Current bias from Bedrock
+    bedrock_worker_queue = queue.Queue()  # Queue for background Bedrock calls
+    bedrock_result_queue = queue.Queue()  # Queue for Bedrock results
+    
+    # Check if hybrid Bedrock is enabled in config
+    hybrid_bedrock_enabled = getattr(settings, 'hybrid_bedrock', None)
+    if hybrid_bedrock_enabled is None:
+        # Default to enabled if not specified
+        hybrid_bedrock_enabled = True
+    elif hasattr(hybrid_bedrock_enabled, 'enabled'):
+        hybrid_bedrock_enabled = hybrid_bedrock_enabled.enabled
+    
+    if hybrid_bedrock_enabled:
+        try:
+            from mytrader.llm.bedrock_hybrid_client import HybridBedrockClient, init_bedrock_client
+            from mytrader.llm.event_detector import EventDetector, create_event_detector
+            from mytrader.llm.rag_context_builder import RAGContextBuilder, build_context
+            
+            # Determine symbol (MES or ES based on config)
+            hybrid_symbol = settings.data.ibkr_symbol if settings.data.ibkr_symbol in ["MES", "ES"] else "MES"
+            
+            # Initialize hybrid Bedrock client
+            hybrid_bedrock_client = init_bedrock_client(
+                model_id=settings.llm.model_id if hasattr(settings, 'llm') else None,
+                region_name=settings.llm.region_name if hasattr(settings, 'llm') else None,
+                max_tokens=300,  # Keep responses short for bias analysis
+                db_path="data/bedrock_hybrid.db",
+                daily_quota=1000,
+                daily_cost_limit=50.0,
+            )
+            
+            # Initialize event detector
+            event_detector_config = {
+                "volatility_spike_threshold": 2.0,
+                "minutes_after_open": 5,
+                "minutes_before_close": 5,
+                "min_interval_seconds": 60,
+                "cooldown_seconds": 300,
+            }
+            event_detector = create_event_detector(symbol=hybrid_symbol, config=event_detector_config)
+            
+            # Initialize RAG context builder
+            rag_context_builder = RAGContextBuilder(
+                instrument=hybrid_symbol,
+                include_news=True,
+                max_news_items=3,
+            )
+            
+            logger.info("=" * 60)
+            logger.info("🧠 HYBRID BEDROCK ARCHITECTURE ENABLED")
+            logger.info("=" * 60)
+            logger.info(f"   Symbol: {hybrid_symbol}")
+            logger.info(f"   Model: {hybrid_bedrock_client.model_id}")
+            logger.info(f"   Event-driven triggers: market_open, market_close, volatility_spike, news")
+            logger.info(f"   Bedrock output: BIAS MODIFIER only (does NOT override risk rules)")
+            logger.info("=" * 60)
+            
+            # Start background Bedrock worker thread
+            def bedrock_worker_thread():
+                """Background thread for non-blocking Bedrock calls."""
+                while True:
+                    try:
+                        # Get next request from queue (blocking with timeout)
+                        request = bedrock_worker_queue.get(timeout=1.0)
+                        
+                        if request is None:
+                            # Shutdown signal
+                            logger.info("Bedrock worker thread shutting down")
+                            break
+                        
+                        context, trigger = request
+                        logger.info(f"🧠 Background Bedrock analysis started: {trigger}")
+                        
+                        # Make Bedrock call (this can take a few seconds)
+                        result = hybrid_bedrock_client.bedrock_analyze(context, trigger=trigger)
+                        
+                        # Put result in result queue
+                        bedrock_result_queue.put(result)
+                        
+                        logger.info(f"🧠 Background Bedrock analysis complete: bias={result.get('bias')}, confidence={result.get('confidence', 0):.2f}")
+                        
+                    except queue.Empty:
+                        continue
+                    except Exception as e:
+                        logger.error(f"Bedrock worker error: {e}")
+            
+            bedrock_thread = threading.Thread(target=bedrock_worker_thread, daemon=True)
+            bedrock_thread.start()
+            logger.info("✅ Background Bedrock worker thread started")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Hybrid Bedrock Architecture: {e}")
+            logger.error("Continuing without hybrid Bedrock analysis")
+            hybrid_bedrock_client = None
+            event_detector = None
     
     # Initialize live performance tracker
     tracker = LivePerformanceTracker(
@@ -452,6 +556,69 @@ async def run_live(settings: Settings) -> None:
                         await asyncio.sleep(poll_interval)
                         continue
 
+                # =========================================================================
+                # HYBRID BEDROCK: Event-driven analysis (non-blocking)
+                # =========================================================================
+                # Check for Bedrock results from background thread
+                while not bedrock_result_queue.empty():
+                    try:
+                        result = bedrock_result_queue.get_nowait()
+                        if result and not result.get("error"):
+                            bedrock_bias_modifier = {
+                                "bias": result.get("bias", "NEUTRAL"),
+                                "confidence": result.get("confidence", 0.0),
+                                "action": result.get("action", "HOLD"),
+                                "rationale": result.get("rationale", ""),
+                            }
+                            logger.info(f"🧠 Updated Bedrock bias: {bedrock_bias_modifier['bias']} (conf={bedrock_bias_modifier['confidence']:.2f})")
+                    except queue.Empty:
+                        break
+                
+                # Check if event detector triggers Bedrock call
+                if event_detector and hybrid_bedrock_client:
+                    # Build market snapshot for event detection
+                    last_row = features.iloc[-1]
+                    recent_prices = features["close"].tail(20).tolist()
+                    
+                    # Get unrealized PnL
+                    unrealized_pnl = 0.0
+                    if current_position and current_qty != 0:
+                        unrealized_pnl = (current_price - current_position.avg_cost) * current_qty
+                    
+                    snapshot = {
+                        "current_price": current_price,
+                        "price_change_pct": (recent_prices[-1] - recent_prices[0]) / recent_prices[0] if len(recent_prices) > 1 else 0.0,
+                        "momentum": float(last_row.get("MOM_10", last_row.get("momentum", 0.0))),
+                        "atr": float(last_row.get("ATR_14", 0.0)),
+                        "volatility": float(last_row.get("VOLATILITY", last_row.get("volatility", 0.0))),
+                        "rsi": float(last_row.get("RSI_14", 50.0)),
+                        "vix": None,  # Could add VIX data feed
+                        "position": current_qty,
+                        "unrealized_pnl": unrealized_pnl,
+                        "news_headlines": [],  # Could integrate news API
+                        "recent_prices": recent_prices,
+                    }
+                    
+                    # Check if we should call Bedrock
+                    should_trigger, trigger_reason, payload = event_detector.should_call_bedrock(snapshot)
+                    
+                    if should_trigger and payload:
+                        logger.info(f"🧠 Bedrock trigger: {trigger_reason}")
+                        
+                        # Build context and queue for background processing
+                        context = rag_context_builder.build_context(payload)
+                        
+                        # Queue the request (non-blocking)
+                        try:
+                            bedrock_worker_queue.put_nowait((context, payload.trigger_type))
+                            logger.info(f"🧠 Queued Bedrock analysis request: {payload.trigger_type}")
+                        except queue.Full:
+                            logger.warning("⚠️  Bedrock queue full, skipping analysis request")
+                
+                # Log current Bedrock bias (for visibility)
+                if bedrock_bias_modifier.get("bias") != "NEUTRAL":
+                    logger.info(f"🧠 Current Bedrock bias: {bedrock_bias_modifier['bias']} (conf={bedrock_bias_modifier['confidence']:.2f})")
+
                 # Generate trading signal using multi-strategy (with optional LLM enhancement)
                 logger.info(f"🤔 Evaluating strategy with {len(features)} feature rows...")
                 try:
@@ -549,6 +716,40 @@ async def run_live(settings: Settings) -> None:
                         logger.info(f"   🎯 Take Profit: {risk_params.get('take_profit_long', 'N/A'):.2f}")
                         logger.info(f"   📏 ATR: {risk_params.get('atr', 'N/A'):.2f}")
                     logger.info(f"   📊 Market: {market_bias}, Volatility: {volatility_level}")
+                    
+                    # =========================================================================
+                    # HYBRID BEDROCK: Apply bias modifier (does NOT override risk rules)
+                    # =========================================================================
+                    original_action = signal.action
+                    original_confidence = signal.confidence
+                    
+                    if bedrock_bias_modifier.get("bias") != "NEUTRAL" and bedrock_bias_modifier.get("confidence", 0) > 0.3:
+                        bedrock_bias = bedrock_bias_modifier.get("bias")
+                        bedrock_conf = bedrock_bias_modifier.get("confidence", 0)
+                        
+                        # Apply bias modifier to confidence (NOT overriding action)
+                        # If Bedrock agrees with signal direction, boost confidence slightly
+                        # If Bedrock disagrees, reduce confidence slightly
+                        
+                        signal_is_bullish = signal.action == "BUY"
+                        bedrock_is_bullish = bedrock_bias == "BULLISH"
+                        
+                        if signal.action != "HOLD":
+                            if (signal_is_bullish and bedrock_is_bullish) or (not signal_is_bullish and not bedrock_is_bullish):
+                                # Agreement: boost confidence by up to 10%
+                                confidence_boost = min(0.1, bedrock_conf * 0.15)
+                                signal.confidence = min(1.0, signal.confidence + confidence_boost)
+                                logger.info(f"🧠 Bedrock AGREES: {bedrock_bias} (conf boost +{confidence_boost:.2f})")
+                            else:
+                                # Disagreement: reduce confidence by up to 15%
+                                confidence_reduction = min(0.15, bedrock_conf * 0.2)
+                                signal.confidence = max(0.0, signal.confidence - confidence_reduction)
+                                logger.info(f"🧠 Bedrock DISAGREES: {bedrock_bias} (conf reduction -{confidence_reduction:.2f})")
+                            
+                            # Log the modification
+                            if signal.confidence != original_confidence:
+                                logger.info(f"   📊 Adjusted confidence: {original_confidence:.2f} → {signal.confidence:.2f}")
+                                logger.info(f"   💡 Bedrock rationale: {bedrock_bias_modifier.get('rationale', 'N/A')[:100]}")
                     
                 except Exception as signal_error:
                     logger.error(f"❌ Error generating signal: {signal_error}")
@@ -813,6 +1014,16 @@ async def run_live(settings: Settings) -> None:
         tracker.export_snapshot("reports/final_performance.json")
         logger.info("Final performance snapshot saved")
     finally:
+        # Stop background Bedrock worker if running
+        if hybrid_bedrock_client:
+            logger.info("Stopping Bedrock worker thread...")
+            bedrock_worker_queue.put(None)  # Send shutdown signal
+            logger.info("Bedrock worker thread stopped")
+            
+            # Log Bedrock usage stats
+            bedrock_status = hybrid_bedrock_client.get_status()
+            logger.info(f"🧠 Bedrock Stats: {bedrock_status['daily_calls']} calls today, ${bedrock_status['daily_cost']:.4f} cost")
+        
         # Stop background LLM worker if running
         if llm_worker:
             logger.info("Stopping background LLM worker...")
