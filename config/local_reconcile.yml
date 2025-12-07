@@ -1,0 +1,107 @@
+# Local Reconciliation Configuration
+# ===================================
+# These settings control safety features for live trading reconciliation
+# and order management operations.
+
+# DRY_RUN Mode
+# When true: Simulates all operations (DB writes, IB order submissions)
+# without actually executing them. Logs what would happen.
+DRY_RUN: true
+
+# SAFE_MODE
+# When true: Runs reconciliation in read-only mode. Bot will NOT
+# submit/cancel any orders on IB. Use to verify behavior before going live.
+SAFE_MODE: true
+
+# DRY_RUN_CONFIRM
+# Multi-step safety guard for destructive operations:
+# - When false: Destructive actions are only staged in staged_actions.json
+# - When true: Staged actions will be executed after verification
+# IMPORTANT: Only set to true after reviewing staged_actions.json
+DRY_RUN_CONFIRM: false
+
+# AUTO_MANAGE_EXTERNAL_ORDERS
+# When true: Bot will manage (close/take-profit) orders created externally
+# (e.g., manually via TWS). When false: Only manages orders it created.
+AUTO_MANAGE_EXTERNAL_ORDERS: true
+
+# FORCE_SYNC_DELETE
+# When true: Orphaned orders are hard-deleted from DB
+# When false: Orphaned orders are soft-deleted (marked as 'orphaned_deleted')
+FORCE_SYNC_DELETE: false
+
+# Directory Configuration
+BACKUP_DIR: ./backups
+LOG_DIR: ./logs
+STATUS_DIR: ./status
+ALERTS_DIR: ./alerts
+
+# Reconciliation Settings
+RECONCILE:
+  # Maximum seconds to wait for reconciliation before timing out
+  timeout_seconds: 60
+  
+  # Matching strategy for orders (primary: ib_order_id, secondary: signature)
+  match_strategy: ib_order_id
+  
+  # Time window (seconds) for secondary timestamp-based matching
+  timestamp_match_window_seconds: 300
+  
+  # Whether to require exact price match for secondary matching
+  require_exact_price_match: true
+
+# Live Data Configuration
+LIVE_DATA:
+  # Enable real-time tick subscriptions (vs polling)
+  enable_tick_subscriptions: true
+  
+  # Candle reconstruction interval in seconds
+  candle_interval_seconds: 60
+  
+  # Maximum events in queue before backpressure drop
+  max_event_queue_size: 10000
+  
+  # Backpressure drop threshold (drop oldest N when queue full)
+  backpressure_drop_count: 100
+  
+  # Reconnect settings
+  reconnect_max_retries: 5
+  reconnect_base_delay_seconds: 1.0
+  reconnect_max_delay_seconds: 60.0
+
+# SPY Futures Specific Settings
+SPY_FUTURES:
+  # Symbols to treat as SPY futures
+  symbols:
+    - ES
+    - MES
+    - SPY
+  
+  # Risk thresholds for auto-close recommendations
+  max_unrealized_loss_pct: 2.0
+  max_position_duration_hours: 24
+  
+  # Take-profit threshold (% unrealized gain)
+  take_profit_threshold_pct: 1.5
+
+# Audit and Logging
+AUDIT:
+  # Enable audit logging for all order operations
+  enabled: true
+  
+  # Retain audit records for N days
+  retention_days: 90
+  
+  # Include feature vectors in audit logs
+  log_features: true
+
+# Database Settings
+DATABASE:
+  # Order database path (SQLite)
+  orders_db_path: ./data/orders.db
+  
+  # Order audit table name
+  audit_table: order_audit
+  
+  # Enable transaction logging
+  transaction_logging: true

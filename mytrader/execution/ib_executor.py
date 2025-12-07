@@ -1,10 +1,13 @@
-"""Trade execution via Interactive Brokers."""
+"""Trade execution via Interactive Brokers with reconciliation support."""
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, StopLimitOrder, Trade
 
@@ -12,6 +15,10 @@ from ..config import TradingConfig
 from ..monitoring.order_tracker import OrderTracker
 from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
+
+if TYPE_CHECKING:
+    from .reconcile import ReconcileManager, ReconcileLock
+    from ..data.live_data_manager import LiveDataManager
 
 
 @dataclass
@@ -41,7 +48,13 @@ class PositionInfo:
 
 
 class TradeExecutor:
-    """Enhanced trade executor with real-time PnL tracking and order monitoring."""
+    """Enhanced trade executor with real-time PnL tracking and order monitoring.
+    
+    Integrates with:
+    - ReconcileManager for startup reconciliation
+    - LiveDataManager for event-driven market data
+    - Safety features: DRY_RUN, SAFE_MODE, reconcile_lock
+    """
     
     def __init__(
         self, 
@@ -50,7 +63,9 @@ class TradeExecutor:
         symbol: str, 
         exchange: str = "GLOBEX", 
         currency: str = "USD",
-        telegram_notifier: Optional[TelegramNotifier] = None
+        telegram_notifier: Optional[TelegramNotifier] = None,
+        reconcile_manager: Optional["ReconcileManager"] = None,
+        live_data_manager: Optional["LiveDataManager"] = None,
     ) -> None:
         self.ib = ib
         self.config = config
@@ -81,9 +96,112 @@ class TradeExecutor:
         # Telegram notifications
         self.telegram = telegram_notifier
         
+        # NEW: Reconciliation and Live Data integration
+        self._reconcile_manager: Optional["ReconcileManager"] = reconcile_manager
+        self._live_data_manager: Optional["LiveDataManager"] = live_data_manager
+        self._reconcile_lock: Optional["ReconcileLock"] = None
+        
+        # NEW: Idempotency tracking for order submissions
+        self._submission_signatures: Dict[str, datetime] = {}
+        
+        # NEW: Initial state tracking (orders found on IB at startup)
+        self._initial_state_order_ids: set = set()
+        
         # Initialize PositionManager
         from .position_manager import PositionManager
         self.position_manager = PositionManager(ib, config, symbol)
+
+    # =========================================================================
+    # NEW: Reconciliation Integration Methods
+    # =========================================================================
+    
+    def set_reconcile_manager(self, manager: "ReconcileManager") -> None:
+        """Set the reconciliation manager for startup sync."""
+        self._reconcile_manager = manager
+        self._reconcile_lock = manager.lock
+        logger.info("ReconcileManager attached to executor")
+    
+    def set_live_data_manager(self, manager: "LiveDataManager") -> None:
+        """Set the live data manager for event-driven data."""
+        self._live_data_manager = manager
+        logger.info("LiveDataManager attached to executor")
+    
+    def can_trade(self) -> bool:
+        """Check if trading is allowed (reconciliation complete, not in safe mode)."""
+        if self._reconcile_lock is None:
+            return True  # No lock configured, allow trading
+        return self._reconcile_lock.can_trade()
+    
+    def is_safe_mode(self) -> bool:
+        """Check if safe mode is active."""
+        if self._reconcile_lock is None:
+            return False
+        return self._reconcile_lock.is_safe_mode()
+    
+    def is_initial_state_order(self, order_id: int) -> bool:
+        """Check if an order was found on IB at startup (external order)."""
+        if self._reconcile_manager:
+            return self._reconcile_manager.is_initial_state_order(order_id)
+        return order_id in self._initial_state_order_ids
+    
+    def mark_initial_state_orders(self, order_ids: set) -> None:
+        """Mark orders as initial state (found on IB at startup)."""
+        self._initial_state_order_ids = order_ids
+        logger.info(f"Marked {len(order_ids)} orders as initial state")
+    
+    def generate_submission_signature(
+        self,
+        action: str,
+        quantity: int,
+        price: Optional[float],
+    ) -> str:
+        """
+        Generate idempotency signature for order submission.
+        Prevents duplicate orders during reconnects/duplicate events.
+        """
+        timestamp_rounded = (datetime.now(timezone.utc).timestamp() // 10) * 10
+        data = f"{self.symbol}|{quantity}|{price or 'MKT'}|{action}|{timestamp_rounded}"
+        return hashlib.sha256(data.encode()).hexdigest()[:32]
+    
+    def is_duplicate_submission(self, signature: str) -> bool:
+        """Check if a submission signature is a duplicate."""
+        if signature in self._submission_signatures:
+            # Check if signature is still valid (within 60 seconds)
+            created_at = self._submission_signatures[signature]
+            if (datetime.now(timezone.utc) - created_at).total_seconds() < 60:
+                return True
+            else:
+                # Expired, remove it
+                del self._submission_signatures[signature]
+        return False
+    
+    def record_submission(self, signature: str) -> None:
+        """Record a submission signature for idempotency."""
+        self._submission_signatures[signature] = datetime.now(timezone.utc)
+        
+        # Clean up old signatures (older than 5 minutes)
+        cutoff = datetime.now(timezone.utc)
+        old_sigs = [
+            sig for sig, ts in self._submission_signatures.items()
+            if (cutoff - ts).total_seconds() > 300
+        ]
+        for sig in old_sigs:
+            del self._submission_signatures[sig]
+    
+    def _log_reconcile_event(self, event_type: str, data: dict, level: str = "INFO") -> None:
+        """Log event to reconcile.log for audit trail."""
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "level": level,
+            "data": data,
+        }
+        
+        log_dir = Path("./logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        with open(log_dir / "reconcile.log", "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
 
     def contract(self) -> Contract:
         return Future(symbol=self.symbol, exchange=self.exchange, currency=self.currency)
@@ -371,7 +489,42 @@ class TradeExecutor:
         features: Dict | None = None,
         market_regime: str | None = None,
     ) -> OrderResult:
-        """Place an order with optional bracket orders for risk management."""
+        """Place an order with optional bracket orders for risk management.
+        
+        NEW: Integrates with reconciliation safety features:
+        - Checks reconcile_lock before placing orders
+        - Respects SAFE_MODE to prevent trading
+        - Uses idempotency signatures to prevent duplicates
+        """
+        # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
+        if not self.can_trade():
+            if self.is_safe_mode():
+                logger.warning("SAFE_MODE active - order blocked")
+                self._log_reconcile_event("order_blocked_safe_mode", {
+                    "action": action, "quantity": quantity, "symbol": self.symbol
+                }, "WARN")
+            else:
+                logger.warning("Reconciliation not complete - order blocked")
+                self._log_reconcile_event("order_blocked_reconcile_pending", {
+                    "action": action, "quantity": quantity, "symbol": self.symbol
+                }, "WARN")
+            
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(trade=dummy_trade, status="Cancelled", message="Trading not allowed - reconciliation pending or safe mode active")
+        
+        # NEW: Check for duplicate submission (idempotency)
+        submission_sig = self.generate_submission_signature(action, quantity, limit_price)
+        if self.is_duplicate_submission(submission_sig):
+            logger.warning(f"Duplicate order submission blocked: {action} {quantity} @ {limit_price}")
+            self._log_reconcile_event("duplicate_submission_blocked", {
+                "action": action, "quantity": quantity, "limit_price": limit_price,
+                "signature": submission_sig
+            }, "WARN")
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(trade=dummy_trade, status="Cancelled", message="Duplicate submission blocked")
+        
         # Check connection health before placing order
         if not self.ib.isConnected():
             logger.error("IB not connected - cannot place order")
@@ -396,6 +549,16 @@ class TradeExecutor:
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Failed to qualify contract")
+        
+        # NEW: Record submission signature for idempotency
+        self.record_submission(submission_sig)
+        
+        # Log order attempt for audit trail
+        self._log_reconcile_event("order_placed", {
+            "action": action, "quantity": quantity, "limit_price": limit_price,
+            "stop_loss": stop_loss, "take_profit": take_profit,
+            "symbol": self.symbol, "signature": submission_sig
+        })
 
         # SAFETY CHECK: Position Manager
         # Note: quantity is always positive in the argument, action determines direction

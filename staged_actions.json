@@ -1,0 +1,22 @@
+{
+  "generated_at": "2025-12-07T18:51:01.794361+00:00",
+  "config": {
+    "dry_run": false,
+    "safe_mode": false,
+    "dry_run_confirm": true
+  },
+  "plan": {
+    "to_update": [],
+    "to_delete": [],
+    "to_insert": [],
+    "ambiguous_matches": [],
+    "spy_futures_actions": [],
+    "summary": {
+      "update_count": 0,
+      "delete_count": 0,
+      "insert_count": 0,
+      "ambiguous_count": 0,
+      "spy_futures_count": 0
+    }
+  }
+}

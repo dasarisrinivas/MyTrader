@@ -1,0 +1,139 @@
+# Local Change Log - MyTrader Live Data & Reconciliation Update
+Generated: 2025-12-07
+
+## Summary
+This update replaces 15-minute polling with live market data subscriptions and adds robust 
+startup reconciliation between IB orders/positions and the local database. Safety features
+include DRY_RUN, SAFE_MODE, staged actions, and audit logging.
+
+## Files Created
+
+### Configuration & Setup
+| File | Purpose |
+|------|---------|
+| `config/local_reconcile.yml` | Configuration for DRY_RUN, SAFE_MODE, and reconciliation settings |
+| `scripts/backup_db.sh` | Database backup script with checksums and manifests |
+| `alerts/readme.md` | Operator guide for staged actions and rollback procedures |
+| `run_tests_local.sh` | Local test runner script |
+
+### Core Modules
+| File | Purpose |
+|------|---------|
+| `mytrader/data/live_data_manager.py` | Event-driven live market data subscription manager with tick-to-candle conversion |
+| `mytrader/execution/reconcile.py` | Startup reconciliation between IB and local DB with safety features |
+
+### Tests
+| File | Purpose |
+|------|---------|
+| `tests/mock_ib_server.py` | Mock IB Gateway for local testing without real IB connection |
+| `tests/test_reconcile.py` | Unit tests for reconciliation (deleted/inserted, idempotence, SPY handling, lock) |
+| `tests/test_live_data.py` | Unit tests for live data (candle building, subscriptions, callbacks) |
+
+### Generated Directories
+| Directory | Purpose |
+|-----------|---------|
+| `./backups/` | Database backups with timestamped SQL dumps |
+| `./logs/` | Reconciliation and event logs |
+| `./status/` | Reconciliation status and snapshots |
+| `./alerts/` | Operator documentation and alerts |
+| `./config/` | Local configuration files |
+
+## Files Modified
+
+### `mytrader/execution/ib_executor.py`
+- Added integration with ReconcileManager and LiveDataManager
+- Added `can_trade()` check before placing orders (respects reconcile_lock and SAFE_MODE)
+- Added idempotency signature generation to prevent duplicate orders
+- Added `is_initial_state_order()` to detect orders found on IB at startup
+- Added reconcile event logging for audit trail
+- Updated imports to include TYPE_CHECKING for type hints
+
+## Key Features Implemented
+
+### 1. Live Data Subscriptions (LiveDataManager)
+- Real-time tick subscriptions via `ib.reqMktData()`
+- Event callbacks: `on_tick()`, `on_quote()`, `on_candle()`, `on_connection()`
+- Tick-to-candle reconstruction with configurable interval
+- Backpressure handling with event queue limits
+- Automatic reconnection with exponential backoff
+- Normalized data structures (NormalizedTick, NormalizedQuote, NormalizedCandle)
+
+### 2. Startup Reconciliation (ReconcileManager)
+- Full reconciliation flow: backup → fetch IB/DB → build plan → stage → execute
+- Order matching: Primary by `order_id`, secondary by signature
+- Staged actions in `staged_actions.json` for review before execution
+- Ambiguous match detection (logged to `ambiguous_matches.json`)
+- SPY futures recognition as initial state
+
+### 3. Safety Features
+- `DRY_RUN`: Simulate all operations without changes
+- `SAFE_MODE`: Read-only mode, no trading
+- `DRY_RUN_CONFIRM`: Two-step confirmation for destructive actions
+- `reconcile_lock`: Prevents trading until reconciliation completes
+- Database backups before any changes
+- Audit logging to `order_audit` table
+
+### 4. Idempotency
+- Submission signatures: `sha256(symbol|qty|price|side|timestamp_rounded)`
+- Duplicate detection within 10-second windows
+- Prevents double-submissions during reconnects
+
+## Test Coverage
+
+All 20 tests pass:
+- `test_reconcile_deleted_and_inserted` - Order A,B on IB, A,C in DB → B inserted, C deleted
+- `test_idempotent_inserts` - Run reconcile twice, no duplicate inserts
+- `test_spy_futures_recognized` - ES/MES positions marked as initial state
+- `test_spy_futures_evaluation` - Risk/profit thresholds trigger recommendations
+- `test_lock_prevents_trading_before_reconcile` - Lock blocks orders until reconcile
+- `test_safe_mode_blocks_trading` - SAFE_MODE blocks all trading
+- `test_candle_building_basic` - Correct OHLCV from ticks
+- `test_candle_completion_on_new_period` - Candle completes on new minute
+- `test_rebuild_candles_from_ticks` - Historical tick reconstruction
+- `test_subscription` - Market data subscription
+- `test_callback_registration` - Register/unregister callbacks
+- `test_connection_status` - Connection tracking
+- `test_backpressure_handling` - Event queue limits
+- `test_normalized_*` - Data structure serialization
+- `test_signature_*` - Idempotency signature generation
+
+## Operator Workflow
+
+1. **Verify Dry Run**
+   ```bash
+   # config/local_reconcile.yml
+   DRY_RUN: true
+   SAFE_MODE: true
+   ```
+   Run bot and check `staged_actions.json`
+
+2. **Stage Actions**
+   ```bash
+   DRY_RUN: false
+   DRY_RUN_CONFIRM: false
+   ```
+   Actions staged but not executed
+
+3. **Execute**
+   ```bash
+   DRY_RUN: false
+   DRY_RUN_CONFIRM: true
+   ```
+   Staged actions executed with audit logging
+
+4. **Rollback** (if needed)
+   ```bash
+   SAFE_MODE: true
+   sqlite3 ./data/orders.db < ./backups/db_backup_YYYYMMDD_HHMMSS.sql
+   ```
+
+## Acceptance Checklist Status
+
+- [x] Database backup exists and verified
+- [x] DRY_RUN=true confirms staged actions (no DB changes)
+- [x] Unit & integration tests pass (20/20)
+- [x] reconcile_status.json produced with counts
+- [x] Live data subscriptions functional
+- [x] Idempotency prevents duplicate submissions
+- [x] SPY futures recognized as initial state
+- [x] Safety flags (DRY_RUN, SAFE_MODE, DRY_RUN_CONFIRM) working
