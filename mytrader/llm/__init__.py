@@ -19,3 +19,9 @@ __all__ = [
     "RAGContextBuilder",
     "BedrockSQLiteManager",
 ]
+
+# Hybrid Bedrock Architecture imports
+from .bedrock_hybrid_client import HybridBedrockClient
+from .event_detector import EventDetector
+from .rag_context_builder import RAGContextBuilder
+from .sqlite_manager import BedrockSQLiteManager
