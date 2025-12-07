@@ -262,10 +262,9 @@ class TradeExecutor:
             logger.error("Try restarting IB Gateway: Close it completely, wait 30s, then restart")
             raise
         
-        # Request delayed market data (free, available for ES futures)
-        self.ib.reqMarketDataType(3)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
-        logger.info("Using delayed market data (15-min delay, free)")
-        logger.info("To use live data: Subscribe to 'US Equity and Options Add-On Streaming Bundle' in IBKR Account Management > Market Data Subscriptions")
+        # Request live market data (requires subscription)
+        self.ib.reqMarketDataType(1)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
+        logger.info("Requesting LIVE market data (requires active market data subscription)")
         
         # Set up event handlers for order updates
         self.ib.orderStatusEvent += self._on_order_status

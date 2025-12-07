@@ -6,12 +6,12 @@
 # DRY_RUN Mode
 # When true: Simulates all operations (DB writes, IB order submissions)
 # without actually executing them. Logs what would happen.
-DRY_RUN: true
+DRY_RUN: false
 
 # SAFE_MODE
 # When true: Runs reconciliation in read-only mode. Bot will NOT
 # submit/cancel any orders on IB. Use to verify behavior before going live.
-SAFE_MODE: true
+SAFE_MODE: false
 
 # DRY_RUN_CONFIRM
 # Multi-step safety guard for destructive operations:
