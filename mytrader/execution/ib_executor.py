@@ -1141,6 +1141,13 @@ class TradeExecutor:
                     
                     if not self.ib.isConnected():
                         logger.warning("⚠️  Connection lost, attempting auto-reconnect...")
+                        
+                        # Clear stale orders since we lost connection
+                        if self.active_orders:
+                            logger.warning(f"🧹 Clearing {len(self.active_orders)} stale orders due to disconnection")
+                            self.active_orders.clear()
+                            self.order_creation_times.clear()
+                        
                         try:
                             await self.ib.connectAsync(
                                 self._connection_host,
@@ -1153,6 +1160,11 @@ class TradeExecutor:
                             self.ib.orderStatusEvent += self._on_order_status
                             self.ib.execDetailsEvent += self._on_execution
                             logger.info("✅ Auto-reconnection successful")
+                            
+                            # Reconcile orders with IB after reconnection
+                            await self._reconcile_orders()
+                            await self._reconcile_positions()
+                            
                         except Exception as reconnect_error:
                             logger.error(f"❌ Auto-reconnection failed: {reconnect_error}")
                     else:
