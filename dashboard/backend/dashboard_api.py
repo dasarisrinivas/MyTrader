@@ -2684,6 +2684,62 @@ def _get_event_detector():
     return _event_detector
 
 
+# === Force Cancel Orders Endpoint ===
+class ForceCancelResponse(BaseModel):
+    """Response model for force cancel orders."""
+    status: str
+    canceled_count: int
+    remaining_orders: int
+    message: str
+
+
+@app.post("/api/orders/force-cancel", response_model=ForceCancelResponse)
+async def force_cancel_orders():
+    """
+    Force cancel all orders for the trading symbol.
+    
+    This is a nuclear option for when orders are stuck and blocking new trades.
+    Use with caution - it will attempt to cancel all orders including those
+    from other client IDs.
+    
+    Returns:
+        - Number of orders canceled
+        - Number of orders still remaining
+        - Status message
+    """
+    global live_trading_manager
+    
+    if not live_trading_manager or not live_trading_manager.executor:
+        raise HTTPException(
+            status_code=400,
+            detail="Trading manager not initialized. Start trading first."
+        )
+    
+    try:
+        executor = live_trading_manager.executor
+        
+        # Get count before
+        before_count = executor.get_active_order_count(sync=True)
+        logger.info(f"🚨 Force cancel requested. {before_count} orders before cancel.")
+        
+        # Force cancel
+        canceled_count = await executor.force_cancel_all_orders()
+        
+        # Get count after
+        after_count = executor.get_active_order_count(sync=True)
+        
+        return ForceCancelResponse(
+            status="success" if after_count == 0 else "partial",
+            canceled_count=canceled_count,
+            remaining_orders=after_count,
+            message=f"Canceled {canceled_count} orders. {after_count} remaining."
+        )
+        
+    except Exception as e:
+        logger.error(f"Force cancel failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class TriggerBedrockRequest(BaseModel):
     """Request model for manual Bedrock trigger."""
     notes: Optional[str] = None

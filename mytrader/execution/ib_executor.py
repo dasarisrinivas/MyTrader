@@ -280,28 +280,88 @@ class TradeExecutor:
         await self._start_keepalive()
     
     async def _cancel_all_existing_orders(self) -> None:
-        """Cancel any existing orders for this symbol and sync order state."""
+        """Cancel any existing orders for this symbol and sync order state.
+        
+        This is called on startup to ensure a clean slate. We aggressively
+        cancel and wait for confirmation to avoid the "active orders pending" issue.
+        """
         try:
             # Get current open trades from IB
             open_trades = self.ib.openTrades()
-            canceled_count = 0
+            trades_to_cancel = []
             
-            # Cancel orders for our symbol
+            # Collect orders for our symbol
             for trade in open_trades:
                 if trade.contract.symbol == self.symbol:
-                    self.ib.cancelOrder(trade.order)
-                    canceled_count += 1
-                    logger.info(f"Canceling existing order {trade.order.orderId} for {self.symbol}")
+                    trades_to_cancel.append(trade)
+                    logger.info(f"🎯 Found existing order to cancel: {trade.order.orderId} - {trade.order.action} {trade.order.totalQuantity} {self.symbol} (status: {trade.orderStatus.status})")
             
-            if canceled_count > 0:
-                await asyncio.sleep(2)  # Give time for cancellations to process
-                logger.info(f"✅ Canceled {canceled_count} existing orders for {self.symbol}")
+            if not trades_to_cancel:
+                logger.info(f"✅ No existing orders for {self.symbol} - clean slate")
+                self.active_orders.clear()
+                return
+            
+            logger.info(f"🔄 Canceling {len(trades_to_cancel)} existing orders for {self.symbol}...")
+            
+            # Cancel each order and wait for status change
+            for trade in trades_to_cancel:
+                order_id = trade.order.orderId
+                initial_status = trade.orderStatus.status
+                
+                # Skip if already cancelled/filled
+                if initial_status in ['Cancelled', 'Filled', 'Inactive']:
+                    logger.info(f"   Order {order_id} already {initial_status}, skipping")
+                    continue
+                
+                logger.info(f"   Canceling order {order_id}...")
+                self.ib.cancelOrder(trade.order)
+            
+            # Wait for cancellations with polling (more reliable than fixed sleep)
+            max_wait_seconds = 10
+            poll_interval = 0.5
+            elapsed = 0.0
+            
+            while elapsed < max_wait_seconds:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+                
+                # Check if all our orders are now cancelled
+                still_active = 0
+                for trade in self.ib.openTrades():
+                    if trade.contract.symbol == self.symbol:
+                        if trade.orderStatus.status in ['PreSubmitted', 'Submitted', 'PendingSubmit', 'PendingCancel']:
+                            still_active += 1
+                
+                if still_active == 0:
+                    logger.info(f"✅ All orders cancelled after {elapsed:.1f}s")
+                    break
+                
+                logger.debug(f"   Waiting for {still_active} orders to cancel... ({elapsed:.1f}s)")
+            
+            # Final check - if orders still exist after timeout, log a warning
+            remaining_orders = []
+            for trade in self.ib.openTrades():
+                if trade.contract.symbol == self.symbol:
+                    status = trade.orderStatus.status
+                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
+                        remaining_orders.append(f"{trade.order.orderId}({status})")
+            
+            if remaining_orders:
+                logger.warning(f"⚠️  {len(remaining_orders)} orders could not be cancelled after {max_wait_seconds}s: {remaining_orders}")
+                logger.warning("   These may be from a different client_id or stuck in IB Gateway.")
+                logger.warning("   Consider manually canceling via IB Gateway or TWS.")
+            
+            # Clear our tracking regardless - we'll re-sync in _reconcile_orders
+            self.active_orders.clear()
+            self.order_creation_times.clear()
             
             # Reconcile order state with IB after cancellations
             await self._reconcile_orders()
             
         except Exception as e:
             logger.error(f"Failed to cancel existing orders: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     async def _reconcile_orders(self) -> None:
         """Reconcile active orders with IB Gateway."""
@@ -332,6 +392,65 @@ class TradeExecutor:
                 
         except Exception as e:
             logger.error(f"Failed to reconcile orders: {e}")
+
+    async def force_cancel_all_orders(self) -> int:
+        """Force cancel ALL orders for this symbol (use with caution).
+        
+        This is a nuclear option for when orders are stuck and blocking new trades.
+        It uses reqGlobalCancel() which cancels ALL orders across all client IDs.
+        
+        Returns:
+            Number of orders that were canceled
+        """
+        logger.warning("🚨 FORCE CANCEL ALL ORDERS requested")
+        
+        try:
+            # First, try symbol-specific cancel
+            open_trades = self.ib.openTrades()
+            symbol_orders = [t for t in open_trades if t.contract.symbol == self.symbol]
+            
+            if not symbol_orders:
+                logger.info("No orders to cancel")
+                self.active_orders.clear()
+                return 0
+            
+            logger.warning(f"🔴 Force canceling {len(symbol_orders)} orders for {self.symbol}...")
+            
+            for trade in symbol_orders:
+                logger.info(f"   Canceling: {trade.order.orderId} - {trade.order.action} {trade.order.totalQuantity}")
+                self.ib.cancelOrder(trade.order)
+            
+            # Wait longer for force cancel
+            await asyncio.sleep(5)
+            
+            # Check if any remain
+            remaining = [t for t in self.ib.openTrades() 
+                        if t.contract.symbol == self.symbol 
+                        and t.orderStatus.status in ['PreSubmitted', 'Submitted', 'PendingSubmit']]
+            
+            if remaining:
+                logger.warning(f"⚠️  {len(remaining)} orders still remaining after cancel attempt")
+                logger.warning("   Attempting global cancel request...")
+                # Last resort: global cancel
+                self.ib.reqGlobalCancel()
+                await asyncio.sleep(3)
+            
+            # Clear internal tracking
+            self.active_orders.clear()
+            self.order_creation_times.clear()
+            
+            # Re-sync
+            await self._reconcile_orders()
+            
+            canceled_count = len(symbol_orders) - len(self.active_orders)
+            logger.info(f"✅ Force cancel complete: {canceled_count} orders canceled")
+            return canceled_count
+            
+        except Exception as e:
+            logger.error(f"Force cancel failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return 0
 
     async def _reconcile_positions(self) -> None:
         """Reconcile current positions with IBKR."""
