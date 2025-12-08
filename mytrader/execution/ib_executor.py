@@ -262,9 +262,10 @@ class TradeExecutor:
             logger.error("Try restarting IB Gateway: Close it completely, wait 30s, then restart")
             raise
         
-        # Request live market data (requires subscription)
-        self.ib.reqMarketDataType(1)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
-        logger.info("Requesting LIVE market data (requires active market data subscription)")
+        # Request market data - use type 3 (Delayed) to avoid conflicts with other sessions
+        # Type 1=Live (conflicts with TWS), 2=Frozen, 3=Delayed, 4=Delayed-Frozen
+        self.ib.reqMarketDataType(3)
+        logger.info("Requesting DELAYED market data (type 3) to avoid competing session conflicts")
         
         # Set up event handlers for order updates
         self.ib.orderStatusEvent += self._on_order_status
