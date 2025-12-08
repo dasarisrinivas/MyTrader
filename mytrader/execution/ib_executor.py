@@ -941,12 +941,17 @@ class TradeExecutor:
                         
                         synced_orders[order_id] = trade.order
             
-            # Always log the sync result for debugging
-            if len(synced_orders) != len(self.active_orders):
-                logger.info(f"🔄 Order count sync: {len(self.active_orders)} → {len(synced_orders)} active orders")
+            # ALWAYS update to match IB's state (this fixes the sync issue)
+            old_count = len(self.active_orders)
+            self.active_orders = synced_orders
+            
+            # Log sync result for debugging
+            if old_count != len(synced_orders):
+                logger.info(f"🔄 Order count sync: {old_count} → {len(synced_orders)} active orders")
                 if synced_orders:
                     logger.info(f"   Active order IDs: {list(synced_orders.keys())}")
-                self.active_orders = synced_orders
+                elif old_count > 0:
+                    logger.info(f"   ✅ Cleared {old_count} stale orders from tracking")
             elif synced_orders:
                 # Log even when count is same but periodically
                 logger.debug(f"Order sync: {len(synced_orders)} orders remain active: {list(synced_orders.keys())}")
