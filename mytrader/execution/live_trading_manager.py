@@ -115,7 +115,7 @@ class LiveTradingManager:
             await self.executor.connect(
                 self.settings.data.ibkr_host,
                 self.settings.data.ibkr_port,
-                client_id=3
+                client_id=5  # Use unique client_id to avoid conflicts with stale connections
             )
             # Force reconciliation of active orders after IB connection
             await self.force_order_reconciliation()

@@ -557,7 +557,15 @@ class TradeExecutor:
         )
         
         # Reconcile positions after execution to get updated position from IB
-        self._reconcile_positions()
+        # Note: This is called from sync callback, need to schedule as task
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._reconcile_positions())
+            else:
+                asyncio.create_task(self._reconcile_positions())
+        except RuntimeError:
+            pass  # No event loop, skip reconciliation
         
         # Send Telegram notification (non-blocking)
         logger.info(f"📱 Checking Telegram: enabled={self.telegram.enabled if self.telegram else False}")
@@ -716,6 +724,9 @@ class TradeExecutor:
             order = LimitOrder(action, quantity, limit_price)
             logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")
 
+        # Allow trading outside regular trading hours (ES futures are nearly 24hr)
+        order.outsideRth = True
+        
         # Add metadata to order reference for tracking
         if metadata:
             order.orderRef = f"MyTrader_{metadata.get('signal_source', 'manual')}"
@@ -728,6 +739,7 @@ class TradeExecutor:
             if take_profit is not None:
                 tp_order = LimitOrder(opposite, quantity, take_profit)
                 tp_order.transmit = False
+                tp_order.outsideRth = True
                 bracket_children.append(tp_order)
                 logger.info(f"Adding take-profit order at {take_profit:.2f}")
             
@@ -744,6 +756,7 @@ class TradeExecutor:
                 
                 sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price_sl)
                 sl_order.transmit = False
+                sl_order.outsideRth = True
                 bracket_children.append(sl_order)
                 logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price_sl:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price_sl):.2f} buffer)")
             
@@ -912,11 +925,23 @@ class TradeExecutor:
             sync: If True, reconcile with IB Gateway first (slower but accurate)
         """
         if sync:
+            # Note: self.ib.openTrades() returns cached state, which is updated
+            # automatically by ib_insync when running in an async event loop.
+            # No need to call ib.sleep() which can conflict with asyncio.
+            
             # Do a quick sync with IB to ensure accuracy
             open_trades = self.ib.openTrades()
             synced_orders = {}
             current_time = datetime.utcnow()
             stuck_order_threshold_minutes = 60  # Cancel orders stuck for > 60 minutes
+            
+            # Log raw IB state for debugging - use INFO level to make sure we see it
+            symbol_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
+            logger.info(f"🔍 Sync: IB reports {len(open_trades)} total trades, {len(symbol_trades)} for {self.symbol}")
+            
+            # Log each trade's status for debugging
+            for trade in symbol_trades:
+                logger.info(f"   📋 Order {trade.order.orderId}: {trade.order.action} {trade.order.totalQuantity} - status={trade.orderStatus.status}")
             
             for trade in open_trades:
                 if trade.contract.symbol == self.symbol:
@@ -940,18 +965,21 @@ class TradeExecutor:
                                     logger.error(f"Failed to cancel stuck order {order_id}: {e}")
                         
                         synced_orders[order_id] = trade.order
+                    else:
+                        logger.debug(f"Skipping order {order_id} with status: {status}")
             
             # ALWAYS update to match IB's state (this fixes the sync issue)
             old_count = len(self.active_orders)
+            old_ids = list(self.active_orders.keys())
             self.active_orders = synced_orders
             
             # Log sync result for debugging
             if old_count != len(synced_orders):
                 logger.info(f"🔄 Order count sync: {old_count} → {len(synced_orders)} active orders")
+                if old_count > 0 and len(synced_orders) == 0:
+                    logger.info(f"   ✅ Cleared stale orders: {old_ids}")
                 if synced_orders:
                     logger.info(f"   Active order IDs: {list(synced_orders.keys())}")
-                elif old_count > 0:
-                    logger.info(f"   ✅ Cleared {old_count} stale orders from tracking")
             elif synced_orders:
                 # Log even when count is same but periodically
                 logger.debug(f"Order sync: {len(synced_orders)} orders remain active: {list(synced_orders.keys())}")
