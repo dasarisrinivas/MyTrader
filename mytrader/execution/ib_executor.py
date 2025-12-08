@@ -262,11 +262,9 @@ class TradeExecutor:
             logger.error("Try restarting IB Gateway: Close it completely, wait 30s, then restart")
             raise
         
-        # Request LIVE market data (requires subscription)
-        # Type 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
-        # Note: Error 10197 "competing live session" means TWS or another app is also requesting data
-        self.ib.reqMarketDataType(1)
-        logger.info("Requesting LIVE market data (requires active market data subscription)")
+        # Note: We use snapshot=True for price requests, which doesn't require
+        # reqMarketDataType(). This avoids "competing live session" errors.
+        logger.info("Connected to IBKR - using snapshot market data requests")
         
         # Set up event handlers for order updates
         self.ib.orderStatusEvent += self._on_order_status
@@ -1080,8 +1078,6 @@ class TradeExecutor:
                         clientId=self._connection_client_id, 
                         timeout=30
                     )
-                    # Re-request market data type after reconnection
-                    self.ib.reqMarketDataType(1)  # Live data
                     logger.info("Reconnection successful")
                 except Exception as reconnect_error:
                     logger.error(f"Reconnection failed: {reconnect_error}")
@@ -1157,8 +1153,7 @@ class TradeExecutor:
                                 clientId=self._connection_client_id,
                                 timeout=30
                             )
-                            # Re-setup after reconnection
-                            self.ib.reqMarketDataType(1)  # Live data
+                            # Re-setup after reconnection (no reqMarketDataType needed for snapshots)
                             self.ib.orderStatusEvent += self._on_order_status
                             self.ib.execDetailsEvent += self._on_execution
                             logger.info("✅ Auto-reconnection successful")
