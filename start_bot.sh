@@ -1,7 +1,11 @@
 #!/bin/bash
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#          🤖 MyTrader - Start Bot Only 🤖                      
+#          🤖 MyTrader - Start Bot 🤖                      
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# Usage: . start_bot.sh
+#
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 set -e
@@ -15,7 +19,7 @@ NC='\033[0m' # No Color
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BLUE}          🤖 MyTrader - Starting Bot Only 🤖${NC}"
+echo -e "${BLUE}          🤖 MyTrader - Starting Bot 🤖${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -24,9 +28,9 @@ if pgrep -f "python.*run_bot.py" > /dev/null; then
     echo -e "${YELLOW}⚠️  Trading bot is already running!${NC}"
     echo ""
     echo "To restart the bot:"
-    echo "  1. Run: ./stop.sh"
-    echo "  2. Then run: ./start_bot.sh"
-    exit 1
+    echo "  1. Run: . stop.sh"
+    echo "  2. Then run: . start_bot.sh"
+    return 1 2>/dev/null || exit 1
 fi
 
 # Check if IB Gateway/TWS is running
@@ -37,13 +41,7 @@ else
     echo -e "${RED}❌ IB Gateway/TWS is NOT running on port 4002${NC}"
     echo ""
     echo "Please start IB Gateway or TWS before running the bot."
-    echo ""
-    echo "IB Gateway Setup:"
-    echo "  1. Download: https://www.interactivebrokers.com/en/trading/ibgateway-stable.php"
-    echo "  2. Login with paper trading account"
-    echo "  3. Configure API: Settings > API > Enable ActiveX and Socket Clients"
-    echo "  4. Set port: 4002 (paper trading) or 4001 (live)"
-    exit 1
+    return 1 2>/dev/null || exit 1
 fi
 
 # Check if config file exists
@@ -52,7 +50,7 @@ if [ ! -f "config.yaml" ]; then
     echo ""
     echo "Copy config.example.yaml to config.yaml and configure it:"
     echo "  cp config.example.yaml config.yaml"
-    exit 1
+    return 1 2>/dev/null || exit 1
 fi
 
 echo ""
@@ -69,12 +67,9 @@ VENV_PATH="$PWD/.venv"
 if [ -d "$VENV_PATH" ]; then
     echo -e "${BLUE}[INFO]${NC} Activating virtual environment..."
     source "$VENV_PATH/bin/activate"
-else
-    echo -e "${YELLOW}⚠️  Virtual environment not found at .venv${NC}"
-    echo -e "${YELLOW}   Using system Python${NC}"
 fi
 
-# Set environment variables for safety
+# Set environment variables
 export MAX_CONTRACTS=${MAX_CONTRACTS:-5}
 export IBKR_HOST=${IBKR_HOST:-"127.0.0.1"}
 export IBKR_PORT=${IBKR_PORT:-4002}
@@ -90,7 +85,7 @@ if ps -p $BOT_PID > /dev/null; then
     echo -e "${GREEN}✅ Bot started successfully (PID: $BOT_PID)${NC}"
 else
     echo -e "${RED}❌ Bot failed to start. Check logs/bot.log for details${NC}"
-    exit 1
+    return 1 2>/dev/null || exit 1
 fi
 
 echo ""
@@ -105,5 +100,5 @@ echo -e "${YELLOW}To view live logs:${NC}"
 echo "  tail -f logs/bot.log"
 echo ""
 echo -e "${YELLOW}To stop the bot:${NC}"
-echo "  ./stop.sh"
+echo "  . stop.sh"
 echo ""

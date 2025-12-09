@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import subprocess
 import random
@@ -1772,6 +1772,168 @@ async def sync_orders_from_ib():
             "success": False,
             "error": str(e),
             "message": "Failed to initialize IB connection for sync"
+        }
+
+
+@app.get("/api/trading/today-summary")
+async def get_today_trading_summary():
+    """
+    Get today's trading summary including orders, fills, P&L, and statistics.
+    
+    This endpoint provides a comprehensive view of today's trading activity
+    from the orders database and optionally parses the live trading log for
+    additional details like realized P&L from IB executions.
+    """
+    try:
+        from pathlib import Path
+        import re
+        import pytz
+        
+        # CST timezone
+        cst = pytz.timezone('America/Chicago')
+        now_cst = datetime.now(cst)
+        today_cst = now_cst.date().isoformat()
+        
+        tracker = OrderTracker()
+        today = datetime.now().date().isoformat()
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        
+        # Get today's orders from database
+        orders = tracker.get_orders_by_date(today, tomorrow)
+        
+        # Calculate statistics
+        total_orders = len(orders)
+        filled_orders = [o for o in orders if o['status'] == 'Filled']
+        cancelled_orders = [o for o in orders if o['status'] == 'Cancelled']
+        pending_orders = [o for o in orders if o['status'] not in ['Filled', 'Cancelled', 'Inactive']]
+        
+        # Calculate P&L from database
+        db_total_pnl = sum(o.get('realized_pnl') or 0 for o in orders)
+        db_total_commission = sum(o.get('commission') or 0 for o in orders)
+        
+        # Parse live trading log for additional P&L data
+        log_pnl_entries = []
+        log_total_pnl = 0.0
+        log_total_commission = 0.0
+        winning_trades = 0
+        losing_trades = 0
+        
+        # Try multiple possible log paths
+        log_paths = [
+            Path("logs/live_trading.log"),
+            Path("/Users/svss/Documents/code/MyTrader/logs/live_trading.log"),
+            project_root / "logs" / "live_trading.log"
+        ]
+        
+        log_file = None
+        for lp in log_paths:
+            if lp.exists():
+                log_file = lp
+                break
+        
+        if log_file:
+            try:
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        # Only parse today's entries (check date in line)
+                        if today not in line:
+                            continue
+                            
+                        # Parse realizedPNL entries (non-zero only for win/loss counting)
+                        if "realizedPNL=" in line:
+                            match = re.search(r'realizedPNL=(-?[\d.]+)', line)
+                            if match:
+                                pnl = float(match.group(1))
+                                if pnl != 0:  # Only count non-zero P&L for statistics
+                                    log_pnl_entries.append(pnl)
+                                    log_total_pnl += pnl
+                                    if pnl > 0:
+                                        winning_trades += 1
+                                    elif pnl < 0:
+                                        losing_trades += 1
+                        
+                        # Parse commission entries
+                        if "commission=" in line:
+                            match = re.search(r'commission=(-?[\d.]+)', line)
+                            if match:
+                                log_total_commission += float(match.group(1))
+            except Exception as e:
+                logger.warning(f"Error parsing log file: {e}")
+        
+        # Use log data if available, otherwise use database data
+        total_pnl = log_total_pnl if log_total_pnl != 0 else db_total_pnl
+        total_commission = log_total_commission if log_total_commission != 0 else db_total_commission
+        net_pnl = total_pnl - total_commission
+        
+        # Calculate win rate
+        total_closed_trades = winning_trades + losing_trades
+        win_rate = (winning_trades / total_closed_trades * 100) if total_closed_trades > 0 else 0
+        
+        # Helper to convert timestamp to CST
+        def to_cst(timestamp_str):
+            try:
+                # Parse the timestamp
+                if 'T' in timestamp_str:
+                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(timestamp_str)
+                
+                # If naive, assume UTC
+                if dt.tzinfo is None:
+                    dt = pytz.utc.localize(dt)
+                
+                # Convert to CST
+                dt_cst = dt.astimezone(cst)
+                return dt_cst.strftime('%Y-%m-%d %I:%M:%S %p CST')
+            except:
+                return timestamp_str
+        
+        # Build summary with CST times
+        summary = {
+            "date": today_cst,
+            "date_cst": now_cst.strftime('%Y-%m-%d'),
+            "timestamp": now_cst.strftime('%Y-%m-%d %I:%M:%S %p CST'),
+            "orders": {
+                "total": total_orders,
+                "filled": len(filled_orders),
+                "cancelled": len(cancelled_orders),
+                "pending": len(pending_orders)
+            },
+            "performance": {
+                "realized_pnl": round(total_pnl, 2),
+                "commission": round(total_commission, 2),
+                "net_pnl": round(net_pnl, 2),
+                "winning_trades": winning_trades,
+                "losing_trades": losing_trades,
+                "win_rate": round(win_rate, 1),
+                "pnl_per_trade": round(total_pnl / total_closed_trades, 2) if total_closed_trades > 0 else 0
+            },
+            "trades": [
+                {
+                    "order_id": o['order_id'],
+                    "symbol": o['symbol'],
+                    "action": o['action'],
+                    "quantity": o['quantity'],
+                    "status": o['status'],
+                    "avg_fill_price": o.get('avg_fill_price'),
+                    "realized_pnl": o.get('realized_pnl'),
+                    "timestamp": o['timestamp'],
+                    "timestamp_cst": to_cst(o['timestamp'])
+                }
+                for o in filled_orders[:20]  # Last 20 filled trades
+            ],
+            "status": "success"
+        }
+        
+        logger.info(f"📊 Today's summary: {len(filled_orders)} fills, ${net_pnl:.2f} net P&L, {winning_trades}W/{losing_trades}L")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Error getting today's trading summary: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "date": datetime.now().date().isoformat()
         }
 
 

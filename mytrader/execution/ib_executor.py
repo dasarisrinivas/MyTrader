@@ -845,8 +845,17 @@ class TradeExecutor:
             
             logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
-        # Wait briefly for order status updates (use asyncio.sleep instead of blocking waitOnUpdate)
-        await asyncio.sleep(0.1)  # Small delay to allow order status callbacks to fire
+        # Allow IB to process the order placement by yielding to the event loop
+        # ib_insync integrates with asyncio, so we need to let the loop run
+        for _ in range(20):  # Up to 2 seconds
+            await asyncio.sleep(0.1)
+            status = parent_trade.orderStatus.status
+            if status != 'PendingSubmit':
+                logger.info(f"✅ Order {parent_id} transitioned to {status}")
+                break
+        else:
+            logger.warning(f"⏳ Order {parent_id} still in PendingSubmit after 2s - may be waiting for IB")
+        
         status = parent_trade.orderStatus.status
         
         # Store position metadata for trailing stops
@@ -937,11 +946,17 @@ class TradeExecutor:
             
             # Log raw IB state for debugging - use INFO level to make sure we see it
             symbol_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
-            logger.info(f"🔍 Sync: IB reports {len(open_trades)} total trades, {len(symbol_trades)} for {self.symbol}")
+            
+            # Count only actually submitted orders (PreSubmitted/Submitted), not PendingSubmit ghost orders
+            submitted_trades = [t for t in symbol_trades if t.orderStatus.status in ['PreSubmitted', 'Submitted']]
+            pending_submit_trades = [t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit']
+            
+            logger.info(f"🔍 Sync: {len(submitted_trades)} active orders (ignoring {len(pending_submit_trades)} PendingSubmit)")
             
             # Log each trade's status for debugging
             for trade in symbol_trades:
-                logger.info(f"   📋 Order {trade.order.orderId}: {trade.order.action} {trade.order.totalQuantity} - status={trade.orderStatus.status}")
+                status_icon = "✅" if trade.orderStatus.status in ['PreSubmitted', 'Submitted'] else "⚠️"
+                logger.debug(f"   {status_icon} Order {trade.order.orderId}: {trade.order.action} {trade.order.totalQuantity} - status={trade.orderStatus.status}")
             
             for trade in open_trades:
                 if trade.contract.symbol == self.symbol:
@@ -951,7 +966,12 @@ class TradeExecutor:
                     # Log what IB is reporting
                     logger.debug(f"IB reports order {order_id}: {trade.order.action} {trade.order.totalQuantity} @ {getattr(trade.order, 'lmtPrice', 'MKT')}, status={status}")
                     
-                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
+                    # Only count ACTUALLY SUBMITTED orders (PreSubmitted or Submitted)
+                    # PendingSubmit orders are NOT transmitted yet - they may be ghost orders from ib_insync cache
+                    # We NEVER count PendingSubmit as active orders because:
+                    # 1. If we just placed them, they should transition to PreSubmitted/Submitted quickly
+                    # 2. If they're stuck in PendingSubmit, something went wrong and we shouldn't block on them
+                    if status in ['PreSubmitted', 'Submitted']:
                         # Check if order is stuck (been active too long)
                         if order_id in self.order_creation_times:
                             order_age = (current_time - self.order_creation_times[order_id]).total_seconds() / 60
@@ -965,6 +985,10 @@ class TradeExecutor:
                                     logger.error(f"Failed to cancel stuck order {order_id}: {e}")
                         
                         synced_orders[order_id] = trade.order
+                    elif status == 'PendingSubmit':
+                        # Log PendingSubmit orders but DON'T count them as active
+                        # These are likely ghost orders stuck in ib_insync's cache
+                        logger.debug(f"   ⚠️  Ignoring PendingSubmit order {order_id} (not counting as active)")
                     else:
                         logger.debug(f"Skipping order {order_id} with status: {status}")
             

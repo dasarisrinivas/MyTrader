@@ -9,8 +9,9 @@ import BacktestControls from './BacktestControls';
 import BacktestResults from './BacktestResults';
 import RAGStatusIndicator from './RAGStatusIndicator';
 import TradingSignalDisplay from './TradingSignalDisplay';
+import TradingSummary from './TradingSummary';
 import { ErrorNotification, ConnectionStatus, BackendStatusCard } from './ErrorStates';
-import { Activity, Play, Square, BarChart2, AlertTriangle, Brain } from 'lucide-react';
+import { Activity, Play, Square, BarChart2, AlertTriangle, Brain, PieChart } from 'lucide-react';
 
 const API_URL = 'http://localhost:8000';
 
@@ -334,6 +335,17 @@ export const Dashboard = () => {
                 <BarChart2 className="w-4 h-4 inline mr-2" />
                 Backtest
               </button>
+              <button
+                onClick={() => setActiveTab('summary')}
+                className={`px-6 py-4 text-sm font-semibold border-b-2 transition-all ${
+                  activeTab === 'summary'
+                    ? 'border-cyan-500 text-cyan-400 bg-cyan-900/20'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                <PieChart className="w-4 h-4 inline mr-2" />
+                Today's Summary
+              </button>
             </nav>
           </div>
         </div>
@@ -354,6 +366,8 @@ export const Dashboard = () => {
               <BacktestResults results={backtestResults} />
             </div>
           )}
+
+          {activeTab === 'summary' && <TradingSummary />}
         </div>
       </main>
     </div>

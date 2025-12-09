@@ -1,0 +1,1 @@
+timestamp,d_action,d_score,d_candidate,h_recommendation,h_confidence,h_cached,final_confidence,final_action,should_trade,safety_passed,position_size_pct,entry_price,stop_loss,take_profit,order_id,execution_status
