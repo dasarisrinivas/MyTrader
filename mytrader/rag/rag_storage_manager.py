@@ -1,21 +1,34 @@
-"""RAG Storage Manager - Handles folder structure, trade logging, and document management.
+"""RAG Storage Manager - Handles trade logging and document management via AWS S3.
 
 This module manages the entire RAG data infrastructure:
-- Auto-creates folder structure on startup
-- Saves trade logs with full metadata
-- Manages static and dynamic documents
+- Saves trade logs with full metadata to S3
+- Manages static and dynamic documents in S3
 - Provides document retrieval for RAG queries
 - Uses CST (Central Standard Time) for all timestamps
+
+All data is stored in AWS S3:
+- Bucket: rag-bot-storage
+- Prefix: spy-futures-bot/
+
+S3 Key Structure:
+    spy-futures-bot/trade-logs/{YYYY-MM-DD}/{timestamp}_{trade_id}.json
+    spy-futures-bot/daily-summaries/{YYYY-MM-DD}/market_summary.json
+    spy-futures-bot/weekly-summaries/{YYYY-Www}/weekly_summary.json
+    spy-futures-bot/mistake-notes/{YYYY-MM-DD}/{timestamp}_{trade_id}.md
+    spy-futures-bot/docs-static/{category}/{filename}
+    spy-futures-bot/docs-dynamic/{category}/{filename}
+    spy-futures-bot/vectors/index.faiss
+    spy-futures-bot/vectors/metadata.pkl
 """
 import json
-import os
-import shutil
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 
 from loguru import logger
+
+# Import S3 storage
+from .s3_storage import S3Storage, get_s3_storage, S3StorageError
 
 # Import CST utilities
 try:
@@ -106,65 +119,54 @@ class TradeRecord:
 
 
 class RAGStorageManager:
-    """Manages RAG data storage, retrieval, and organization.
+    """Manages RAG data storage, retrieval, and organization via AWS S3.
     
-    Folder Structure:
-    /rag_data
-        /docs_static           → reference docs (never change)
-        /docs_dynamic          → updated regularly
-        /trades                → auto-saved trade logs
-        /vectors               → FAISS embeddings
+    S3 Key Structure:
+    spy-futures-bot/
+        trade-logs/{YYYY-MM-DD}/{timestamp}_{trade_id}.json
+        daily-summaries/{YYYY-MM-DD}/market_summary.json
+        weekly-summaries/{YYYY-Www}/weekly_summary.json
+        mistake-notes/{YYYY-MM-DD}/{timestamp}_{trade_id}.md
+        docs-static/{category}/{filename}
+        docs-dynamic/{category}/{filename}
+        vectors/index.faiss
+        vectors/metadata.pkl
     """
     
-    def __init__(self, base_path: str = "rag_data"):
-        """Initialize RAG storage manager.
+    def __init__(
+        self,
+        bucket_name: str = "rag-bot-storage-897729113303",
+        prefix: str = "spy-futures-bot/",
+    ):
+        """Initialize RAG storage manager with S3 backend.
         
         Args:
-            base_path: Root directory for RAG data
+            bucket_name: S3 bucket name
+            prefix: Key prefix for all objects
         """
-        self.base_path = Path(base_path)
+        self.bucket_name = bucket_name
+        self.prefix = prefix
         
-        # Define folder structure
-        self.folders = {
-            "docs_static": self.base_path / "docs_static",
-            "docs_static_market": self.base_path / "docs_static" / "market_structure",
-            "docs_static_contracts": self.base_path / "docs_static" / "contract_specs",
-            "docs_static_glossary": self.base_path / "docs_static" / "glossary",
-            "docs_static_indicators": self.base_path / "docs_static" / "indicator_definitions",
-            "docs_static_strategies": self.base_path / "docs_static" / "strategy_rules",
-            
-            "docs_dynamic": self.base_path / "docs_dynamic",
-            "docs_dynamic_daily": self.base_path / "docs_dynamic" / "daily_market_summaries",
-            "docs_dynamic_weekly": self.base_path / "docs_dynamic" / "weekly_market_summaries",
-            "docs_dynamic_mistakes": self.base_path / "docs_dynamic" / "system_mistake_notes",
-            
-            "trades": self.base_path / "trades",
-            "vectors": self.base_path / "vectors",
-        }
-        
-        # Ensure all folders exist
-        self._ensure_folders()
-        
-        logger.info(f"RAGStorageManager initialized at {self.base_path}")
-    
-    def _ensure_folders(self) -> None:
-        """Create all required folders if they don't exist."""
-        for name, path in self.folders.items():
-            path.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Ensured {len(self.folders)} RAG folders exist")
+        # Initialize S3 storage
+        try:
+            self.s3 = S3Storage(bucket_name=bucket_name, prefix=prefix)
+            logger.info(f"RAGStorageManager initialized with S3: s3://{bucket_name}/{prefix}")
+        except S3StorageError as e:
+            logger.error(f"Failed to initialize S3 storage: {e}")
+            raise
     
     # =========================================================================
     # Trade Logging
     # =========================================================================
     
     def save_trade(self, trade: TradeRecord) -> str:
-        """Save a trade record to the appropriate folder.
+        """Save a trade record to S3.
         
         Args:
             trade: TradeRecord to save
             
         Returns:
-            Path to saved file
+            S3 key of saved file
         """
         # Parse timestamp to get folder path
         try:
@@ -172,21 +174,16 @@ class RAGStorageManager:
         except:
             ts = now_cst()
         
-        # Create YYYY/MM folder structure
-        year_folder = self.folders["trades"] / str(ts.year)
-        month_folder = year_folder / f"{ts.month:02d}"
-        month_folder.mkdir(parents=True, exist_ok=True)
+        # Generate S3 key: trade-logs/YYYY-MM-DD/HHMMSS_tradeid.json
+        date_str = ts.strftime("%Y-%m-%d")
+        time_str = ts.strftime("%H%M%S")
+        key = f"trade-logs/{date_str}/{time_str}_{trade.trade_id}.json"
         
-        # Generate filename
-        filename = f"trade_{ts.strftime('%Y_%m_%d_%H%M')}_{trade.trade_id}.json"
-        filepath = month_folder / filename
+        # Save trade to S3
+        full_key = self.s3.save_to_s3(key, trade.to_dict())
         
-        # Save trade
-        with open(filepath, "w") as f:
-            json.dump(trade.to_dict(), f, indent=2, default=str)
-        
-        logger.info(f"Saved trade to {filepath}")
-        return str(filepath)
+        logger.info(f"Saved trade to S3: {key}")
+        return full_key
     
     def load_trades(
         self,
@@ -196,7 +193,7 @@ class RAGStorageManager:
         action_filter: Optional[str] = None,  # BUY, SELL
         limit: int = 100,
     ) -> List[TradeRecord]:
-        """Load trades from storage with optional filters.
+        """Load trades from S3 storage with optional filters.
         
         Args:
             start_date: Only load trades after this date
@@ -209,42 +206,41 @@ class RAGStorageManager:
             List of TradeRecord objects
         """
         trades = []
-        trades_folder = self.folders["trades"]
         
-        # Walk through year/month folders
-        for year_folder in sorted(trades_folder.iterdir(), reverse=True):
-            if not year_folder.is_dir():
-                continue
+        # List all trade log keys
+        keys = self.s3.list_keys("trade-logs/", max_keys=limit * 3)
+        
+        # Sort by key (reverse for most recent first)
+        keys.sort(reverse=True)
+        
+        for key in keys:
+            if len(trades) >= limit:
+                break
+            
+            try:
+                # Load trade data from S3
+                data = self.s3.read_from_s3(key)
+                if data is None:
+                    continue
+                    
+                trade = TradeRecord.from_dict(data)
                 
-            for month_folder in sorted(year_folder.iterdir(), reverse=True):
-                if not month_folder.is_dir():
+                # Apply filters
+                trade_ts = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
+                
+                if start_date and trade_ts < start_date:
+                    continue
+                if end_date and trade_ts > end_date:
+                    continue
+                if result_filter and trade.result != result_filter:
+                    continue
+                if action_filter and trade.action != action_filter:
                     continue
                 
-                for trade_file in sorted(month_folder.glob("trade_*.json"), reverse=True):
-                    if len(trades) >= limit:
-                        break
-                    
-                    try:
-                        with open(trade_file) as f:
-                            data = json.load(f)
-                        trade = TradeRecord.from_dict(data)
-                        
-                        # Apply filters
-                        trade_ts = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
-                        
-                        if start_date and trade_ts < start_date:
-                            continue
-                        if end_date and trade_ts > end_date:
-                            continue
-                        if result_filter and trade.result != result_filter:
-                            continue
-                        if action_filter and trade.action != action_filter:
-                            continue
-                        
-                        trades.append(trade)
-                        
-                    except Exception as e:
-                        logger.warning(f"Failed to load trade {trade_file}: {e}")
+                trades.append(trade)
+                
+            except Exception as e:
+                logger.warning(f"Failed to load trade {key}: {e}")
         
         return trades
     
@@ -340,70 +336,63 @@ class RAGStorageManager:
     # =========================================================================
     
     def save_daily_summary(self, summary: Dict[str, Any], date: Optional[datetime] = None) -> str:
-        """Save a daily market summary document.
+        """Save a daily market summary document to S3.
         
         Args:
             summary: Market summary data
             date: Date for the summary (default: today)
             
         Returns:
-            Path to saved file
+            S3 key of saved file
         """
         if date is None:
             date = now_cst()
-        
-        filename = f"market_summary_{date.strftime('%Y_%m_%d')}.json"
-        filepath = self.folders["docs_dynamic_daily"] / filename
         
         # Add metadata
         summary["_generated_at"] = now_cst().isoformat()
         summary["_date"] = date.strftime("%Y-%m-%d")
         
-        with open(filepath, "w") as f:
-            json.dump(summary, f, indent=2, default=str)
+        # Save to S3: daily-summaries/YYYY-MM-DD/market_summary.json
+        key = f"daily-summaries/{date.strftime('%Y-%m-%d')}/market_summary.json"
+        full_key = self.s3.save_to_s3(key, summary)
         
-        logger.info(f"Saved daily summary to {filepath}")
-        return str(filepath)
+        logger.info(f"Saved daily summary to S3: {key}")
+        return full_key
     
     def save_weekly_summary(self, summary: Dict[str, Any], week_start: datetime) -> str:
-        """Save a weekly market summary document.
+        """Save a weekly market summary document to S3.
         
         Args:
             summary: Weekly summary data
             week_start: Start date of the week
             
         Returns:
-            Path to saved file
+            S3 key of saved file
         """
-        filename = f"weekly_summary_{week_start.strftime('%Y_W%W')}.json"
-        filepath = self.folders["docs_dynamic_weekly"] / filename
-        
         summary["_generated_at"] = now_cst().isoformat()
         summary["_week_start"] = week_start.strftime("%Y-%m-%d")
         
-        with open(filepath, "w") as f:
-            json.dump(summary, f, indent=2, default=str)
+        # Save to S3: weekly-summaries/YYYY-Www/weekly_summary.json
+        key = f"weekly-summaries/{week_start.strftime('%Y-W%W')}/weekly_summary.json"
+        full_key = self.s3.save_to_s3(key, summary)
         
-        logger.info(f"Saved weekly summary to {filepath}")
-        return str(filepath)
+        logger.info(f"Saved weekly summary to S3: {key}")
+        return full_key
     
     def save_mistake_note(self, trade: TradeRecord, analysis: str) -> str:
-        """Save a mistake analysis note for a losing trade.
+        """Save a mistake analysis note for a losing trade to S3.
         
         Args:
             trade: The losing trade
             analysis: Analysis text
             
         Returns:
-            Path to saved file
+            S3 key of saved file
         """
         try:
             ts = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
         except:
             ts = now_cst()
-        
-        filename = f"mistake_{ts.strftime('%Y_%m_%d')}_{trade.trade_id}.md"
-        filepath = self.folders["docs_dynamic_mistakes"] / filename
         
         content = f"""# Mistake Analysis – {ts.strftime('%Y-%m-%d %H:%M')} CST
 
@@ -444,56 +433,73 @@ class RAGStorageManager:
 *Auto-generated by RAG System*
 """
         
-        with open(filepath, "w") as f:
-            f.write(content)
+        # Save to S3: mistake-notes/YYYY-MM-DD/HHMMSS_tradeid.md
+        date_str = ts.strftime("%Y-%m-%d")
+        time_str = ts.strftime("%H%M%S")
+        key = f"mistake-notes/{date_str}/{time_str}_{trade.trade_id}.md"
         
-        logger.info(f"Saved mistake note to {filepath}")
-        return str(filepath)
+        full_key = self.s3.save_to_s3(key, content, content_type="text/markdown")
+        
+        logger.info(f"Saved mistake note to S3: {key}")
+        return full_key
     
     def load_all_documents(self) -> List[Tuple[str, str, Dict[str, Any]]]:
-        """Load all documents for embedding.
+        """Load all documents from S3 for embedding.
         
         Returns:
             List of (doc_id, content, metadata) tuples
         """
         documents = []
         
-        # Load static docs (markdown and text)
-        for folder_key in ["docs_static_market", "docs_static_contracts", 
-                          "docs_static_glossary", "docs_static_indicators",
-                          "docs_static_strategies"]:
-            folder = self.folders[folder_key]
-            for filepath in folder.glob("**/*"):
-                if filepath.suffix in [".md", ".txt", ".json"]:
-                    try:
-                        content = filepath.read_text()
-                        doc_id = f"static:{filepath.relative_to(self.base_path)}"
+        # Load static docs from S3
+        static_categories = ["market_structure", "contract_specs", "glossary", 
+                           "indicator_definitions", "strategy_rules"]
+        for category in static_categories:
+            keys = self.s3.list_keys(f"docs-static/{category}/")
+            for key in keys:
+                try:
+                    content = self.s3.read_from_s3(key, as_json=False)
+                    if content:
+                        doc_id = f"static:{key}"
                         metadata = {
                             "type": "static",
-                            "category": folder_key.replace("docs_static_", ""),
-                            "filename": filepath.name,
+                            "category": category,
+                            "s3_key": key,
                         }
                         documents.append((doc_id, content, metadata))
-                    except Exception as e:
-                        logger.warning(f"Failed to load {filepath}: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to load static doc {key}: {e}")
         
-        # Load dynamic docs
-        for folder_key in ["docs_dynamic_daily", "docs_dynamic_weekly", 
-                          "docs_dynamic_mistakes"]:
-            folder = self.folders[folder_key]
-            for filepath in folder.glob("**/*"):
-                if filepath.suffix in [".md", ".txt", ".json"]:
-                    try:
-                        content = filepath.read_text()
-                        doc_id = f"dynamic:{filepath.relative_to(self.base_path)}"
+        # Load dynamic docs from S3
+        dynamic_categories = ["daily", "weekly", "mistakes"]
+        for category in dynamic_categories:
+            if category == "daily":
+                keys = self.s3.list_keys("daily-summaries/")
+            elif category == "weekly":
+                keys = self.s3.list_keys("weekly-summaries/")
+            else:
+                keys = self.s3.list_keys("mistake-notes/")
+            
+            for key in keys:
+                try:
+                    # For JSON files, read as JSON then convert to string
+                    if key.endswith(".json"):
+                        data = self.s3.read_from_s3(key, as_json=True)
+                        if data:
+                            content = json.dumps(data, indent=2)
+                    else:
+                        content = self.s3.read_from_s3(key, as_json=False)
+                    
+                    if content:
+                        doc_id = f"dynamic:{key}"
                         metadata = {
                             "type": "dynamic",
-                            "category": folder_key.replace("docs_dynamic_", ""),
-                            "filename": filepath.name,
+                            "category": category,
+                            "s3_key": key,
                         }
                         documents.append((doc_id, content, metadata))
-                    except Exception as e:
-                        logger.warning(f"Failed to load {filepath}: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to load dynamic doc {key}: {e}")
         
         # Load recent trades as documents
         recent_trades = self.load_trades(limit=50)
@@ -536,59 +542,100 @@ Exit: {trade.exit_reason} after {trade.duration_minutes:.1f} minutes"""
     # =========================================================================
     
     def get_latest_daily_summary(self) -> Optional[Dict[str, Any]]:
-        """Get the most recent daily market summary.
+        """Get the most recent daily market summary from S3.
         
         Returns:
             Summary dict or None if not found
         """
-        folder = self.folders["docs_dynamic_daily"]
-        files = sorted(folder.glob("market_summary_*.json"), reverse=True)
+        keys = self.s3.list_keys("daily-summaries/")
+        if not keys:
+            return None
         
-        if files:
-            with open(files[0]) as f:
-                return json.load(f)
+        # Find the most recent summary
+        keys.sort(reverse=True)
+        for key in keys:
+            if "market_summary.json" in key:
+                return self.s3.read_from_s3(key)
+        
         return None
     
     def cleanup_old_data(self, days_to_keep: int = 90) -> int:
-        """Remove data older than specified days.
+        """Remove data older than specified days from S3.
         
         Args:
             days_to_keep: Number of days of data to retain
             
         Returns:
-            Number of files removed
+            Number of objects removed
         """
         cutoff = now_cst() - timedelta(days=days_to_keep)
+        cutoff_str = cutoff.strftime("%Y-%m-%d")
         removed = 0
         
-        # Clean up trades
-        for year_folder in self.folders["trades"].iterdir():
-            if not year_folder.is_dir():
-                continue
-            
+        # Clean up old trades
+        keys = self.s3.list_keys("trade-logs/")
+        for key in keys:
             try:
-                year = int(year_folder.name)
-                if year < cutoff.year:
-                    shutil.rmtree(year_folder)
-                    removed += 1
-                    logger.info(f"Removed old trade folder: {year_folder}")
-            except ValueError:
-                continue
+                # Extract date from key: trade-logs/YYYY-MM-DD/...
+                parts = key.split("/")
+                if len(parts) >= 3:
+                    date_str = parts[-2]
+                    if date_str < cutoff_str:
+                        if self.s3.delete_from_s3(key):
+                            removed += 1
+            except Exception as e:
+                logger.warning(f"Failed to cleanup {key}: {e}")
         
+        logger.info(f"Removed {removed} old objects from S3")
         return removed
+    
+    def save_static_doc(self, category: str, filename: str, content: str) -> str:
+        """Save a static reference document to S3.
+        
+        Args:
+            category: Document category (e.g., 'market_structure', 'glossary')
+            filename: Document filename
+            content: Document content
+            
+        Returns:
+            S3 key
+        """
+        key = f"docs-static/{category}/{filename}"
+        return self.s3.save_to_s3(key, content)
+    
+    def save_dynamic_doc(self, category: str, filename: str, content: str) -> str:
+        """Save a dynamic document to S3.
+        
+        Args:
+            category: Document category
+            filename: Document filename
+            content: Document content
+            
+        Returns:
+            S3 key
+        """
+        key = f"docs-dynamic/{category}/{filename}"
+        return self.s3.save_to_s3(key, content)
 
 
 # Create singleton instance
 _storage_manager: Optional[RAGStorageManager] = None
 
 
-def get_rag_storage() -> RAGStorageManager:
-    """Get the singleton RAG storage manager.
+def get_rag_storage(
+    bucket_name: str = "rag-bot-storage-897729113303",
+    prefix: str = "spy-futures-bot/",
+) -> RAGStorageManager:
+    """Get the singleton RAG storage manager with S3 backend.
     
+    Args:
+        bucket_name: S3 bucket name
+        prefix: Key prefix for all objects
+        
     Returns:
         RAGStorageManager instance
     """
     global _storage_manager
     if _storage_manager is None:
-        _storage_manager = RAGStorageManager()
+        _storage_manager = RAGStorageManager(bucket_name=bucket_name, prefix=prefix)
     return _storage_manager

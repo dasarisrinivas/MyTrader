@@ -2,18 +2,24 @@
 
 This module provides embedding generation and FAISS index management:
 - Generates embeddings using sentence-transformers or AWS Titan
-- Builds and saves FAISS indexes
+- Builds and saves FAISS indexes to S3
 - Provides similarity search for RAG retrieval
+
+All vectors and metadata are stored in AWS S3:
+- Bucket: rag-bot-storage
+- Prefix: spy-futures-bot/vectors/
 """
+import io
 import json
-import os
 import pickle
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from loguru import logger
+
+# Import S3 storage
+from .s3_storage import S3Storage, get_s3_storage, S3StorageError
 
 try:
     import faiss
@@ -33,6 +39,10 @@ except ImportError:
 class EmbeddingBuilder:
     """Builds and manages FAISS vector embeddings for RAG retrieval.
     
+    All index data is stored in S3:
+    - spy-futures-bot/vectors/index.faiss
+    - spy-futures-bot/vectors/metadata.pkl
+    
     Supports two embedding backends:
     1. sentence-transformers (local, fast, free)
     2. AWS Titan embeddings (via Bedrock, higher quality)
@@ -43,21 +53,27 @@ class EmbeddingBuilder:
     
     def __init__(
         self,
-        vectors_path: str = "rag_data/vectors",
+        bucket_name: str = "rag-bot-storage-897729113303",
+        prefix: str = "spy-futures-bot/",
         model_name: str = DEFAULT_MODEL,
         use_bedrock: bool = False,
         bedrock_client: Optional[Any] = None,
     ):
-        """Initialize the embedding builder.
+        """Initialize the embedding builder with S3 backend.
         
         Args:
-            vectors_path: Path to save/load FAISS indexes
+            bucket_name: S3 bucket name
+            prefix: S3 key prefix
             model_name: Sentence transformer model name
             use_bedrock: Use AWS Titan embeddings instead of local model
             bedrock_client: Optional boto3 Bedrock client
         """
-        self.vectors_path = Path(vectors_path)
-        self.vectors_path.mkdir(parents=True, exist_ok=True)
+        # Initialize S3 storage
+        try:
+            self.s3 = S3Storage(bucket_name=bucket_name, prefix=prefix)
+        except S3StorageError as e:
+            logger.error(f"Failed to initialize S3 storage: {e}")
+            raise
         
         self.model_name = model_name
         self.use_bedrock = use_bedrock
@@ -78,10 +94,10 @@ class EmbeddingBuilder:
         self.doc_ids: List[str] = []
         self.doc_texts: List[str] = []
         
-        # Try to load existing index
+        # Try to load existing index from S3
         self._load_index()
         
-        logger.info(f"EmbeddingBuilder initialized (dim={self.embedding_dim}, backend={'bedrock' if use_bedrock else 'local'})")
+        logger.info(f"EmbeddingBuilder initialized with S3 (dim={self.embedding_dim}, backend={'bedrock' if use_bedrock else 'local'})")
     
     def _init_sentence_transformer(self) -> None:
         """Initialize the sentence transformer model."""
@@ -385,7 +401,7 @@ class EmbeddingBuilder:
         return self.search(enhanced_query, top_k=top_k)
     
     def _save_index(self) -> bool:
-        """Save FAISS index and metadata to disk.
+        """Save FAISS index and metadata to S3.
         
         Returns:
             True if successful
@@ -394,31 +410,35 @@ class EmbeddingBuilder:
             return False
         
         try:
-            # Save FAISS index
-            index_path = self.vectors_path / "index.faiss"
-            faiss.write_index(self.index, str(index_path))
+            # Serialize FAISS index to bytes
+            index_buffer = io.BytesIO()
+            faiss.write_index(self.index, faiss.PyCallbackIOWriter(index_buffer.write))
+            index_bytes = index_buffer.getvalue()
             
-            # Save metadata
-            metadata_path = self.vectors_path / "metadata.pkl"
-            with open(metadata_path, "wb") as f:
-                pickle.dump({
-                    "doc_ids": self.doc_ids,
-                    "doc_texts": self.doc_texts,
-                    "doc_metadata": self.doc_metadata,
-                    "embedding_dim": self.embedding_dim,
-                    "model_name": self.model_name,
-                    "saved_at": datetime.now(timezone.utc).isoformat(),
-                }, f)
+            # Upload index to S3
+            self.s3.save_binary_to_s3("vectors/index.faiss", index_bytes)
             
-            logger.info(f"Saved FAISS index to {index_path}")
+            # Serialize and save metadata
+            metadata = {
+                "doc_ids": self.doc_ids,
+                "doc_texts": self.doc_texts,
+                "doc_metadata": self.doc_metadata,
+                "embedding_dim": self.embedding_dim,
+                "model_name": self.model_name,
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+            }
+            metadata_bytes = pickle.dumps(metadata)
+            self.s3.save_binary_to_s3("vectors/metadata.pkl", metadata_bytes)
+            
+            logger.info(f"Saved FAISS index to S3 ({self.index.ntotal} vectors)")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to save index: {e}")
+            logger.error(f"Failed to save index to S3: {e}")
             return False
     
     def _load_index(self) -> bool:
-        """Load FAISS index and metadata from disk.
+        """Load FAISS index and metadata from S3.
         
         Returns:
             True if successful
@@ -426,30 +446,34 @@ class EmbeddingBuilder:
         if not FAISS_AVAILABLE:
             return False
         
-        index_path = self.vectors_path / "index.faiss"
-        metadata_path = self.vectors_path / "metadata.pkl"
-        
-        if not index_path.exists() or not metadata_path.exists():
-            logger.info("No existing index found")
-            return False
-        
         try:
-            # Load FAISS index
-            self.index = faiss.read_index(str(index_path))
+            # Download index from S3
+            index_bytes = self.s3.read_binary_from_s3("vectors/index.faiss")
+            if index_bytes is None:
+                logger.info("No existing index found in S3")
+                return False
             
-            # Load metadata
-            with open(metadata_path, "rb") as f:
-                metadata = pickle.load(f)
+            # Load FAISS index from bytes
+            index_buffer = io.BytesIO(index_bytes)
+            self.index = faiss.read_index(faiss.PyCallbackIOReader(index_buffer.read, len(index_bytes)))
+            
+            # Download and load metadata
+            metadata_bytes = self.s3.read_binary_from_s3("vectors/metadata.pkl")
+            if metadata_bytes is None:
+                logger.warning("Index found but metadata missing in S3")
+                return False
+            
+            metadata = pickle.loads(metadata_bytes)
             
             self.doc_ids = metadata["doc_ids"]
             self.doc_texts = metadata["doc_texts"]
             self.doc_metadata = metadata["doc_metadata"]
             
-            logger.info(f"Loaded FAISS index with {self.index.ntotal} vectors")
+            logger.info(f"Loaded FAISS index from S3 with {self.index.ntotal} vectors")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to load index: {e}")
+            logger.error(f"Failed to load index from S3: {e}")
             return False
     
     def get_stats(self) -> Dict[str, Any]:
@@ -477,16 +501,18 @@ class EmbeddingBuilder:
 
 
 def create_embedding_builder(
-    vectors_path: str = "rag_data/vectors",
+    bucket_name: str = "rag-bot-storage-897729113303",
+    prefix: str = "spy-futures-bot/",
     use_bedrock: bool = False,
 ) -> EmbeddingBuilder:
-    """Factory function to create an EmbeddingBuilder.
+    """Factory function to create an EmbeddingBuilder with S3 backend.
     
     Args:
-        vectors_path: Path to vectors folder
+        bucket_name: S3 bucket name
+        prefix: S3 key prefix
         use_bedrock: Use AWS Titan embeddings
         
     Returns:
         EmbeddingBuilder instance
     """
-    return EmbeddingBuilder(vectors_path=vectors_path, use_bedrock=use_bedrock)
+    return EmbeddingBuilder(bucket_name=bucket_name, prefix=prefix, use_bedrock=use_bedrock)

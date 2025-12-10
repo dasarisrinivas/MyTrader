@@ -100,6 +100,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     enriched["SMA_50"] = close.rolling(window=50).mean()
     
     # EMAs
+    enriched["EMA_9"] = _ema(close, 9)  # For short-term trend detection
     enriched["EMA_20"] = _ema(close, 20)
     enriched["EMA_21"] = _ema(close, 21)
     enriched["EMA_50"] = _ema(close, 50)
@@ -165,6 +166,29 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Price relative to moving averages
     enriched["price_to_sma_20"] = (close / rolling_mean).fillna(1.0)
     enriched["price_to_ema_50"] = (close / enriched["EMA_50"]).fillna(1.0)
+    
+    # Previous Day High/Low (PDH/PDL) - critical for level-based trading
+    try:
+        if hasattr(enriched.index, 'date'):
+            # Group by date to get daily high/low
+            daily_high = enriched.groupby(enriched.index.date)['high'].transform('max')
+            daily_low = enriched.groupby(enriched.index.date)['low'].transform('min')
+            
+            # Shift by 1 day to get PREVIOUS day's high/low
+            enriched['PDH'] = daily_high.shift(1)
+            enriched['PDL'] = daily_low.shift(1)
+            
+            # Forward fill for intraday use
+            enriched['PDH'] = enriched['PDH'].ffill()
+            enriched['PDL'] = enriched['PDL'].ffill()
+        else:
+            # Fallback: use rolling 24-hour (assuming minute bars)
+            enriched['PDH'] = high.rolling(window=1440, min_periods=60).max().shift(1)
+            enriched['PDL'] = low.rolling(window=1440, min_periods=60).min().shift(1)
+    except Exception:
+        # If all else fails, set to 0 (will be ignored by scoring)
+        enriched['PDH'] = 0
+        enriched['PDL'] = 0
     
     # Use pandas_ta if available for additional indicators
     if HAS_PANDAS_TA:

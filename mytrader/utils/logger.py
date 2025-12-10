@@ -59,7 +59,3 @@ def configure_logging(log_file: str | None = None, level: str = "INFO", serializ
 
 
 __all__ = ["configure_logging", "logger", "CST"]
-    )
-
-
-__all__ = ["configure_logging", "logger", "CST"]

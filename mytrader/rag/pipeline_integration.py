@@ -152,11 +152,12 @@ class HybridPipelineIntegration:
             
             # Momentum
             "rsi": float(row.get("RSI_14", row.get("rsi", 50))),
-            "macd_hist": float(row.get("MACD", row.get("macd_hist", 0))),
+            # MACD histogram: Try MACDhist_12_26_9 (standard column name from feature_engineer.py)
+            "macd_hist": float(row.get("MACDhist_12_26_9", row.get("MACD_hist", row.get("MACDh_12_26_9", row.get("macd_hist", 0))))),
             
             # Volatility
             "atr": float(row.get("ATR_14", row.get("atr", 0))),
-            "atr_20_avg": float(row.get("ATR_20_avg", row.get("atr", 1))),
+            "atr_20_avg": float(row.get("ATR_20_avg", row.get("ATR_14", row.get("atr", 1)))),
             
             # Levels (may need to be set elsewhere)
             "pdh": float(row.get("PDH", row.get("pdh", 0))),
@@ -171,6 +172,13 @@ class HybridPipelineIntegration:
             # Additional
             "volatility": float(row.get("volatility_5m", row.get("volatility", 0))),
         }
+        
+        # DEBUG: Log key indicators
+        logger.debug(
+            f"Market Data: price={market_data['price']:.2f}, RSI={market_data['rsi']:.1f}, "
+            f"MACD_hist={market_data['macd_hist']:.3f}, EMA9={market_data['ema_9']:.2f}, "
+            f"EMA20={market_data['ema_20']:.2f}, ATR={market_data['atr']:.2f}"
+        )
         
         return market_data
     

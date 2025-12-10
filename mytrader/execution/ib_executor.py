@@ -622,6 +622,17 @@ class TradeExecutor:
         - Respects SAFE_MODE to prevent trading
         - Uses idempotency signatures to prevent duplicates
         """
+        # CRITICAL: Convert SCALP_BUY/SCALP_SELL to BUY/SELL for IB API
+        # IB API only accepts 'BUY' or 'SELL' as valid action values
+        original_action = action
+        if action in ("SCALP_BUY", "scalp_buy"):
+            action = "BUY"
+        elif action in ("SCALP_SELL", "scalp_sell"):
+            action = "SELL"
+        
+        if original_action != action:
+            logger.info(f"📝 Converted action {original_action} -> {action} for IB API")
+        
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
             if self.is_safe_mode():
@@ -717,9 +728,9 @@ class TradeExecutor:
                 dummy_trade = IBTrade()
                 return OrderResult(trade=dummy_trade, status="Cancelled", message="No current price")
             
-            # Use 2-tick buffer for ES (0.25 * 2 = 0.50 points)
-            # This ensures fill while avoiding market orders
-            tick_buffer = 0.50  # 2 ticks for ES
+            # Use aggressive buffer for faster fills (4 ticks = 1 point for ES)
+            # This ensures fill quickly while still using LIMIT orders
+            tick_buffer = 1.00  # 4 ticks for ES = $50 buffer for faster fills
             limit_price = current_price + tick_buffer if action == "BUY" else current_price - tick_buffer
             order = LimitOrder(action, quantity, limit_price)
             logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")

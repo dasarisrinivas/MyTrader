@@ -67,7 +67,7 @@ class RuleEngineResult:
     @property
     def should_proceed(self) -> bool:
         """Whether to proceed to Layer 2."""
-        return self.signal in [TradeAction.BUY, TradeAction.SELL] and not self.filters_blocked
+        return self.signal in [TradeAction.BUY, TradeAction.SELL, TradeAction.SCALP_BUY, TradeAction.SCALP_SELL] and not self.filters_blocked
 
 
 @dataclass
@@ -237,25 +237,33 @@ class RuleEngine:
         }
         
         # Determine trend - ENHANCED for micro-trends
+        # Use EMA distance and price position instead of candle open (which is too short-term)
         open_price = market_data.get("open", price)
-        pct_change = (price - open_price) / open_price * 100 if open_price > 0 else 0
+        candle_pct_change = (price - open_price) / open_price * 100 if open_price > 0 else 0
         ema_diff_pct = (ema_9 - ema_20) / ema_20 * 100 if ema_20 > 0 else 0
+        
+        # Price distance from EMA_20 (more stable reference)
+        price_vs_ema20_pct = (price - ema_20) / ema_20 * 100 if ema_20 > 0 else 0
+        price_vs_ema9_pct = (price - ema_9) / ema_9 * 100 if ema_9 > 0 else 0
         
         # Strong trend: aligned EMAs
         if price > ema_9 > ema_20:
             result.market_trend = "UPTREND"
         elif price < ema_9 < ema_20:
             result.market_trend = "DOWNTREND"
-        # Micro trend: 0.1%+ move with price above/below short EMA
-        elif pct_change >= 0.1 and price > ema_9:
+        # Micro trend: price 0.05%+ above/below EMA20 with EMA9 curling in same direction
+        elif price_vs_ema20_pct >= 0.05 and ema_diff_pct > 0:
             result.market_trend = "MICRO_UP"
-        elif pct_change <= -0.1 and price < ema_9:
+        elif price_vs_ema20_pct <= -0.05 and ema_diff_pct < 0:
             result.market_trend = "MICRO_DOWN"
-        # Weak trend: price above/below EMA but small move
-        elif price > ema_9 and ema_diff_pct > 0.02:
+        # Weak trend: price above/below EMA9 with positive/negative EMA slope
+        elif price > ema_9 and ema_diff_pct > 0.01:
             result.market_trend = "WEAK_UP"
-        elif price < ema_9 and ema_diff_pct < -0.02:
+        elif price < ema_9 and ema_diff_pct < -0.01:
             result.market_trend = "WEAK_DOWN"
+        # Range-bound: price oscillating around EMAs
+        elif abs(price_vs_ema9_pct) < 0.03 and abs(ema_diff_pct) < 0.02:
+            result.market_trend = "RANGE"
         else:
             result.market_trend = "CHOP"
         
@@ -308,51 +316,127 @@ class RuleEngine:
         
         buy_score = 0
         sell_score = 0
+        score_details = []  # For debugging
         
-        # Determine if scalp mode (low vol)
-        is_scalp_mode = result.volatility_regime == "LOW"
-        scalp_threshold = 20  # Lower threshold for scalps
+        # Determine if scalp mode (low vol or range-bound)
+        is_scalp_mode = result.volatility_regime == "LOW" or result.market_trend in ["RANGE", "CHOP"]
+        scalp_threshold = 15  # LOWERED from 20 to trigger more in quiet markets
         
         # Trend component - ENHANCED with micro-trends
         if result.market_trend == "UPTREND":
             buy_score += self.trend_weight
+            score_details.append(f"UPTREND:+{self.trend_weight}")
         elif result.market_trend == "DOWNTREND":
             sell_score += self.trend_weight
+            score_details.append(f"DOWNTREND:+{self.trend_weight}")
         elif result.market_trend == "MICRO_UP":
-            buy_score += self.trend_weight * 0.7  # 70% credit for micro
+            pts = self.trend_weight * 0.7
+            buy_score += pts
+            score_details.append(f"MICRO_UP:+{pts:.1f}")
         elif result.market_trend == "MICRO_DOWN":
-            sell_score += self.trend_weight * 0.7
+            pts = self.trend_weight * 0.7
+            sell_score += pts
+            score_details.append(f"MICRO_DOWN:+{pts:.1f}")
         elif result.market_trend == "WEAK_UP":
-            buy_score += self.trend_weight * 0.4  # 40% credit for weak
+            pts = self.trend_weight * 0.4
+            buy_score += pts
+            score_details.append(f"WEAK_UP:+{pts:.1f}")
         elif result.market_trend == "WEAK_DOWN":
-            sell_score += self.trend_weight * 0.4
+            pts = self.trend_weight * 0.4
+            sell_score += pts
+            score_details.append(f"WEAK_DOWN:+{pts:.1f}")
+        elif result.market_trend in ["RANGE", "CHOP"]:
+            # Range/Chop: Use mean reversion - RELAXED thresholds for more signals
+            if rsi < 48:  # RELAXED from 45 - slight oversold
+                pts = self.trend_weight * 0.4  # INCREASED from 0.3
+                buy_score += pts
+                score_details.append(f"RANGE_RSI<48:+{pts:.1f}")
+            elif rsi > 52:  # RELAXED from 55 - slight overbought
+                pts = self.trend_weight * 0.4
+                sell_score += pts
+                score_details.append(f"RANGE_RSI>52:+{pts:.1f}")
+            else:
+                score_details.append(f"RANGE_NEUTRAL(RSI={rsi:.1f})")
+            result.filters_passed.append("RANGE_REVERSION")
+        else:
+            score_details.append(f"NO_TREND({result.market_trend})")
         
-        # Momentum component (RSI + MACD)
-        if rsi < self.rsi_oversold:
-            buy_score += self.momentum_weight * 0.6
+        # Momentum component (RSI + MACD) - MORE GRANULAR
+        # RSI: Award points more progressively
+        if rsi < self.rsi_oversold:  # < 40
+            pts = self.momentum_weight * 0.6
+            buy_score += pts
             result.filters_passed.append("RSI_OVERSOLD")
-        elif rsi > self.rsi_overbought:
-            sell_score += self.momentum_weight * 0.6
+            score_details.append(f"RSI_OVERSOLD({rsi:.1f}):+{pts:.1f}")
+        elif rsi < 45:  # 40-45: somewhat oversold
+            pts = self.momentum_weight * 0.3
+            buy_score += pts
+            score_details.append(f"RSI_LOW({rsi:.1f}):+{pts:.1f}")
+        elif rsi > self.rsi_overbought:  # > 60
+            pts = self.momentum_weight * 0.6
+            sell_score += pts
             result.filters_passed.append("RSI_OVERBOUGHT")
+            score_details.append(f"RSI_OVERBOUGHT({rsi:.1f}):+{pts:.1f}")
+        elif rsi > 55:  # 55-60: somewhat overbought
+            pts = self.momentum_weight * 0.3
+            sell_score += pts
+            score_details.append(f"RSI_HIGH({rsi:.1f}):+{pts:.1f}")
+        else:
+            score_details.append(f"RSI_NEUTRAL({rsi:.1f})")
         
-        if macd_hist > 0:
-            buy_score += self.momentum_weight * 0.4
-        elif macd_hist < 0:
-            sell_score += self.momentum_weight * 0.4
+        # MACD: Award points more granularly based on magnitude
+        if macd_hist > 0.5:  # Strong positive
+            pts = self.momentum_weight * 0.5
+            buy_score += pts
+            score_details.append(f"MACD_STRONG_POS({macd_hist:.2f}):+{pts:.1f}")
+        elif macd_hist > 0:  # Weak positive
+            pts = self.momentum_weight * 0.25
+            buy_score += pts
+            score_details.append(f"MACD_POS({macd_hist:.2f}):+{pts:.1f}")
+        elif macd_hist < -0.5:  # Strong negative
+            pts = self.momentum_weight * 0.5
+            sell_score += pts
+            score_details.append(f"MACD_STRONG_NEG({macd_hist:.2f}):+{pts:.1f}")
+        elif macd_hist < 0:  # Weak negative
+            pts = self.momentum_weight * 0.25
+            sell_score += pts
+            score_details.append(f"MACD_NEG({macd_hist:.2f}):+{pts:.1f}")
+        else:
+            score_details.append(f"MACD_ZERO({macd_hist:.2f})")
         
-        # Level proximity component
+        # Level proximity component - RELAXED proximity threshold
+        # When near key levels with supporting RSI, this is a HIGH-PROBABILITY mean reversion setup
+        level_proximity_pct = 0.3  # RELAXED from 0.15% to 0.3%
         if pdh > 0 and pdl > 0:
             pdh_dist_pct = abs(price - pdh) / price * 100
             pdl_dist_pct = abs(price - pdl) / price * 100
             
-            if pdl_dist_pct < self.pdh_proximity_pct:
+            if pdl_dist_pct < level_proximity_pct:
                 # Near PDL - potential bounce buy
-                buy_score += self.level_weight * 0.7
+                # BOOST: Near PDL with oversold RSI = strong mean reversion buy
+                if rsi < 50:  # RSI supporting buy at PDL
+                    pts = self.level_weight * 1.2  # BOOSTED for confluence
+                    score_details.append(f"NEAR_PDL+RSI_SUPPORT({pdl_dist_pct:.2f}%):+{pts:.1f}")
+                else:
+                    pts = self.level_weight * 0.7
+                    score_details.append(f"NEAR_PDL({pdl_dist_pct:.2f}%):+{pts:.1f}")
+                buy_score += pts
                 result.filters_passed.append("NEAR_PDL")
-            elif pdh_dist_pct < self.pdh_proximity_pct:
+            elif pdh_dist_pct < level_proximity_pct:
                 # Near PDH - potential rejection sell
-                sell_score += self.level_weight * 0.7
+                # BOOST: Near PDH with overbought RSI = strong mean reversion sell
+                if rsi > 50:  # RSI supporting sell at PDH
+                    pts = self.level_weight * 1.2  # BOOSTED for confluence
+                    score_details.append(f"NEAR_PDH+RSI_SUPPORT({pdh_dist_pct:.2f}%):+{pts:.1f}")
+                else:
+                    pts = self.level_weight * 0.7
+                    score_details.append(f"NEAR_PDH({pdh_dist_pct:.2f}%):+{pts:.1f}")
+                sell_score += pts
                 result.filters_warned.append("NEAR_PDH")
+            else:
+                score_details.append(f"NO_LEVEL(PDH:{pdh_dist_pct:.2f}%,PDL:{pdl_dist_pct:.2f}%)")
+        else:
+            score_details.append("NO_PDH_PDL")
         
         # Volume component
         if volume_ratio > 1.5:
@@ -360,10 +444,18 @@ class RuleEngine:
             buy_score *= 1.1
             sell_score *= 1.1
             result.filters_passed.append("HIGH_VOLUME")
+            score_details.append(f"HIGH_VOL(x1.1)")
         
-        # Determine final signal - use scalp threshold in low-vol
+        # Determine final signal - use scalp threshold in low-vol/range
         normal_threshold = self.config.get("signal_threshold", 40)
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold
+        
+        # Log score details for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"SCORE_DEBUG: buy={buy_score:.1f}, sell={sell_score:.1f}, "
+                   f"threshold={signal_threshold}, scalp_mode={is_scalp_mode}")
+        logger.info(f"SCORE_BREAKDOWN: {' | '.join(score_details)}")
         
         if buy_score > sell_score and buy_score >= signal_threshold:
             result.signal = TradeAction.BUY if not is_scalp_mode else TradeAction.SCALP_BUY
@@ -374,6 +466,9 @@ class RuleEngine:
         else:
             result.signal = TradeAction.HOLD
             result.score = max(buy_score, sell_score)
+        
+        # Store breakdown for external access
+        result.indicators["score_breakdown"] = score_details
         
         return result
     
