@@ -262,9 +262,9 @@ class TradeExecutor:
             logger.error("Try restarting IB Gateway: Close it completely, wait 30s, then restart")
             raise
         
-        # Request live market data (requires subscription)
-        self.ib.reqMarketDataType(1)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
-        logger.info("Requesting LIVE market data (requires active market data subscription)")
+        # Note: We use snapshot=True for price requests, which doesn't require
+        # reqMarketDataType(). This avoids "competing live session" errors.
+        logger.info("Connected to IBKR - using snapshot market data requests")
         
         # Set up event handlers for order updates
         self.ib.orderStatusEvent += self._on_order_status
@@ -280,28 +280,88 @@ class TradeExecutor:
         await self._start_keepalive()
     
     async def _cancel_all_existing_orders(self) -> None:
-        """Cancel any existing orders for this symbol and sync order state."""
+        """Cancel any existing orders for this symbol and sync order state.
+        
+        This is called on startup to ensure a clean slate. We aggressively
+        cancel and wait for confirmation to avoid the "active orders pending" issue.
+        """
         try:
             # Get current open trades from IB
             open_trades = self.ib.openTrades()
-            canceled_count = 0
+            trades_to_cancel = []
             
-            # Cancel orders for our symbol
+            # Collect orders for our symbol
             for trade in open_trades:
                 if trade.contract.symbol == self.symbol:
-                    self.ib.cancelOrder(trade.order)
-                    canceled_count += 1
-                    logger.info(f"Canceling existing order {trade.order.orderId} for {self.symbol}")
+                    trades_to_cancel.append(trade)
+                    logger.info(f"🎯 Found existing order to cancel: {trade.order.orderId} - {trade.order.action} {trade.order.totalQuantity} {self.symbol} (status: {trade.orderStatus.status})")
             
-            if canceled_count > 0:
-                await asyncio.sleep(2)  # Give time for cancellations to process
-                logger.info(f"✅ Canceled {canceled_count} existing orders for {self.symbol}")
+            if not trades_to_cancel:
+                logger.info(f"✅ No existing orders for {self.symbol} - clean slate")
+                self.active_orders.clear()
+                return
+            
+            logger.info(f"🔄 Canceling {len(trades_to_cancel)} existing orders for {self.symbol}...")
+            
+            # Cancel each order and wait for status change
+            for trade in trades_to_cancel:
+                order_id = trade.order.orderId
+                initial_status = trade.orderStatus.status
+                
+                # Skip if already cancelled/filled
+                if initial_status in ['Cancelled', 'Filled', 'Inactive']:
+                    logger.info(f"   Order {order_id} already {initial_status}, skipping")
+                    continue
+                
+                logger.info(f"   Canceling order {order_id}...")
+                self.ib.cancelOrder(trade.order)
+            
+            # Wait for cancellations with polling (more reliable than fixed sleep)
+            max_wait_seconds = 10
+            poll_interval = 0.5
+            elapsed = 0.0
+            
+            while elapsed < max_wait_seconds:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+                
+                # Check if all our orders are now cancelled
+                still_active = 0
+                for trade in self.ib.openTrades():
+                    if trade.contract.symbol == self.symbol:
+                        if trade.orderStatus.status in ['PreSubmitted', 'Submitted', 'PendingSubmit', 'PendingCancel']:
+                            still_active += 1
+                
+                if still_active == 0:
+                    logger.info(f"✅ All orders cancelled after {elapsed:.1f}s")
+                    break
+                
+                logger.debug(f"   Waiting for {still_active} orders to cancel... ({elapsed:.1f}s)")
+            
+            # Final check - if orders still exist after timeout, log a warning
+            remaining_orders = []
+            for trade in self.ib.openTrades():
+                if trade.contract.symbol == self.symbol:
+                    status = trade.orderStatus.status
+                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
+                        remaining_orders.append(f"{trade.order.orderId}({status})")
+            
+            if remaining_orders:
+                logger.warning(f"⚠️  {len(remaining_orders)} orders could not be cancelled after {max_wait_seconds}s: {remaining_orders}")
+                logger.warning("   These may be from a different client_id or stuck in IB Gateway.")
+                logger.warning("   Consider manually canceling via IB Gateway or TWS.")
+            
+            # Clear our tracking regardless - we'll re-sync in _reconcile_orders
+            self.active_orders.clear()
+            self.order_creation_times.clear()
             
             # Reconcile order state with IB after cancellations
             await self._reconcile_orders()
             
         except Exception as e:
             logger.error(f"Failed to cancel existing orders: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     async def _reconcile_orders(self) -> None:
         """Reconcile active orders with IB Gateway."""
@@ -332,6 +392,65 @@ class TradeExecutor:
                 
         except Exception as e:
             logger.error(f"Failed to reconcile orders: {e}")
+
+    async def force_cancel_all_orders(self) -> int:
+        """Force cancel ALL orders for this symbol (use with caution).
+        
+        This is a nuclear option for when orders are stuck and blocking new trades.
+        It uses reqGlobalCancel() which cancels ALL orders across all client IDs.
+        
+        Returns:
+            Number of orders that were canceled
+        """
+        logger.warning("🚨 FORCE CANCEL ALL ORDERS requested")
+        
+        try:
+            # First, try symbol-specific cancel
+            open_trades = self.ib.openTrades()
+            symbol_orders = [t for t in open_trades if t.contract.symbol == self.symbol]
+            
+            if not symbol_orders:
+                logger.info("No orders to cancel")
+                self.active_orders.clear()
+                return 0
+            
+            logger.warning(f"🔴 Force canceling {len(symbol_orders)} orders for {self.symbol}...")
+            
+            for trade in symbol_orders:
+                logger.info(f"   Canceling: {trade.order.orderId} - {trade.order.action} {trade.order.totalQuantity}")
+                self.ib.cancelOrder(trade.order)
+            
+            # Wait longer for force cancel
+            await asyncio.sleep(5)
+            
+            # Check if any remain
+            remaining = [t for t in self.ib.openTrades() 
+                        if t.contract.symbol == self.symbol 
+                        and t.orderStatus.status in ['PreSubmitted', 'Submitted', 'PendingSubmit']]
+            
+            if remaining:
+                logger.warning(f"⚠️  {len(remaining)} orders still remaining after cancel attempt")
+                logger.warning("   Attempting global cancel request...")
+                # Last resort: global cancel
+                self.ib.reqGlobalCancel()
+                await asyncio.sleep(3)
+            
+            # Clear internal tracking
+            self.active_orders.clear()
+            self.order_creation_times.clear()
+            
+            # Re-sync
+            await self._reconcile_orders()
+            
+            canceled_count = len(symbol_orders) - len(self.active_orders)
+            logger.info(f"✅ Force cancel complete: {canceled_count} orders canceled")
+            return canceled_count
+            
+        except Exception as e:
+            logger.error(f"Force cancel failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return 0
 
     async def _reconcile_positions(self) -> None:
         """Reconcile current positions with IBKR."""
@@ -438,7 +557,15 @@ class TradeExecutor:
         )
         
         # Reconcile positions after execution to get updated position from IB
-        self._reconcile_positions()
+        # Note: This is called from sync callback, need to schedule as task
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._reconcile_positions())
+            else:
+                asyncio.create_task(self._reconcile_positions())
+        except RuntimeError:
+            pass  # No event loop, skip reconciliation
         
         # Send Telegram notification (non-blocking)
         logger.info(f"📱 Checking Telegram: enabled={self.telegram.enabled if self.telegram else False}")
@@ -495,6 +622,17 @@ class TradeExecutor:
         - Respects SAFE_MODE to prevent trading
         - Uses idempotency signatures to prevent duplicates
         """
+        # CRITICAL: Convert SCALP_BUY/SCALP_SELL to BUY/SELL for IB API
+        # IB API only accepts 'BUY' or 'SELL' as valid action values
+        original_action = action
+        if action in ("SCALP_BUY", "scalp_buy"):
+            action = "BUY"
+        elif action in ("SCALP_SELL", "scalp_sell"):
+            action = "SELL"
+        
+        if original_action != action:
+            logger.info(f"📝 Converted action {original_action} -> {action} for IB API")
+        
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
             if self.is_safe_mode():
@@ -590,13 +728,16 @@ class TradeExecutor:
                 dummy_trade = IBTrade()
                 return OrderResult(trade=dummy_trade, status="Cancelled", message="No current price")
             
-            # Use 2-tick buffer for ES (0.25 * 2 = 0.50 points)
-            # This ensures fill while avoiding market orders
-            tick_buffer = 0.50  # 2 ticks for ES
+            # Use aggressive buffer for faster fills (4 ticks = 1 point for ES)
+            # This ensures fill quickly while still using LIMIT orders
+            tick_buffer = 1.00  # 4 ticks for ES = $50 buffer for faster fills
             limit_price = current_price + tick_buffer if action == "BUY" else current_price - tick_buffer
             order = LimitOrder(action, quantity, limit_price)
             logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")
 
+        # Allow trading outside regular trading hours (ES futures are nearly 24hr)
+        order.outsideRth = True
+        
         # Add metadata to order reference for tracking
         if metadata:
             order.orderRef = f"MyTrader_{metadata.get('signal_source', 'manual')}"
@@ -609,6 +750,7 @@ class TradeExecutor:
             if take_profit is not None:
                 tp_order = LimitOrder(opposite, quantity, take_profit)
                 tp_order.transmit = False
+                tp_order.outsideRth = True
                 bracket_children.append(tp_order)
                 logger.info(f"Adding take-profit order at {take_profit:.2f}")
             
@@ -625,6 +767,7 @@ class TradeExecutor:
                 
                 sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price_sl)
                 sl_order.transmit = False
+                sl_order.outsideRth = True
                 bracket_children.append(sl_order)
                 logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price_sl:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price_sl):.2f} buffer)")
             
@@ -713,8 +856,17 @@ class TradeExecutor:
             
             logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
-        # Wait briefly for order status updates (use asyncio.sleep instead of blocking waitOnUpdate)
-        await asyncio.sleep(0.1)  # Small delay to allow order status callbacks to fire
+        # Allow IB to process the order placement by yielding to the event loop
+        # ib_insync integrates with asyncio, so we need to let the loop run
+        for _ in range(20):  # Up to 2 seconds
+            await asyncio.sleep(0.1)
+            status = parent_trade.orderStatus.status
+            if status != 'PendingSubmit':
+                logger.info(f"✅ Order {parent_id} transitioned to {status}")
+                break
+        else:
+            logger.warning(f"⏳ Order {parent_id} still in PendingSubmit after 2s - may be waiting for IB")
+        
         status = parent_trade.orderStatus.status
         
         # Store position metadata for trailing stops
@@ -793,11 +945,29 @@ class TradeExecutor:
             sync: If True, reconcile with IB Gateway first (slower but accurate)
         """
         if sync:
+            # Note: self.ib.openTrades() returns cached state, which is updated
+            # automatically by ib_insync when running in an async event loop.
+            # No need to call ib.sleep() which can conflict with asyncio.
+            
             # Do a quick sync with IB to ensure accuracy
             open_trades = self.ib.openTrades()
             synced_orders = {}
             current_time = datetime.utcnow()
             stuck_order_threshold_minutes = 60  # Cancel orders stuck for > 60 minutes
+            
+            # Log raw IB state for debugging - use INFO level to make sure we see it
+            symbol_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
+            
+            # Count only actually submitted orders (PreSubmitted/Submitted), not PendingSubmit ghost orders
+            submitted_trades = [t for t in symbol_trades if t.orderStatus.status in ['PreSubmitted', 'Submitted']]
+            pending_submit_trades = [t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit']
+            
+            logger.info(f"🔍 Sync: {len(submitted_trades)} active orders (ignoring {len(pending_submit_trades)} PendingSubmit)")
+            
+            # Log each trade's status for debugging
+            for trade in symbol_trades:
+                status_icon = "✅" if trade.orderStatus.status in ['PreSubmitted', 'Submitted'] else "⚠️"
+                logger.debug(f"   {status_icon} Order {trade.order.orderId}: {trade.order.action} {trade.order.totalQuantity} - status={trade.orderStatus.status}")
             
             for trade in open_trades:
                 if trade.contract.symbol == self.symbol:
@@ -807,7 +977,12 @@ class TradeExecutor:
                     # Log what IB is reporting
                     logger.debug(f"IB reports order {order_id}: {trade.order.action} {trade.order.totalQuantity} @ {getattr(trade.order, 'lmtPrice', 'MKT')}, status={status}")
                     
-                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
+                    # Only count ACTUALLY SUBMITTED orders (PreSubmitted or Submitted)
+                    # PendingSubmit orders are NOT transmitted yet - they may be ghost orders from ib_insync cache
+                    # We NEVER count PendingSubmit as active orders because:
+                    # 1. If we just placed them, they should transition to PreSubmitted/Submitted quickly
+                    # 2. If they're stuck in PendingSubmit, something went wrong and we shouldn't block on them
+                    if status in ['PreSubmitted', 'Submitted']:
                         # Check if order is stuck (been active too long)
                         if order_id in self.order_creation_times:
                             order_age = (current_time - self.order_creation_times[order_id]).total_seconds() / 60
@@ -821,13 +996,25 @@ class TradeExecutor:
                                     logger.error(f"Failed to cancel stuck order {order_id}: {e}")
                         
                         synced_orders[order_id] = trade.order
+                    elif status == 'PendingSubmit':
+                        # Log PendingSubmit orders but DON'T count them as active
+                        # These are likely ghost orders stuck in ib_insync's cache
+                        logger.debug(f"   ⚠️  Ignoring PendingSubmit order {order_id} (not counting as active)")
+                    else:
+                        logger.debug(f"Skipping order {order_id} with status: {status}")
             
-            # Always log the sync result for debugging
-            if len(synced_orders) != len(self.active_orders):
-                logger.info(f"🔄 Order count sync: {len(self.active_orders)} → {len(synced_orders)} active orders")
+            # ALWAYS update to match IB's state (this fixes the sync issue)
+            old_count = len(self.active_orders)
+            old_ids = list(self.active_orders.keys())
+            self.active_orders = synced_orders
+            
+            # Log sync result for debugging
+            if old_count != len(synced_orders):
+                logger.info(f"🔄 Order count sync: {old_count} → {len(synced_orders)} active orders")
+                if old_count > 0 and len(synced_orders) == 0:
+                    logger.info(f"   ✅ Cleared stale orders: {old_ids}")
                 if synced_orders:
                     logger.info(f"   Active order IDs: {list(synced_orders.keys())}")
-                self.active_orders = synced_orders
             elif synced_orders:
                 # Log even when count is same but periodically
                 logger.debug(f"Order sync: {len(synced_orders)} orders remain active: {list(synced_orders.keys())}")
@@ -954,8 +1141,6 @@ class TradeExecutor:
                         clientId=self._connection_client_id, 
                         timeout=30
                     )
-                    # Re-request market data type after reconnection
-                    self.ib.reqMarketDataType(3)
                     logger.info("Reconnection successful")
                 except Exception as reconnect_error:
                     logger.error(f"Reconnection failed: {reconnect_error}")
@@ -1017,6 +1202,13 @@ class TradeExecutor:
                     
                     if not self.ib.isConnected():
                         logger.warning("⚠️  Connection lost, attempting auto-reconnect...")
+                        
+                        # Clear stale orders since we lost connection
+                        if self.active_orders:
+                            logger.warning(f"🧹 Clearing {len(self.active_orders)} stale orders due to disconnection")
+                            self.active_orders.clear()
+                            self.order_creation_times.clear()
+                        
                         try:
                             await self.ib.connectAsync(
                                 self._connection_host,
@@ -1024,11 +1216,15 @@ class TradeExecutor:
                                 clientId=self._connection_client_id,
                                 timeout=30
                             )
-                            # Re-setup after reconnection
-                            self.ib.reqMarketDataType(3)
+                            # Re-setup after reconnection (no reqMarketDataType needed for snapshots)
                             self.ib.orderStatusEvent += self._on_order_status
                             self.ib.execDetailsEvent += self._on_execution
                             logger.info("✅ Auto-reconnection successful")
+                            
+                            # Reconcile orders with IB after reconnection
+                            await self._reconcile_orders()
+                            await self._reconcile_positions()
+                            
                         except Exception as reconnect_error:
                             logger.error(f"❌ Auto-reconnection failed: {reconnect_error}")
                     else:

@@ -151,6 +151,32 @@ class TelegramConfig:
 
 
 @dataclass
+class HybridConfig:
+    """Configuration for Hybrid RAG + LLM Pipeline (3-layer decision system)."""
+    # Master enable/disable
+    enabled: bool = field(default_factory=lambda: os.environ.get("HYBRID_ENABLED", "True").lower() == "true")
+    
+    # D-Engine (Deterministic Rules) settings
+    candidate_threshold: float = 0.55  # Minimum D-engine score to proceed to RAG
+    atr_min: float = 0.15  # Minimum ATR threshold (lowered for low-vol markets)
+    atr_max: float = 5.0   # Maximum ATR threshold
+    
+    # H-Engine (LLM + RAG) settings  
+    max_calls_per_hour: int = 10
+    min_interval_seconds: int = 60
+    top_k: int = 5  # RAG retrieval count
+    cache_ttl_seconds: int = 300
+    cooldown_minutes: int = 15
+    
+    # Confidence thresholds
+    min_confidence_threshold: float = 0.60
+    signal_threshold: int = 40
+    
+    # RAG data paths
+    rag_data_path: str = "rag_data"
+
+
+@dataclass
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
@@ -160,6 +186,7 @@ class Settings:
     llm: LLMConfig = field(default_factory=LLMConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    hybrid: HybridConfig = field(default_factory=HybridConfig)
 
     def validate(self) -> None:
         if self.trading.initial_capital <= 0:

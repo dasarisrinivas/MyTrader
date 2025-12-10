@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import subprocess
 import random
@@ -1775,6 +1775,168 @@ async def sync_orders_from_ib():
         }
 
 
+@app.get("/api/trading/today-summary")
+async def get_today_trading_summary():
+    """
+    Get today's trading summary including orders, fills, P&L, and statistics.
+    
+    This endpoint provides a comprehensive view of today's trading activity
+    from the orders database and optionally parses the live trading log for
+    additional details like realized P&L from IB executions.
+    """
+    try:
+        from pathlib import Path
+        import re
+        import pytz
+        
+        # CST timezone
+        cst = pytz.timezone('America/Chicago')
+        now_cst = datetime.now(cst)
+        today_cst = now_cst.date().isoformat()
+        
+        tracker = OrderTracker()
+        today = datetime.now().date().isoformat()
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        
+        # Get today's orders from database
+        orders = tracker.get_orders_by_date(today, tomorrow)
+        
+        # Calculate statistics
+        total_orders = len(orders)
+        filled_orders = [o for o in orders if o['status'] == 'Filled']
+        cancelled_orders = [o for o in orders if o['status'] == 'Cancelled']
+        pending_orders = [o for o in orders if o['status'] not in ['Filled', 'Cancelled', 'Inactive']]
+        
+        # Calculate P&L from database
+        db_total_pnl = sum(o.get('realized_pnl') or 0 for o in orders)
+        db_total_commission = sum(o.get('commission') or 0 for o in orders)
+        
+        # Parse live trading log for additional P&L data
+        log_pnl_entries = []
+        log_total_pnl = 0.0
+        log_total_commission = 0.0
+        winning_trades = 0
+        losing_trades = 0
+        
+        # Try multiple possible log paths
+        log_paths = [
+            Path("logs/live_trading.log"),
+            Path("/Users/svss/Documents/code/MyTrader/logs/live_trading.log"),
+            project_root / "logs" / "live_trading.log"
+        ]
+        
+        log_file = None
+        for lp in log_paths:
+            if lp.exists():
+                log_file = lp
+                break
+        
+        if log_file:
+            try:
+                with open(log_file, 'r') as f:
+                    for line in f:
+                        # Only parse today's entries (check date in line)
+                        if today not in line:
+                            continue
+                            
+                        # Parse realizedPNL entries (non-zero only for win/loss counting)
+                        if "realizedPNL=" in line:
+                            match = re.search(r'realizedPNL=(-?[\d.]+)', line)
+                            if match:
+                                pnl = float(match.group(1))
+                                if pnl != 0:  # Only count non-zero P&L for statistics
+                                    log_pnl_entries.append(pnl)
+                                    log_total_pnl += pnl
+                                    if pnl > 0:
+                                        winning_trades += 1
+                                    elif pnl < 0:
+                                        losing_trades += 1
+                        
+                        # Parse commission entries
+                        if "commission=" in line:
+                            match = re.search(r'commission=(-?[\d.]+)', line)
+                            if match:
+                                log_total_commission += float(match.group(1))
+            except Exception as e:
+                logger.warning(f"Error parsing log file: {e}")
+        
+        # Use log data if available, otherwise use database data
+        total_pnl = log_total_pnl if log_total_pnl != 0 else db_total_pnl
+        total_commission = log_total_commission if log_total_commission != 0 else db_total_commission
+        net_pnl = total_pnl - total_commission
+        
+        # Calculate win rate
+        total_closed_trades = winning_trades + losing_trades
+        win_rate = (winning_trades / total_closed_trades * 100) if total_closed_trades > 0 else 0
+        
+        # Helper to convert timestamp to CST
+        def to_cst(timestamp_str):
+            try:
+                # Parse the timestamp
+                if 'T' in timestamp_str:
+                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.fromisoformat(timestamp_str)
+                
+                # If naive, assume UTC
+                if dt.tzinfo is None:
+                    dt = pytz.utc.localize(dt)
+                
+                # Convert to CST
+                dt_cst = dt.astimezone(cst)
+                return dt_cst.strftime('%Y-%m-%d %I:%M:%S %p CST')
+            except:
+                return timestamp_str
+        
+        # Build summary with CST times
+        summary = {
+            "date": today_cst,
+            "date_cst": now_cst.strftime('%Y-%m-%d'),
+            "timestamp": now_cst.strftime('%Y-%m-%d %I:%M:%S %p CST'),
+            "orders": {
+                "total": total_orders,
+                "filled": len(filled_orders),
+                "cancelled": len(cancelled_orders),
+                "pending": len(pending_orders)
+            },
+            "performance": {
+                "realized_pnl": round(total_pnl, 2),
+                "commission": round(total_commission, 2),
+                "net_pnl": round(net_pnl, 2),
+                "winning_trades": winning_trades,
+                "losing_trades": losing_trades,
+                "win_rate": round(win_rate, 1),
+                "pnl_per_trade": round(total_pnl / total_closed_trades, 2) if total_closed_trades > 0 else 0
+            },
+            "trades": [
+                {
+                    "order_id": o['order_id'],
+                    "symbol": o['symbol'],
+                    "action": o['action'],
+                    "quantity": o['quantity'],
+                    "status": o['status'],
+                    "avg_fill_price": o.get('avg_fill_price'),
+                    "realized_pnl": o.get('realized_pnl'),
+                    "timestamp": o['timestamp'],
+                    "timestamp_cst": to_cst(o['timestamp'])
+                }
+                for o in filled_orders[:20]  # Last 20 filled trades
+            ],
+            "status": "success"
+        }
+        
+        logger.info(f"📊 Today's summary: {len(filled_orders)} fills, ${net_pnl:.2f} net P&L, {winning_trades}W/{losing_trades}L")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Error getting today's trading summary: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "date": datetime.now().date().isoformat()
+        }
+
+
 class PerformanceAnalysisRequest(BaseModel):
     period: str = "today"  # today, yesterday, week, all
 
@@ -2630,6 +2792,270 @@ async def run_spy_analysis(days: int = 1):
     
     except Exception as e:
         logger.error(f"Error running SPY analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# HYBRID BEDROCK ARCHITECTURE ENDPOINTS
+# =============================================================================
+
+# Global Bedrock components (initialized on demand)
+_hybrid_bedrock_client = None
+_event_detector = None
+
+
+def _get_bedrock_client():
+    """Get or initialize the hybrid Bedrock client."""
+    global _hybrid_bedrock_client
+    
+    if _hybrid_bedrock_client is None:
+        try:
+            from mytrader.llm.bedrock_hybrid_client import init_bedrock_client
+            settings = load_settings()
+            
+            _hybrid_bedrock_client = init_bedrock_client(
+                model_id=settings.llm.model_id if hasattr(settings, 'llm') else None,
+                region_name=settings.llm.region_name if hasattr(settings, 'llm') else None,
+                max_tokens=300,
+                db_path="data/bedrock_hybrid.db",
+            )
+            logger.info("Initialized hybrid Bedrock client for API")
+        except Exception as e:
+            logger.error(f"Failed to initialize Bedrock client: {e}")
+            raise HTTPException(status_code=500, detail=f"Bedrock initialization failed: {e}")
+    
+    return _hybrid_bedrock_client
+
+
+def _get_event_detector():
+    """Get or initialize the event detector."""
+    global _event_detector
+    
+    if _event_detector is None:
+        try:
+            from mytrader.llm.event_detector import create_event_detector
+            settings = load_settings()
+            
+            symbol = settings.data.ibkr_symbol if settings.data.ibkr_symbol in ["MES", "ES"] else "MES"
+            _event_detector = create_event_detector(symbol=symbol)
+            logger.info(f"Initialized event detector for {symbol}")
+        except Exception as e:
+            logger.error(f"Failed to initialize event detector: {e}")
+            raise HTTPException(status_code=500, detail=f"Event detector initialization failed: {e}")
+    
+    return _event_detector
+
+
+# === Force Cancel Orders Endpoint ===
+class ForceCancelResponse(BaseModel):
+    """Response model for force cancel orders."""
+    status: str
+    canceled_count: int
+    remaining_orders: int
+    message: str
+
+
+@app.post("/api/orders/force-cancel", response_model=ForceCancelResponse)
+async def force_cancel_orders():
+    """
+    Force cancel all orders for the trading symbol.
+    
+    This is a nuclear option for when orders are stuck and blocking new trades.
+    Use with caution - it will attempt to cancel all orders including those
+    from other client IDs.
+    
+    Returns:
+        - Number of orders canceled
+        - Number of orders still remaining
+        - Status message
+    """
+    global live_trading_manager
+    
+    if not live_trading_manager or not live_trading_manager.executor:
+        raise HTTPException(
+            status_code=400,
+            detail="Trading manager not initialized. Start trading first."
+        )
+    
+    try:
+        executor = live_trading_manager.executor
+        
+        # Get count before
+        before_count = executor.get_active_order_count(sync=True)
+        logger.info(f"🚨 Force cancel requested. {before_count} orders before cancel.")
+        
+        # Force cancel
+        canceled_count = await executor.force_cancel_all_orders()
+        
+        # Get count after
+        after_count = executor.get_active_order_count(sync=True)
+        
+        return ForceCancelResponse(
+            status="success" if after_count == 0 else "partial",
+            canceled_count=canceled_count,
+            remaining_orders=after_count,
+            message=f"Canceled {canceled_count} orders. {after_count} remaining."
+        )
+        
+    except Exception as e:
+        logger.error(f"Force cancel failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TriggerBedrockRequest(BaseModel):
+    """Request model for manual Bedrock trigger."""
+    notes: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class TriggerBedrockResponse(BaseModel):
+    """Response model for Bedrock trigger."""
+    request_id: str
+    status: str
+    message: str
+    result: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/trigger-bedrock", response_model=TriggerBedrockResponse)
+async def trigger_bedrock(request: TriggerBedrockRequest):
+    """
+    Manually trigger a Bedrock analysis.
+    
+    This endpoint allows manual triggering of Bedrock LLM analysis
+    for market assessment. The result is a bias modifier, not a trade signal.
+    
+    Security: Localhost only or requires auth.
+    """
+    try:
+        from mytrader.llm.rag_context_builder import RAGContextBuilder
+        from mytrader.llm.event_detector import EventPayload
+        import uuid
+        
+        # Generate request ID
+        request_id = str(uuid.uuid4())[:8]
+        
+        # Get Bedrock client
+        bedrock_client = _get_bedrock_client()
+        
+        # Build context from request or use defaults
+        settings = load_settings()
+        symbol = settings.data.ibkr_symbol if settings.data.ibkr_symbol in ["MES", "ES"] else "MES"
+        
+        context_builder = RAGContextBuilder(instrument=symbol)
+        
+        # Create payload from request context or use defaults
+        if request.context:
+            context = context_builder.build_context_from_snapshot(
+                snapshot=request.context,
+                trigger_type="manual",
+                reason=request.notes or "Manual trigger via API"
+            )
+        else:
+            # Create minimal context
+            payload = EventPayload(
+                trigger_type="manual",
+                reason=request.notes or "Manual trigger via API",
+                timestamp=datetime.now(),
+                symbol=symbol,
+                current_price=request.context.get("current_price", 0.0) if request.context else 0.0,
+            )
+            context = context_builder.build_context(payload)
+        
+        # Call Bedrock
+        result = bedrock_client.bedrock_analyze(
+            context=context,
+            trigger="manual",
+        )
+        
+        # Also mark manual trigger in event detector for main loop
+        event_detector = _get_event_detector()
+        event_detector.set_manual_trigger(notes=request.notes)
+        
+        return TriggerBedrockResponse(
+            request_id=request_id,
+            status="success",
+            message=f"Bedrock analysis complete: {result.get('bias', 'NEUTRAL')}",
+            result=result
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in trigger-bedrock: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BedrockStatusResponse(BaseModel):
+    """Response model for Bedrock status."""
+    model_id: str
+    region: str
+    daily_calls: int
+    daily_cost: float
+    quota_status: str
+    within_quota: bool
+    recent_calls: List[Dict[str, Any]]
+    total_estimated_cost: float
+
+
+@app.get("/api/bedrock-status", response_model=BedrockStatusResponse)
+async def get_bedrock_status():
+    """
+    Get Bedrock usage status and recent calls.
+    
+    Returns:
+        - Model configuration
+        - Daily call count and cost
+        - Quota status
+        - Last 10 Bedrock calls with details
+    """
+    try:
+        bedrock_client = _get_bedrock_client()
+        
+        # Get status
+        status = bedrock_client.get_status()
+        
+        # Get recent calls
+        recent_calls = bedrock_client.get_recent_calls(limit=10)
+        
+        # Calculate total cost from recent calls
+        total_cost = sum(call.get("cost_estimate", 0.0) for call in recent_calls)
+        
+        return BedrockStatusResponse(
+            model_id=status.get("model_id", "unknown"),
+            region=status.get("region", "unknown"),
+            daily_calls=status.get("daily_calls", 0),
+            daily_cost=status.get("daily_cost", 0.0),
+            quota_status=status.get("quota_status", "unknown"),
+            within_quota=status.get("within_quota", True),
+            recent_calls=recent_calls,
+            total_estimated_cost=total_cost
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bedrock-status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bedrock-detector-status")
+async def get_bedrock_detector_status():
+    """
+    Get event detector status.
+    
+    Returns the current state of the event detector including:
+    - Market open/close trigger status
+    - Volatility baseline
+    - Cooldown status
+    """
+    try:
+        event_detector = _get_event_detector()
+        return event_detector.get_status()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bedrock-detector-status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
