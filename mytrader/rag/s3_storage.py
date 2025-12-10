@@ -10,10 +10,16 @@ This module provides S3 storage for all RAG-related data:
 - FAISS vectors and metadata
 
 All data is stored in the configured S3 bucket with appropriate prefixes.
+
+CACHING: This module implements intelligent caching to avoid redundant S3 downloads:
+- Trade data is cached in memory with TTL (time-to-live)
+- ETags are used to detect changes without downloading content
+- Delta sync: only new files since last sync are downloaded
 """
 import io
 import json
 import pickle
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -95,6 +101,20 @@ class S3Storage:
         
         self.bucket_name = bucket_name
         self.prefix = prefix.rstrip("/") + "/"
+        
+        # =====================================================================
+        # CACHING: In-memory cache for trade data to avoid redundant S3 reads
+        # =====================================================================
+        # Cache structure: {key: {"data": {...}, "etag": "...", "cached_at": timestamp}}
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        # Known keys from S3 (key -> etag mapping) for delta sync
+        self._known_keys: Dict[str, str] = {}
+        # Last time we synced the key list from S3
+        self._last_key_sync: float = 0
+        # How often to re-check S3 for new keys (in seconds)
+        self._key_sync_interval: float = 300  # 5 minutes
+        # Cache TTL for trade data (in seconds)
+        self._cache_ttl: float = 3600  # 1 hour
         
         # Initialize S3 client
         try:
@@ -182,27 +202,84 @@ class S3Storage:
             )
             
             logger.info(f"Uploaded to S3: {full_key}")
+            
+            # Invalidate cache for this key (data has changed)
+            if full_key in self._cache:
+                del self._cache[full_key]
+            
             return full_key
             
         except ClientError as e:
             logger.error(f"Failed to upload to S3: {full_key} - {e}")
             raise S3StorageError(f"Upload failed: {e}")
     
+    def _is_cache_valid(self, key: str) -> bool:
+        """Check if cached data for a key is still valid.
+        
+        Args:
+            key: S3 key
+            
+        Returns:
+            True if cache is valid, False if stale or missing
+        """
+        if key not in self._cache:
+            return False
+        
+        cached = self._cache[key]
+        age = time.time() - cached.get("cached_at", 0)
+        return age < self._cache_ttl
+    
+    def _get_from_cache(self, key: str) -> Optional[Any]:
+        """Get data from cache if valid.
+        
+        Args:
+            key: S3 key
+            
+        Returns:
+            Cached data or None
+        """
+        if self._is_cache_valid(key):
+            return self._cache[key].get("data")
+        return None
+    
+    def _add_to_cache(self, key: str, data: Any, etag: Optional[str] = None) -> None:
+        """Add data to cache.
+        
+        Args:
+            key: S3 key
+            data: Data to cache
+            etag: S3 ETag for change detection
+        """
+        self._cache[key] = {
+            "data": data,
+            "etag": etag,
+            "cached_at": time.time(),
+        }
+    
     def read_from_s3(
         self,
         key: str,
         as_json: bool = True,
+        use_cache: bool = True,
     ) -> Union[Dict, List, str, bytes, None]:
-        """Download data from S3.
+        """Download data from S3 with caching.
         
         Args:
             key: S3 key (relative to prefix)
             as_json: Parse content as JSON
+            use_cache: Whether to use cached data if available
             
         Returns:
             File contents (dict/list if JSON, str otherwise) or None if not found
         """
         full_key = self._make_key(key) if not key.startswith(self.prefix) else key
+        
+        # Check cache first
+        if use_cache:
+            cached_data = self._get_from_cache(full_key)
+            if cached_data is not None:
+                logger.debug(f"Cache HIT: {full_key}")
+                return cached_data
         
         try:
             response = self.s3_client.get_object(
@@ -211,13 +288,20 @@ class S3Storage:
             )
             
             body = response["Body"].read()
+            etag = response.get("ETag", "")
             
             logger.info(f"Downloaded from S3: {full_key}")
             
             if as_json:
-                return json.loads(body.decode("utf-8"))
+                data = json.loads(body.decode("utf-8"))
             else:
-                return body.decode("utf-8")
+                data = body.decode("utf-8")
+            
+            # Cache the result
+            if use_cache:
+                self._add_to_cache(full_key, data, etag)
+                
+            return data
                 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -307,6 +391,88 @@ class S3Storage:
             logger.error(f"Failed to delete from S3: {full_key} - {e}")
             return False
     
+    def _should_sync_keys(self, prefix: str) -> bool:
+        """Check if we should re-sync keys from S3.
+        
+        Args:
+            prefix: The S3 prefix being queried
+            
+        Returns:
+            True if we should sync, False if cache is fresh
+        """
+        age = time.time() - self._last_key_sync
+        return age > self._key_sync_interval
+    
+    def list_keys_with_etags(self, prefix: str, max_keys: int = 1000) -> Dict[str, str]:
+        """List all keys under a prefix with their ETags.
+        
+        This is used for delta sync to detect new/changed files.
+        
+        Args:
+            prefix: Prefix to list (relative to base prefix)
+            max_keys: Maximum number of keys to return
+            
+        Returns:
+            Dictionary mapping keys to ETags
+        """
+        full_prefix = self._make_key(prefix)
+        
+        try:
+            paginator = self.s3_client.get_paginator("list_objects_v2")
+            result = {}
+            
+            for page in paginator.paginate(
+                Bucket=self.bucket_name,
+                Prefix=full_prefix,
+                PaginationConfig={"MaxItems": max_keys}
+            ):
+                for obj in page.get("Contents", []):
+                    result[obj["Key"]] = obj.get("ETag", "")
+            
+            return result
+            
+        except ClientError as e:
+            logger.error(f"Failed to list keys with ETags: {full_prefix} - {e}")
+            return {}
+    
+    def sync_trade_keys(self, force: bool = False) -> int:
+        """Sync trade keys from S3 with delta detection.
+        
+        Only downloads files that are new or changed since last sync.
+        
+        Args:
+            force: Force sync even if interval hasn't passed
+            
+        Returns:
+            Number of new/changed keys found
+        """
+        if not force and not self._should_sync_keys("trade-logs/"):
+            return 0
+        
+        # Get current keys with ETags from S3
+        current_keys = self.list_keys_with_etags("trade-logs/", max_keys=500)
+        
+        # Find new or changed keys
+        new_keys = []
+        for key, etag in current_keys.items():
+            old_etag = self._known_keys.get(key)
+            if old_etag is None or old_etag != etag:
+                new_keys.append(key)
+                # Invalidate cache for changed keys
+                if key in self._cache:
+                    del self._cache[key]
+        
+        # Update known keys
+        self._known_keys.update(current_keys)
+        self._last_key_sync = time.time()
+        
+        if new_keys:
+            logger.info(f"Delta sync: {len(new_keys)} new/changed keys out of {len(current_keys)} total")
+        else:
+            logger.debug(f"Delta sync: no changes ({len(current_keys)} keys)")
+        
+        return len(new_keys)
+
     def list_keys(self, prefix: str, max_keys: int = 1000) -> List[str]:
         """List all keys under a prefix.
         
@@ -336,6 +502,23 @@ class S3Storage:
         except ClientError as e:
             logger.error(f"Failed to list keys: {full_prefix} - {e}")
             return []
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring.
+        
+        Returns:
+            Dictionary with cache stats
+        """
+        now = time.time()
+        valid_count = sum(1 for k in self._cache if self._is_cache_valid(k))
+        return {
+            "total_cached": len(self._cache),
+            "valid_cached": valid_count,
+            "known_keys": len(self._known_keys),
+            "seconds_since_key_sync": int(now - self._last_key_sync) if self._last_key_sync > 0 else None,
+            "cache_ttl_seconds": self._cache_ttl,
+            "key_sync_interval_seconds": self._key_sync_interval,
+        }
     
     def key_exists(self, key: str) -> bool:
         """Check if a key exists in S3.
@@ -408,7 +591,10 @@ class S3Storage:
         end_date: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict]:
-        """Load multiple trade records.
+        """Load multiple trade records with smart caching.
+        
+        Uses delta sync to only download new/changed files.
+        Cached trades are returned immediately without S3 reads.
         
         Args:
             start_date: Start date (YYYY-MM-DD)
@@ -418,10 +604,17 @@ class S3Storage:
         Returns:
             List of trade records
         """
+        # Sync keys if needed (this only hits S3 every 5 minutes)
+        self.sync_trade_keys()
+        
         trades = []
         
-        # List all trade log keys
-        keys = self.list_keys("trade-logs/", max_keys=limit * 2)
+        # Use cached known keys if available, otherwise list from S3
+        if self._known_keys:
+            # Filter to trade-logs keys only
+            keys = [k for k in self._known_keys.keys() if "/trade-logs/" in k]
+        else:
+            keys = self.list_keys("trade-logs/", max_keys=limit * 2)
         
         # Sort by key (date/time ordering)
         keys.sort(reverse=True)
@@ -443,6 +636,7 @@ class S3Storage:
                     if end_date and date_str > end_date:
                         continue
                     
+                    # read_from_s3 now uses cache - no S3 call if cached
                     trade = self.read_from_s3(key)
                     if trade:
                         trades.append(trade)
