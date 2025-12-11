@@ -1,0 +1,218 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Main CloudFormation stack for SPY Futures Trading Bot AWS Multi-Agent Architecture'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: trading-bot
+    Description: Project name for resource naming
+
+  BucketName:
+    Type: String
+    Default: trading-bot-data
+    Description: S3 bucket name (must be globally unique)
+
+  ArtifactsBucket:
+    Type: String
+    Description: S3 bucket containing Lambda code and layers
+
+Resources:
+  # ============================================
+  # S3 BUCKET STACK
+  # ============================================
+  S3BucketStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./s3-bucket.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        BucketName: !Sub '${BucketName}-${AWS::AccountId}'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # IAM ROLES STACK
+  # ============================================
+  IAMRolesStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: S3BucketStack
+    Properties:
+      TemplateURL: ./iam-roles.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        S3BucketArn: !GetAtt S3BucketStack.Outputs.BucketArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # LAMBDA FUNCTIONS STACK
+  # ============================================
+  LambdaFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: IAMRolesStack
+    Properties:
+      TemplateURL: ./lambda-functions.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaExecutionRoleArn: !GetAtt IAMRolesStack.Outputs.LambdaExecutionRoleArn
+        S3BucketName: !GetAtt S3BucketStack.Outputs.BucketName
+        ArtifactsBucket: !Ref ArtifactsBucket
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # BEDROCK KNOWLEDGE BASE STACK
+  # ============================================
+  BedrockKBStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: IAMRolesStack
+    Properties:
+      TemplateURL: ./bedrock-kb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        S3BucketArn: !GetAtt S3BucketStack.Outputs.BucketArn
+        S3BucketName: !GetAtt S3BucketStack.Outputs.BucketName
+        BedrockKBRoleArn: !GetAtt IAMRolesStack.Outputs.BedrockKBRoleArn
+        LambdaExecutionRoleArn: !GetAtt IAMRolesStack.Outputs.LambdaExecutionRoleArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # BEDROCK AGENTS STACK
+  # ============================================
+  BedrockAgentsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - BedrockKBStack
+      - LambdaFunctionsStack
+    Properties:
+      TemplateURL: ./bedrock-agents.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        BedrockAgentRoleArn: !GetAtt IAMRolesStack.Outputs.BedrockAgentRoleArn
+        KnowledgeBaseId: !GetAtt BedrockKBStack.Outputs.KnowledgeBaseId
+        CleanDataLambdaArn: !GetAtt LambdaFunctionsStack.Outputs.CleanDataLambdaArn
+        WinrateLambdaArn: !GetAtt LambdaFunctionsStack.Outputs.WinrateLambdaArn
+        RiskControlLambdaArn: !GetAtt LambdaFunctionsStack.Outputs.RiskControlLambdaArn
+        LearnFromLossesLambdaArn: !GetAtt LambdaFunctionsStack.Outputs.LearnFromLossesLambdaArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # STEP FUNCTIONS STACK
+  # ============================================
+  StepFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BedrockAgentsStack
+    Properties:
+      TemplateURL: ./step-functions.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        StepFunctionsRoleArn: !GetAtt IAMRolesStack.Outputs.StepFunctionsRoleArn
+        Agent1Arn: !GetAtt BedrockAgentsStack.Outputs.Agent1Arn
+        Agent2Arn: !GetAtt BedrockAgentsStack.Outputs.Agent2Arn
+        Agent3Arn: !GetAtt BedrockAgentsStack.Outputs.Agent3Arn
+        Agent4Arn: !GetAtt BedrockAgentsStack.Outputs.Agent4Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # EVENTBRIDGE STACK
+  # ============================================
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: StepFunctionsStack
+    Properties:
+      TemplateURL: ./eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        NightlyFlowStateMachineArn: !GetAtt StepFunctionsStack.Outputs.NightlyFlowStateMachineArn
+        EventBridgeRoleArn: !GetAtt IAMRolesStack.Outputs.EventBridgeRoleArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  S3BucketName:
+    Description: S3 Bucket Name
+    Value: !GetAtt S3BucketStack.Outputs.BucketName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-S3BucketName'
+
+  KnowledgeBaseId:
+    Description: Bedrock Knowledge Base ID
+    Value: !GetAtt BedrockKBStack.Outputs.KnowledgeBaseId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-KnowledgeBaseId'
+
+  Agent1Id:
+    Description: Data Ingestion Agent ID
+    Value: !GetAtt BedrockAgentsStack.Outputs.Agent1Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent1Id'
+
+  Agent2Id:
+    Description: Decision Engine Agent ID
+    Value: !GetAtt BedrockAgentsStack.Outputs.Agent2Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent2Id'
+
+  Agent3Id:
+    Description: Risk Control Agent ID
+    Value: !GetAtt BedrockAgentsStack.Outputs.Agent3Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent3Id'
+
+  Agent4Id:
+    Description: Learning Engine Agent ID
+    Value: !GetAtt BedrockAgentsStack.Outputs.Agent4Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent4Id'
+
+  SignalFlowStateMachineArn:
+    Description: Signal Flow Step Function ARN
+    Value: !GetAtt StepFunctionsStack.Outputs.SignalFlowStateMachineArn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SignalFlowArn'
+
+  NightlyFlowStateMachineArn:
+    Description: Nightly Flow Step Function ARN
+    Value: !GetAtt StepFunctionsStack.Outputs.NightlyFlowStateMachineArn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-NightlyFlowArn'

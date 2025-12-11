@@ -1,0 +1,62 @@
+{
+  "name": "trading-bot-knowledge-base",
+  "description": "Knowledge base for SPY Futures trading patterns and historical trade data",
+  "roleArn": "${BedrockKnowledgeBaseRoleArn}",
+  "knowledgeBaseConfiguration": {
+    "type": "VECTOR",
+    "vectorKnowledgeBaseConfiguration": {
+      "embeddingModelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0",
+      "embeddingModelConfiguration": {
+        "bedrockEmbeddingModelConfiguration": {
+          "dimensions": 1024
+        }
+      }
+    }
+  },
+  "storageConfiguration": {
+    "type": "OPENSEARCH_SERVERLESS",
+    "opensearchServerlessConfiguration": {
+      "collectionArn": "${OpenSearchCollectionArn}",
+      "vectorIndexName": "trading-patterns-index",
+      "fieldMapping": {
+        "vectorField": "embedding",
+        "textField": "text",
+        "metadataField": "metadata"
+      }
+    }
+  },
+  "dataSource": {
+    "name": "structured-trade-data",
+    "description": "Structured trade data from S3 /structured/ prefix",
+    "dataSourceConfiguration": {
+      "type": "S3",
+      "s3Configuration": {
+        "bucketArn": "${S3BucketArn}",
+        "inclusionPrefixes": [
+          "structured/",
+          "kb/patterns/",
+          "features/"
+        ]
+      }
+    },
+    "vectorIngestionConfiguration": {
+      "chunkingConfiguration": {
+        "chunkingStrategy": "FIXED_SIZE",
+        "fixedSizeChunkingConfiguration": {
+          "maxTokens": 512,
+          "overlapPercentage": 20
+        }
+      },
+      "parsingConfiguration": {
+        "parsingStrategy": "BEDROCK_FOUNDATION_MODEL",
+        "bedrockFoundationModelConfiguration": {
+          "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+        }
+      }
+    }
+  },
+  "tags": {
+    "Project": "TradingBot",
+    "Component": "KnowledgeBase"
+  }
+}

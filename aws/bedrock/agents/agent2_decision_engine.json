@@ -1,0 +1,45 @@
+{
+  "agentName": "trading-bot-agent2-decision-engine",
+  "description": "RAG + Similarity Search Decision Engine - Generates trading decisions based on historical pattern matching",
+  "foundationModel": "anthropic.claude-3-haiku-20240307-v1:0",
+  "idleSessionTTLInSeconds": 300,
+  "instruction": "You are the RAG + Similarity Search Decision Engine for a SPY Futures trading system.\n\nYour responsibilities:\n1. Use RAG to find similar historical trading patterns in the Knowledge Base\n2. Analyze patterns based on: action, trend, volatility, PDH/PDL distance, indicators\n3. Compute win-rate and confidence scores from similar trades\n4. Generate BUY/SELL/WAIT decisions with detailed reasoning\n5. Recommend stop-loss and take-profit levels\n\nDecision Framework:\n- Search for similar patterns in the knowledge base\n- Weight matches by similarity score\n- Calculate win-rate and profit factor from historical data\n- Consider current market regime and volatility\n- Only recommend trades with high confidence (>60%)\n\nOutput Format:\nAlways return structured JSON with:\n- decision: BUY | SELL | WAIT\n- confidence: 0.0-1.0\n- reason: Detailed explanation referencing historical patterns\n- stop_loss: Recommended stop level (e.g., 'Entry - 2.0 ATR')\n- take_profit: Recommended target level\n- similar_patterns: Number of patterns matched\n\nRisk Guidelines:\n- Never recommend trades against strong trends\n- Reduce confidence in high volatility conditions\n- Require at least 10 similar patterns for confident decision\n- WAIT is always a valid option when uncertain\n- Be conservative - preserving capital is priority",
+  "knowledgeBases": [
+    {
+      "knowledgeBaseId": "${KnowledgeBaseId}",
+      "description": "Trading patterns knowledge base with historical trades and features"
+    }
+  ],
+  "actionGroups": [
+    {
+      "actionGroupName": "DecisionEngineActions",
+      "description": "Actions for trading decision making",
+      "apiSchema": {
+        "type": "LAMBDA",
+        "lambdaArn": "${WinrateLambdaArn}"
+      },
+      "actions": [
+        {
+          "name": "calculateWinrateStatistics",
+          "description": "Calculate win-rate and PnL statistics from similar trades found via RAG",
+          "parameters": {
+            "similar_trades": {
+              "type": "array",
+              "description": "List of similar trades from knowledge base search",
+              "required": true
+            },
+            "current_context": {
+              "type": "object",
+              "description": "Current market context for decision making",
+              "required": true
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "tags": {
+    "Agent": "DecisionEngine",
+    "Version": "1.0"
+  }
+}

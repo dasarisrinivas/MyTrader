@@ -1,0 +1,463 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Stack 1: Foundation - S3, IAM Roles, OpenSearch Collection for Trading Bot'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: trading-bot
+    Description: Project name for resource naming
+
+  ArtifactsBucket:
+    Type: String
+    Description: S3 bucket containing Lambda code and layers
+
+Resources:
+  # ============================================
+  # S3 BUCKET FOR TRADING DATA
+  # ============================================
+  TradingBotBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-data-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: TransitionToIA
+            Status: Enabled
+            Prefix: raw/
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Create folder structure via custom resource or manually
+  # Folders: raw/, structured/, kb/, pnl/, strategy/, bad_patterns/, features/
+
+  # ============================================
+  # LAMBDA EXECUTION ROLE
+  # ============================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt TradingBotBucket.Arn
+                  - !Sub '${TradingBotBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ArtifactsBucket}/*'
+        - PolicyName: BedrockInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+        - PolicyName: OpenSearchServerlessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # BEDROCK KNOWLEDGE BASE ROLE
+  # ============================================
+  BedrockKBRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-bedrock-kb-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref AWS::AccountId
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt TradingBotBucket.Arn
+                  - !Sub '${TradingBotBucket.Arn}/*'
+        - PolicyName: BedrockEmbedding
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+        - PolicyName: OpenSearchServerless
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # BEDROCK AGENT ROLE
+  # ============================================
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-bedrock-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref AWS::AccountId
+      Policies:
+        - PolicyName: BedrockModelAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+        - PolicyName: KnowledgeBaseAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                  - bedrock:RetrieveAndGenerate
+                Resource: '*'
+        - PolicyName: LambdaInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt TradingBotBucket.Arn
+                  - !Sub '${TradingBotBucket.Arn}/*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # STEP FUNCTIONS ROLE
+  # ============================================
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-stepfunctions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: '*'
+        - PolicyName: BedrockAgentIngestion
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:StartIngestionJob
+                  - bedrock:GetIngestionJob
+                  - bedrock:ListIngestionJobs
+                Resource: '*'
+        - PolicyName: LambdaInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # EVENTBRIDGE ROLE
+  # ============================================
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-eventbridge-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsStart
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource:
+                  - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # OPENSEARCH SERVERLESS ENCRYPTION POLICY
+  # ============================================
+  VectorSecurityPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-encryption'
+      Type: encryption
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/${ProjectName}-${Environment}-vectors"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  # ============================================
+  # OPENSEARCH SERVERLESS NETWORK POLICY
+  # ============================================
+  VectorNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-network'
+      Type: network
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${ProjectName}-${Environment}-vectors"]
+              },
+              {
+                "ResourceType": "dashboard",
+                "Resource": ["collection/${ProjectName}-${Environment}-vectors"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  # ============================================
+  # OPENSEARCH SERVERLESS DATA ACCESS POLICY
+  # ============================================
+  VectorDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-data-access'
+      Type: data
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${ProjectName}-${Environment}-vectors/*"],
+                "Permission": ["aoss:*"]
+              },
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${ProjectName}-${Environment}-vectors"],
+                "Permission": ["aoss:*"]
+              }
+            ],
+            "Principal": ["arn:aws:iam::${AWS::AccountId}:root", "${BedrockKBRole.Arn}", "${LambdaExecutionRole.Arn}"]
+          }
+        ]
+
+  # ============================================
+  # OPENSEARCH SERVERLESS COLLECTION
+  # ============================================
+  VectorCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: 
+      - VectorSecurityPolicy
+      - VectorNetworkPolicy
+      - VectorDataAccessPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-vectors'
+      Description: Vector store for trading bot knowledge base
+      Type: VECTORSEARCH
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  S3BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref TradingBotBucket
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-S3BucketName'
+
+  S3BucketArn:
+    Description: S3 Bucket ARN
+    Value: !GetAtt TradingBotBucket.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-S3BucketArn'
+
+  LambdaExecutionRoleArn:
+    Description: Lambda Execution Role ARN
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-LambdaRoleArn'
+
+  BedrockKBRoleArn:
+    Description: Bedrock KB Role ARN
+    Value: !GetAtt BedrockKBRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-BedrockKBRoleArn'
+
+  BedrockAgentRoleArn:
+    Description: Bedrock Agent Role ARN
+    Value: !GetAtt BedrockAgentRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-BedrockAgentRoleArn'
+
+  StepFunctionsRoleArn:
+    Description: Step Functions Role ARN
+    Value: !GetAtt StepFunctionsRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-StepFunctionsRoleArn'
+
+  EventBridgeRoleArn:
+    Description: EventBridge Role ARN
+    Value: !GetAtt EventBridgeRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-EventBridgeRoleArn'
+
+  VectorCollectionArn:
+    Description: OpenSearch Serverless Collection ARN
+    Value: !GetAtt VectorCollection.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VectorCollectionArn'
+
+  VectorCollectionEndpoint:
+    Description: OpenSearch Serverless Collection Endpoint
+    Value: !GetAtt VectorCollection.CollectionEndpoint
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VectorCollectionEndpoint'
+
+  VectorCollectionName:
+    Description: OpenSearch Serverless Collection Name
+    Value: !Sub '${ProjectName}-${Environment}-vectors'
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VectorCollectionName'
+
+  ArtifactsBucket:
+    Description: Artifacts Bucket Name
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-ArtifactsBucket'

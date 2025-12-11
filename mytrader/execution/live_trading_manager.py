@@ -43,6 +43,14 @@ except ImportError:
     HYBRID_PIPELINE_AVAILABLE = False
     logger.warning("Hybrid RAG pipeline not available - using legacy signal generation")
 
+# NEW: AWS Bedrock Agents Pipeline imports
+try:
+    from ..aws import AgentInvoker, MarketSnapshotBuilder
+    AWS_AGENTS_AVAILABLE = True
+except ImportError:
+    AWS_AGENTS_AVAILABLE = False
+    logger.warning("AWS Agents not available - using local signal generation")
+
 
 @dataclass
 class TradingStatus:
@@ -66,6 +74,9 @@ class TradingStatus:
     hybrid_pipeline_enabled: bool = False
     hybrid_market_trend: str = ""
     hybrid_volatility_regime: str = ""
+    # NEW: AWS Agents status
+    aws_agents_enabled: bool = False
+    aws_agent_decision: str = ""
 
 
 class LiveTradingManager:
@@ -102,6 +113,11 @@ class LiveTradingManager:
         # NEW: Hybrid RAG+LLM Pipeline
         self.hybrid_pipeline: Optional[HybridPipelineIntegration] = None
         self._use_hybrid_pipeline: bool = False
+        
+        # NEW: AWS Bedrock Agents Pipeline
+        self.aws_agent_invoker: Optional[AgentInvoker] = None
+        self.aws_snapshot_builder: Optional[MarketSnapshotBuilder] = None
+        self._use_aws_agents: bool = False
         
         self.status = TradingStatus()
         self.status.simulation_mode = simulation_mode
@@ -211,6 +227,27 @@ class LiveTradingManager:
                     logger.warning(f"⚠️  Failed to initialize Hybrid Pipeline: {e}")
                     self._use_hybrid_pipeline = False
             
+            # NEW: Initialize AWS Bedrock Agents Pipeline
+            if AWS_AGENTS_AVAILABLE:
+                try:
+                    aws_agents_config = getattr(self.settings, 'aws_agents', None)
+                    if aws_agents_config and getattr(aws_agents_config, 'enabled', False):
+                        self.aws_agent_invoker = AgentInvoker.from_deployed_config()
+                        self.aws_snapshot_builder = MarketSnapshotBuilder(
+                            symbol=self.settings.data.ibkr_symbol
+                        )
+                        self._use_aws_agents = True
+                        self.status.aws_agents_enabled = True
+                        logger.info("✅ AWS Bedrock Agents Pipeline initialized (4-agent decision system)")
+                    else:
+                        logger.info("ℹ️  AWS Agents disabled in config")
+                except Exception as e:
+                    logger.warning(f"⚠️  Failed to initialize AWS Agents: {e}")
+                    self._use_aws_agents = False
+            
+            # === NEW: Load historical market context at startup ===
+            await self._load_historical_context()
+            
             # Subscribe to execution events for RAG updates
             if self.executor and self.executor.ib:
                 self.executor.ib.execDetailsEvent += self._on_execution_details
@@ -294,6 +331,169 @@ class LiveTradingManager:
                 
         except Exception as e:
             logger.error(f"Error in _on_execution_details: {e}")
+
+    async def _load_historical_context(self):
+        """Load historical market context at bot startup.
+        
+        This fetches previous day's high/low, today's high/low, weekly levels,
+        and stores them for use by the RAG system and AWS agents.
+        """
+        try:
+            logger.info("📊 Loading historical market context...")
+            
+            # Get historical bars from IBKR (1 day bars for PDH/PDL, 1 week for weekly levels)
+            if self.executor and self.executor.ib:
+                
+                # Get the qualified contract
+                contract = await self.executor.get_qualified_contract()
+                if not contract:
+                    logger.warning("⚠️ Could not get contract for historical data")
+                    return
+                
+                # Fetch last 5 days of daily bars
+                # ib_insync handles the async internally via its event loop
+                try:
+                    daily_bars = self.executor.ib.reqHistoricalData(
+                        contract,
+                        endDateTime='',
+                        durationStr='5 D',
+                        barSizeSetting='1 day',
+                        whatToShow='TRADES',
+                        useRTH=True,
+                        formatDate=1,
+                        timeout=10  # Add timeout
+                    )
+                except Exception as hist_err:
+                    logger.warning(f"⚠️ Historical data request failed: {hist_err}")
+                    # Try without RTH
+                    daily_bars = self.executor.ib.reqHistoricalData(
+                        contract,
+                        endDateTime='',
+                        durationStr='5 D',
+                        barSizeSetting='1 day',
+                        whatToShow='TRADES',
+                        useRTH=False,
+                        formatDate=1,
+                        timeout=10
+                    )
+                
+                if daily_bars and len(daily_bars) >= 2:
+                    # Previous day's data (second to last bar)
+                    prev_day = daily_bars[-2]
+                    today = daily_bars[-1] if len(daily_bars) >= 1 else None
+                    
+                    self._historical_context = {
+                        'previous_day': {
+                            'date': str(prev_day.date),
+                            'high': prev_day.high,
+                            'low': prev_day.low,
+                            'open': prev_day.open,
+                            'close': prev_day.close,
+                            'volume': prev_day.volume,
+                        },
+                        'today': {
+                            'date': str(today.date) if today else str(now_cst().date()),
+                            'high': today.high if today else 0,
+                            'low': today.low if today else 0,
+                            'open': today.open if today else 0,
+                        } if today else {},
+                        'weekly': {
+                            'high': max(bar.high for bar in daily_bars),
+                            'low': min(bar.low for bar in daily_bars),
+                        },
+                        'loaded_at': now_cst().isoformat(),
+                    }
+                    
+                    pdh = self._historical_context['previous_day']['high']
+                    pdl = self._historical_context['previous_day']['low']
+                    prev_close = self._historical_context['previous_day']['close']
+                    
+                    logger.info(f"✅ Historical context loaded:")
+                    logger.info(f"   📈 Previous Day: High={pdh:.2f}, Low={pdl:.2f}, Close={prev_close:.2f}")
+                    if self._historical_context.get('today'):
+                        th = self._historical_context['today'].get('high', 0)
+                        tl = self._historical_context['today'].get('low', 0)
+                        logger.info(f"   📊 Today: High={th:.2f}, Low={tl:.2f}")
+                    logger.info(f"   📅 Weekly Range: {self._historical_context['weekly']['low']:.2f} - {self._historical_context['weekly']['high']:.2f}")
+                    
+                    # Store in RAG for agents to query
+                    await self._store_historical_context_in_rag()
+                    
+                else:
+                    logger.warning("⚠️ Not enough historical bars received")
+                    self._historical_context = {}
+            else:
+                logger.warning("⚠️ Executor not available for historical data")
+                self._historical_context = {}
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to load historical context: {e}")
+            self._historical_context = {}
+    
+    async def _store_historical_context_in_rag(self):
+        """Store historical context in RAG system for agents to query."""
+        try:
+            if not self._historical_context:
+                return
+                
+            context = self._historical_context
+            today_str = now_cst().strftime("%Y-%m-%d")
+            
+            # Create a document with today's market context
+            market_context_doc = f"""
+DAILY MARKET CONTEXT - {today_str}
+Symbol: {self.settings.data.ibkr_symbol}
+
+PREVIOUS DAY LEVELS:
+- Previous Day High (PDH): {context['previous_day']['high']:.2f}
+- Previous Day Low (PDL): {context['previous_day']['low']:.2f}
+- Previous Day Close: {context['previous_day']['close']:.2f}
+- Previous Day Open: {context['previous_day']['open']:.2f}
+
+TODAY'S LEVELS (so far):
+- Today's High: {context.get('today', {}).get('high', 'N/A')}
+- Today's Low: {context.get('today', {}).get('low', 'N/A')}
+- Today's Open: {context.get('today', {}).get('open', 'N/A')}
+
+WEEKLY RANGE:
+- Weekly High: {context['weekly']['high']:.2f}
+- Weekly Low: {context['weekly']['low']:.2f}
+
+KEY LEVELS TO WATCH:
+1. Support: PDL at {context['previous_day']['low']:.2f}
+2. Resistance: PDH at {context['previous_day']['high']:.2f}
+3. Pivot: Previous close at {context['previous_day']['close']:.2f}
+
+TRADING GUIDANCE:
+- If price > PDH: Bullish breakout, favor LONG positions
+- If price < PDL: Bearish breakdown, favor SHORT positions
+- If price between PDL and PDH: Range-bound, use mean reversion
+- Watch for retests of PDH/PDL as potential entry points
+"""
+            
+            # Store in local RAG if available
+            if self.rag_storage:
+                # Save as a dynamic document
+                doc_path = f"rag_data/docs_dynamic/market_context_{today_str}.txt"
+                import os
+                os.makedirs("rag_data/docs_dynamic", exist_ok=True)
+                with open(doc_path, 'w') as f:
+                    f.write(market_context_doc)
+                logger.info(f"✅ Stored market context in RAG: {doc_path}")
+            
+            # Also update the MarketSnapshotBuilder if available
+            if hasattr(self, 'aws_snapshot_builder') and self.aws_snapshot_builder:
+                self.aws_snapshot_builder.set_historical_levels(
+                    pdh=context['previous_day']['high'],
+                    pdl=context['previous_day']['low'],
+                    prev_close=context['previous_day']['close'],
+                    weekly_high=context['weekly']['high'],
+                    weekly_low=context['weekly']['low'],
+                )
+                logger.info("✅ Updated AWS snapshot builder with historical levels")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to store historical context in RAG: {e}")
 
     async def start(self):
         """Start the live trading loop."""
@@ -456,6 +656,8 @@ class LiveTradingManager:
                 logger.error(f"Hybrid pipeline error, falling back to legacy: {e}")
                 # Fall through to legacy signal generation
         
+        # Generate signal using existing bot logic (legacy path)
+        
         # Generate signal (legacy path)
         signal = self.engine.evaluate(features, returns)
         
@@ -522,12 +724,38 @@ class LiveTradingManager:
             except Exception as e:
                 logger.error(f"RAG retrieval failed: {e}")
         
+        # === NEW: Query AWS Knowledge Base for historical patterns ===
+        aws_kb_adjustment = 0.0
+        aws_kb_rationale = {}
+        
+        if self._use_aws_agents and self.aws_agent_invoker and signal.action != "HOLD":
+            try:
+                aws_kb_result = await self._query_aws_knowledge_base(
+                    features=features,
+                    current_price=current_price,
+                    proposed_action=signal.action,
+                )
+                
+                if aws_kb_result:
+                    aws_kb_adjustment = aws_kb_result.get('confidence_adjustment', 0.0)
+                    aws_kb_rationale = aws_kb_result
+                    
+                    if aws_kb_adjustment != 0:
+                        logger.info(
+                            f"🤖 AWS KB adjustment: {aws_kb_adjustment:+.2f} "
+                            f"(similar_patterns={aws_kb_result.get('similar_patterns', 0)}, "
+                            f"historical_win_rate={aws_kb_result.get('historical_win_rate', 0):.1%})"
+                        )
+            except Exception as e:
+                logger.warning(f"AWS Knowledge Base query failed: {e}")
+        
         # Apply RAG adjustment
         original_confidence = signal.confidence
-        signal.confidence = max(0.0, min(1.0, signal.confidence + rag_adjustment))
+        total_adjustment = rag_adjustment + aws_kb_adjustment
+        signal.confidence = max(0.0, min(1.0, signal.confidence + total_adjustment))
 
         # DEBUG: Log every signal generated
-        logger.info(f"📊 Signal: action={signal.action}, confidence={signal.confidence:.3f} (original={original_confidence:.3f}, rag_adj={rag_adjustment:+.3f})")
+        logger.info(f"📊 Signal: action={signal.action}, confidence={signal.confidence:.3f} (original={original_confidence:.3f}, rag_adj={rag_adjustment:+.3f}, aws_kb_adj={aws_kb_adjustment:+.3f})")
         
         if rag_adjustment != 0:
             logger.info(f"RAG adjusted confidence: {original_confidence:.2f} -> {signal.confidence:.2f} ({rag_rationale.get('adjustment')})")
@@ -706,6 +934,73 @@ class LiveTradingManager:
                 logger.info(f"  ↳ Signal is HOLD, skipping order placement")
             return
         
+        # === AWS AGENTS: Consult Decision Agent and Risk Agent for BUY/SELL signals ===
+        aws_approved = True  # Default to approved if AWS agents disabled
+        aws_adjustment = 0.0
+        
+        if self._use_aws_agents and self.aws_agent_invoker:
+            try:
+                logger.info(f"🤖 Consulting AWS Agents for {signal.action} signal...")
+                
+                # Build market snapshot for agents
+                snapshot = self.aws_snapshot_builder.build(
+                    current_price=current_price,
+                    features=features
+                )
+                
+                # Build account metrics
+                account_metrics = {
+                    'current_position': self.status.current_position,
+                    'unrealized_pnl': self.status.unrealized_pnl,
+                    'daily_pnl': self.status.daily_pnl,
+                }
+                
+                # Use the full agent pipeline via get_trading_decision
+                aws_result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.aws_agent_invoker.get_trading_decision(
+                        market_snapshot=snapshot,
+                        account_metrics=account_metrics,
+                    )
+                )
+                
+                logger.info(f"  📊 AWS Decision: {aws_result.get('decision')} (conf={aws_result.get('confidence', 0):.2%})")
+                logger.info(f"  🛡️ AWS Risk: allowed={aws_result.get('allowed_to_trade')}, flags={aws_result.get('risk_flags', [])}")
+                
+                # Check if AWS allowed the trade
+                aws_allowed = aws_result.get('allowed_to_trade', True)
+                aws_decision = aws_result.get('decision', 'WAIT')
+                aws_confidence = aws_result.get('confidence', 0)
+                
+                # If AWS says WAIT or not allowed, block the trade
+                if not aws_allowed:
+                    aws_approved = False
+                    logger.warning(f"  ⚠️ AWS Risk Agent REJECTED trade: {aws_result.get('risk_flags', [])}")
+                elif aws_decision == 'WAIT':
+                    aws_adjustment = -0.15  # Reduce confidence significantly
+                    logger.info(f"  📉 AWS Decision Agent says WAIT: adjusting confidence by {aws_adjustment:+.2f}")
+                elif aws_decision == signal.action:
+                    # AWS agrees with our signal
+                    aws_adjustment = +0.05  # Boost confidence
+                    logger.info(f"  📈 AWS Agents agree with {signal.action}: boosting confidence by {aws_adjustment:+.2f}")
+                elif aws_decision in ['BUY', 'SELL'] and aws_decision != signal.action:
+                    # AWS disagrees - conflicting signals
+                    aws_adjustment = -0.1
+                    logger.warning(f"  ⚠️ AWS disagrees: we say {signal.action}, AWS says {aws_decision}")
+                
+                # Apply AWS adjustment to signal confidence
+                if aws_adjustment != 0:
+                    signal.confidence = max(0.0, min(1.0, signal.confidence + aws_adjustment))
+                    logger.info(f"  🔄 Adjusted confidence: {signal.confidence:.2f}")
+                    
+            except Exception as e:
+                logger.warning(f"  ⚠️ AWS Agent consultation failed: {e} - proceeding with original signal")
+        
+        # If AWS agents rejected the trade, convert to HOLD
+        if not aws_approved:
+            logger.info(f"  🛑 Trade blocked by AWS Risk Agent - converting to HOLD")
+            return
+
         # CRITICAL: Check for active orders FIRST
         active_orders = self.executor.get_active_order_count(sync=True)
         if active_orders > 0:
@@ -765,6 +1060,342 @@ class LiveTradingManager:
         except Exception as e:
             logger.error(f"❌ Failed to place exit order: {e}")
             await self._broadcast_error(f"Exit order failed: {e}")
+    
+    async def _query_aws_knowledge_base(
+        self,
+        features,
+        current_price: float,
+        proposed_action: str,
+    ) -> dict:
+        """Query AWS Knowledge Base for historical pattern matching.
+        
+        This method queries the Decision Agent to search the Knowledge Base
+        for similar historical patterns and returns a confidence adjustment.
+        
+        Args:
+            features: Current market features DataFrame
+            current_price: Current price
+            proposed_action: Proposed trading action (BUY/SELL)
+            
+        Returns:
+            Dictionary with:
+            - confidence_adjustment: Float adjustment to apply (-0.2 to +0.2)
+            - similar_patterns: Number of similar patterns found
+            - historical_win_rate: Win rate for similar patterns
+            - reasoning: Agent's reasoning
+        """
+        if not self.aws_agent_invoker or not self.aws_snapshot_builder:
+            return {}
+        
+        try:
+            # Build market snapshot from current features
+            row = features.iloc[-1]
+            
+            # Determine trend and volatility
+            ema_9 = float(row.get('EMA_9', row.get('ema_9', current_price)))
+            ema_20 = float(row.get('EMA_20', row.get('ema_20', current_price)))
+            atr = float(row.get('ATR_14', row.get('atr', 10)))
+            
+            if ema_9 > ema_20 and current_price > ema_9:
+                trend = 'UPTREND'
+            elif ema_9 < ema_20 and current_price < ema_9:
+                trend = 'DOWNTREND'
+            else:
+                trend = 'RANGE'
+            
+            if atr > 15:
+                volatility = 'HIGH'
+            elif atr > 8:
+                volatility = 'MED'
+            else:
+                volatility = 'LOW'
+            
+            snapshot = self.aws_snapshot_builder.build(
+                price=current_price,
+                trend=trend,
+                volatility=volatility,
+                rsi=float(row.get('RSI_14', row.get('rsi', 50))),
+                atr=atr,
+                ema_9=ema_9,
+                ema_20=ema_20,
+            )
+            
+            # Query the Decision Agent for historical pattern analysis only
+            # This is a quick query focused on pattern matching, not trade decision
+            response = self.aws_agent_invoker.agent_client.invoke_decision_agent(
+                market_snapshot=snapshot,
+            )
+            
+            # Extract relevant information
+            similar_patterns = response.get('similar_patterns', 0)
+            kb_confidence = response.get('confidence', 0.5)
+            reasoning = response.get('reason', '')
+            
+            # Calculate confidence adjustment based on KB results
+            # If KB found good patterns with high win rate, boost confidence
+            # If KB suggests caution, reduce confidence
+            confidence_adjustment = 0.0
+            
+            if similar_patterns > 0:
+                # KB found similar patterns
+                if kb_confidence >= 0.7:
+                    confidence_adjustment = 0.15  # Strong positive history
+                elif kb_confidence >= 0.6:
+                    confidence_adjustment = 0.08  # Moderate positive history
+                elif kb_confidence <= 0.4:
+                    confidence_adjustment = -0.15  # Negative history
+                elif kb_confidence <= 0.5:
+                    confidence_adjustment = -0.05  # Slight caution
+            
+            return {
+                'confidence_adjustment': confidence_adjustment,
+                'similar_patterns': similar_patterns,
+                'historical_win_rate': kb_confidence,
+                'reasoning': reasoning[:200] if reasoning else '',
+                'trend': trend,
+                'volatility': volatility,
+            }
+            
+        except Exception as e:
+            logger.warning(f"AWS KB query error: {e}")
+            return {}
+    
+    async def _process_aws_agent_signal(
+        self,
+        features,
+        current_price: float,
+    ):
+        """Process a signal from the AWS Bedrock Agents pipeline.
+        
+        This is the 4-agent decision path:
+        1. Data Ingestion Agent cleans and structures data
+        2. Decision Engine Agent analyzes and recommends trade
+        3. Risk Control Agent validates and sizes position
+        4. Learning Agent updates knowledge base
+        
+        Args:
+            features: Features DataFrame
+            current_price: Current price
+        """
+        # Build market snapshot from features
+        row = features.iloc[-1]
+        
+        snapshot = self.aws_snapshot_builder.build(
+            price=current_price,
+            trend=self._get_trend_from_features(row),
+            volatility=self._get_volatility_from_features(row),
+            rsi=float(row.get('RSI_14', row.get('rsi', 50))),
+            atr=float(row.get('ATR_14', row.get('atr', 10))),
+            ema_9=float(row.get('EMA_9', row.get('ema_9', current_price))),
+            ema_20=float(row.get('EMA_20', row.get('ema_20', current_price))),
+            volume=int(row.get('volume', 50000)),
+        )
+        
+        # Get account metrics
+        current_position = await self.executor.get_current_position()
+        position_qty = current_position.quantity if current_position else 0
+        
+        account_metrics = {
+            'current_pnl_today': self.tracker.get_daily_pnl() if self.tracker else 0,
+            'current_position': position_qty,
+            'losing_streak': getattr(self, '_losing_streak', 0),
+            'trades_today': getattr(self, '_trades_today', 0),
+            'account_balance': self.settings.trading.initial_capital,
+            'open_risk': abs(position_qty * 50) if position_qty else 0,
+        }
+        
+        # Invoke AWS Agents for decision
+        logger.info("🤖 Invoking AWS Bedrock Agents...")
+        decision = self.aws_agent_invoker.get_trading_decision(
+            market_snapshot=snapshot,
+            account_metrics=account_metrics,
+        )
+        
+        # Update status
+        action = decision.get('decision', 'WAIT')
+        confidence = decision.get('confidence', 0)
+        
+        self.status.last_signal = action
+        self.status.signal_confidence = confidence
+        self.status.aws_agent_decision = f"{action} ({confidence:.0%})"
+        
+        logger.info(
+            f"📈 AWS Agent Decision: {action} "
+            f"(conf={confidence:.2%}, allowed={decision.get('allowed_to_trade')})"
+        )
+        
+        # Broadcast signal
+        await self._broadcast_aws_agent_signal(decision, current_price)
+        
+        # Update position status
+        self.status.current_position = position_qty
+        self.status.active_orders = self.executor.get_active_order_count()
+        
+        if current_position:
+            self.status.unrealized_pnl = await self.executor.get_unrealized_pnl()
+        
+        await self._broadcast_status()
+        
+        # If WAIT or not allowed, skip order placement
+        if action == 'WAIT' or not decision.get('allowed_to_trade', False):
+            reason = decision.get('reason', 'No signal')
+            risk_flags = decision.get('risk_flags', [])
+            logger.info(f"  ↳ No trade: {reason}")
+            if risk_flags:
+                logger.info(f"  ↳ Risk flags: {risk_flags}")
+            return
+        
+        # Check for active orders
+        active_orders = self.executor.get_active_order_count(sync=True)
+        if active_orders > 0:
+            logger.info(f"  ↳ {active_orders} active orders pending, waiting for completion")
+            return
+        
+        # Check if we should exit existing position
+        if position_qty != 0:
+            is_buy_signal = action == "BUY"
+            is_sell_signal = action == "SELL"
+            
+            if (position_qty > 0 and is_sell_signal) or (position_qty < 0 and is_buy_signal):
+                logger.info(f"  ↳ AWS AGENT EXIT: Position={position_qty}, Signal={action}")
+                exit_qty = abs(position_qty)
+                await self._place_exit_order(action, exit_qty, current_price)
+                return
+            else:
+                logger.info(f"  ↳ Position open (qty={position_qty}), same direction, no action")
+                return
+        
+        # Place new order
+        adjusted_size = max(1, int(decision.get('adjusted_size', 1)))
+        stop_loss = decision.get('stop_loss')
+        take_profit = decision.get('take_profit')
+        
+        logger.info(f"  ↳ Placing AWS AGENT order: {action} {adjusted_size} contracts")
+        await self._place_aws_agent_order(action, adjusted_size, current_price, stop_loss, take_profit, decision)
+    
+    def _get_trend_from_features(self, row) -> str:
+        """Extract trend classification from feature row."""
+        ema_9 = float(row.get('EMA_9', row.get('ema_9', 0)))
+        ema_20 = float(row.get('EMA_20', row.get('ema_20', 0)))
+        close = float(row.get('close', 0))
+        
+        if ema_9 > ema_20 and close > ema_9:
+            return 'UPTREND'
+        elif ema_9 < ema_20 and close < ema_9:
+            return 'DOWNTREND'
+        return 'RANGE'
+    
+    def _get_volatility_from_features(self, row) -> str:
+        """Extract volatility classification from feature row."""
+        atr = float(row.get('ATR_14', row.get('atr', 0)))
+        
+        if atr > 15:
+            return 'HIGH'
+        elif atr > 8:
+            return 'MED'
+        return 'LOW'
+    
+    async def _broadcast_aws_agent_signal(self, decision: dict, current_price: float):
+        """Broadcast AWS agent signal to WebSocket clients."""
+        if self.on_signal_generated:
+            try:
+                await self.on_signal_generated({
+                    'type': 'aws_agent_signal',
+                    'decision': decision.get('decision'),
+                    'confidence': decision.get('confidence', 0),
+                    'allowed_to_trade': decision.get('allowed_to_trade'),
+                    'adjusted_size': decision.get('adjusted_size', 0),
+                    'risk_flags': decision.get('risk_flags', []),
+                    'reason': decision.get('reason', ''),
+                    'price': current_price,
+                    'timestamp': now_cst().isoformat(),
+                    'latency_ms': decision.get('latency_ms', 0),
+                })
+            except Exception as e:
+                logger.error(f"Failed to broadcast AWS agent signal: {e}")
+    
+    async def _place_aws_agent_order(
+        self,
+        action: str,
+        quantity: int,
+        current_price: float,
+        stop_loss: float = None,
+        take_profit: float = None,
+        decision: dict = None,
+    ):
+        """Place an order based on AWS agent decision.
+        
+        Args:
+            action: BUY or SELL
+            quantity: Number of contracts
+            current_price: Current market price
+            stop_loss: Stop loss price (optional)
+            take_profit: Take profit price (optional)
+            decision: Full agent decision for logging
+        """
+        import uuid
+        
+        logger.info(
+            f"📍 Placing AWS AGENT order: {action} {quantity} @ ~{current_price:.2f} "
+            f"(SL={stop_loss}, TP={take_profit})"
+        )
+        
+        try:
+            if self.simulation_mode:
+                # Simulation mode - just log, don't place real order
+                logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
+                self._last_trade_time = now_cst()
+                return
+            
+            # Place the order
+            order_id = await self.executor.place_order(
+                action=action,
+                quantity=quantity,
+                limit_price=current_price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+            
+            logger.info(f"✅ AWS Agent order placed: ID={order_id}")
+            
+            # Track trade for RAG updates
+            self.current_trade_id = str(uuid.uuid4())
+            self.current_trade_entry_time = now_cst().isoformat()
+            self.current_trade_entry_price = current_price
+            self.current_trade_features = decision.get('decision_details', {}) if decision else {}
+            self.current_trade_rationale = {
+                'source': 'aws_agents',
+                'decision': decision,
+            }
+            
+            # Update counters
+            self._last_trade_time = now_cst()
+            self._trades_today = getattr(self, '_trades_today', 0) + 1
+            
+            # Broadcast order update
+            await self._broadcast_order_update({
+                'type': 'AWS_AGENT_ENTRY',
+                'action': action,
+                'quantity': quantity,
+                'price': current_price,
+                'order_id': order_id,
+                'stop_loss': stop_loss,
+                'take_profit': take_profit,
+                'agent_decision': decision,
+            })
+            
+            # Send Telegram notification
+            if self.telegram:
+                await self.telegram.send_trade_alert(
+                    action=action,
+                    quantity=quantity,
+                    price=current_price,
+                    source='AWS_AGENTS',
+                )
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to place AWS agent order: {e}")
+            await self._broadcast_error(f"AWS Agent order failed: {e}")
     
     async def _place_hybrid_order(self, signal, pipeline_result, current_price: float, features):
         """Place an order using hybrid pipeline's risk parameters.

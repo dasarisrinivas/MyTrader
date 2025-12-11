@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'S3 Bucket and folder structure for Trading Bot'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  BucketName:
+    Type: String
+    Description: S3 bucket name
+
+Resources:
+  # ============================================
+  # MAIN S3 BUCKET
+  # ============================================
+  TradingBotBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          # Move old raw data to Glacier after 90 days
+          - Id: ArchiveRawData
+            Status: Enabled
+            Prefix: raw/
+            Transitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+            ExpirationInDays: 365
+          # Delete old features after 180 days
+          - Id: ExpireOldFeatures
+            Status: Enabled
+            Prefix: features/
+            ExpirationInDays: 180
+          # Keep structured data for 1 year
+          - Id: ExpireStructuredData
+            Status: Enabled
+            Prefix: structured/
+            ExpirationInDays: 365
+          # Delete incomplete multipart uploads
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Trading bot data storage
+
+  # ============================================
+  # BUCKET POLICY
+  # ============================================
+  TradingBotBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TradingBotBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Deny non-HTTPS access
+          - Sid: DenyNonHTTPS
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt TradingBotBucket.Arn
+              - !Sub '${TradingBotBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  # ============================================
+  # S3 FOLDER PLACEHOLDER OBJECTS
+  # Note: These are created to establish the folder structure
+  # In production, use the init_s3_folders.py script
+  # ============================================
+
+Outputs:
+  BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref TradingBotBucket
+
+  BucketArn:
+    Description: S3 Bucket ARN
+    Value: !GetAtt TradingBotBucket.Arn
+
+  BucketDomainName:
+    Description: S3 Bucket Domain Name
+    Value: !GetAtt TradingBotBucket.DomainName

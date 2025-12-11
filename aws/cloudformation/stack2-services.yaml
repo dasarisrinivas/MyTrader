@@ -1,0 +1,710 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Stack 2: Services - Knowledge Base, Lambda, Bedrock Agents, Step Functions for Trading Bot'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: trading-bot
+    Description: Project name for resource naming
+
+  VectorIndexName:
+    Type: String
+    Default: trading-bot-trading-index
+    Description: Name of the vector index in OpenSearch
+
+Resources:
+  # ============================================
+  # BEDROCK KNOWLEDGE BASE
+  # ============================================
+  TradingKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-trading-kb'
+      Description: Knowledge base for trading patterns, historical trades, and market insights
+      RoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-BedrockKBRoleArn'
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VectorCollectionArn'
+          VectorIndexName: !Ref VectorIndexName
+          FieldMapping:
+            VectorField: embedding
+            TextField: text
+            MetadataField: metadata
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ============================================
+  # KB DATA SOURCE - STRUCTURED DATA
+  # ============================================
+  StructuredDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-structured-data'
+      Description: Structured trade data and features
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketArn'
+          InclusionPrefixes:
+            - 'structured/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 512
+            OverlapPercentage: 20
+
+  # ============================================
+  # KB DATA SOURCE - KB DOCS
+  # ============================================
+  KBDocsDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-kb-docs'
+      Description: Knowledge base documents
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketArn'
+          InclusionPrefixes:
+            - 'kb/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 512
+            OverlapPercentage: 20
+
+  # ============================================
+  # KB DATA SOURCE - STRATEGY
+  # ============================================
+  StrategyDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-strategy-data'
+      Description: Strategy rules
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketArn'
+          InclusionPrefixes:
+            - 'strategy/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: NONE
+
+  # ============================================
+  # KB DATA SOURCE - BAD PATTERNS
+  # ============================================
+  BadPatternsDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-bad-patterns'
+      Description: Bad patterns to avoid
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketArn'
+          InclusionPrefixes:
+            - 'bad_patterns/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: NONE
+
+  # ============================================
+  # LAMBDA LAYER
+  # ============================================
+  CommonDependenciesLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub '${ProjectName}-${Environment}-common-deps'
+      Description: Common dependencies (pyarrow, pandas, numpy)
+      CompatibleRuntimes:
+        - python3.12
+      Content:
+        S3Bucket: 
+          Fn::ImportValue: !Sub '${ProjectName}-${Environment}-ArtifactsBucket'
+        S3Key: lambda-layers/common-deps.zip
+
+  # ============================================
+  # LAMBDA 1: CLEAN AND STRUCTURE DATA
+  # ============================================
+  CleanAndStructureDataFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-clean-structure-data'
+      Description: Normalize and structure raw trade logs
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-LambdaRoleArn'
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketName'
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: 
+          Fn::ImportValue: !Sub '${ProjectName}-${Environment}-ArtifactsBucket'
+        S3Key: lambda-code/clean_and_structure_trade_data.zip
+      Layers:
+        - !Ref CommonDependenciesLayer
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Agent
+          Value: Agent1-DataIngestion
+
+  # ============================================
+  # LAMBDA 2: CALCULATE WINRATE
+  # ============================================
+  CalculateWinrateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-calculate-winrate'
+      Description: Calculate win-rate from similar trades
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-LambdaRoleArn'
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          S3_BUCKET: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketName'
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: 
+          Fn::ImportValue: !Sub '${ProjectName}-${Environment}-ArtifactsBucket'
+        S3Key: lambda-code/calculate_winrate_statistics.zip
+      Layers:
+        - !Ref CommonDependenciesLayer
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Agent
+          Value: Agent2-DecisionEngine
+
+  # ============================================
+  # LAMBDA 3: RISK CONTROL
+  # ============================================
+  RiskControlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-risk-control'
+      Description: Evaluate trade risk and position sizing
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-LambdaRoleArn'
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          S3_BUCKET: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketName'
+          ENVIRONMENT: !Ref Environment
+          MAX_DAILY_LOSS: '1500'
+          MAX_POSITION_SIZE: '5'
+          MAX_LOSING_STREAK: '3'
+      Code:
+        S3Bucket: 
+          Fn::ImportValue: !Sub '${ProjectName}-${Environment}-ArtifactsBucket'
+        S3Key: lambda-code/risk_control_engine.zip
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Agent
+          Value: Agent3-RiskControl
+
+  # ============================================
+  # LAMBDA 4: LEARN FROM LOSSES
+  # ============================================
+  LearnFromLossesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-learn-from-losses'
+      Description: Analyze losing trades and update rules
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-LambdaRoleArn'
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-S3BucketName'
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: 
+          Fn::ImportValue: !Sub '${ProjectName}-${Environment}-ArtifactsBucket'
+        S3Key: lambda-code/learn_from_losses.zip
+      Layers:
+        - !Ref CommonDependenciesLayer
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Agent
+          Value: Agent4-Learning
+
+  # ============================================
+  # LAMBDA PERMISSIONS FOR BEDROCK
+  # ============================================
+  CleanDataBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CleanAndStructureDataFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  WinrateBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CalculateWinrateFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  RiskControlBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RiskControlFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  LearnFromLossesBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LearnFromLossesFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # ============================================
+  # BEDROCK AGENT 1: DATA INGESTION
+  # ============================================
+  DataIngestionAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub '${ProjectName}-${Environment}-agent1-data'
+      Description: Data Ingestion & Feature Builder Agent
+      AgentResourceRoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-BedrockAgentRoleArn'
+      FoundationModel: anthropic.claude-3-haiku-20240307-v1:0
+      IdleSessionTTLInSeconds: 300
+      Instruction: |
+        You are the Data Ingestion & Feature Builder agent for a SPY Futures trading system.
+        Your job is to process raw trade data and build features for analysis.
+        When asked to process data, call the clean_and_structure_trade_data function.
+      ActionGroups:
+        - ActionGroupName: DataIngestionActions
+          ActionGroupExecutor:
+            Lambda: !GetAtt CleanAndStructureDataFunction.Arn
+          Description: Actions for data processing
+          FunctionSchema:
+            Functions:
+              - Name: clean_and_structure_trade_data
+                Description: Process raw trade data from S3 and structure it for analysis
+                Parameters:
+                  source_prefix:
+                    Type: string
+                    Description: S3 prefix containing raw trade data files
+                    Required: true
+                  date_filter:
+                    Type: string
+                    Description: Optional date filter in YYYY-MM-DD format
+                    Required: false
+      Tags:
+        Agent: DataIngestion
+
+  # ============================================
+  # BEDROCK AGENT 2: DECISION ENGINE
+  # ============================================
+  DecisionEngineAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub '${ProjectName}-${Environment}-agent2-decision'
+      Description: RAG + Similarity Search Decision Engine
+      AgentResourceRoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-BedrockAgentRoleArn'
+      FoundationModel: anthropic.claude-3-haiku-20240307-v1:0
+      IdleSessionTTLInSeconds: 300
+      Instruction: |
+        You are the Decision Engine for a SPY Futures trading system.
+        Use the knowledge base to find similar historical patterns and generate trading decisions.
+        Return BUY, SELL, or WAIT with confidence scores and reasoning.
+      KnowledgeBases:
+        - KnowledgeBaseId: !Ref TradingKnowledgeBase
+          Description: Trading patterns knowledge base
+      ActionGroups:
+        - ActionGroupName: DecisionActions
+          ActionGroupExecutor:
+            Lambda: !GetAtt CalculateWinrateFunction.Arn
+          Description: Calculate win-rate statistics
+          FunctionSchema:
+            Functions:
+              - Name: calculate_winrate_statistics
+                Description: Calculate win-rate statistics for similar historical patterns
+                Parameters:
+                  pattern_type:
+                    Type: string
+                    Description: Type of pattern to analyze (e.g., breakout, reversal, continuation)
+                    Required: true
+                  timeframe:
+                    Type: string
+                    Description: Timeframe for analysis (e.g., 1h, 4h, 1d)
+                    Required: false
+                  lookback_days:
+                    Type: integer
+                    Description: Number of days to look back for statistics
+                    Required: false
+      Tags:
+        Agent: DecisionEngine
+
+  # ============================================
+  # BEDROCK AGENT 3: RISK CONTROL
+  # ============================================
+  RiskControlAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub '${ProjectName}-${Environment}-agent3-risk'
+      Description: Risk & Position Sizing Agent
+      AgentResourceRoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-BedrockAgentRoleArn'
+      FoundationModel: anthropic.claude-3-haiku-20240307-v1:0
+      IdleSessionTTLInSeconds: 300
+      Instruction: |
+        You are the Risk Control agent for a SPY Futures trading system.
+        Evaluate trade safety, calculate position sizes, and enforce risk limits.
+        Max 2% risk per trade, 3% daily loss limit, halt after 3 consecutive losses.
+      ActionGroups:
+        - ActionGroupName: RiskActions
+          ActionGroupExecutor:
+            Lambda: !GetAtt RiskControlFunction.Arn
+          Description: Risk control actions
+          FunctionSchema:
+            Functions:
+              - Name: evaluate_risk
+                Description: Evaluate risk for a proposed trade and calculate position size
+                Parameters:
+                  action:
+                    Type: string
+                    Description: Trade action (BUY or SELL)
+                    Required: true
+                  entry_price:
+                    Type: number
+                    Description: Proposed entry price
+                    Required: true
+                  stop_loss:
+                    Type: number
+                    Description: Stop loss price
+                    Required: true
+                  account_balance:
+                    Type: number
+                    Description: Current account balance
+                    Required: false
+      Tags:
+        Agent: RiskControl
+
+  # ============================================
+  # BEDROCK AGENT 4: LEARNING
+  # ============================================
+  LearningAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub '${ProjectName}-${Environment}-agent4-learning'
+      Description: Strategy Optimization & Learning Agent
+      AgentResourceRoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-BedrockAgentRoleArn'
+      FoundationModel: anthropic.claude-3-sonnet-20240229-v1:0
+      IdleSessionTTLInSeconds: 300
+      Instruction: |
+        You are the Learning agent for a SPY Futures trading system.
+        Analyze losing trades to identify patterns and generate avoidance rules.
+        Update the rules.json file with new patterns to avoid.
+      KnowledgeBases:
+        - KnowledgeBaseId: !Ref TradingKnowledgeBase
+          Description: Trading patterns knowledge base
+      ActionGroups:
+        - ActionGroupName: LearningActions
+          ActionGroupExecutor:
+            Lambda: !GetAtt LearnFromLossesFunction.Arn
+          Description: Learning and pattern analysis
+          FunctionSchema:
+            Functions:
+              - Name: analyze_losses
+                Description: Analyze losing trades and identify patterns to avoid
+                Parameters:
+                  start_date:
+                    Type: string
+                    Description: Start date for analysis (YYYY-MM-DD)
+                    Required: false
+                  end_date:
+                    Type: string
+                    Description: End date for analysis (YYYY-MM-DD)
+                    Required: false
+                  min_loss_threshold:
+                    Type: number
+                    Description: Minimum loss amount to include in analysis
+                    Required: false
+      Tags:
+        Agent: Learning
+
+  # ============================================
+  # STEP FUNCTION: SIGNAL FLOW
+  # ============================================
+  SignalFlowStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}-signal-flow'
+      RoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-StepFunctionsRoleArn'
+      DefinitionString: !Sub |
+        {
+          "Comment": "Signal Flow - Trading Decision Workflow",
+          "StartAt": "DecisionEngine",
+          "States": {
+            "DecisionEngine": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CalculateWinrateFunction.Arn}",
+                "Payload": {
+                  "action": "decision",
+                  "input.$": "$.input",
+                  "agent_id": "${DecisionEngineAgent.AgentId}"
+                }
+              },
+              "ResultSelector": {
+                "decision.$": "$.Payload"
+              },
+              "ResultPath": "$.decision_result",
+              "Next": "CheckDecision"
+            },
+            "CheckDecision": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.decision_result.decision.action",
+                  "StringEquals": "WAIT",
+                  "Next": "WaitDecision"
+                }
+              ],
+              "Default": "RiskControl"
+            },
+            "WaitDecision": {
+              "Type": "Pass",
+              "Result": {"status": "WAIT", "approved": false},
+              "End": true
+            },
+            "RiskControl": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${RiskControlFunction.Arn}",
+                "Payload": {
+                  "action": "evaluate",
+                  "decision.$": "$.decision_result.decision",
+                  "agent_id": "${RiskControlAgent.AgentId}"
+                }
+              },
+              "ResultSelector": {
+                "risk.$": "$.Payload"
+              },
+              "ResultPath": "$.risk_result",
+              "Next": "FinalDecision"
+            },
+            "FinalDecision": {
+              "Type": "Pass",
+              "Parameters": {
+                "status": "COMPLETE",
+                "decision.$": "$.decision_result.decision",
+                "risk.$": "$.risk_result.risk"
+              },
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # STEP FUNCTION: NIGHTLY FLOW
+  # ============================================
+  NightlyFlowStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}-nightly-flow'
+      RoleArn: 
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-StepFunctionsRoleArn'
+      DefinitionString: !Sub |
+        {
+          "Comment": "Nightly Flow - Data Ingestion and Learning",
+          "StartAt": "DataIngestion",
+          "States": {
+            "DataIngestion": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CleanAndStructureDataFunction.Arn}",
+                "Payload": {
+                  "action": "ingest",
+                  "source_prefix": "raw/",
+                  "agent_id": "${DataIngestionAgent.AgentId}"
+                }
+              },
+              "ResultSelector": {
+                "ingestion.$": "$.Payload"
+              },
+              "ResultPath": "$.ingestion_result",
+              "Next": "WaitForSync"
+            },
+            "WaitForSync": {
+              "Type": "Wait",
+              "Seconds": 60,
+              "Next": "SyncKnowledgeBase"
+            },
+            "SyncKnowledgeBase": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:bedrockagent:startIngestionJob",
+              "Parameters": {
+                "DataSourceId": "${StructuredDataSource}",
+                "KnowledgeBaseId": "${TradingKnowledgeBase}"
+              },
+              "ResultPath": "$.kb_sync",
+              "Next": "WaitForKBSync"
+            },
+            "WaitForKBSync": {
+              "Type": "Wait",
+              "Seconds": 300,
+              "Next": "LearningAnalysis"
+            },
+            "LearningAnalysis": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${LearnFromLossesFunction.Arn}",
+                "Payload": {
+                  "action": "analyze",
+                  "agent_id": "${LearningAgent.AgentId}"
+                }
+              },
+              "ResultSelector": {
+                "learning.$": "$.Payload"
+              },
+              "ResultPath": "$.learning_result",
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ============================================
+  # EVENTBRIDGE: NIGHTLY TRIGGER
+  # ============================================
+  NightlyTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-nightly-trigger'
+      Description: Trigger nightly batch processing at 8 PM EST
+      ScheduleExpression: 'cron(0 1 ? * TUE-SAT *)'
+      State: ENABLED
+      Targets:
+        - Id: NightlyFlowTarget
+          Arn: !Ref NightlyFlowStateMachine
+          RoleArn: 
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-EventBridgeRoleArn'
+          Input: '{"trigger": "nightly", "type": "scheduled"}'
+
+Outputs:
+  KnowledgeBaseId:
+    Description: Knowledge Base ID
+    Value: !Ref TradingKnowledgeBase
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-KnowledgeBaseId'
+
+  Agent1Id:
+    Description: Data Ingestion Agent ID
+    Value: !GetAtt DataIngestionAgent.AgentId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent1Id'
+
+  Agent2Id:
+    Description: Decision Engine Agent ID
+    Value: !GetAtt DecisionEngineAgent.AgentId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent2Id'
+
+  Agent3Id:
+    Description: Risk Control Agent ID
+    Value: !GetAtt RiskControlAgent.AgentId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent3Id'
+
+  Agent4Id:
+    Description: Learning Agent ID
+    Value: !GetAtt LearningAgent.AgentId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-Agent4Id'
+
+  SignalFlowArn:
+    Description: Signal Flow State Machine ARN
+    Value: !Ref SignalFlowStateMachine
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SignalFlowArn'
+
+  NightlyFlowArn:
+    Description: Nightly Flow State Machine ARN
+    Value: !Ref NightlyFlowStateMachine
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-NightlyFlowArn'
+
+  CleanDataLambdaArn:
+    Description: Clean Data Lambda ARN
+    Value: !GetAtt CleanAndStructureDataFunction.Arn
+
+  WinrateLambdaArn:
+    Description: Winrate Lambda ARN
+    Value: !GetAtt CalculateWinrateFunction.Arn
+
+  RiskControlLambdaArn:
+    Description: Risk Control Lambda ARN
+    Value: !GetAtt RiskControlFunction.Arn
+
+  LearnFromLossesLambdaArn:
+    Description: Learn From Losses Lambda ARN
+    Value: !GetAtt LearnFromLossesFunction.Arn

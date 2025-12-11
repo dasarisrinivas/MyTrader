@@ -1,0 +1,223 @@
+{
+  "Comment": "Nightly Batch Flow - Data ingestion and learning workflow",
+  "StartAt": "InvokeDataIngestion",
+  "States": {
+    "InvokeDataIngestion": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeAgent",
+      "Parameters": {
+        "AgentId.$": "$.agent_ids.data_ingestion",
+        "AgentAliasId": "TSTALIASID",
+        "SessionId.$": "$.session_id",
+        "InputText.$": "States.Format('Process today\\'s trading data. Date: {}. Process raw files from /raw/ prefix, clean and structure them to /structured/ prefix.', $.date)"
+      },
+      "ResultPath": "$.ingestion_result",
+      "Next": "WaitForKBSync",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "IngestionError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "WaitForKBSync": {
+      "Type": "Wait",
+      "Seconds": 300,
+      "Comment": "Wait 5 minutes for Knowledge Base to sync new data",
+      "Next": "TriggerKBSync"
+    },
+    "TriggerKBSync": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:bedrockagent:startIngestionJob",
+      "Parameters": {
+        "KnowledgeBaseId.$": "$.knowledge_base_id",
+        "DataSourceId.$": "$.data_source_id"
+      },
+      "ResultPath": "$.kb_sync_result",
+      "Next": "WaitForKBComplete",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "KBSyncError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "WaitForKBComplete": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Comment": "Wait for KB ingestion to complete",
+      "Next": "GetDailyPnL"
+    },
+    "GetDailyPnL": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+      "Parameters": {
+        "Bucket.$": "$.s3_bucket",
+        "Key.$": "States.Format('pnl/pnl_{}.json', $.date)"
+      },
+      "ResultPath": "$.pnl_data",
+      "ResultSelector": {
+        "body.$": "States.StringToJson($.Body)"
+      },
+      "Next": "CheckForLosses",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NoPnLData",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "NoPnLData": {
+      "Type": "Pass",
+      "Parameters": {
+        "pnl_data": {
+          "body": {
+            "total_pnl": 0,
+            "trades": [],
+            "losing_trades": []
+          }
+        }
+      },
+      "ResultPath": "$.pnl_data",
+      "Next": "CheckForLosses"
+    },
+    "CheckForLosses": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.pnl_data.body.total_pnl",
+          "NumericLessThan": 0,
+          "Next": "InvokeLearningAgent"
+        }
+      ],
+      "Default": "SkipLearning"
+    },
+    "SkipLearning": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "COMPLETED",
+        "learning_skipped": true,
+        "reason": "No losses today - learning skipped",
+        "ingestion_result.$": "$.ingestion_result"
+      },
+      "End": true
+    },
+    "InvokeLearningAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeAgent",
+      "Parameters": {
+        "AgentId.$": "$.agent_ids.learning",
+        "AgentAliasId": "TSTALIASID",
+        "SessionId.$": "$.session_id",
+        "InputText.$": "States.Format('Analyze today\\'s losing trades and generate avoidance rules. Date: {}. P&L Data: {}', $.date, States.JsonToString($.pnl_data.body))"
+      },
+      "ResultPath": "$.learning_result",
+      "Next": "UpdateRules",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "LearningError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "UpdateRules": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.lambda_arns.learn_from_losses",
+        "Payload": {
+          "action": "update_rules",
+          "learning_result.$": "$.learning_result.completion",
+          "date.$": "$.date"
+        }
+      },
+      "ResultPath": "$.rules_update_result",
+      "Next": "NightlyComplete",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "RulesUpdateError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "NightlyComplete": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "COMPLETED",
+        "learning_skipped": false,
+        "ingestion_result.$": "$.ingestion_result",
+        "learning_result.$": "$.learning_result",
+        "rules_updated": true
+      },
+      "End": true
+    },
+    "IngestionError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn.$": "$.sns_topic_arn",
+        "Subject": "Trading Bot - Data Ingestion Error",
+        "Message.$": "States.Format('Data ingestion failed for date: {}. Error: {}', $.date, States.JsonToString($.error))"
+      },
+      "ResultPath": "$.notification_result",
+      "Next": "IngestionFailed"
+    },
+    "IngestionFailed": {
+      "Type": "Fail",
+      "Error": "IngestionError",
+      "Cause": "Data ingestion agent failed"
+    },
+    "KBSyncError": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "PARTIAL",
+        "kb_sync_failed": true,
+        "error.$": "$.error",
+        "ingestion_result.$": "$.ingestion_result"
+      },
+      "End": true
+    },
+    "LearningError": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "PARTIAL",
+        "learning_failed": true,
+        "error.$": "$.error",
+        "ingestion_result.$": "$.ingestion_result"
+      },
+      "End": true
+    },
+    "RulesUpdateError": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "PARTIAL",
+        "rules_update_failed": true,
+        "error.$": "$.error",
+        "ingestion_result.$": "$.ingestion_result",
+        "learning_result.$": "$.learning_result"
+      },
+      "End": true
+    }
+  }
+}

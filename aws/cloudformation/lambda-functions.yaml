@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lambda Functions for Trading Bot Multi-Agent Architecture'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  LambdaExecutionRoleArn:
+    Type: String
+    Description: Lambda execution role ARN
+
+  S3BucketName:
+    Type: String
+    Description: S3 bucket name for data storage
+
+  ArtifactsBucket:
+    Type: String
+    Description: S3 bucket containing Lambda code and layers
+
+Resources:
+  # ============================================
+  # LAMBDA LAYER FOR COMMON DEPENDENCIES
+  # ============================================
+  CommonDependenciesLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub '${ProjectName}-${Environment}-common-deps'
+      Description: Common dependencies for trading bot lambdas (pyarrow, pandas, numpy)
+      CompatibleRuntimes:
+        - python3.12
+      Content:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: lambda-layers/common-deps.zip
+      LicenseInfo: MIT
+
+  # ============================================
+  # LAMBDA 1: CLEAN AND STRUCTURE TRADE DATA
+  # ============================================
+  CleanAndStructureDataFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-clean-structure-data'
+      Description: Normalize and structure raw trade logs into Parquet and JSON
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3BucketName
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: INFO
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: lambda-code/clean_and_structure_trade_data.zip
+      Layers:
+        - !Ref CommonDependenciesLayer
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Agent
+          Value: Agent1-DataIngestion
+
+  # ============================================
+  # LAMBDA 2: CALCULATE WINRATE STATISTICS
+  # ============================================
+  CalculateWinrateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-calculate-winrate'
+      Description: Calculate win-rate and PnL statistics from similar trades
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3BucketName
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: INFO
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: lambda-code/calculate_winrate_statistics.zip
+      Layers:
+        - !Ref CommonDependenciesLayer
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Agent
+          Value: Agent2-DecisionEngine
+
+  # ============================================
+  # LAMBDA 3: RISK CONTROL ENGINE
+  # ============================================
+  RiskControlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-risk-control'
+      Description: Evaluate trade risk and determine position sizing
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3BucketName
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: INFO
+          MAX_DAILY_LOSS: '1500'
+          MAX_POSITION_SIZE: '5'
+          MAX_LOSING_STREAK: '3'
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: lambda-code/risk_control_engine.zip
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Agent
+          Value: Agent3-RiskControl
+
+  # ============================================
+  # LAMBDA 4: LEARN FROM LOSSES
+  # ============================================
+  LearnFromLossesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-learn-from-losses'
+      Description: Analyze losing trades and update strategy rules
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3BucketName
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: INFO
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: lambda-code/learn_from_losses.zip
+      Layers:
+        - !Ref CommonDependenciesLayer
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Agent
+          Value: Agent4-Learning
+
+  # ============================================
+  # LAMBDA PERMISSIONS FOR BEDROCK AGENTS
+  # ============================================
+  CleanDataBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CleanAndStructureDataFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  WinrateBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CalculateWinrateFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  RiskControlBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RiskControlFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  LearnFromLossesBedrockPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LearnFromLossesFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+Outputs:
+  CleanDataLambdaArn:
+    Description: Clean and Structure Data Lambda ARN
+    Value: !GetAtt CleanAndStructureDataFunction.Arn
+
+  CleanDataLambdaName:
+    Description: Clean and Structure Data Lambda Name
+    Value: !Ref CleanAndStructureDataFunction
+
+  WinrateLambdaArn:
+    Description: Calculate Winrate Lambda ARN
+    Value: !GetAtt CalculateWinrateFunction.Arn
+
+  WinrateLambdaName:
+    Description: Calculate Winrate Lambda Name
+    Value: !Ref CalculateWinrateFunction
+
+  RiskControlLambdaArn:
+    Description: Risk Control Lambda ARN
+    Value: !GetAtt RiskControlFunction.Arn
+
+  RiskControlLambdaName:
+    Description: Risk Control Lambda Name
+    Value: !Ref RiskControlFunction
+
+  LearnFromLossesLambdaArn:
+    Description: Learn From Losses Lambda ARN
+    Value: !GetAtt LearnFromLossesFunction.Arn
+
+  LearnFromLossesLambdaName:
+    Description: Learn From Losses Lambda Name
+    Value: !Ref LearnFromLossesFunction

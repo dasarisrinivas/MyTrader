@@ -177,6 +177,33 @@ class HybridConfig:
 
 
 @dataclass
+class AWSAgentsConfig:
+    """Configuration for AWS Bedrock Agents (multi-agent decision system)."""
+    # Master enable/disable
+    enabled: bool = field(default_factory=lambda: os.environ.get("AWS_AGENTS_ENABLED", "False").lower() == "true")
+    
+    # Configuration source
+    use_deployed_config: bool = True  # Auto-load from deployed_resources.yaml
+    config_path: str = "aws/config/deployed_resources.yaml"
+    
+    # Manual configuration (used if use_deployed_config=false)
+    region_name: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-east-1"))
+    
+    # Agent IDs (filled automatically from deployed_resources.yaml)
+    data_agent_id: str = ""
+    data_agent_alias: str = ""
+    decision_agent_id: str = ""
+    decision_agent_alias: str = ""
+    risk_agent_id: str = ""
+    risk_agent_alias: str = ""
+    learning_agent_id: str = ""
+    learning_agent_alias: str = ""
+    
+    # Knowledge Base
+    knowledge_base_id: str = ""
+
+
+@dataclass
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
@@ -187,6 +214,7 @@ class Settings:
     rag: RAGConfig = field(default_factory=RAGConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     hybrid: HybridConfig = field(default_factory=HybridConfig)
+    aws_agents: AWSAgentsConfig = field(default_factory=AWSAgentsConfig)
 
     def validate(self) -> None:
         if self.trading.initial_capital <= 0:

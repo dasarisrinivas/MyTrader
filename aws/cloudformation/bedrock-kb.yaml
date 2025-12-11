@@ -1,0 +1,413 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bedrock Knowledge Base for Trading Bot'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  S3BucketArn:
+    Type: String
+    Description: S3 Bucket ARN
+
+  S3BucketName:
+    Type: String
+    Description: S3 Bucket Name
+
+  BedrockKBRoleArn:
+    Type: String
+    Description: Bedrock Knowledge Base Role ARN
+
+  LambdaExecutionRoleArn:
+    Type: String
+    Description: Lambda execution role ARN for custom resource
+
+Resources:
+  # ============================================
+  # OPENSEARCH SERVERLESS COLLECTION
+  # For vector storage
+  # ============================================
+  VectorCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: 
+      - VectorSecurityPolicy
+      - VectorNetworkPolicy
+      - VectorDataAccessPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-vectors'
+      Description: Vector store for trading bot knowledge base
+      Type: VECTORSEARCH
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================
+  # OPENSEARCH SERVERLESS ENCRYPTION POLICY
+  # ============================================
+  VectorSecurityPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-encryption'
+      Type: encryption
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/${ProjectName}-${Environment}-vectors"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  # ============================================
+  # OPENSEARCH SERVERLESS NETWORK POLICY
+  # ============================================
+  VectorNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-network'
+      Type: network
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${ProjectName}-${Environment}-vectors"]
+              },
+              {
+                "ResourceType": "dashboard",
+                "Resource": ["collection/${ProjectName}-${Environment}-vectors"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  # ============================================
+  # OPENSEARCH SERVERLESS DATA ACCESS POLICY
+  # ============================================
+  VectorDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-data-access'
+      Type: data
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${ProjectName}-${Environment}-vectors/*"],
+                "Permission": ["aoss:*"]
+              },
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${ProjectName}-${Environment}-vectors"],
+                "Permission": ["aoss:*"]
+              }
+            ],
+            "Principal": ["arn:aws:iam::${AWS::AccountId}:root", "${BedrockKBRoleArn}", "${LambdaExecutionRoleArn}"]
+          }
+        ]
+
+  # ============================================
+  # LAMBDA FOR CREATING OPENSEARCH INDEX
+  # ============================================
+  CreateIndexFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: VectorDataAccessPolicy
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-create-os-index'
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 600
+      MemorySize: 256
+      Environment:
+        Variables:
+          COLLECTION_ENDPOINT: !GetAtt VectorCollection.CollectionEndpoint
+          INDEX_NAME: !Sub '${ProjectName}-trading-index'
+          COLLECTION_NAME: !Sub '${ProjectName}-${Environment}-vectors'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib3
+          import os
+          import time
+          import cfnresponse
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+          
+          def handler(event, context):
+              print(f"Event: {json.dumps(event)}")
+              
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+              
+              try:
+                  endpoint = os.environ['COLLECTION_ENDPOINT']
+                  index_name = os.environ['INDEX_NAME']
+                  collection_name = os.environ['COLLECTION_NAME']
+                  region = os.environ.get('AWS_REGION', 'us-east-1')
+                  
+                  # Wait for collection to be ACTIVE
+                  aoss_client = boto3.client('opensearchserverless', region_name=region)
+                  print("Waiting for collection to be ACTIVE...")
+                  for i in range(30):
+                      try:
+                          response = aoss_client.batch_get_collection(names=[collection_name])
+                          if response['collectionDetails']:
+                              status = response['collectionDetails'][0].get('status')
+                              print(f"Collection status: {status}")
+                              if status == 'ACTIVE':
+                                  print("Collection is ACTIVE!")
+                                  break
+                      except Exception as e:
+                          print(f"Error checking collection: {e}")
+                      time.sleep(10)
+                  
+                  # Wait additional time for data access policy to propagate
+                  print("Waiting 120 seconds for data access policy to propagate...")
+                  time.sleep(120)
+                  
+                  # Create index mapping for vector search
+                  index_body = {
+                      "settings": {
+                          "index": {
+                              "knn": True,
+                              "knn.algo_param.ef_search": 512
+                          }
+                      },
+                      "mappings": {
+                          "properties": {
+                              "embedding": {
+                                  "type": "knn_vector",
+                                  "dimension": 1024,
+                                  "method": {
+                                      "name": "hnsw",
+                                      "space_type": "l2",
+                                      "engine": "faiss",
+                                      "parameters": {
+                                          "ef_construction": 512,
+                                          "m": 16
+                                      }
+                                  }
+                              },
+                              "text": {"type": "text"},
+                              "metadata": {"type": "text"}
+                          }
+                      }
+                  }
+                  
+                  # Retry logic with longer waits
+                  max_retries = 10
+                  for attempt in range(max_retries):
+                      try:
+                          session = boto3.Session()
+                          credentials = session.get_credentials()
+                          
+                          url = f"{endpoint}/{index_name}"
+                          headers = {"Content-Type": "application/json"}
+                          
+                          request = AWSRequest(method='PUT', url=url, data=json.dumps(index_body), headers=headers)
+                          SigV4Auth(credentials, 'aoss', region).add_auth(request)
+                          
+                          http = urllib3.PoolManager()
+                          response = http.request(
+                              'PUT',
+                              url,
+                              body=json.dumps(index_body),
+                              headers=dict(request.headers)
+                          )
+                          
+                          print(f"Attempt {attempt+1} - Response status: {response.status}")
+                          print(f"Response body: {response.data.decode('utf-8')}")
+                          
+                          if response.status in [200, 201]:
+                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {"IndexName": index_name})
+                              return
+                          elif response.status == 400 and "already exists" in response.data.decode('utf-8').lower():
+                              print("Index already exists, continuing...")
+                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {"IndexName": index_name})
+                              return
+                          elif response.status == 403:
+                              print(f"Access denied, waiting 30s and retrying... (attempt {attempt+1}/{max_retries})")
+                              time.sleep(30)
+                          else:
+                              cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": response.data.decode('utf-8')})
+                              return
+                      except Exception as retry_error:
+                          print(f"Attempt {attempt+1} failed: {str(retry_error)}")
+                          if attempt < max_retries - 1:
+                              time.sleep(30)
+                          else:
+                              raise
+                  
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": "Max retries exceeded"})
+                      
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+
+  # ============================================
+  # CUSTOM RESOURCE TO CREATE INDEX
+  # ============================================
+  CreateIndexCustomResource:
+    Type: Custom::CreateOpenSearchIndex
+    DependsOn: 
+      - VectorCollection
+      - VectorDataAccessPolicy
+    Properties:
+      ServiceToken: !GetAtt CreateIndexFunction.Arn
+
+  # ============================================
+  # BEDROCK KNOWLEDGE BASE
+  # ============================================
+  TradingKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    DependsOn: CreateIndexCustomResource
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-trading-kb'
+      Description: Knowledge base for trading patterns, historical trades, and market insights
+      RoleArn: !Ref BedrockKBRoleArn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !GetAtt VectorCollection.Arn
+          VectorIndexName: !Sub '${ProjectName}-trading-index'
+          FieldMapping:
+            VectorField: embedding
+            TextField: text
+            MetadataField: metadata
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ============================================
+  # S3 DATA SOURCE FOR KNOWLEDGE BASE
+  # ============================================
+  StructuredDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-structured-data'
+      Description: Structured trade data and features
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Ref S3BucketArn
+          InclusionPrefixes:
+            - 'structured/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 512
+            OverlapPercentage: 20
+
+  # ============================================
+  # KB DATA SOURCE FOR KB DOCUMENTS
+  # ============================================
+  KBDocsDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-kb-docs'
+      Description: Knowledge base documents
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Ref S3BucketArn
+          InclusionPrefixes:
+            - 'kb/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 512
+            OverlapPercentage: 20
+
+  # ============================================
+  # KB DATA SOURCE FOR STRATEGY RULES
+  # ============================================
+  StrategyDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-strategy-data'
+      Description: Strategy rules
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Ref S3BucketArn
+          InclusionPrefixes:
+            - 'strategy/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: NONE
+
+  # ============================================
+  # KB DATA SOURCE FOR BAD PATTERNS
+  # ============================================
+  BadPatternsDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref TradingKnowledgeBase
+      Name: !Sub '${ProjectName}-bad-patterns'
+      Description: Bad patterns to avoid
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Ref S3BucketArn
+          InclusionPrefixes:
+            - 'bad_patterns/'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: NONE
+
+Outputs:
+  KnowledgeBaseId:
+    Description: Knowledge Base ID
+    Value: !Ref TradingKnowledgeBase
+
+  KnowledgeBaseArn:
+    Description: Knowledge Base ARN
+    Value: !GetAtt TradingKnowledgeBase.KnowledgeBaseArn
+
+  VectorCollectionArn:
+    Description: Vector Collection ARN
+    Value: !GetAtt VectorCollection.Arn
+
+  VectorCollectionEndpoint:
+    Description: Vector Collection Endpoint
+    Value: !GetAtt VectorCollection.CollectionEndpoint
+
+  StructuredDataSourceId:
+    Description: Structured Data Source ID
+    Value: !Ref StructuredDataSource
+
+  KBDocsDataSourceId:
+    Description: KB Docs Data Source ID
+    Value: !Ref KBDocsDataSource
+
+  StrategyDataSourceId:
+    Description: Strategy Data Source ID
+    Value: !Ref StrategyDataSource
+
+  BadPatternsDataSourceId:
+    Description: Bad Patterns Data Source ID
+    Value: !Ref BadPatternsDataSource
