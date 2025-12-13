@@ -18,6 +18,7 @@ from mytrader.execution.guards import (  # pylint: disable=wrong-import-position
     should_block_on_wait,
     compute_trade_risk_dollars,
 )
+from mytrader.execution.order_builder import validate_bracket_prices  # pylint: disable=wrong-import-position
 
 
 @dataclass
@@ -115,9 +116,24 @@ def replay_guardrails(
     override_confidence: float,
     contract_multiplier: float,
     max_loss: float,
-) -> bool:
-    """Run guardrail logic over the parsed context."""
-    blocked = False
+    tick_size: float = 0.25,
+    min_distance_ticks: int = 4,
+) -> tuple[bool, dict]:
+    """Run guardrail logic over the parsed context.
+    
+    Returns:
+        (blocked, details): Tuple of (whether trade would be blocked, details dict)
+    """
+    details = {
+        "wait_blocked": False,
+        "missing_protection": False,
+        "invalid_bracket": False,
+        "insufficient_distance": False,
+        "excessive_risk": False,
+        "reasons": [],
+    }
+    
+    # Check 1: WAIT blocking
     if (
         context.decision == "WAIT"
         and context.signal_confidence is not None
@@ -129,13 +145,47 @@ def replay_guardrails(
             confidence=context.decision_confidence,
             size_multiplier=None,
         )
-        blocked = should_block_on_wait(
+        wait_blocked = should_block_on_wait(
             wait_ctx,
             block_on_wait=block_on_wait,
             override_confidence=override_confidence,
             signal_confidence=context.signal_confidence,
         )
+        if wait_blocked:
+            details["wait_blocked"] = True
+            details["reasons"].append("AWS_WAIT")
+    
+    # Check 2: Missing protection
     missing_protection = context.stop_loss is None or context.take_profit is None
+    if missing_protection:
+        details["missing_protection"] = True
+        details["reasons"].append("MISSING_PROTECTION")
+    
+    # Check 3: Bracket validation (if protection exists)
+    invalid_bracket = False
+    insufficient_distance = False
+    if not missing_protection and context.entry_price is not None:
+        action = context.request_action or context.signal_action or "BUY"
+        bracket_result = validate_bracket_prices(
+            action=action,
+            entry_price=context.entry_price,
+            stop_loss=context.stop_loss,
+            take_profit=context.take_profit,
+            tick_size=tick_size,
+            min_distance_ticks=min_distance_ticks,
+        )
+        if not bracket_result.valid:
+            invalid_bracket = True
+            details["invalid_bracket"] = True
+            details["reasons"].append(f"INVALID_BRACKET: {bracket_result.reason}")
+        else:
+            # Check if distances were adjusted (indicating insufficient distance)
+            if bracket_result.adjusted_fields:
+                insufficient_distance = True
+                details["insufficient_distance"] = True
+                details["reasons"].append(f"INSUFFICIENT_DISTANCE: {bracket_result.adjusted_fields}")
+    
+    # Check 4: Excessive risk
     excessive_risk = False
     if not missing_protection and context.entry_price is not None and context.stop_loss is not None:
         risk = compute_trade_risk_dollars(
@@ -143,8 +193,19 @@ def replay_guardrails(
             stop_loss=context.stop_loss,
             contract_multiplier=contract_multiplier,
         )
-        excessive_risk = risk > max_loss
-    return blocked or missing_protection or excessive_risk
+        if risk > max_loss:
+            excessive_risk = True
+            details["excessive_risk"] = True
+            details["reasons"].append(f"MAX_LOSS_CAP: ${risk:.2f} > ${max_loss:.2f}")
+    
+    blocked = (
+        details["wait_blocked"]
+        or details["missing_protection"]
+        or details["invalid_bracket"]
+        or details["excessive_risk"]
+    )
+    
+    return blocked, details
 
 
 def format_bool(value: bool) -> str:
@@ -159,6 +220,8 @@ if __name__ == "__main__":
     parser.add_argument("--override-confidence", type=float, default=0.75, help="Override threshold when WAIT is advisory-only")
     parser.add_argument("--max-loss", type=float, default=1250.0, help="Max per-trade dollar loss cap")
     parser.add_argument("--contract-multiplier", type=float, default=50.0, help="Contract multiplier for ES")
+    parser.add_argument("--tick-size", type=float, default=0.25, help="Tick size for ES (default 0.25)")
+    parser.add_argument("--min-distance-ticks", type=int, default=4, help="Minimum distance in ticks (default 4 = 1 point)")
     parser.add_argument("--verify-reduce-only", action="store_true", help="Also verify reduce-only exit logic based on position size")
     args = parser.parse_args()
 
@@ -183,18 +246,48 @@ if __name__ == "__main__":
             f"SL={ctx.stop_loss} TP={ctx.take_profit}"
         )
 
-    guard_triggered = replay_guardrails(
+    guard_triggered, details = replay_guardrails(
         context=ctx,
         block_on_wait=bool(args.block_on_wait),
         override_confidence=args.override_confidence,
         contract_multiplier=args.contract_multiplier,
         max_loss=args.max_loss,
+        tick_size=args.tick_size,
+        min_distance_ticks=args.min_distance_ticks,
     )
-    print(
-        f"   WAIT guard invoked: {format_bool(ctx.decision == 'WAIT' and bool(args.block_on_wait))}"
-    )
-    print(f"   Protective levels valid: {format_bool(ctx.stop_loss and ctx.take_profit is not None)}")
-    print(f"   Guardrails would block trade: {format_bool(guard_triggered)}")
+    
+    print("\n📊 Guardrail Analysis:")
+    print(f"   WAIT guard invoked: {format_bool(ctx.decision == 'WAIT' and bool(args.block_on_wait))}")
+    if ctx.decision == "WAIT":
+        print(f"   WAIT blocked: {format_bool(details['wait_blocked'])}")
+        if details['wait_blocked']:
+            print(f"      Reason: AWS WAIT decision (advisory_only={ctx.advisory_only})")
+    
+    print(f"   Protective levels present: {format_bool(ctx.stop_loss is not None and ctx.take_profit is not None)}")
+    if ctx.stop_loss is None or ctx.take_profit is None:
+        print(f"   Missing protection: {format_bool(details['missing_protection'])}")
+        if details['missing_protection']:
+            print(f"      SL={ctx.stop_loss}, TP={ctx.take_profit}")
+    
+    if ctx.entry_price and ctx.stop_loss and ctx.take_profit:
+        print(f"   Bracket validation: {format_bool(not details['invalid_bracket'])}")
+        if details['invalid_bracket']:
+            print(f"      Invalid bracket detected")
+        if details['insufficient_distance']:
+            print(f"      Insufficient distance (adjusted)")
+        
+        # Calculate risk
+        risk = compute_trade_risk_dollars(
+            entry_price=ctx.entry_price,
+            stop_loss=ctx.stop_loss,
+            contract_multiplier=args.contract_multiplier,
+        )
+        print(f"   Estimated risk: ${risk:.2f} (max: ${args.max_loss:.2f})")
+        print(f"   Risk within limit: {format_bool(not details['excessive_risk'])}")
+    
+    print(f"\n🛑 Guardrails would block trade: {format_bool(guard_triggered)}")
+    if details['reasons']:
+        print(f"   Blocking reasons: {', '.join(details['reasons'])}")
 
     exit_required_action = None
     if args.verify_reduce_only and ctx.position_qty is not None:

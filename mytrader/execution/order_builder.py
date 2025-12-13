@@ -22,6 +22,7 @@ def validate_bracket_prices(
     stop_loss: Optional[float],
     take_profit: Optional[float],
     tick_size: float,
+    min_distance_ticks: int = 4,
 ) -> BracketValidation:
     """
     Ensure protective orders are on the correct side of entry and respect tick spacing.
@@ -32,6 +33,7 @@ def validate_bracket_prices(
         stop_loss: Proposed stop price.
         take_profit: Proposed limit target.
         tick_size: Minimum tick size for the instrument.
+        min_distance_ticks: Minimum distance in ticks (default 4 = 1 point for ES).
 
     Returns:
         BracketValidation containing potentially adjusted prices.
@@ -66,7 +68,8 @@ def validate_bracket_prices(
         validations.append("take_profit")
 
     adjusted: list[str] = []
-    min_distance = max(tick_size, 1e-6)
+    # Enforce minimum distance in ticks to prevent immediate fills
+    min_distance = max(tick_size * min_distance_ticks, tick_size, 1e-6)
 
     def _clamp(value: float, prefer_above: bool) -> float:
         distance = abs(value - entry_price)

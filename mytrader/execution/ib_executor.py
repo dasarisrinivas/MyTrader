@@ -595,6 +595,68 @@ class TradeExecutor:
         except RuntimeError:
             pass  # No event loop, skip reconciliation
         
+        # EMERGENCY STOP CHECK: Verify bracket protection after entry fill
+        # Only check for entry orders (not exit orders which have metadata["exit_order"]=True)
+        order_meta = self.order_metadata.get(order_id, {})
+        is_exit_order = order_meta.get("exit_order", False)
+        targets = self.order_targets.get(order_id, {})
+        expected_stop_loss = targets.get('stop_loss')
+        expected_take_profit = targets.get('take_profit')
+        
+        if not is_exit_order and (expected_stop_loss is not None or expected_take_profit is not None):
+            # This is an entry order that should have bracket protection
+            # Check if bracket orders are active (children with parentId = order_id)
+            bracket_active = False
+            try:
+                # Check IB directly for active bracket orders
+                all_trades = self.ib.trades()
+                for t in all_trades:
+                    if hasattr(t.order, 'parentId') and t.order.parentId == order_id:
+                        if t.orderStatus.status not in ("Filled", "Cancelled", "Inactive"):
+                            bracket_active = True
+                            logger.debug(f"✅ Found active bracket order {t.order.orderId} for parent {order_id}")
+                            break
+                
+                # Also check active_orders dict for bracket children
+                if not bracket_active:
+                    for child_id, child_trade in self.active_orders.items():
+                        if hasattr(child_trade.order, 'parentId') and child_trade.order.parentId == order_id:
+                            if child_trade.orderStatus.status not in ("Filled", "Cancelled", "Inactive"):
+                                bracket_active = True
+                                logger.debug(f"✅ Found active bracket order {child_id} in active_orders for parent {order_id}")
+                                break
+            except Exception as bracket_check_error:
+                logger.warning(f"⚠️ Error checking bracket status: {bracket_check_error}")
+            
+            if not bracket_active and expected_stop_loss is not None:
+                # CRITICAL: Entry fill without bracket protection - place emergency stop
+                logger.error(
+                    f"🚨 EMERGENCY STOP REQUIRED: Entry order {order_id} filled @ {price} "
+                    f"but bracket orders missing or inactive. Expected SL={expected_stop_loss}"
+                )
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.ensure_future(self._place_emergency_stop(
+                            order_id=order_id,
+                            entry_price=price,
+                            entry_action=order.action,
+                            quantity=quantity,
+                            expected_stop_loss=expected_stop_loss,
+                            trade_cycle_id=order_meta.get("trade_cycle_id"),
+                        ))
+                    else:
+                        asyncio.create_task(self._place_emergency_stop(
+                            order_id=order_id,
+                            entry_price=price,
+                            entry_action=order.action,
+                            quantity=quantity,
+                            expected_stop_loss=expected_stop_loss,
+                            trade_cycle_id=order_meta.get("trade_cycle_id"),
+                        ))
+                except Exception as emergency_error:
+                    logger.critical(f"❌ FAILED to place emergency stop: {emergency_error}")
+        
         # Send Telegram notification (non-blocking)
         logger.info(f"📱 Checking Telegram: enabled={self.telegram.enabled if self.telegram else False}")
         if self.telegram and self.telegram.enabled:
@@ -603,15 +665,10 @@ class TradeExecutor:
                 current_position = self.positions.get(self.symbol)
                 position_qty = current_position.quantity if current_position else None
                 
-                # Get stop loss and take profit from stored order targets
-                targets = self.order_targets.get(order_id, {})
-                stop_loss = targets.get('stop_loss')
-                take_profit = targets.get('take_profit')
-                
                 # Determine side from order action
                 side = order.action  # "BUY" or "SELL"
                 
-                logger.info(f"📱 Sending Telegram alert: {side} {quantity} @ {price}, SL={stop_loss}, TP={take_profit}")
+                logger.info(f"📱 Sending Telegram alert: {side} {quantity} @ {price}, SL={expected_stop_loss}, TP={expected_take_profit}")
                 # Send notification in background (fire-and-forget)
                 self.telegram.send_trade_alert_background(
                     symbol=self.symbol,
@@ -623,8 +680,8 @@ class TradeExecutor:
                     order_id=order_id,
                     commission=commission,
                     realized_pnl=realized_pnl,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit
+                    stop_loss=expected_stop_loss,
+                    take_profit=expected_take_profit
                 )
                 logger.info(f"📱 Telegram alert queued successfully")
             except Exception as e:
@@ -1256,6 +1313,110 @@ class TradeExecutor:
             return True
         
         return False
+
+    async def _place_emergency_stop(
+        self,
+        order_id: int,
+        entry_price: float,
+        entry_action: str,
+        quantity: int,
+        expected_stop_loss: float,
+        trade_cycle_id: Optional[str] = None,
+    ) -> None:
+        """Place emergency stop loss when entry fill occurs without bracket protection.
+        
+        This is a safety mechanism to ensure positions are never left unprotected.
+        Idempotent: checks if stop already exists before placing.
+        """
+        try:
+            logger.warning(
+                f"🚨 Placing EMERGENCY STOP for order {order_id}: "
+                f"{entry_action} {quantity} @ {entry_price}, SL={expected_stop_loss}"
+            )
+            
+            # Check if stop already exists (idempotent check)
+            current_position = await self.get_current_position()
+            if not current_position or current_position.quantity == 0:
+                logger.warning("⚠️ No position found - emergency stop not needed")
+                return
+            
+            # Check if we already have an active stop order
+            all_trades = self.ib.trades()
+            has_active_stop = False
+            for t in all_trades:
+                if isinstance(t.order, (StopOrder, StopLimitOrder)):
+                    if t.orderStatus.status not in ("Filled", "Cancelled", "Inactive"):
+                        # Check if this stop is for our position
+                        if abs(t.order.totalQuantity) == abs(current_position.quantity):
+                            has_active_stop = True
+                            logger.info(f"✅ Active stop order {t.order.orderId} already exists")
+                            break
+            
+            if has_active_stop:
+                logger.info("✅ Emergency stop not needed - active stop already exists")
+                return
+            
+            # Determine stop action (opposite of entry)
+            stop_action = "SELL" if entry_action == "BUY" else "BUY"
+            
+            # Get contract
+            contract = await self.get_qualified_contract()
+            if not contract:
+                logger.error("❌ Cannot place emergency stop - no contract available")
+                return
+            
+            # Place stop limit order (more reliable than stop market)
+            tick_size = self.config.tick_size
+            offset_ticks = 4  # Allow 1 point slippage
+            
+            if entry_action == "BUY":  # Long position, stop below
+                limit_price = expected_stop_loss - (offset_ticks * tick_size)
+            else:  # Short position, stop above
+                limit_price = expected_stop_loss + (offset_ticks * tick_size)
+            
+            sl_order = StopLimitOrder(stop_action, quantity, expected_stop_loss, limit_price)
+            sl_order.transmit = True
+            sl_order.outsideRth = True
+            
+            stop_trade = self.ib.placeOrder(contract, sl_order)
+            stop_order_id = stop_trade.order.orderId
+            
+            self.active_orders[stop_order_id] = stop_trade
+            self.order_creation_times[stop_order_id] = datetime.utcnow()
+            
+            # Record emergency stop in tracker
+            self.order_tracker.record_order_placement(
+                order_id=stop_order_id,
+                parent_order_id=order_id,
+                symbol=self.symbol,
+                action=stop_action,
+                quantity=quantity,
+                order_type="STOP_LIMIT",
+                stop_price=expected_stop_loss,
+                limit_price=limit_price,
+                trade_cycle_id=trade_cycle_id,
+            )
+            
+            logger.info(
+                f"✅ EMERGENCY STOP placed: order {stop_order_id} "
+                f"({stop_action} {quantity} @ stop={expected_stop_loss:.2f}, limit={limit_price:.2f})"
+            )
+            
+            # Send alert
+            if self.telegram and self.telegram.enabled:
+                try:
+                    self.telegram.send_message(
+                        f"🚨 EMERGENCY STOP placed for unprotected position:\n"
+                        f"Entry: {entry_action} {quantity} @ {entry_price:.2f} (order {order_id})\n"
+                        f"Stop: {stop_action} {quantity} @ {expected_stop_loss:.2f} (order {stop_order_id})"
+                    )
+                except Exception:
+                    pass  # Don't fail on Telegram errors
+            
+        except Exception as e:
+            logger.critical(f"❌ CRITICAL: Failed to place emergency stop: {e}")
+            import traceback
+            logger.critical(traceback.format_exc())
 
     async def get_current_price(self) -> float | None:
         """Get current market price for the contract."""

@@ -203,6 +203,7 @@ class LiveTradingManager:
         self.current_trade_entry_time: Optional[str] = None
         self.current_trade_entry_price: Optional[float] = None
         self.current_trade_features: Optional[Dict] = None
+        self._current_entry_cycle_id: Optional[str] = None  # Entry cycle ID for exit correlation
         self.current_trade_buckets: Optional[Dict] = None
         self.current_trade_rationale: Optional[Dict] = None
         self._open_trade_context: Optional[Dict[str, Any]] = None
@@ -1483,26 +1484,40 @@ TRADING GUIDANCE:
                         confidence=aws_confidence,
                         size_multiplier=aws_result.get('size_multiplier'),
                     )
-                    wait_should_block = False
-                    if self._enforce_wait_blocking:
-                        wait_should_block = should_block_on_wait(
-                            wait_ctx,
-                            self.settings.aws_agents.block_on_wait,
-                            self.settings.aws_agents.wait_override_confidence,
-                            signal.confidence,
-                        )
+                    # HARD GUARDRAIL: Always check WAIT blocking (default block_on_wait=True)
+                    # Only allow override if signal confidence exceeds threshold
+                    wait_should_block = should_block_on_wait(
+                        wait_ctx,
+                        self.settings.aws_agents.block_on_wait,
+                        self.settings.aws_agents.wait_override_confidence,
+                        signal.confidence,
+                    )
                     if wait_should_block:
                         self._add_reason_code("AWS_WAIT")
                         log_structured_event(
                             agent="live_manager",
                             event_type="aws.wait_block",
                             message="Trade blocked by WAIT advisory",
-                            payload={"trade_cycle_id": self._current_cycle_id},
+                            payload={
+                                "trade_cycle_id": self._current_cycle_id,
+                                "aws_decision": aws_decision,
+                                "signal_confidence": signal.confidence,
+                                "override_threshold": self.settings.aws_agents.wait_override_confidence,
+                            },
                             correlation_id=self._current_cycle_id,
+                        )
+                        logger.warning(
+                            f"🛑 Trade BLOCKED: AWS WAIT decision (conf={aws_confidence:.2%}, "
+                            f"signal_conf={signal.confidence:.2f}, threshold={self.settings.aws_agents.wait_override_confidence:.2f})"
                         )
                         return
                     elif aws_decision.upper() == "WAIT":
+                        # WAIT was overridden due to high signal confidence
                         self._add_reason_code("AWS_WAIT_OVERRIDE")
+                        logger.info(
+                            f"⚠️ AWS WAIT overridden: signal confidence {signal.confidence:.2f} > "
+                            f"threshold {self.settings.aws_agents.wait_override_confidence:.2f}"
+                        )
                     
                     force_block = bool(risk_flags and not aws_allowed)
                     
@@ -1579,28 +1594,62 @@ TRADING GUIDANCE:
         await self._place_hybrid_order(signal, pipeline_result, current_price, features)
     
     async def _place_exit_order(self, action: str, quantity: int, current_price: float):
-        """Place a market order to exit existing position."""
+        """Place a market order to exit existing position.
+        
+        SAFETY: Always uses reduce_only=True to prevent accidental position opening.
+        If exit order would open a new position, it is blocked.
+        """
         logger.info(f"🚪 Placing EXIT order request: {action} {quantity} contracts @ ~{current_price:.2f}")
         current_position = await self.executor.get_current_position() if self.executor else None
         if not current_position or current_position.quantity == 0:
             logger.warning("⚠️ Exit requested but no open position - skipping")
             return
+        
+        # Determine correct exit action based on current position (not signal action)
         exit_action = "SELL" if current_position.quantity > 0 else "BUY"
-        if action not in ("SELL", "BUY"):
-            exit_action = "SELL" if current_position.quantity > 0 else "BUY"
         exit_qty = min(quantity, abs(current_position.quantity))
-        logger.info(f"🚪 Placing EXIT order: {exit_action} {exit_qty} contracts")
+        
+        # SAFETY CHECK: If exit action would open opposite position, block it
+        if (current_position.quantity > 0 and exit_action == "BUY") or \
+           (current_position.quantity < 0 and exit_action == "SELL"):
+            logger.error(
+                f"🚨 EXIT ORDER BLOCKED: Would open position. "
+                f"Current: {current_position.quantity}, Exit action: {exit_action}"
+            )
+            self._add_reason_code("EXIT_WOULD_OPEN_POSITION")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.exit_blocked",
+                message="Exit order would open new position",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "current_position": current_position.quantity,
+                    "exit_action": exit_action,
+                },
+            )
+            return
+        
+        logger.info(f"🚪 Placing EXIT order: {exit_action} {exit_qty} contracts (reduce_only=True)")
+
+        # Get entry trade_cycle_id from position metadata if available
+        entry_cycle_id = getattr(current_position, 'entry_trade_cycle_id', None) or \
+                        getattr(self, '_current_entry_cycle_id', None) or \
+                        self._current_cycle_id
 
         try:
-            # Place market order to flatten position
+            # Place market order to flatten position - ALWAYS reduce_only=True
             order_id = await self.executor.place_order(
                 action=exit_action,  # BUY to close SHORT, SELL to close LONG
                 quantity=exit_qty,
                 limit_price=current_price,
                 stop_loss=None,  # No stops for exit orders
                 take_profit=None,
-                reduce_only=self._enforce_reduce_only_exits,
-                metadata={"trade_cycle_id": self._current_cycle_id},
+                reduce_only=True,  # HARD REQUIREMENT: Always reduce_only for exits
+                metadata={
+                    "trade_cycle_id": entry_cycle_id,  # Use entry cycle ID, not current
+                    "exit_order": True,
+                    "original_position": current_position.quantity,
+                },
             )
             
             logger.info(f"✅ Exit order placed: ID={order_id}")
@@ -2077,12 +2126,17 @@ TRADING GUIDANCE:
                 "yes" if fallback_used else "no",
             )
 
-            if self._enforce_entry_risk_checks and not self._validate_entry_guard(
-                current_price,
-                stop_loss,
-                take_profit,
-                qty,
+            # HARD GUARDRAIL: Always validate entry guard (not just when feature flag is on)
+            if not self._validate_entry_guard(
+                current_price, stop_loss, take_profit, qty, signal.action
             ):
+                self._add_reason_code("RISK_BLOCKED_INVALID_PROTECTION")
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="risk.entry_blocked",
+                    message="Entry blocked by hard guardrails",
+                    payload={"trade_cycle_id": self._current_cycle_id},
+                )
                 return
             
             # === Simulation mode check ===
@@ -2287,9 +2341,17 @@ TRADING GUIDANCE:
                 "yes" if metadata.get("atr_fallback_used") else "no",
             )
 
-            if self._enforce_entry_risk_checks and not self._validate_entry_guard(
-                current_price, stop_loss, take_profit, qty
+            # HARD GUARDRAIL: Always validate entry guard (not just when feature flag is on)
+            if not self._validate_entry_guard(
+                current_price, stop_loss, take_profit, qty, signal.action
             ):
+                self._add_reason_code("RISK_BLOCKED_INVALID_PROTECTION")
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="risk.entry_blocked",
+                    message="Entry blocked by hard guardrails",
+                    payload={"trade_cycle_id": self._current_cycle_id},
+                )
                 return
             
             # === NEW: Simulation mode check ===
@@ -2405,8 +2467,18 @@ TRADING GUIDANCE:
         stop_loss: Optional[float],
         take_profit: Optional[float],
         quantity: int,
+        action: str = "BUY",
     ) -> bool:
-        """Ensure we have sane protective levels and risk."""
+        """Ensure we have sane protective levels and risk.
+        
+        HARD GUARDRAILS (always enforced):
+        - Stop & target must exist and be > 0
+        - BUY: stop < entry < target
+        - SELL: target < entry < stop
+        - Minimum distance in ticks (configurable, default 4 ticks)
+        - Dollar risk must not exceed max_loss_per_trade
+        """
+        # Check 1: Must have both stop and target
         if stop_loss is None or take_profit is None:
             logger.warning("⚠️ Protective levels missing - rejecting trade")
             self._add_reason_code("MISSING_PROTECTION")
@@ -2417,10 +2489,65 @@ TRADING GUIDANCE:
                 payload={"trade_cycle_id": self._current_cycle_id},
             )
             return False
+        
+        # Check 2: Must be positive
         if stop_loss <= 0 or take_profit <= 0:
-            logger.warning("⚠️ Protective levels invalid - rejecting trade")
+            logger.warning("⚠️ Protective levels invalid (non-positive) - rejecting trade")
             self._add_reason_code("INVALID_PROTECTION")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.invalid_levels",
+                message="Non-positive stop/target",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                },
+            )
             return False
+        
+        # Check 3: Bracket orientation (BUY: stop < entry < target, SELL: target < entry < stop)
+        is_buy = action.upper() in ("BUY", "SCALP_BUY")
+        if is_buy:
+            if stop_loss >= entry_price:
+                logger.warning(f"⚠️ Invalid bracket: BUY stop_loss ({stop_loss}) >= entry ({entry_price})")
+                self._add_reason_code("INVALID_BRACKET")
+                return False
+            if take_profit <= entry_price:
+                logger.warning(f"⚠️ Invalid bracket: BUY take_profit ({take_profit}) <= entry ({entry_price})")
+                self._add_reason_code("INVALID_BRACKET")
+                return False
+        else:  # SELL
+            if stop_loss <= entry_price:
+                logger.warning(f"⚠️ Invalid bracket: SELL stop_loss ({stop_loss}) <= entry ({entry_price})")
+                self._add_reason_code("INVALID_BRACKET")
+                return False
+            if take_profit >= entry_price:
+                logger.warning(f"⚠️ Invalid bracket: SELL take_profit ({take_profit}) >= entry ({entry_price})")
+                self._add_reason_code("INVALID_BRACKET")
+                return False
+        
+        # Check 4: Minimum distance in ticks (default 4 ticks = 1 point for ES)
+        min_distance_ticks = 4  # Configurable via settings if needed
+        min_distance = self.settings.trading.tick_size * min_distance_ticks
+        sl_distance = abs(entry_price - stop_loss)
+        tp_distance = abs(take_profit - entry_price)
+        if sl_distance < min_distance:
+            logger.warning(
+                f"⚠️ Stop loss too close: {sl_distance:.2f} < {min_distance:.2f} "
+                f"(minimum {min_distance_ticks} ticks)"
+            )
+            self._add_reason_code("INSUFFICIENT_DISTANCE")
+            return False
+        if tp_distance < min_distance:
+            logger.warning(
+                f"⚠️ Take profit too close: {tp_distance:.2f} < {min_distance:.2f} "
+                f"(minimum {min_distance_ticks} ticks)"
+            )
+            self._add_reason_code("INSUFFICIENT_DISTANCE")
+            return False
+        
+        # Check 5: Dollar risk must not exceed max_loss_per_trade
         dollar_risk = compute_trade_risk_dollars(
             entry_price,
             stop_loss,
@@ -2443,6 +2570,7 @@ TRADING GUIDANCE:
                 },
             )
             return False
+        
         return True
 
     def _register_trade_entry(
@@ -2455,9 +2583,16 @@ TRADING GUIDANCE:
         take_profit: float,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Store trade context for learning + telemetry."""
+        """Store trade context for learning + telemetry.
+        
+        CRITICAL: Stores entry trade_cycle_id so exit orders can correlate back to entry.
+        """
         metadata = metadata or {}
         cycle_id = cycle_id or self._current_cycle_id or uuid.uuid4().hex[:12]
+        
+        # Store entry cycle ID for exit correlation
+        self._current_entry_cycle_id = cycle_id
+        
         context = self._cycle_context.get(cycle_id, {})
         is_long = action in ("BUY", "SCALP_BUY")
         self._open_trade_context = {
@@ -2479,6 +2614,8 @@ TRADING GUIDANCE:
         }
         reason_codes = context.get("reason_codes", set())
         self._active_reason_codes = set(reason_codes)
+        
+        logger.info(f"📝 Registered trade entry: cycle_id={cycle_id}, action={action}, qty={quantity}, entry={entry_price:.2f}")
 
     async def _finalize_trade(
         self,
@@ -2540,6 +2677,9 @@ TRADING GUIDANCE:
         self._open_trade_context = None
         self._active_reason_codes.clear()
         self._cycle_context.pop(payload.trade_cycle_id, None)
+        # Clear entry cycle ID when trade is finalized
+        if self._current_entry_cycle_id == payload.trade_cycle_id:
+            self._current_entry_cycle_id = None
 
     def _add_reason_code(self, code: str) -> None:
         if not code:
