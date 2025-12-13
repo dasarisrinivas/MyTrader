@@ -4,10 +4,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING, Any
 
 from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, StopLimitOrder, Trade
 
@@ -15,6 +16,7 @@ from ..config import TradingConfig
 from ..monitoring.order_tracker import OrderTracker
 from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
+from .order_builder import format_bracket_snapshot, validate_bracket_prices
 
 if TYPE_CHECKING:
     from .reconcile import ReconcileManager, ReconcileLock
@@ -82,6 +84,7 @@ class TradeExecutor:
         
         # Store stop loss / take profit for each order (for Telegram notifications)
         self.order_targets: Dict[int, Dict[str, float]] = {}  # {order_id: {'stop_loss': float, 'take_profit': float}}
+        self.order_metadata: Dict[int, Dict[str, Any]] = {}
         
         # Track order creation times to detect stuck orders
         self.order_creation_times: Dict[int, datetime] = {}  # {order_id: creation_time}
@@ -106,6 +109,10 @@ class TradeExecutor:
         
         # NEW: Initial state tracking (orders found on IB at startup)
         self._initial_state_order_ids: set = set()
+
+        # NEW: Hard order lock to prevent overlapping brackets
+        self._order_locked: bool = False
+        self._order_lock_reason: Optional[str] = None
         
         # Initialize PositionManager
         from .position_manager import PositionManager
@@ -137,6 +144,27 @@ class TradeExecutor:
         if self._reconcile_lock is None:
             return False
         return self._reconcile_lock.is_safe_mode()
+
+    def is_order_locked(self) -> bool:
+        """Expose order lock status to trading manager."""
+        return self._order_locked
+    
+    def get_order_lock_reason(self) -> Optional[str]:
+        """Return current order lock reason for telemetry."""
+        return self._order_lock_reason
+
+    def _engage_order_lock(self, reason: str) -> None:
+        """Engage hard order lock until bracket placement is confirmed."""
+        self._order_locked = True
+        self._order_lock_reason = reason
+        logger.warning(f"🔒 Order lock engaged: {reason}")
+
+    def _release_order_lock(self, context: str = "") -> None:
+        """Release the hard order lock."""
+        if self._order_locked:
+            logger.info(f"🔓 Order lock released ({context})")
+        self._order_locked = False
+        self._order_lock_reason = None
     
     def is_initial_state_order(self, order_id: int) -> bool:
         """Check if an order was found on IB at startup (external order)."""
@@ -614,6 +642,7 @@ class TradeExecutor:
         rationale: Dict | None = None,
         features: Dict | None = None,
         market_regime: str | None = None,
+        reduce_only: bool = False,
     ) -> OrderResult:
         """Place an order with optional bracket orders for risk management.
         
@@ -632,6 +661,21 @@ class TradeExecutor:
         
         if original_action != action:
             logger.info(f"📝 Converted action {original_action} -> {action} for IB API")
+
+        metadata = dict(metadata or {})
+        if reduce_only:
+            current_position = await self.get_current_position()
+            if not current_position or current_position.quantity == 0:
+                logger.warning("Reduce-only order requested but no open position")
+                from ib_insync import Trade as IBTrade
+                dummy_trade = IBTrade()
+                return OrderResult(trade=dummy_trade, status="Cancelled", message="No position to reduce")
+            required_action = "SELL" if current_position.quantity > 0 else "BUY"
+            if action != required_action:
+                logger.warning(f"Adjusting exit action {action} -> {required_action} for reduce-only order")
+                action = required_action
+            quantity = min(quantity, abs(current_position.quantity))
+            metadata["reduce_only"] = True
         
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
@@ -661,6 +705,15 @@ class TradeExecutor:
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Duplicate submission blocked")
+        
+        if self._order_locked:
+            logger.warning(
+                "Order lock active (%s) - rejecting new order request",
+                self._order_lock_reason or "pending bracket confirmation",
+            )
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(trade=dummy_trade, status="Cancelled", message="Order lock active")
         
         # Check connection health before placing order
         if not self.ib.isConnected():
@@ -742,8 +795,41 @@ class TradeExecutor:
         if metadata:
             order.orderRef = f"MyTrader_{metadata.get('signal_source', 'manual')}"
         
+        entry_price_estimate = limit_price if limit_price is not None else metadata.get("entry_price")
         bracket_children: list[Order] = []
         if stop_loss is not None or take_profit is not None:
+            validation = validate_bracket_prices(
+                action=action,
+                entry_price=entry_price_estimate,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                tick_size=self.config.tick_size,
+            )
+            if not validation.valid:
+                logger.error(f"❌ Bracket rejected: invalid protective levels ({validation.reason})")
+                self._log_reconcile_event(
+                    "bracket_rejected",
+                    {
+                        "action": action,
+                        "quantity": quantity,
+                        "entry_price": entry_price_estimate,
+                        "stop_loss": stop_loss,
+                        "take_profit": take_profit,
+                        "reason": validation.reason,
+                    },
+                    "ERROR",
+                )
+                from ib_insync import Trade as IBTrade
+                dummy_trade = IBTrade()
+                return OrderResult(trade=dummy_trade, status="Cancelled", message=validation.reason or "Invalid bracket")
+
+            stop_loss = validation.stop_loss
+            take_profit = validation.take_profit
+            if validation.adjusted_fields:
+                logger.warning(
+                    f"🔧 Protective levels adjusted to maintain tick spacing: {', '.join(validation.adjusted_fields)}"
+                )
+
             order.transmit = False
             opposite = "SELL" if action == "BUY" else "BUY"
             
@@ -776,97 +862,117 @@ class TradeExecutor:
         else:
             order.transmit = True
 
+        if bracket_children:
+            metadata["validated_stop_loss"] = stop_loss
+            metadata["validated_take_profit"] = take_profit
+            snapshot = format_bracket_snapshot(
+                entry_price_estimate,
+                stop_loss,
+                take_profit,
+                metadata.get("atr_fallback_used"),
+            )
+            logger.info(
+                "📡 Bracket telemetry | qty=%d lock=%s %s",
+                quantity,
+                self._order_locked,
+                snapshot,
+            )
+
         # Place parent order
-        parent_trade = self.ib.placeOrder(contract, order)
-        parent_id = parent_trade.order.orderId
-        
-        # Track order creation time
-        self.order_creation_times[parent_id] = datetime.utcnow()
-        
-        # Store stop_loss and take_profit for this order (for Telegram notifications)
-        self.order_targets[parent_id] = {
-            'stop_loss': stop_loss,
-            'take_profit': take_profit
-        }
-        
-        # Get current price for entry tracking
-        current_price = limit_price if limit_price else None
-        if metadata and 'entry_price' in metadata:
-            current_price = metadata['entry_price']
-        
-        # Record order placement in tracker
-        import json
-        rationale_str = json.dumps(rationale) if rationale else None
-        features_str = json.dumps(features) if features else None
-        
-        self.order_tracker.record_order_placement(
-            order_id=parent_id,
-            symbol=self.symbol,
-            action=action,
-            quantity=quantity,
-            order_type="LIMIT" if limit_price else "MARKET",
-            limit_price=limit_price,
-            entry_price=current_price,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            confidence=metadata.get('confidence') if metadata else None,
-            atr=metadata.get('atr_value') if metadata else None,
-            rationale=rationale_str,
-            features=features_str,
-            market_regime=market_regime
-        )
-        
-        # Track active order
-        self.active_orders[parent_id] = parent_trade
-        
-        # Place bracket orders
-        for child in bracket_children:
-            child.parentId = parent_id
-        for i, child in enumerate(bracket_children):
-            child_trade = self.ib.placeOrder(contract, child)
-            child_id = child_trade.order.orderId
-            self.active_orders[child_id] = child_trade
+        lock_engaged = False
+        if bracket_children:
+            reason = f"{action} {quantity} @ {entry_price_estimate or limit_price}"
+            self._engage_order_lock(reason)
+            lock_engaged = True
+
+        try:
+            parent_trade = self.ib.placeOrder(contract, order)
+            parent_id = parent_trade.order.orderId
+            self.order_metadata[parent_id] = dict(metadata)
             
-            # Track bracket order creation time
-            self.order_creation_times[child_id] = datetime.utcnow()
+            # Track order creation time
+            self.order_creation_times[parent_id] = datetime.utcnow()
             
-            # Record child order (SL/TP)
-            child_type = "STOP_LIMIT" if isinstance(child, StopLimitOrder) else "STOP" if isinstance(child, StopOrder) else "LIMIT"
-            # StopLimitOrder has both auxPrice (stop trigger) and lmtPrice (limit price)
-            if isinstance(child, StopLimitOrder):
-                child_stop_price = child.auxPrice  # Stop trigger price
-                child_limit_price = child.lmtPrice  # Limit price after stop triggered
-            elif isinstance(child, StopOrder):
-                child_stop_price = child.auxPrice
-                child_limit_price = None
-            else:  # LimitOrder
-                child_stop_price = None
-                child_limit_price = child.lmtPrice
+            # Store stop_loss and take_profit for this order (for Telegram notifications)
+            self.order_targets[parent_id] = {
+                'stop_loss': stop_loss,
+                'take_profit': take_profit
+            }
+            
+            # Get current price for entry tracking
+            current_price = limit_price if limit_price else None
+            if metadata and 'entry_price' in metadata:
+                current_price = metadata['entry_price']
+            
+            # Record order placement in tracker
+            import json
+            rationale_str = json.dumps(rationale) if rationale else None
+            features_str = json.dumps(features) if features else None
             
             self.order_tracker.record_order_placement(
-                order_id=child_id,
-                parent_order_id=parent_id,
+                order_id=parent_id,
                 symbol=self.symbol,
-                action=child.action,
-                quantity=child.totalQuantity,
-                order_type=child_type,
-                stop_price=child_stop_price,
-                limit_price=child_limit_price,
+                action=action,
+                quantity=quantity,
+                order_type="LIMIT" if limit_price else "MARKET",
+                limit_price=limit_price,
+                entry_price=current_price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                confidence=metadata.get('confidence') if metadata else None,
+                atr=metadata.get('atr_value') if metadata else None,
+                rationale=rationale_str,
+                features=features_str,
+                market_regime=market_regime,
+                trade_cycle_id=metadata.get("trade_cycle_id"),
             )
             
-            logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
+            # Track active order
+            self.active_orders[parent_id] = parent_trade
+            
+            # Place bracket orders
+            for child in bracket_children:
+                child.parentId = parent_id
+            for i, child in enumerate(bracket_children):
+                child_trade = self.ib.placeOrder(contract, child)
+                child_id = child_trade.order.orderId
+                self.active_orders[child_id] = child_trade
+                await self._await_order_submission(child_trade, label=f"child-{child_id}")
+                
+                # Track bracket order creation time
+                self.order_creation_times[child_id] = datetime.utcnow()
+                
+                # Record child order (SL/TP)
+                child_type = "STOP_LIMIT" if isinstance(child, StopLimitOrder) else "STOP" if isinstance(child, StopOrder) else "LIMIT"
+                # StopLimitOrder has both auxPrice (stop trigger) and lmtPrice (limit price)
+                if isinstance(child, StopLimitOrder):
+                    child_stop_price = child.auxPrice  # Stop trigger price
+                    child_limit_price = child.lmtPrice  # Limit price after stop triggered
+                elif isinstance(child, StopOrder):
+                    child_stop_price = child.auxPrice
+                    child_limit_price = None
+                else:  # LimitOrder
+                    child_stop_price = None
+                    child_limit_price = child.lmtPrice
+                
+                self.order_tracker.record_order_placement(
+                    order_id=child_id,
+                    parent_order_id=parent_id,
+                    symbol=self.symbol,
+                    action=child.action,
+                    quantity=child.totalQuantity,
+                    order_type=child_type,
+                    stop_price=child_stop_price,
+                    limit_price=child_limit_price,
+                    trade_cycle_id=metadata.get("trade_cycle_id") if metadata else None,
+                )
+                
+                logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
-        # Allow IB to process the order placement by yielding to the event loop
-        # ib_insync integrates with asyncio, so we need to let the loop run
-        for _ in range(20):  # Up to 2 seconds
-            await asyncio.sleep(0.1)
-            status = parent_trade.orderStatus.status
-            if status != 'PendingSubmit':
-                logger.info(f"✅ Order {parent_id} transitioned to {status}")
-                break
-        else:
-            logger.warning(f"⏳ Order {parent_id} still in PendingSubmit after 2s - may be waiting for IB")
-        
+            await self._await_order_submission(parent_trade, label="parent")
+        finally:
+            if lock_engaged:
+                self._release_order_lock("bracket submission complete")
         status = parent_trade.orderStatus.status
         
         # Store position metadata for trailing stops
@@ -897,6 +1003,31 @@ class TradeExecutor:
             status=status,
             fill_price=float(parent_trade.orderStatus.avgFillPrice) if parent_trade.orderStatus.avgFillPrice > 0 else None,
             filled_quantity=int(parent_trade.orderStatus.filled)
+        )
+
+    async def _await_order_submission(self, trade: Trade, label: str = "order", timeout: float = 3.0) -> None:
+        """Wait for IB to acknowledge submission so we don't leave PendingSubmit ghosts."""
+        if not self.ib or trade is None:
+            return
+        logger.debug(
+            "Awaiting IB acknowledgment for %s %s (status=%s)",
+            label,
+            trade.order.orderId,
+            trade.orderStatus.status,
+        )
+        start = time.monotonic()
+        while trade.orderStatus.status in ("PendingSubmit", "PendingCancel"):
+            await asyncio.sleep(0.2)
+            if time.monotonic() - start > timeout:
+                logger.warning(
+                    f"⏳ {label} {trade.order.orderId} still {trade.orderStatus.status} after {timeout}s"
+                )
+                break
+        logger.debug(
+            "IB acknowledged %s %s with status=%s",
+            label,
+            trade.order.orderId,
+            trade.orderStatus.status,
         )
 
     async def cancel_order(self, order_id: int) -> bool:
@@ -1252,5 +1383,3 @@ class TradeExecutor:
     def clear_active_orders(self):
         """Manually clear all tracked active orders (one-time fix)."""
         self.active_orders.clear()
-
-

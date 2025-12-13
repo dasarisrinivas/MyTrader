@@ -104,7 +104,9 @@ llm:
 rag:
   # Enable/disable RAG functionality
   enabled: false  # Set to true to enable RAG knowledge base
-  
+  backend: "local_faiss"  # or off|opensearch_serverless|aurora_pgvector
+  opensearch_enabled: false  # OpenSearch kill switch
+
   # AWS Bedrock embedding settings
   embedding_model_id: "amazon.titan-embed-text-v1"  # Titan Embeddings model
   region_name: "us-east-1"
@@ -123,9 +125,11 @@ rag:
   
   # Batch processing
   batch_size: 10  # Number of documents to embed at once
-  
+
   # Knowledge base
   knowledge_base_path: "data/knowledge_base"  # Directory containing trading knowledge documents
+  local_store_path: "rag_data/local_kb/local_kb.sqlite"
+  kb_cache_ttl_seconds: 120
 
 # Telegram Notifications Configuration
 telegram:

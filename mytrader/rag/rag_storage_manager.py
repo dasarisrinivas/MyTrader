@@ -49,6 +49,17 @@ except ImportError:
         return dt.strftime(fmt)
 
 
+def _safe_parse_timestamp(timestamp: str) -> datetime:
+    """Parse ISO timestamps and ensure timezone-aware UTC datetimes."""
+    try:
+        ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except Exception:
+        return now_cst()
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
 @dataclass
 class TradeRecord:
     """Complete trade record for RAG storage."""
@@ -170,8 +181,8 @@ class RAGStorageManager:
         """
         # Parse timestamp to get folder path
         try:
-            ts = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
-        except:
+            ts = _safe_parse_timestamp(trade.timestamp)
+        except Exception:
             ts = now_cst()
         
         # Generate S3 key: trade-logs/YYYY-MM-DD/HHMMSS_tradeid.json
@@ -226,7 +237,7 @@ class RAGStorageManager:
                 trade = TradeRecord.from_dict(data)
                 
                 # Apply filters
-                trade_ts = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
+                trade_ts = _safe_parse_timestamp(trade.timestamp)
                 
                 if start_date and trade_ts < start_date:
                     continue
@@ -390,8 +401,8 @@ class RAGStorageManager:
             S3 key of saved file
         """
         try:
-            ts = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
-        except:
+            ts = _safe_parse_timestamp(trade.timestamp)
+        except Exception:
             ts = now_cst()
         
         content = f"""# Mistake Analysis – {ts.strftime('%Y-%m-%d %H:%M')} CST

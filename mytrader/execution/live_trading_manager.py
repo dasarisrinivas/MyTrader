@@ -11,15 +11,20 @@ ENHANCED VERSION with:
 - CST timestamps throughout (Central Standard Time)
 """
 import asyncio
+import time
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, asdict, field
 import json
 import uuid
+from pathlib import Path
+
+import numpy as np
 
 from ib_insync import IB
-from ..config import Settings
+from ..config import Settings, FeatureFlagsConfig
 from ..utils.logger import logger
+from ..utils.structured_logging import log_structured_event
 from ..utils.telegram_notifier import TelegramNotifier
 from ..utils.timezone_utils import now_cst, format_cst, today_cst, CST, utc_to_cst
 from .ib_executor import TradeExecutor
@@ -27,13 +32,29 @@ from ..monitoring.live_tracker import LivePerformanceTracker
 from ..strategies.engine import StrategyEngine
 from ..features.feature_engineer import engineer_features
 from ..risk.manager import RiskManager
+from ..risk.atr_module import compute_protective_offsets
+from ..execution.guards import (
+    WaitDecisionContext,
+    compute_trade_risk_dollars,
+    should_block_on_wait,
+)
+from ..learning.trade_learning import (
+    ExecutionMetrics,
+    TradeLearningPayload,
+    TradeLearningRecorder,
+)
 from ..optimization.optimizer import ParameterOptimizer
 from ..llm.rag_storage import RAGStorage, TradeRecord as RAGTradeRecord
+try:
+    from ..llm.trade_logger import TradeLogger as DecisionMetricsLogger
+except ImportError:
+    DecisionMetricsLogger = None
 from ..strategies.momentum_reversal import MomentumReversalStrategy
 from ..strategies.momentum_reversal import MomentumReversalStrategy
 from ..strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
 from ..strategies.market_regime import detect_market_regime, get_regime_parameters, MarketRegime
 from ..strategies.trading_filters import TradingFilters, calculate_enhanced_confidence, PriceLevels
+from ..hybrid.coordination import AgentBus
 
 # NEW: Hybrid RAG+LLM Pipeline imports
 try:
@@ -42,6 +63,12 @@ try:
 except ImportError:
     HYBRID_PIPELINE_AVAILABLE = False
     logger.warning("Hybrid RAG pipeline not available - using legacy signal generation")
+
+from ..rag.kb_monitor import kb_usage_tracker
+try:
+    from ..rag.local_knowledge_base import LocalKnowledgeBase
+except ImportError:
+    LocalKnowledgeBase = None
 
 # NEW: AWS Bedrock Agents Pipeline imports
 try:
@@ -65,6 +92,7 @@ class TradingStatus:
     active_orders: int = 0
     current_position: int = 0
     unrealized_pnl: float = 0.0
+    daily_pnl: float = 0.0
     message: str = ""
     # NEW: Cooldown and filter status
     cooldown_remaining_seconds: int = 0
@@ -77,6 +105,9 @@ class TradingStatus:
     # NEW: AWS Agents status
     aws_agents_enabled: bool = False
     aws_agent_decision: str = ""
+    # Order lock telemetry
+    pending_order: bool = False
+    order_lock_reason: str = ""
 
 
 class LiveTradingManager:
@@ -99,12 +130,18 @@ class LiveTradingManager:
     def __init__(self, settings: Settings, simulation_mode: bool = False):
         self.settings = settings
         self.simulation_mode = simulation_mode  # NEW: Dry run mode
+        self.feature_flags: FeatureFlagsConfig = getattr(settings, "features", FeatureFlagsConfig())
+        self._enforce_entry_risk_checks = self.feature_flags.enforce_entry_risk_checks
+        self._enforce_wait_blocking = self.feature_flags.enforce_wait_blocking
+        self._enforce_reduce_only_exits = self.feature_flags.enforce_reduce_only_exits
+        self._enable_learning_hooks = self.feature_flags.enable_learning_hooks
         self.ib: Optional[IB] = None
         self.executor: Optional[TradeExecutor] = None
         self.tracker: Optional[LivePerformanceTracker] = None
         self.engine: Optional[StrategyEngine] = None
         self.risk: Optional[RiskManager] = None
         self.rag_storage: Optional[RAGStorage] = None
+        self.metrics_logger: Optional["DecisionMetricsLogger"] = None
         self.telegram: Optional[TelegramNotifier] = None
         
         # NEW: Trading filters for multi-timeframe analysis
@@ -117,13 +154,49 @@ class LiveTradingManager:
         # NEW: AWS Bedrock Agents Pipeline
         self.aws_agent_invoker: Optional[AgentInvoker] = None
         self.aws_snapshot_builder: Optional[MarketSnapshotBuilder] = None
-        self._use_aws_agents: bool = False
+        self._aws_agents_allowed: bool = False
+        self._aws_agents_ready: bool = False
+        
+        # Knowledge base + telemetry
+        rag_cfg = getattr(settings, "rag", None)
+        self._rag_backend = getattr(rag_cfg, "backend", "off") if rag_cfg else "off"
+        self._kb_cache_ttl = getattr(rag_cfg, "kb_cache_ttl_seconds", 120) if rag_cfg else 120
+        self._kb_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._kb_cache_limit = 128
+        self._local_kb: Optional[LocalKnowledgeBase] = None
+        if rag_cfg and LocalKnowledgeBase is not None:
+            try:
+                store_path = getattr(rag_cfg, "local_store_path", "rag_data/local_kb/local_kb.sqlite")
+                self._local_kb = LocalKnowledgeBase(store_path=store_path)
+            except Exception as exc:
+                logger.warning(f"⚠️  Local knowledge base unavailable: {exc}")
+                self._local_kb = None
+        kb_usage_tracker.configure(self._rag_backend, False)
         
         self.status = TradingStatus()
         self.status.simulation_mode = simulation_mode
         self.price_history: List[Dict] = []
         self.running = False
         self.stop_requested = False
+        self.agent_bus = AgentBus(default_ttl_seconds=240)
+        context_dir = getattr(getattr(settings, 'data', None), 'external_context_dir', 'data/context')
+        self._external_context_dir = Path(context_dir)
+        self._context_refresh_mtimes: Dict[str, float] = {}
+
+        learning_cfg = getattr(settings, "learning", None)
+        if (
+            self._enable_learning_hooks
+            and learning_cfg
+            and getattr(learning_cfg, "enabled", True)
+        ):
+            self.learning_recorder = TradeLearningRecorder(
+                learning_cfg.outcomes_dir,
+                learning_cfg.history_dir,
+            )
+        else:
+            self.learning_recorder = None
+        if self._local_kb and learning_cfg:
+            self._bootstrap_local_kb(learning_cfg.outcomes_dir)
         
         # Trade context tracking
         self.current_trade_id: Optional[str] = None
@@ -132,6 +205,10 @@ class LiveTradingManager:
         self.current_trade_features: Optional[Dict] = None
         self.current_trade_buckets: Optional[Dict] = None
         self.current_trade_rationale: Optional[Dict] = None
+        self._open_trade_context: Optional[Dict[str, Any]] = None
+        self._current_cycle_id: Optional[str] = None
+        self._cycle_context: Dict[str, Dict[str, Any]] = {}
+        self._active_reason_codes: Set[str] = set()
         
         # NEW: Cooldown tracking
         self._last_trade_time: Optional[datetime] = None
@@ -207,6 +284,17 @@ class LiveTradingManager:
             except Exception as e:
                 logger.error(f"Failed to initialize RAG Storage: {e}")
                 # Continue without RAG if it fails, but log error
+
+            # Initialize decision metrics logger (for structural persistence)
+            if DecisionMetricsLogger:
+                try:
+                    self.metrics_logger = DecisionMetricsLogger()
+                    logger.info("✅ Decision metrics logger initialized")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not initialize decision metrics logger: {e}")
+                    self.metrics_logger = None
+            else:
+                logger.info("ℹ️ Decision metrics logger unavailable (module not installed)")
             
             # NEW: Initialize Hybrid RAG+LLM Pipeline
             if HYBRID_PIPELINE_AVAILABLE:
@@ -217,7 +305,15 @@ class LiveTradingManager:
                         self.hybrid_pipeline = create_hybrid_integration(
                             settings=self.settings,
                             llm_client=None,  # Will use Bedrock if available
+                            context_bus=self.agent_bus,
                         )
+                        if hasattr(self.hybrid_pipeline, "ensure_ready"):
+                            stats = self.hybrid_pipeline.ensure_ready(min_documents=5)
+                            logger.info(
+                                "🔎 Hybrid RAG index ready (%s, %d docs)",
+                                stats.get("engine", "cpu"),
+                                stats.get("documents", 0),
+                            )
                         self._use_hybrid_pipeline = True
                         self.status.hybrid_pipeline_enabled = True
                         logger.info("✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)")
@@ -227,26 +323,12 @@ class LiveTradingManager:
                     logger.warning(f"⚠️  Failed to initialize Hybrid Pipeline: {e}")
                     self._use_hybrid_pipeline = False
             
-            # NEW: Initialize AWS Bedrock Agents Pipeline
-            if AWS_AGENTS_AVAILABLE:
-                try:
-                    aws_agents_config = getattr(self.settings, 'aws_agents', None)
-                    if aws_agents_config and getattr(aws_agents_config, 'enabled', False):
-                        self.aws_agent_invoker = AgentInvoker.from_deployed_config()
-                        self.aws_snapshot_builder = MarketSnapshotBuilder(
-                            symbol=self.settings.data.ibkr_symbol
-                        )
-                        self._use_aws_agents = True
-                        self.status.aws_agents_enabled = True
-                        logger.info("✅ AWS Bedrock Agents Pipeline initialized (4-agent decision system)")
-                    else:
-                        logger.info("ℹ️  AWS Agents disabled in config")
-                except Exception as e:
-                    logger.warning(f"⚠️  Failed to initialize AWS Agents: {e}")
-                    self._use_aws_agents = False
+            # NEW: Configure AWS Bedrock Agents (lazy initialization)
+            self._configure_aws_agents()
             
             # === NEW: Load historical market context at startup ===
             await self._load_historical_context()
+            await self._bootstrap_price_history(self.status.min_bars_needed)
             
             # Subscribe to execution events for RAG updates
             if self.executor and self.executor.ib:
@@ -270,43 +352,136 @@ class LiveTradingManager:
             return False
     
     def _on_execution_details(self, trade, fill):
-        """Handle execution details to track trade exits for RAG."""
+        """Handle execution details to track trade exits for RAG/learning."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            loop.create_task(self._handle_execution_event(trade, fill))
+        else:
+            asyncio.run(self._handle_execution_event(trade, fill))
+
+    def _bootstrap_local_kb(self, outcomes_dir: str) -> None:
+        """Seed the local KB with any historical trade outcomes on disk."""
+        if not self._local_kb or not outcomes_dir:
+            return
+        try:
+            self._local_kb.bootstrap_from_outcomes(outcomes_dir)
+        except Exception as exc:
+            logger.debug(f"Local KB bootstrap skipped: {exc}")
+
+    def _configure_aws_agents(self) -> None:
+        """Decide whether AWS Agents/OpenSearch can be used and defer init."""
+        rag_cfg = getattr(self.settings, "rag", None)
+        backend = getattr(rag_cfg, "backend", "off") if rag_cfg else "off"
+        remote_enabled = bool(
+            rag_cfg
+            and getattr(rag_cfg, "opensearch_enabled", False)
+            and backend == "opensearch_serverless"
+        )
+        kb_usage_tracker.configure(self._rag_backend, remote_enabled)
+        aws_cfg = getattr(self.settings, "aws_agents", None)
+        allow = bool(
+            AWS_AGENTS_AVAILABLE
+            and remote_enabled
+            and aws_cfg
+            and getattr(aws_cfg, "enabled", False)
+        )
+        if not allow:
+            self._aws_agents_allowed = False
+            self._aws_agents_ready = False
+            self.status.aws_agents_enabled = False
+            if aws_cfg and getattr(aws_cfg, "enabled", False) and not remote_enabled:
+                logger.info("ℹ️  AWS Agents disabled: OpenSearch backend not permitted")
+            return
+        self._aws_agents_allowed = True
+        self.status.aws_agents_enabled = True
+        logger.info("✅ AWS Agents permitted (lazy init)")
+
+    def _ensure_aws_agent_invoker(self) -> bool:
+        """Instantiate AWS AgentInvoker only when needed."""
+        if not self._aws_agents_allowed:
+            return False
+        if self._aws_agents_ready and self.aws_agent_invoker and self.aws_snapshot_builder:
+            return True
+        try:
+            self.aws_agent_invoker = AgentInvoker.from_deployed_config()
+            self.aws_snapshot_builder = MarketSnapshotBuilder(
+                symbol=self.settings.data.ibkr_symbol
+            )
+            self._aws_agents_ready = True
+            logger.info("✅ AWS Agent Invoker ready (lazy load)")
+            return True
+        except Exception as exc:
+            logger.warning(f"⚠️  Failed to initialize AWS Agents: {exc}")
+            self._aws_agents_allowed = False
+            self._aws_agents_ready = False
+            self.status.aws_agents_enabled = False
+            kb_usage_tracker.configure(self._rag_backend, False)
+            return False
+
+    def _build_kb_cache_key(
+        self,
+        trend: str,
+        volatility: str,
+        action: str,
+    ) -> str:
+        return f"{action}:{trend}:{volatility}"
+
+    def _get_cached_kb_result(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        cached = self._kb_cache.get(cache_key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at < time.time():
+            self._kb_cache.pop(cache_key, None)
+            return None
+        return payload
+
+    def _set_cached_kb_result(self, cache_key: str, payload: Dict[str, Any]) -> None:
+        expires = time.time() + max(5.0, float(self._kb_cache_ttl or 0))
+        self._kb_cache[cache_key] = (expires, payload)
+        if len(self._kb_cache) > self._kb_cache_limit:
+            # Remove oldest inserted entry
+            oldest_key = next(iter(self._kb_cache))
+            if oldest_key != cache_key:
+                self._kb_cache.pop(oldest_key, None)
+
+    def _query_local_knowledge_base(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._local_kb:
+            return {}
+        try:
+            return self._local_kb.query(context)
+        except Exception as exc:
+            logger.debug(f"Local KB query failed: {exc}")
+            return {}
+
+    async def _handle_execution_event(self, trade, fill):
         try:
             if not self.rag_storage or not self.current_trade_id:
-                return
-
-            # Check if this execution generated realized PnL (indicates exit/partial exit)
+                pass  # Continue to learning recorder if active
             realized_pnl = 0.0
             if hasattr(fill, 'commissionReport') and hasattr(fill.commissionReport, 'realizedPNL'):
-                # realizedPNL can be extremely small float for 0, check for non-zero
                 if abs(fill.commissionReport.realizedPNL) > 0.001:
                     realized_pnl = fill.commissionReport.realizedPNL
-            
-            # If we have realized PnL, update the RAG record
-            if realized_pnl != 0:
-                logger.info(f"RAG: Detected trade exit with PnL: {realized_pnl}")
-                
-                # Calculate hold time
+            exit_time = datetime.now(timezone.utc)
+            if realized_pnl != 0 and self.rag_storage and self.current_trade_id:
                 hold_seconds = 0
                 if self.current_trade_entry_time:
                     try:
-                        entry_time = datetime.fromisoformat(self.current_trade_entry_time)
-                        exit_time = now_cst()
+                        entry_time = datetime.fromisoformat(self.current_trade_entry_time.replace("Z", "+00:00"))
+                        if entry_time.tzinfo is None:
+                            entry_time = entry_time.replace(tzinfo=timezone.utc)
                         hold_seconds = int((exit_time - entry_time).total_seconds())
                     except Exception as e:
                         logger.error(f"Error calculating hold time: {e}")
-
-                # Create updated record
-                # Note: We recreate the record with available info. 
-                # Ideally we would fetch the existing one, but for now we rely on the ID to update.
-                # We need to preserve the entry details.
-                
                 record = RAGTradeRecord(
                     uuid=self.current_trade_id,
                     timestamp_utc=self.current_trade_entry_time or now_cst().isoformat(),
                     contract_month=self.settings.data.ibkr_symbol,
                     entry_price=self.current_trade_entry_price or 0.0,
-                    entry_qty=0, # Not updating entry qty
+                    entry_qty=0,
                     exit_price=fill.execution.price,
                     exit_qty=fill.execution.shares,
                     pnl=realized_pnl,
@@ -315,22 +490,19 @@ class LiveTradingManager:
                     decision_features=self.current_trade_features or {},
                     decision_rationale=self.current_trade_rationale or {}
                 )
-                
                 self.rag_storage.save_trade(record, self.current_trade_buckets)
                 logger.info(f"Updated RAG record {self.current_trade_id} with exit info")
-                
-                # If position is closed, clear current trade context
-                # We can't easily know if it's fully closed from just this fill without checking position
-                # But for simplicity, if we realize PnL, we assume the trade cycle is completing.
-                # A better check would be to see if self.executor.get_current_position() is 0.
-                # But that is async and we are in a sync callback? No, ib_insync callbacks are sync?
-                # We'll clear it for now. If we re-enter, a new ID is generated.
                 self.current_trade_id = None
                 self.current_trade_entry_time = None
                 self.current_trade_entry_price = None
-                
+            if realized_pnl != 0:
+                await self._finalize_trade(
+                    exit_price=fill.execution.price,
+                    exit_time=exit_time,
+                    realized_pnl=realized_pnl,
+                )
         except Exception as e:
-            logger.error(f"Error in _on_execution_details: {e}")
+            logger.error(f"Error in _handle_execution_event: {e}")
 
     async def _load_historical_context(self):
         """Load historical market context at bot startup.
@@ -495,6 +667,72 @@ TRADING GUIDANCE:
         except Exception as e:
             logger.error(f"❌ Failed to store historical context in RAG: {e}")
 
+    async def _bootstrap_price_history(self, min_bars: int = 60) -> None:
+        """Seed price history with IB historical bars so multi-candle metrics have depth."""
+        if self.price_history:
+            return
+        if not self.executor or not self.executor.ib:
+            logger.warning("Cannot bootstrap price history - executor not ready")
+            return
+        contract = await self.executor.get_qualified_contract()
+        if not contract:
+            logger.warning("Cannot bootstrap price history - contract unavailable")
+            return
+        duration_seconds = max(min_bars * self.CANDLE_PERIOD_SECONDS, 900)
+        try:
+            bars = await self.executor.ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime='',
+                durationStr=f"{duration_seconds} S",
+                barSizeSetting='1 min',
+                whatToShow='TRADES',
+                useRTH=False,
+                formatDate=2,
+            )
+        except AttributeError:
+            bars = self.executor.ib.reqHistoricalData(
+                contract,
+                endDateTime='',
+                durationStr=f"{duration_seconds} S",
+                barSizeSetting='1 min',
+                whatToShow='TRADES',
+                useRTH=False,
+                formatDate=2,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to bootstrap minute bars: {exc}")
+            return
+        if not bars:
+            logger.warning("Historical bootstrap returned no bars")
+            return
+        history: List[Dict[str, Any]] = []
+        for bar in bars[-max(min_bars, len(bars)) :]:
+            ts = getattr(bar, "date", None)
+            if isinstance(ts, datetime):
+                dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+            elif isinstance(ts, str):
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except Exception:
+                    dt = datetime.utcnow().replace(tzinfo=timezone.utc)
+            else:
+                dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            candle = {
+                "timestamp": utc_to_cst(dt),
+                "open": float(getattr(bar, "open", 0.0)),
+                "high": float(getattr(bar, "high", 0.0)),
+                "low": float(getattr(bar, "low", 0.0)),
+                "close": float(getattr(bar, "close", 0.0)),
+                "volume": int(getattr(bar, "volume", 0)),
+            }
+            history.append(candle)
+        if history:
+            self.price_history = history[-500:]
+            self.status.bars_collected = len(self.price_history)
+            logger.info(
+                f"📚 Bootstrapped {len(self.price_history)} historical 1-min bars for structural context"
+            )
+
     async def start(self):
         """Start the live trading loop."""
         if not await self.initialize():
@@ -597,6 +835,16 @@ TRADING GUIDANCE:
             else:
                 self.status.cooldown_remaining_seconds = 0
         
+        if self.executor and self.executor.is_order_locked():
+            self.status.pending_order = True
+            self.status.order_lock_reason = self.executor.get_order_lock_reason() or "Awaiting bracket confirmation"
+            logger.warning(f"⏸️ Order lock active - deferring cycle ({self.status.order_lock_reason})")
+            await self._broadcast_status()
+            return
+        else:
+            self.status.pending_order = False
+            self.status.order_lock_reason = ""
+        
         # === NEW: Candle close validation ===
         # Only evaluate signals at the start of a new candle (every CANDLE_PERIOD_SECONDS)
         now = now_cst()
@@ -610,6 +858,28 @@ TRADING GUIDANCE:
         # Mark this candle as processed
         self._last_candle_processed = current_candle_start
         logger.info(f"🕐 New candle close at {current_candle_start.strftime('%H:%M:%S')} CST")
+
+        cycle_id = uuid.uuid4().hex[:12]
+        self._current_cycle_id = cycle_id
+        self._cycle_context[cycle_id] = {
+            "start_time": current_candle_start.isoformat(),
+            "signal_type": None,
+            "signal_confidence": None,
+            "regime": None,
+            "volatility": None,
+            "reason_codes": set(),
+            "aws": None,
+        }
+        log_structured_event(
+            agent="live_manager",
+            event_type="trade.cycle.start",
+            message="Cycle start",
+            payload={"price": current_price},
+            correlation_id=cycle_id,
+        )
+        
+        # Refresh context caches from disk/external feeds
+        self._refresh_external_context()
         
         # Convert to DataFrame and engineer features
         df = pd.DataFrame(self.price_history)
@@ -622,6 +892,9 @@ TRADING GUIDANCE:
             return
         
         returns = features["close"].pct_change().dropna()
+        self._publish_feature_snapshot(features, current_price)
+        self._publish_account_context()
+        structural_metrics = self._compute_structural_metrics(features)
         
         # === NEW: Use Hybrid RAG+LLM Pipeline if available ===
         if self._use_hybrid_pipeline and self.hybrid_pipeline:
@@ -640,6 +913,16 @@ TRADING GUIDANCE:
                     f"(conf={hybrid_signal.confidence:.2f}, "
                     f"trend={self.status.hybrid_market_trend}, "
                     f"vol={self.status.hybrid_volatility_regime})"
+                )
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="hybrid.signal",
+                    message=f"{hybrid_signal.action} {hybrid_signal.confidence:.2f}",
+                    payload={
+                        "trend": self.status.hybrid_market_trend,
+                        "volatility": self.status.hybrid_volatility_regime,
+                        "metadata": hybrid_signal.metadata,
+                    },
                 )
                 
                 # Use hybrid signal instead of legacy signal
@@ -660,6 +943,25 @@ TRADING GUIDANCE:
         
         # Generate signal (legacy path)
         signal = self.engine.evaluate(features, returns)
+        structure_bonus = self._apply_structural_weighting(signal, structural_metrics)
+        if structure_bonus != 0:
+            signal.confidence = max(0.0, min(1.0, signal.confidence + structure_bonus))
+            logger.info(
+                f"🧱 Structural bias applied: {structure_bonus:+.3f} "
+                f"(trend={structural_metrics.get('trend_strength', 0):+.4f}, "
+                f"momentum={structural_metrics.get('momentum_score', 0):+.4f})"
+            )
+            if hasattr(signal, "metadata"):
+                metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+                metadata.update(
+                    {
+                        "structure_bonus": structure_bonus,
+                        "structure_trend": structural_metrics.get("trend_strength"),
+                        "structure_momentum": structural_metrics.get("momentum_score"),
+                        "structure_range_position": structural_metrics.get("range_position"),
+                    }
+                )
+                signal.metadata = metadata
         
         # --- RAG Integration ---
         rag_adjustment = 0.0
@@ -699,7 +1001,8 @@ TRADING GUIDANCE:
                 rag_rationale = {
                     'buckets': buckets,
                     'stats': stats,
-                    'similar_trades_count': len(similar_trades)
+                    'similar_trades_count': len(similar_trades),
+                    'structure': structural_metrics,
                 }
                 
                 # Adjust confidence based on historical win rate
@@ -728,7 +1031,7 @@ TRADING GUIDANCE:
         aws_kb_adjustment = 0.0
         aws_kb_rationale = {}
         
-        if self._use_aws_agents and self.aws_agent_invoker and signal.action != "HOLD":
+        if self._aws_agents_allowed and signal.action != "HOLD":
             try:
                 aws_kb_result = await self._query_aws_knowledge_base(
                     features=features,
@@ -759,6 +1062,8 @@ TRADING GUIDANCE:
         
         if rag_adjustment != 0:
             logger.info(f"RAG adjusted confidence: {original_confidence:.2f} -> {signal.confidence:.2f} ({rag_rationale.get('adjustment')})")
+        
+        self._persist_structural_snapshot(structural_metrics, rag_rationale, signal)
         
         # === NEW: Apply Trading Filters ===
         filters_passed = True
@@ -821,6 +1126,11 @@ TRADING GUIDANCE:
         
         # Apply enhanced confidence
         signal.confidence = enhanced_conf
+        cycle_ctx = self._cycle_context.get(self._current_cycle_id, {})
+        cycle_ctx["signal_type"] = signal.action
+        cycle_ctx["signal_confidence"] = signal.confidence
+        cycle_ctx["regime"] = cycle_ctx.get("regime") or getattr(self.status, "hybrid_market_trend", None)
+        cycle_ctx["volatility"] = cycle_ctx.get("volatility") or getattr(self.status, "hybrid_volatility_regime", None)
         
         # === NEW: Minimum confidence threshold check ===
         if signal.confidence < self.MIN_CONFIDENCE_THRESHOLD and signal.action != "HOLD":
@@ -832,6 +1142,12 @@ TRADING GUIDANCE:
         
         # Broadcast signal
         await self._broadcast_signal(signal, current_price)
+
+        cycle_ctx = self._cycle_context.get(self._current_cycle_id, {})
+        cycle_ctx["signal_type"] = signal.action
+        cycle_ctx["signal_confidence"] = signal.confidence
+        cycle_ctx["regime"] = self.status.hybrid_market_trend
+        cycle_ctx["volatility"] = self.status.hybrid_volatility_regime
         
         # Get current position
         current_position = await self.executor.get_current_position()
@@ -841,6 +1157,8 @@ TRADING GUIDANCE:
         if current_position:
             self.status.unrealized_pnl = await self.executor.get_unrealized_pnl()
             self.tracker.update_equity(current_price, realized_pnl=0.0)
+            self._update_status_from_tracker()
+            self._update_status_from_tracker()
             
             # Update trailing stops
             atr_val = float(features.iloc[-1].get("ATR_14", 0.0))
@@ -883,7 +1201,165 @@ TRADING GUIDANCE:
         # Place order
         logger.info(f"  ↳ Attempting to place order: {signal.action}")
         await self._place_order(signal, current_price, features)
-    
+
+    def _publish_feature_snapshot(self, features, current_price: float) -> None:
+        """Publish most recent feature row to the agent bus for awareness."""
+        if not self.agent_bus or features.empty:
+            return
+        try:
+            latest = features.iloc[-1]
+            ts = features.index[-1]
+            timestamp = ts.isoformat() if hasattr(ts, "isoformat") else now_cst().isoformat()
+        except Exception:
+            latest = features.iloc[-1]
+            timestamp = now_cst().isoformat()
+        payload = {
+            "timestamp": timestamp,
+            "price": float(latest.get("close", current_price)),
+            "rsi": float(latest.get("RSI_14", 50)),
+            "macd_hist": float(latest.get("MACDhist_12_26_9", 0)),
+            "atr": float(latest.get("ATR_14", 0)),
+            "volume_ratio": float(latest.get("volume_ratio", 1)),
+        }
+        self.agent_bus.publish("features", payload, producer="live_manager", ttl_seconds=120)
+
+    def _refresh_external_context(self) -> None:
+        """Reload cached news/macro context if files changed."""
+        if not self.agent_bus:
+            return
+        directory = self._external_context_dir
+        if not directory.exists():
+            return
+        context_files = [
+            ("news", "news_sentiment.json", "news"),
+            ("macro", "macro_state.json", "macro"),
+        ]
+        for label, filename, channel in context_files:
+            path = directory / filename
+            if not path.exists():
+                continue
+            try:
+                mtime = path.stat().st_mtime
+                if self._context_refresh_mtimes.get(channel) == mtime:
+                    continue
+                data = json.loads(path.read_text())
+                data.setdefault("source", label)
+                data.setdefault("timestamp", now_cst().isoformat())
+                self.agent_bus.publish(channel, data, producer="context_cache", ttl_seconds=900)
+                self._context_refresh_mtimes[channel] = mtime
+            except Exception as context_error:
+                logger.debug(f"Context refresh failed for {path}: {context_error}")
+
+    def _publish_account_context(self) -> None:
+        """Share account/risk state with other agents."""
+        if not self.agent_bus or not self.tracker:
+            return
+        self._update_status_from_tracker()
+        current_equity = self.tracker.get_current_equity()
+        peak_equity = getattr(self.tracker, "peak_equity", current_equity)
+        drawdown_pct = 0.0
+        if peak_equity:
+            drawdown_pct = (current_equity - peak_equity) / peak_equity
+        payload = {
+            "equity": current_equity,
+            "daily_pnl": self.status.daily_pnl,
+            "active_drawdown_pct": drawdown_pct,
+            "portfolio_heat": getattr(self.risk, "portfolio_heat", 0.0) if self.risk else 0.0,
+            "timestamp": now_cst().isoformat(),
+        }
+        self.agent_bus.publish("account", payload, producer="risk_monitor", ttl_seconds=300)
+
+    def _compute_structural_metrics(self, features) -> Dict[str, float]:
+        """Derive structural metrics from the full candle buffer."""
+        metrics: Dict[str, float] = {}
+        if features is None or features.empty:
+            return metrics
+        history = features.tail(min(len(features), 240)).copy()
+        if history.empty:
+            return metrics
+        closes = history["close"].astype(float)
+        highs = history["high"].astype(float)
+        lows = history["low"].astype(float)
+        idx = np.arange(len(closes))
+        if len(idx) >= 5:
+            slope = np.polyfit(idx, closes, 1)[0]
+            metrics["trend_strength"] = float(slope / max(closes.iloc[-1], 1e-6))
+            metrics["momentum_score"] = float(closes.pct_change(periods=5).dropna().sum())
+        atr_series = history["ATR_14"].dropna() if "ATR_14" in history.columns else None
+        if atr_series is not None and not atr_series.empty:
+            metrics["atr_latest"] = float(atr_series.iloc[-1])
+            metrics["volatility_rank"] = float(
+                min(1.0, max(0.0, atr_series.rank(pct=True).iloc[-1]))
+            )
+            metrics["atr_slope"] = float(atr_series.diff().rolling(5).mean().dropna().iloc[-1])
+        if "RSI_14" in history.columns:
+            metrics["rsi_latest"] = float(history["RSI_14"].dropna().iloc[-1])
+        price_range = highs.max() - lows.min()
+        if price_range > 0:
+            metrics["range_position"] = float((closes.iloc[-1] - lows.min()) / price_range)
+            metrics["range_width"] = float(price_range)
+        metrics["structure_samples"] = len(history)
+        metrics["historical_trend_strength"] = float(
+            closes.pct_change(periods=20).dropna().mean()
+        ) if len(closes) >= 20 else metrics.get("trend_strength", 0.0)
+        return metrics
+
+    def _apply_structural_weighting(self, signal, metrics: Dict[str, float]) -> float:
+        """Adjust signal confidence based on structural context."""
+        if not metrics or signal.action == "HOLD":
+            return 0.0
+        is_buy = signal.action in ["BUY", "SCALP_BUY"]
+        direction = 1 if is_buy else -1
+        trend_bias = metrics.get("trend_strength", 0.0) * direction
+        momentum_bias = metrics.get("momentum_score", 0.0) * direction
+        range_position = metrics.get("range_position", 0.5)
+        range_bias = (0.5 - range_position) * direction
+        volatility_bias = (metrics.get("volatility_rank", 0.5) - 0.5)
+        structure_score = (
+            trend_bias * 0.5
+            + momentum_bias * 0.3
+            + range_bias * 0.2
+            + volatility_bias * 0.1
+        )
+        structure_score = max(-0.18, min(0.18, structure_score))
+        return structure_score
+
+    def _persist_structural_snapshot(
+        self,
+        structural_metrics: Dict[str, float],
+        rag_context: Dict[str, Any],
+        signal,
+    ) -> None:
+        """Persist blended metrics for downstream historical analysis."""
+        if not structural_metrics or not self.metrics_logger:
+            return
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trend_strength": structural_metrics.get("trend_strength"),
+            "volatility_rank": structural_metrics.get("volatility_rank"),
+            "range_position": structural_metrics.get("range_position"),
+            "atr": structural_metrics.get("atr_latest"),
+            "rsi": structural_metrics.get("rsi_latest"),
+            "rag_weighted_win_rate": (rag_context.get("stats") or {}).get("win_rate", 0.0),
+            "rag_similar_trades": rag_context.get("similar_trades_count"),
+            "decision": signal.action,
+            "confidence": signal.confidence,
+            "historical_avg_trend": structural_metrics.get("historical_trend_strength"),
+        }
+        try:
+            self.metrics_logger.record_market_metrics(payload)
+        except Exception as exc:
+            logger.debug(f"Unable to persist structural snapshot: {exc}")
+
+    def _update_status_from_tracker(self) -> None:
+        """Sync status fields from tracker metrics."""
+        if not self.tracker:
+            return
+        self.status.daily_pnl = getattr(self.tracker, "daily_pnl", self.status.daily_pnl)
+        tracker_unrealized = getattr(self.tracker, "unrealized_pnl", None)
+        if tracker_unrealized is not None:
+            self.status.unrealized_pnl = tracker_unrealized
+
     async def _process_hybrid_signal(
         self,
         signal,
@@ -938,63 +1414,133 @@ TRADING GUIDANCE:
         aws_approved = True  # Default to approved if AWS agents disabled
         aws_adjustment = 0.0
         
-        if self._use_aws_agents and self.aws_agent_invoker:
-            try:
-                logger.info(f"🤖 Consulting AWS Agents for {signal.action} signal...")
-                
-                # Build market snapshot for agents
-                snapshot = self.aws_snapshot_builder.build(
-                    current_price=current_price,
-                    features=features
-                )
-                
-                # Build account metrics
-                account_metrics = {
-                    'current_position': self.status.current_position,
-                    'unrealized_pnl': self.status.unrealized_pnl,
-                    'daily_pnl': self.status.daily_pnl,
-                }
-                
-                # Use the full agent pipeline via get_trading_decision
-                aws_result = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.aws_agent_invoker.get_trading_decision(
-                        market_snapshot=snapshot,
-                        account_metrics=account_metrics,
-                    )
-                )
-                
-                logger.info(f"  📊 AWS Decision: {aws_result.get('decision')} (conf={aws_result.get('confidence', 0):.2%})")
-                logger.info(f"  🛡️ AWS Risk: allowed={aws_result.get('allowed_to_trade')}, flags={aws_result.get('risk_flags', [])}")
-                
-                # Check if AWS allowed the trade
-                aws_allowed = aws_result.get('allowed_to_trade', True)
-                aws_decision = aws_result.get('decision', 'WAIT')
-                aws_confidence = aws_result.get('confidence', 0)
-                
-                # If AWS says WAIT or not allowed, block the trade
-                if not aws_allowed:
-                    aws_approved = False
-                    logger.warning(f"  ⚠️ AWS Risk Agent REJECTED trade: {aws_result.get('risk_flags', [])}")
-                elif aws_decision == 'WAIT':
-                    aws_adjustment = -0.15  # Reduce confidence significantly
-                    logger.info(f"  📉 AWS Decision Agent says WAIT: adjusting confidence by {aws_adjustment:+.2f}")
-                elif aws_decision == signal.action:
-                    # AWS agrees with our signal
-                    aws_adjustment = +0.05  # Boost confidence
-                    logger.info(f"  📈 AWS Agents agree with {signal.action}: boosting confidence by {aws_adjustment:+.2f}")
-                elif aws_decision in ['BUY', 'SELL'] and aws_decision != signal.action:
-                    # AWS disagrees - conflicting signals
-                    aws_adjustment = -0.1
-                    logger.warning(f"  ⚠️ AWS disagrees: we say {signal.action}, AWS says {aws_decision}")
-                
-                # Apply AWS adjustment to signal confidence
-                if aws_adjustment != 0:
-                    signal.confidence = max(0.0, min(1.0, signal.confidence + aws_adjustment))
-                    logger.info(f"  🔄 Adjusted confidence: {signal.confidence:.2f}")
+        if self._aws_agents_allowed:
+            if not self._ensure_aws_agent_invoker():
+                logger.debug("AWS Agents unavailable - skipping remote consult")
+            else:
+                try:
+                    logger.info(f"🤖 Consulting AWS Agents for {signal.action} signal...")
                     
-            except Exception as e:
-                logger.warning(f"  ⚠️ AWS Agent consultation failed: {e} - proceeding with original signal")
+                    # Build market snapshot for agents
+                    snapshot = self.aws_snapshot_builder.build(
+                        current_price=current_price,
+                        features=features
+                    )
+                    
+                    # Build account metrics
+                    account_metrics = {
+                        'current_position': self.status.current_position,
+                        'unrealized_pnl': self.status.unrealized_pnl,
+                        'daily_pnl': self.status.daily_pnl,
+                    }
+                    
+                    # Use the full agent pipeline via get_trading_decision
+                    aws_result = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: self.aws_agent_invoker.get_trading_decision(
+                            market_snapshot=snapshot,
+                            account_metrics=account_metrics,
+                        )
+                    )
+                    
+                    logger.info(f"  📊 AWS Decision: {aws_result.get('decision')} (conf={aws_result.get('confidence', 0):.2%})")
+                    logger.info(
+                        "  🛡️ AWS Risk: allowed=%s, flags=%s, size_multiplier=%.2f",
+                        aws_result.get('allowed_to_trade'),
+                        aws_result.get('risk_flags', []),
+                        aws_result.get('size_multiplier', 0.0) or 0.0,
+                    )
+                    cycle_ctx["aws"] = aws_result
+                    log_structured_event(
+                        agent="live_manager",
+                        event_type="aws.decision",
+                        message=f"{aws_result.get('decision')} allowed={aws_result.get('allowed_to_trade')}",
+                        payload=aws_result,
+                    )
+                    if self.agent_bus:
+                        self.agent_bus.publish(
+                            "aws_decision",
+                            aws_result,
+                            producer="aws_agents",
+                            ttl_seconds=300,
+                        )
+                    
+                    # Check if AWS allowed the trade
+                    risk_flags = aws_result.get('risk_flags') or []
+                    advisory_only = aws_result.get('advisory_only', False)
+                    aws_allowed = aws_result.get('allowed_to_trade')
+                    if aws_allowed is None:
+                        aws_allowed = not bool(risk_flags)
+                    if not aws_allowed and not risk_flags:
+                        logger.info("  🔎 AWS disallowed trade without flags; treating as cautionary only")
+                        aws_allowed = True
+                    aws_decision = aws_result.get('decision', 'WAIT')
+                    aws_confidence = aws_result.get('confidence', 0)
+
+                    wait_ctx = WaitDecisionContext(
+                        decision=aws_decision,
+                        advisory_only=advisory_only,
+                        confidence=aws_confidence,
+                        size_multiplier=aws_result.get('size_multiplier'),
+                    )
+                    wait_should_block = False
+                    if self._enforce_wait_blocking:
+                        wait_should_block = should_block_on_wait(
+                            wait_ctx,
+                            self.settings.aws_agents.block_on_wait,
+                            self.settings.aws_agents.wait_override_confidence,
+                            signal.confidence,
+                        )
+                    if wait_should_block:
+                        self._add_reason_code("AWS_WAIT")
+                        log_structured_event(
+                            agent="live_manager",
+                            event_type="aws.wait_block",
+                            message="Trade blocked by WAIT advisory",
+                            payload={"trade_cycle_id": self._current_cycle_id},
+                            correlation_id=self._current_cycle_id,
+                        )
+                        return
+                    elif aws_decision.upper() == "WAIT":
+                        self._add_reason_code("AWS_WAIT_OVERRIDE")
+                    
+                    force_block = bool(risk_flags and not aws_allowed)
+                    
+                    if force_block:
+                        aws_approved = False
+                        logger.warning(f"  ⚠️ AWS Risk Agent REJECTED trade: {risk_flags}")
+                    elif aws_decision == 'WAIT':
+                        wait_penalty = -0.10
+                        if signal.confidence >= max(self.MIN_CONFIDENCE_THRESHOLD, 0.55) and not risk_flags:
+                            wait_penalty = -0.05
+                            logger.info("  📌 AWS issued WAIT but local signal strong; soft penalty applied")
+                        aws_adjustment = wait_penalty
+                        if advisory_only:
+                            logger.info("  🛈 AWS WAIT advisory only - not blocking trade")
+                    elif not aws_allowed:
+                        aws_adjustment = min(aws_adjustment, -0.08)
+                        logger.info("  ⚠️ AWS suggests reducing conviction (allowed=False with no flags)")
+                    elif aws_decision == signal.action:
+                        # AWS agrees with our signal
+                        aws_adjustment = +0.05
+                        logger.info(f"  📈 AWS Agents agree with {signal.action}: boosting confidence by {aws_adjustment:+.2f}")
+                    elif aws_decision in ['BUY', 'SELL'] and aws_decision != signal.action:
+                        aws_adjustment = -0.1
+                        logger.warning(f"  ⚠️ AWS disagrees: we say {signal.action}, AWS says {aws_decision}")
+                    
+                    # Apply AWS adjustment to signal confidence
+                    if aws_adjustment != 0:
+                        signal.confidence = max(0.0, min(1.0, signal.confidence + aws_adjustment))
+                        logger.info(f"  🔄 Adjusted confidence: {signal.confidence:.2f}")
+                    aws_size_mult = aws_result.get('size_multiplier')
+                    if aws_size_mult:
+                        if not isinstance(signal.metadata, dict):
+                            signal.metadata = {}
+                        signal.metadata["aws_size_multiplier"] = aws_size_mult
+                        logger.info(f"  📐 AWS size multiplier applied: {aws_size_mult:.2f}")
+                    
+                except Exception as e:
+                    logger.warning(f"  ⚠️ AWS Agent consultation failed: {e} - proceeding with original signal")
         
         # If AWS agents rejected the trade, convert to HOLD
         if not aws_approved:
@@ -1034,16 +1580,27 @@ TRADING GUIDANCE:
     
     async def _place_exit_order(self, action: str, quantity: int, current_price: float):
         """Place a market order to exit existing position."""
-        logger.info(f"🚪 Placing EXIT order: {action} {quantity} contracts @ market price ~{current_price:.2f}")
-        
+        logger.info(f"🚪 Placing EXIT order request: {action} {quantity} contracts @ ~{current_price:.2f}")
+        current_position = await self.executor.get_current_position() if self.executor else None
+        if not current_position or current_position.quantity == 0:
+            logger.warning("⚠️ Exit requested but no open position - skipping")
+            return
+        exit_action = "SELL" if current_position.quantity > 0 else "BUY"
+        if action not in ("SELL", "BUY"):
+            exit_action = "SELL" if current_position.quantity > 0 else "BUY"
+        exit_qty = min(quantity, abs(current_position.quantity))
+        logger.info(f"🚪 Placing EXIT order: {exit_action} {exit_qty} contracts")
+
         try:
             # Place market order to flatten position
             order_id = await self.executor.place_order(
-                action=action,  # BUY to close SHORT, SELL to close LONG
-                quantity=quantity,
+                action=exit_action,  # BUY to close SHORT, SELL to close LONG
+                quantity=exit_qty,
                 limit_price=current_price,
                 stop_loss=None,  # No stops for exit orders
-                take_profit=None
+                take_profit=None,
+                reduce_only=self._enforce_reduce_only_exits,
+                metadata={"trade_cycle_id": self._current_cycle_id},
             )
             
             logger.info(f"✅ Exit order placed: ID={order_id}")
@@ -1051,8 +1608,8 @@ TRADING GUIDANCE:
             # Broadcast exit
             await self._broadcast_order_update({
                 "type": "EXIT",
-                "action": action,
-                "quantity": quantity,
+                "action": exit_action,
+                "quantity": exit_qty,
                 "price": current_price,
                 "order_id": order_id
             })
@@ -1067,49 +1624,56 @@ TRADING GUIDANCE:
         current_price: float,
         proposed_action: str,
     ) -> dict:
-        """Query AWS Knowledge Base for historical pattern matching.
-        
-        This method queries the Decision Agent to search the Knowledge Base
-        for similar historical patterns and returns a confidence adjustment.
-        
-        Args:
-            features: Current market features DataFrame
-            current_price: Current price
-            proposed_action: Proposed trading action (BUY/SELL)
-            
-        Returns:
-            Dictionary with:
-            - confidence_adjustment: Float adjustment to apply (-0.2 to +0.2)
-            - similar_patterns: Number of similar patterns found
-            - historical_win_rate: Win rate for similar patterns
-            - reasoning: Agent's reasoning
-        """
-        if not self.aws_agent_invoker or not self.aws_snapshot_builder:
-            return {}
-        
+        """Return KB-derived adjustment using AWS (remote) or local fallback."""
         try:
-            # Build market snapshot from current features
             row = features.iloc[-1]
-            
-            # Determine trend and volatility
             ema_9 = float(row.get('EMA_9', row.get('ema_9', current_price)))
             ema_20 = float(row.get('EMA_20', row.get('ema_20', current_price)))
             atr = float(row.get('ATR_14', row.get('atr', 10)))
-            
             if ema_9 > ema_20 and current_price > ema_9:
                 trend = 'UPTREND'
             elif ema_9 < ema_20 and current_price < ema_9:
                 trend = 'DOWNTREND'
             else:
                 trend = 'RANGE'
-            
             if atr > 15:
                 volatility = 'HIGH'
             elif atr > 8:
                 volatility = 'MED'
             else:
                 volatility = 'LOW'
-            
+
+            query_context = {
+                "action": proposed_action,
+                "trend": trend,
+                "volatility": volatility,
+                "confidence": float(row.get('signal_confidence', 0.0)),
+            }
+            cache_key = self._build_kb_cache_key(trend, volatility, proposed_action)
+            cached = self._get_cached_kb_result(cache_key)
+            if cached:
+                kb_usage_tracker.record_query(cache_hit=True, remote_call=False)
+                return cached
+
+            rag_cfg = getattr(self.settings, "rag", None)
+            remote_enabled = bool(
+                self._aws_agents_allowed
+                and rag_cfg
+                and getattr(rag_cfg, "opensearch_enabled", False)
+                and self._rag_backend == "opensearch_serverless"
+            )
+
+            if not remote_enabled or not self._ensure_aws_agent_invoker():
+                local_result = self._query_local_knowledge_base(query_context)
+                if local_result:
+                    kb_usage_tracker.record_query(cache_hit=False, remote_call=False)
+                    local_result["trend"] = trend
+                    local_result["volatility"] = volatility
+                    self._set_cached_kb_result(cache_key, local_result)
+                    return local_result
+                kb_usage_tracker.record_avoidance()
+                return {}
+
             snapshot = self.aws_snapshot_builder.build(
                 price=current_price,
                 trend=trend,
@@ -1119,35 +1683,25 @@ TRADING GUIDANCE:
                 ema_9=ema_9,
                 ema_20=ema_20,
             )
-            
-            # Query the Decision Agent for historical pattern analysis only
-            # This is a quick query focused on pattern matching, not trade decision
             response = self.aws_agent_invoker.agent_client.invoke_decision_agent(
                 market_snapshot=snapshot,
             )
-            
-            # Extract relevant information
             similar_patterns = response.get('similar_patterns', 0)
             kb_confidence = response.get('confidence', 0.5)
             reasoning = response.get('reason', '')
-            
-            # Calculate confidence adjustment based on KB results
-            # If KB found good patterns with high win rate, boost confidence
-            # If KB suggests caution, reduce confidence
+
             confidence_adjustment = 0.0
-            
             if similar_patterns > 0:
-                # KB found similar patterns
                 if kb_confidence >= 0.7:
-                    confidence_adjustment = 0.15  # Strong positive history
+                    confidence_adjustment = 0.15
                 elif kb_confidence >= 0.6:
-                    confidence_adjustment = 0.08  # Moderate positive history
+                    confidence_adjustment = 0.08
                 elif kb_confidence <= 0.4:
-                    confidence_adjustment = -0.15  # Negative history
+                    confidence_adjustment = -0.15
                 elif kb_confidence <= 0.5:
-                    confidence_adjustment = -0.05  # Slight caution
-            
-            return {
+                    confidence_adjustment = -0.05
+
+            payload = {
                 'confidence_adjustment': confidence_adjustment,
                 'similar_patterns': similar_patterns,
                 'historical_win_rate': kb_confidence,
@@ -1155,9 +1709,13 @@ TRADING GUIDANCE:
                 'trend': trend,
                 'volatility': volatility,
             }
+            kb_usage_tracker.record_query(cache_hit=False, remote_call=True)
+            self._set_cached_kb_result(cache_key, payload)
+            return payload
             
         except Exception as e:
             logger.warning(f"AWS KB query error: {e}")
+            kb_usage_tracker.record_avoidance()
             return {}
     
     async def _process_aws_agent_signal(
@@ -1420,6 +1978,11 @@ TRADING GUIDANCE:
             if pipeline_result:
                 position_factor = pipeline_result.position_size
                 qty = max(1, int(round(qty * position_factor)))
+            aws_size_multiplier = None
+            if isinstance(signal.metadata, dict):
+                aws_size_multiplier = signal.metadata.get("aws_size_multiplier")
+            if aws_size_multiplier:
+                qty = max(1, int(round(qty * max(0.1, float(aws_size_multiplier)))))
             
             qty = min(qty, self.settings.trading.max_position_size)
             
@@ -1436,6 +1999,7 @@ TRADING GUIDANCE:
             row = features.iloc[-1]
             
             # Use pipeline's calculated stop/target
+            fallback_used = False
             if pipeline_result and pipeline_result.stop_loss > 0:
                 stop_offset = pipeline_result.stop_loss
                 target_offset = pipeline_result.take_profit
@@ -1447,16 +2011,24 @@ TRADING GUIDANCE:
                 else:
                     logger.info(f"🎯 Using HYBRID risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
             else:
-                # Fallback to ATR-based
                 atr = float(row.get("ATR_14", 0.0))
-                if is_scalp:
-                    stop_offset = atr * 0.75  # Tighter for scalps
-                    target_offset = atr * 1.0
-                    logger.info(f"🎯 Using ATR SCALP fallback: SL={stop_offset:.2f}, TP={target_offset:.2f}")
+                offsets = compute_protective_offsets(
+                    atr_value=atr,
+                    tick_size=self.settings.trading.tick_size,
+                    scalper=is_scalp,
+                    volatility=self.status.hybrid_volatility_regime,
+                )
+                stop_offset = offsets.stop_offset
+                target_offset = offsets.target_offset
+                fallback_used = offsets.fallback_used
+                if offsets.fallback_used:
+                    logger.warning(
+                        f"⚠️ Using ATR fallback offsets ({offsets.reason or 'fallback'}) "
+                        f"SL={stop_offset:.2f}, TP={target_offset:.2f}"
+                    )
                 else:
-                    stop_offset = atr * 1.5
-                    target_offset = atr * 2.0
-                    logger.info(f"🎯 Using ATR fallback: SL={stop_offset:.2f}, TP={target_offset:.2f}")
+                    label = "SCALP ATR" if is_scalp else "ATR"
+                    logger.info(f"🎯 Using {label} offsets: SL={stop_offset:.2f}, TP={target_offset:.2f}")
             
             stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
             take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
@@ -1467,6 +2039,8 @@ TRADING GUIDANCE:
             metadata["hybrid_reasoning"] = metadata.get("hybrid_reasoning", "")
             metadata["market_trend"] = self.status.hybrid_market_trend
             metadata["volatility_regime"] = self.status.hybrid_volatility_regime
+            metadata["atr_fallback_used"] = fallback_used
+            metadata["entry_price"] = current_price
             
             # Prepare market data for trade logging
             market_data = {
@@ -1491,6 +2065,25 @@ TRADING GUIDANCE:
                 "hybrid_pipeline": True,
                 "market_trend": self.status.hybrid_market_trend,
             })
+            
+            logger.info(
+                "📊 Order telemetry | qty=%d position=%d lock=%s entry=%.2f SL=%.2f TP=%.2f fallback=%s",
+                qty,
+                self.status.current_position,
+                self.executor.is_order_locked() if self.executor else False,
+                current_price,
+                stop_loss,
+                take_profit,
+                "yes" if fallback_used else "no",
+            )
+
+            if self._enforce_entry_risk_checks and not self._validate_entry_guard(
+                current_price,
+                stop_loss,
+                take_profit,
+                qty,
+            ):
+                return
             
             # === Simulation mode check ===
             if self.simulation_mode:
@@ -1557,20 +2150,31 @@ TRADING GUIDANCE:
                         price=result.fill_price,
                         quantity=qty
                     )
-                    
-                    # Log trade entry through hybrid pipeline
+                    self._update_status_from_tracker()
+                
+                # Log trade entry through hybrid pipeline
                     if self.hybrid_pipeline:
                         self.hybrid_pipeline.log_trade_entry(
                             action=signal.action,
-                            entry_price=result.fill_price,
+                            entry_price=result.fill_price or current_price,
                             quantity=qty,
                             stop_loss=stop_loss,
                             take_profit=take_profit,
                             market_data=market_data,
                             pipeline_result=pipeline_result,
-                        )
-                        logger.info(f"✅ Trade logged to Hybrid RAG system")
-        
+                    )
+                    logger.info("✅ Trade logged to Hybrid RAG system")
+                if result.fill_price:
+                    self._register_trade_entry(
+                        cycle_id=self._current_cycle_id,
+                        action=signal.action,
+                        quantity=qty,
+                        entry_price=result.fill_price,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        metadata=metadata,
+                    )
+
         except Exception as e:
             logger.error(f"❌ CRITICAL: _place_hybrid_order failed: {e}")
             import traceback
@@ -1635,19 +2239,31 @@ TRADING GUIDANCE:
             
             # Calculate dynamic distances
             if atr > 0:
-                stop_offset = atr * atr_mult_sl
-                target_offset = atr * atr_mult_tp
+                stop_offset = max(atr * atr_mult_sl, self.settings.trading.tick_size)
+                target_offset = max(atr * atr_mult_tp, stop_offset + self.settings.trading.tick_size)
+                metadata["atr_fallback_used"] = False
             else:
-                # Fallback to fixed ticks if ATR is invalid
-                tick_size = self.settings.trading.tick_size
-                stop_offset = self.settings.trading.stop_loss_ticks * tick_size
-                target_offset = self.settings.trading.take_profit_ticks * tick_size
-                logger.warning("⚠️ ATR is 0 or invalid, using fixed ticks fallback")
+                offsets = compute_protective_offsets(
+                    atr_value=atr,
+                    tick_size=self.settings.trading.tick_size,
+                    scalper=False,
+                    volatility=regime.value,
+                )
+                stop_offset = offsets.stop_offset
+                target_offset = offsets.target_offset
+                metadata["atr_fallback_used"] = True
+                logger.warning(
+                    f"⚠️ ATR invalid, using fallback offsets SL={stop_offset:.2f}, TP={target_offset:.2f}"
+                )
                 
             stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
             take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
             
-            logger.info(f"🎯 Dynamic Risk: ATR={atr:.2f}, SL={atr_mult_sl}x ({stop_offset:.2f}), TP={atr_mult_tp}x ({target_offset:.2f})")
+            if atr > 0:
+                logger.info(f"🎯 Dynamic Risk: ATR={atr:.2f}, SL={atr_mult_sl}x ({stop_offset:.2f}), TP={atr_mult_tp}x ({target_offset:.2f})")
+            else:
+                logger.info(f"🎯 Dynamic Risk fallback: ATR={atr:.2f}, SL={stop_offset:.2f}, TP={target_offset:.2f}")
+            metadata["entry_price"] = current_price
             
             # Broadcast order intent
             await self._broadcast_order_update({
@@ -1659,6 +2275,22 @@ TRADING GUIDANCE:
                 "take_profit": take_profit,
                 "regime": regime.value
             })
+
+            logger.info(
+                "📊 Order telemetry | qty=%d position=%d lock=%s entry=%.2f SL=%.2f TP=%.2f fallback=%s",
+                qty,
+                self.status.current_position,
+                self.executor.is_order_locked() if self.executor else False,
+                current_price,
+                stop_loss,
+                take_profit,
+                "yes" if metadata.get("atr_fallback_used") else "no",
+            )
+
+            if self._enforce_entry_risk_checks and not self._validate_entry_guard(
+                current_price, stop_loss, take_profit, qty
+            ):
+                return
             
             # === NEW: Simulation mode check ===
             if self.simulation_mode:
@@ -1712,6 +2344,16 @@ TRADING GUIDANCE:
                         price=result.fill_price,
                         quantity=qty
                     )
+                    self._update_status_from_tracker()
+                    self._register_trade_entry(
+                        cycle_id=self._current_cycle_id,
+                        action=signal.action,
+                        quantity=qty,
+                        entry_price=result.fill_price,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        metadata=metadata,
+                    )
                     
                     # --- RAG Persistence (Entry) ---
                     if self.rag_storage:
@@ -1756,6 +2398,158 @@ TRADING GUIDANCE:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             await self._broadcast_error(f"Order placement failed: {e}")
+
+    def _validate_entry_guard(
+        self,
+        entry_price: float,
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+        quantity: int,
+    ) -> bool:
+        """Ensure we have sane protective levels and risk."""
+        if stop_loss is None or take_profit is None:
+            logger.warning("⚠️ Protective levels missing - rejecting trade")
+            self._add_reason_code("MISSING_PROTECTION")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.invalid_levels",
+                message="Missing stop/target",
+                payload={"trade_cycle_id": self._current_cycle_id},
+            )
+            return False
+        if stop_loss <= 0 or take_profit <= 0:
+            logger.warning("⚠️ Protective levels invalid - rejecting trade")
+            self._add_reason_code("INVALID_PROTECTION")
+            return False
+        dollar_risk = compute_trade_risk_dollars(
+            entry_price,
+            stop_loss,
+            self.settings.trading.contract_multiplier,
+        ) * max(1, quantity)
+        if dollar_risk > self.settings.trading.max_loss_per_trade:
+            logger.warning(
+                f"⛔ Estimated risk ${dollar_risk:.2f} exceeds per-trade cap "
+                f"${self.settings.trading.max_loss_per_trade:.2f}"
+            )
+            self._add_reason_code("MAX_LOSS_CAP")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.trade_rejected",
+                message="Estimated loss exceeds cap",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "risk_dollars": dollar_risk,
+                    "cap": self.settings.trading.max_loss_per_trade,
+                },
+            )
+            return False
+        return True
+
+    def _register_trade_entry(
+        self,
+        cycle_id: Optional[str],
+        action: str,
+        quantity: int,
+        entry_price: float,
+        stop_loss: float,
+        take_profit: float,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Store trade context for learning + telemetry."""
+        metadata = metadata or {}
+        cycle_id = cycle_id or self._current_cycle_id or uuid.uuid4().hex[:12]
+        context = self._cycle_context.get(cycle_id, {})
+        is_long = action in ("BUY", "SCALP_BUY")
+        self._open_trade_context = {
+            "cycle_id": cycle_id,
+            "action": action,
+            "is_long": is_long,
+            "quantity": quantity,
+            "entry_price": entry_price,
+            "entry_time": now_cst().isoformat(),
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "metadata": metadata,
+            "regime": context.get("regime"),
+            "volatility": context.get("volatility"),
+            "aws": context.get("aws"),
+            "signal_confidence": context.get("signal_confidence"),
+            "signal_type": context.get("signal_type"),
+            "features": self.current_trade_features or {},
+        }
+        reason_codes = context.get("reason_codes", set())
+        self._active_reason_codes = set(reason_codes)
+
+    async def _finalize_trade(
+        self,
+        exit_price: float,
+        exit_time: datetime,
+        realized_pnl: float,
+    ) -> None:
+        """Persist trade outcome + history snapshots."""
+        if not self._open_trade_context or not self.learning_recorder:
+            return
+        ctx = self._open_trade_context
+        direction = 1 if ctx.get("is_long") else -1
+        contract = getattr(self.settings.data, "ibkr_symbol", "ES")
+        payload = TradeLearningPayload(
+            trade_cycle_id=ctx["cycle_id"],
+            symbol=contract,
+            contract=contract,
+            quantity=ctx["quantity"],
+            side=ctx["action"],
+            entry_time=ctx["entry_time"],
+            entry_price=ctx["entry_price"],
+            exit_time=exit_time.isoformat(),
+            exit_price=exit_price,
+            stop_loss=ctx["stop_loss"],
+            take_profit=ctx["take_profit"],
+            signal_type=ctx.get("signal_type"),
+            signal_confidence=ctx.get("signal_confidence"),
+            regime=ctx.get("regime"),
+            volatility=ctx.get("volatility"),
+            advisory=ctx.get("aws"),
+            risk_parameters={
+                "distance_points": abs(ctx["entry_price"] - ctx["stop_loss"]),
+                "target_points": abs(ctx["take_profit"] - ctx["entry_price"]),
+            },
+            features=ctx.get("features") or {},
+            execution_metrics=ExecutionMetrics(),
+            reason_codes=sorted(self._active_reason_codes),
+            outcome="LOSS" if realized_pnl < 0 else "WIN" if realized_pnl > 0 else "BREAKEVEN",
+            pnl=realized_pnl,
+        )
+        self.learning_recorder.record_outcome(payload)
+        if self._local_kb:
+            try:
+                self._local_kb.record_trade(payload)
+            except Exception as exc:
+                logger.debug(f"Local KB record skipped: {exc}")
+        candles = self.price_history[-120:]
+        history_ctx = {
+            "regime": ctx.get("regime"),
+            "volatility": ctx.get("volatility"),
+            "symbol": contract,
+        }
+        if candles:
+            self.learning_recorder.record_history_snapshot(
+                payload.trade_cycle_id,
+                candles,
+                history_ctx,
+            )
+        self._open_trade_context = None
+        self._active_reason_codes.clear()
+        self._cycle_context.pop(payload.trade_cycle_id, None)
+
+    def _add_reason_code(self, code: str) -> None:
+        if not code:
+            return
+        self._active_reason_codes.add(code)
+        cycle_ctx = self._cycle_context.get(self._current_cycle_id)
+        if cycle_ctx is not None:
+            if "reason_codes" not in cycle_ctx or not isinstance(cycle_ctx["reason_codes"], set):
+                cycle_ctx["reason_codes"] = set()
+            cycle_ctx["reason_codes"].add(code)
     
     async def stop(self):
         """Stop the trading session."""

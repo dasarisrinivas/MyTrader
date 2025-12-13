@@ -61,7 +61,11 @@ async def run_live(settings: Settings) -> None:
     from mytrader.llm.rag_trade_advisor import RAGEnhancedTradeAdvisor
     
     # Check if RAG and LLM are enabled in config
-    rag_enabled = settings.rag.enabled if hasattr(settings, 'rag') else False
+    rag_enabled = (
+        hasattr(settings, 'rag')
+        and settings.rag.enabled
+        and getattr(settings.rag, 'backend', 'off') != 'off'
+    )
     llm_enabled = settings.llm.enabled if hasattr(settings, 'llm') else True
     
     if llm_enabled:

@@ -16,11 +16,18 @@ Usage:
         await self._place_order(result.signal, current_price, features)
 """
 import asyncio
+import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from statistics import fmean
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 from loguru import logger
 
+from mytrader.hybrid.multi_factor_scorer import MultiFactorScorer
+from mytrader.hybrid.coordination import AgentBus
+from mytrader.utils.structured_logging import log_structured_event
 from mytrader.rag.hybrid_rag_pipeline import (
     HybridRAGPipeline,
     TradeAction,
@@ -63,6 +70,7 @@ class HybridPipelineIntegration:
         settings: Any,
         llm_client: Optional[Any] = None,
         enabled: bool = True,
+        context_bus: Optional[AgentBus] = None,
     ):
         """Initialize the hybrid pipeline integration.
         
@@ -73,6 +81,7 @@ class HybridPipelineIntegration:
         """
         self.settings = settings
         self.enabled = enabled
+        self.context_bus = context_bus
         
         # Get hybrid config from settings if available
         hybrid_config = {}
@@ -104,6 +113,15 @@ class HybridPipelineIntegration:
             logger.warning(f"Could not initialize embedding builder: {e}")
             self.embedding_builder = None
         
+        rag_data_root = getattr(getattr(settings, 'hybrid', None), 'rag_data_path', 'rag_data')
+        self.rag_data_path = Path(rag_data_root)
+        self._initialize_local_rag_index()
+        
+        factor_weights = None
+        if hasattr(settings, 'hybrid'):
+            factor_weights = getattr(settings.hybrid, 'factor_weights', None)
+        self.multi_factor_scorer = MultiFactorScorer(weights=factor_weights)
+
         # Initialize pipeline
         self.pipeline = create_hybrid_pipeline(
             config=hybrid_config,
@@ -118,10 +136,72 @@ class HybridPipelineIntegration:
         
         logger.info("HybridPipelineIntegration initialized")
     
+    def _collect_local_documents(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """Collect documents from rag_data_path to bootstrap embeddings."""
+        documents: List[Tuple[str, str, Dict[str, Any]]] = []
+        if not self.rag_data_path.exists():
+            return documents
+        
+        valid_ext = {".txt", ".md", ".json"}
+        for file in self.rag_data_path.rglob("*"):
+            if not file.is_file() or file.suffix.lower() not in valid_ext:
+                continue
+            try:
+                text = file.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            metadata = {
+                "type": file.parent.name,
+                "source": str(file.relative_to(self.rag_data_path)),
+            }
+            doc_id = f"{metadata['type']}::{file.stem}"
+            documents.append((doc_id, text[:5000], metadata))
+        return documents
+    
+    def _initialize_local_rag_index(self) -> None:
+        """Ensure the embedding index has content, even when offline."""
+        if not self.embedding_builder:
+            return
+        try:
+            stats = self.embedding_builder.get_stats()
+            if stats.get("documents", 0) > 0:
+                return
+        except Exception:
+            pass
+        
+        documents = self._collect_local_documents()
+        if documents:
+            logger.info(f"Building local RAG index from {len(documents)} documents in {self.rag_data_path}")
+            try:
+                self.embedding_builder.build_index(documents, save=False)
+            except Exception as e:
+                logger.warning(f"Failed to build local RAG index: {e}")
+        else:
+            logger.warning(f"No local RAG documents found in {self.rag_data_path}")
+
+    def ensure_ready(self, min_documents: int = 1) -> Dict[str, Any]:
+        """Verify embedding builder has enough documents and warm it up if needed."""
+        stats: Dict[str, Any] = {}
+        if not self.embedding_builder:
+            return stats
+        try:
+            stats = self.embedding_builder.get_stats()
+        except Exception as exc:
+            logger.debug(f"Unable to fetch embedding stats: {exc}")
+            stats = {}
+        if (stats.get("documents") or 0) < min_documents:
+            self._initialize_local_rag_index()
+            try:
+                stats = self.embedding_builder.get_stats()
+            except Exception:
+                stats = {}
+        return stats
+    
     def convert_features_to_market_data(
         self,
         features,
         current_price: float,
+        historical_metrics: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Convert pandas features DataFrame to market data dict.
         
@@ -173,14 +253,74 @@ class HybridPipelineIntegration:
             "volatility": float(row.get("volatility_5m", row.get("volatility", 0))),
         }
         
-        # DEBUG: Log key indicators
+        market_data.update(self._compute_historical_structure(features))
+        
+        if historical_metrics:
+            market_data["historical_trend_strength"] = historical_metrics.get("avg_trend_strength", 0.0)
+            market_data["historical_volatility_rank"] = historical_metrics.get("avg_volatility_rank", 0.0)
+            market_data["historical_range_position"] = historical_metrics.get("avg_range_position", 0.0)
+        
         logger.debug(
-            f"Market Data: price={market_data['price']:.2f}, RSI={market_data['rsi']:.1f}, "
-            f"MACD_hist={market_data['macd_hist']:.3f}, EMA9={market_data['ema_9']:.2f}, "
-            f"EMA20={market_data['ema_20']:.2f}, ATR={market_data['atr']:.2f}"
+            "Market Data: price=%.2f RSI=%.1f trend=%.3f atr=%.3f range_pos=%.2f",
+            market_data["price"],
+            market_data["rsi"],
+            market_data.get("trend_strength", 0.0),
+            market_data["atr"],
+            market_data.get("range_position", 0.0),
         )
         
         return market_data
+
+    def _compute_historical_structure(self, features) -> Dict[str, float]:
+        """Compute multi-candle metrics so the pipeline sees broader context."""
+        metrics: Dict[str, float] = {}
+        history = features.tail(min(len(features), 200)).copy()
+        if history.empty:
+            return metrics
+        
+        closes = history["close"].astype(float)
+        highs = history["high"].astype(float)
+        lows = history["low"].astype(float)
+        atr_series = history["ATR_14"].astype(float) if "ATR_14" in history.columns else None
+        
+        if len(closes) >= 5:
+            idx = np.arange(len(closes))
+            try:
+                slope = np.polyfit(idx, closes, 1)[0]
+                metrics["trend_strength"] = float(slope / max(closes.iloc[-1], 1e-6))
+            except Exception:
+                metrics["trend_strength"] = 0.0
+            
+            window = closes.rolling(20).mean().iloc[-1] if len(closes) >= 20 else closes.mean()
+            metrics["mean_reversion_score"] = float((closes.iloc[-1] - window) / max(window, 1e-6))
+        
+        if atr_series is not None and not atr_series.dropna().empty:
+            atr_values = atr_series.dropna()
+            metrics["atr_trend"] = float(atr_values.iloc[-1] - atr_values.mean())
+            metrics["volatility_rank"] = float(min(1.0, max(0.0, atr_values.rank(pct=True).iloc[-1])))
+        
+        price_range = highs.max() - lows.min()
+        if price_range > 0:
+            metrics["range_position"] = float((closes.iloc[-1] - lows.min()) / price_range)
+            metrics["support_level"] = float(lows.min())
+            metrics["resistance_level"] = float(highs.max())
+        else:
+            metrics["range_position"] = 0.5
+            metrics["support_level"] = float(closes.min())
+            metrics["resistance_level"] = float(closes.max())
+        
+        recent = features.tail(3)
+        if not recent.empty:
+            metrics["momentum_score"] = float(recent["close"].pct_change().sum())
+        
+        return metrics
+
+    def _get_context(self, channel: str, ttl_seconds: float) -> Optional[Dict[str, Any]]:
+        """Fetch latest context from agent bus."""
+        if not self.context_bus:
+            return None
+        message = self.context_bus.get_fresh(channel, ttl_seconds)
+        return message.payload if message else None
     
     def process_sync(
         self,
@@ -199,30 +339,104 @@ class HybridPipelineIntegration:
         if not self.enabled:
             return HybridSignal("HOLD", 0.0), None
         
+        historical_summary = self._load_recent_metrics()
+        
         # Convert features to market data
-        market_data = self.convert_features_to_market_data(features, current_price)
+        market_data = self.convert_features_to_market_data(
+            features,
+            current_price,
+            historical_metrics=historical_summary,
+        )
         
         # Process through pipeline
         result = self.pipeline.process(market_data)
+
+        news_context = self._get_context("news", 600)
+        macro_context = self._get_context("macro", 900)
+        risk_context = self._get_context("account", 180)
+        macro_context = self._merge_structural_bias(macro_context, historical_summary)
+
+        market_metrics_payload = {
+            "trend_strength": market_data.get("trend_strength"),
+            "range_position": market_data.get("range_position"),
+            "volatility_rank": market_data.get("volatility_rank"),
+            "historical_trend_strength": historical_summary.get("avg_trend_strength"),
+            "historical_range_position": historical_summary.get("avg_range_position"),
+        }
+        decision = self.multi_factor_scorer.score(
+            result,
+            news_context=news_context,
+            macro_context=macro_context,
+            risk_context=risk_context,
+            market_metrics=market_metrics_payload,
+        )
         
-        # Convert to signal format
+        stop_points = max(0.0, float(result.stop_loss or 0.0))
+        take_points = max(0.0, float(result.take_profit or 0.0))
+        if stop_points == 0.0 or take_points == 0.0:
+            logger.warning(
+                "Hybrid pipeline produced non-positive protective levels (stop=%s, target=%s)",
+                result.stop_loss,
+                result.take_profit,
+            )
+
+        metadata = {
+            "hybrid_reasoning": result.final_reasoning,
+            "rule_engine_score": result.rule_engine.score,
+            "filters_passed": result.rule_engine.filters_passed,
+            "filters_blocked": result.rule_engine.filters_blocked,
+            "market_trend": result.rule_engine.market_trend,
+            "volatility_regime": result.rule_engine.volatility_regime,
+            "rag_docs_count": len(result.rag_retrieval.documents),
+            "rag_similar_trades": result.rag_retrieval.similar_trade_count,
+            "rag_weighted_win_rate": result.rag_retrieval.weighted_win_rate,
+            "llm_confidence": result.llm_decision.confidence if result.llm_decision else None,
+            "stop_loss_points": stop_points,
+            "take_profit_points": take_points,
+            "position_size_factor": result.position_size,
+            "factor_scores": decision.scores.to_dict(),
+            "confidence_band": decision.confidence_band,
+            "trend_strength": market_data.get("trend_strength"),
+            "range_position": market_data.get("range_position"),
+            "momentum_score": market_data.get("momentum_score"),
+        }
+        
         signal = HybridSignal(
-            action=result.final_action.value if result.final_action != TradeAction.BLOCKED else "HOLD",
-            confidence=result.final_confidence / 100,  # Convert to 0-1 range
-            metadata={
-                "hybrid_reasoning": result.final_reasoning,
-                "rule_engine_score": result.rule_engine.score,
-                "filters_passed": result.rule_engine.filters_passed,
-                "filters_blocked": result.rule_engine.filters_blocked,
-                "market_trend": result.rule_engine.market_trend,
-                "volatility_regime": result.rule_engine.volatility_regime,
-                "rag_docs_count": len(result.rag_retrieval.documents),
-                "rag_similar_trades": result.rag_retrieval.similar_trade_count,
-                "llm_confidence": result.llm_decision.confidence if result.llm_decision else None,
-                "stop_loss_points": result.stop_loss,
-                "take_profit_points": result.take_profit,
-                "position_size_factor": result.position_size,
-            }
+            action=decision.action if result.final_action != TradeAction.BLOCKED else "HOLD",
+            confidence=decision.confidence,
+            metadata=metadata,
+        )
+
+        if self.context_bus:
+            self.context_bus.publish(
+                "decision",
+                {
+                    "action": signal.action,
+                    "confidence": signal.confidence,
+                    "metadata": metadata,
+                },
+                producer="hybrid_pipeline",
+            )
+        
+        log_structured_event(
+            agent="hybrid_pipeline",
+            event_type="decision.generated",
+            message=f"{signal.action} @ {signal.confidence:.2f}",
+            payload={
+                "trend": result.rule_engine.market_trend,
+                "volatility": result.rule_engine.volatility_regime,
+                "confidence_band": decision.confidence_band,
+                "factor_scores": decision.scores.to_dict(),
+                "news_bias": (news_context or {}).get("bias"),
+                "macro_bias": (macro_context or {}).get("regime_bias"),
+            },
+        )
+        
+        self._persist_market_metrics(
+            market_data=market_data,
+            rag_result=result.rag_retrieval,
+            decision=decision,
+            historical_summary=historical_summary,
         )
         
         logger.info(
@@ -256,6 +470,77 @@ class HybridPipelineIntegration:
             features,
             current_price,
         )
+
+    def _merge_structural_bias(
+        self,
+        macro_context: Optional[Dict[str, Any]],
+        historical_summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Blend stored metrics into macro context for scoring."""
+        ctx = dict(macro_context or {})
+        trend_strength = historical_summary.get("avg_trend_strength")
+        if trend_strength is not None:
+            if trend_strength > 0.05:
+                ctx["regime_bias"] = "BULLISH"
+            elif trend_strength < -0.05:
+                ctx["regime_bias"] = "BEARISH"
+            else:
+                ctx.setdefault("regime_bias", "NEUTRAL")
+        return ctx
+
+    def _persist_market_metrics(
+        self,
+        market_data: Dict[str, Any],
+        rag_result,
+        decision,
+        historical_summary: Dict[str, Any],
+    ) -> None:
+        """Persist blended metrics so future decisions can reuse them."""
+        if not self.trade_logger or market_data is None:
+            return
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trend_strength": market_data.get("trend_strength"),
+            "volatility_rank": market_data.get("volatility_rank"),
+            "range_position": market_data.get("range_position"),
+            "atr": market_data.get("atr"),
+            "rsi": market_data.get("rsi"),
+            "rag_weighted_win_rate": rag_result.weighted_win_rate,
+            "rag_similar_trades": rag_result.similar_trade_count,
+            "decision": decision.action,
+            "confidence": decision.confidence,
+            "historical_avg_trend": historical_summary.get("avg_trend_strength"),
+        }
+        try:
+            self.trade_logger.record_market_metrics(payload)
+        except Exception as exc:
+            logger.debug(f"Failed to persist market metrics: {exc}")
+
+    def _load_recent_metrics(self, limit: int = 30) -> Dict[str, Any]:
+        """Load summarized metrics from persistence for structural awareness."""
+        if not self.trade_logger:
+            return {}
+        try:
+            records = self.trade_logger.get_recent_market_metrics(limit=limit)
+        except Exception as exc:
+            logger.debug(f"Unable to load historical metrics: {exc}")
+            return {}
+        
+        if not records:
+            return {}
+        
+        def _avg(key: str) -> float:
+            values = [row[key] for row in records if row.get(key) is not None]
+            return fmean(values) if values else 0.0
+        
+        summary = {
+            "sample_count": len(records),
+            "avg_trend_strength": _avg("trend_strength"),
+            "avg_volatility_rank": _avg("volatility_rank"),
+            "avg_range_position": _avg("range_position"),
+            "last_decision": records[0].get("decision"),
+        }
+        return summary
     
     def log_trade_entry(
         self,
@@ -377,6 +662,7 @@ class HybridPipelineIntegration:
 def create_hybrid_integration(
     settings: Any,
     llm_client: Optional[Any] = None,
+    context_bus: Optional[AgentBus] = None,
 ) -> HybridPipelineIntegration:
     """Factory function to create HybridPipelineIntegration.
     
@@ -396,4 +682,5 @@ def create_hybrid_integration(
         settings=settings,
         llm_client=llm_client,
         enabled=enabled,
+        context_bus=context_bus,
     )

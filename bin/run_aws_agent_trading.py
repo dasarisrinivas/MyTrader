@@ -535,6 +535,16 @@ async def main():
     # Load settings
     from mytrader.utils.settings_loader import load_settings
     settings = load_settings(args.config)
+    rag_cfg = getattr(settings, "rag", None)
+    backend = getattr(rag_cfg, "backend", "off") if rag_cfg else "off"
+    if not (rag_cfg and rag_cfg.opensearch_enabled and backend == "opensearch_serverless"):
+        logger.warning(
+            "OpenSearch backend disabled (backend=%s, opensearch_enabled=%s). "
+            "AWS Agent trading integration will not start.",
+            backend,
+            getattr(rag_cfg, "opensearch_enabled", False) if rag_cfg else False,
+        )
+        return
     
     # Determine simulation mode
     if args.live:

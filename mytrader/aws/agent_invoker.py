@@ -189,18 +189,20 @@ class AgentInvoker:
             f"(confidence: {decision_response.get('confidence', 0):.2%})"
         )
         
-        # If WAIT, no need to check risk
+        # If WAIT, treat as advisory (don't block local engine)
         if decision_response.get('decision') == 'WAIT':
+            cautious_multiplier = max(0.15, min(0.4, float(decision_response.get('confidence', 0) or 0.0)))
             return {
                 'decision': 'WAIT',
                 'confidence': decision_response.get('confidence', 0),
                 'reason': decision_response.get('reason', 'No clear signal'),
-                'allowed_to_trade': False,
-                'size_multiplier': 0,
+                'allowed_to_trade': True,
+                'advisory_only': True,
+                'size_multiplier': cautious_multiplier,
                 'adjusted_size': 0,
                 'risk_flags': [],
-                'stop_loss': None,
-                'take_profit': None,
+                'stop_loss': decision_response.get('stop_loss'),
+                'take_profit': decision_response.get('take_profit'),
                 'decision_details': decision_response,
                 'risk_details': None,
             }
@@ -236,14 +238,20 @@ class AgentInvoker:
         )
         
         # Build final response
+        risk_flags = risk_response.get('risk_flags') or []
+        allowed = risk_response.get('allowed_to_trade')
+        if allowed is None:
+            allowed = not bool(risk_flags)
+        final_allowed = bool(allowed)
+        
         return {
             'decision': decision_response.get('decision'),
             'confidence': decision_response.get('confidence', 0),
             'reason': decision_response.get('reason', ''),
-            'allowed_to_trade': risk_response.get('allowed_to_trade', False),
+            'allowed_to_trade': final_allowed,
             'size_multiplier': risk_response.get('size_multiplier', 0),
             'adjusted_size': risk_response.get('adjusted_size', 0),
-            'risk_flags': risk_response.get('risk_flags', []),
+            'risk_flags': risk_flags,
             'stop_loss': decision_response.get('stop_loss'),
             'take_profit': decision_response.get('take_profit'),
             'decision_details': decision_response,

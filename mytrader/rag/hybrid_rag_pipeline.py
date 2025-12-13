@@ -17,6 +17,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from .retrieval_strategies import (
+    recency_weight_from_timestamp,
+    hybrid_trade_score,
+)
+
 # Import CST utilities
 try:
     from ..utils.timezone_utils import now_cst, today_cst, format_cst, CST
@@ -76,11 +81,13 @@ class RAGRetrievalResult:
     """Result from Layer 2: RAG Retrieval."""
     documents: List[Tuple[str, str, float]] = field(default_factory=list)  # (doc_id, content, score)
     similar_trades: List[Dict[str, Any]] = field(default_factory=list)
+    trade_priority_scores: List[float] = field(default_factory=list)
     
     # Aggregated insights
     historical_win_rate: float = 0.5
     similar_trade_count: int = 0
     avg_pnl_similar: float = 0.0
+    weighted_win_rate: float = 0.5
     
     # Context summary for LLM
     context_summary: str = ""
@@ -148,6 +155,7 @@ class HybridPipelineResult:
                 "documents_count": len(self.rag_retrieval.documents),
                 "similar_trades_count": self.rag_retrieval.similar_trade_count,
                 "historical_win_rate": self.rag_retrieval.historical_win_rate,
+                "weighted_win_rate": self.rag_retrieval.weighted_win_rate,
             },
             "llm_decision": {
                 "action": self.llm_decision.action.value if self.llm_decision else None,
@@ -593,14 +601,37 @@ class RAGRetriever:
                     limit=5,
                 )
                 
-                result.similar_trades = [t.to_dict() for t in similar_trades]
-                result.similar_trade_count = len(similar_trades)
+                priority_scores = []
+                weighted_wins = 0.0
+                weight_sum = 0.0
+                enriched_trades: List[Dict[str, Any]] = []
                 
-                # Calculate win rate for similar trades
+                for idx, trade in enumerate(similar_trades):
+                    trade_dict = trade.to_dict()
+                    similarity_rank = 1.0 - (idx / max(1, len(similar_trades)))
+                    recency_weight = recency_weight_from_timestamp(trade_dict.get("timestamp"))
+                    priority = hybrid_trade_score(similarity_rank, recency_weight, trade_dict.get("pnl"))
+                    
+                    trade_dict["similarity_rank"] = round(similarity_rank, 3)
+                    trade_dict["recency_weight"] = round(recency_weight, 3)
+                    trade_dict["priority_score"] = round(priority, 3)
+                    
+                    priority_scores.append(priority)
+                    weight_sum += priority
+                    if trade_dict.get("result") == "WIN":
+                        weighted_wins += priority
+                    
+                    enriched_trades.append(trade_dict)
+                
+                result.similar_trades = enriched_trades
+                result.similar_trade_count = len(similar_trades)
+                result.trade_priority_scores = priority_scores
+                
                 if similar_trades:
                     wins = sum(1 for t in similar_trades if t.result == "WIN")
                     result.historical_win_rate = wins / len(similar_trades)
                     result.avg_pnl_similar = sum(t.pnl for t in similar_trades) / len(similar_trades)
+                    result.weighted_win_rate = weighted_wins / weight_sum if weight_sum else result.historical_win_rate
                 
             except Exception as e:
                 logger.warning(f"Similar trade retrieval failed: {e}")

@@ -349,11 +349,17 @@ Return your response as structured JSON."""
                 json_str = completion[json_start:json_end]
                 parsed = json.loads(json_str)
                 
+                risk_flags = parsed.get('risk_flags', [])
+                if isinstance(risk_flags, str):
+                    risk_flags = [risk_flags]
+                allowed = parsed.get('allowed_to_trade')
+                if allowed is None:
+                    allowed = not bool(risk_flags)
                 return {
-                    'allowed_to_trade': bool(parsed.get('allowed_to_trade', False)),
+                    'allowed_to_trade': bool(allowed),
                     'size_multiplier': float(parsed.get('size_multiplier', 0)),
                     'adjusted_size': int(parsed.get('adjusted_size', 0)),
-                    'risk_flags': parsed.get('risk_flags', []),
+                    'risk_flags': risk_flags,
                     'reason': parsed.get('reason', ''),
                     'raw_response': completion,
                     'session_id': response.get('session_id'),
