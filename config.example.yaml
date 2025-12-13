@@ -50,6 +50,11 @@ backtest:
   initial_capital: 100000.0
   slippage: 0.25
   risk_free_rate: 0.02
+  # Backtest-specific settings
+  enabled: false  # Set to true only when running backtests
+  mode: "live"  # "live" or "backtest" - backtest mode disables IB connection
+  artifacts_dir: "artifacts/backtest"
+  local_lambda_mode: true  # Use local Lambda wrappers instead of AWS
 optimization:
   window_length: 5000
   retrain_interval: 3600  # Legacy - not used in real-time loop anymore
