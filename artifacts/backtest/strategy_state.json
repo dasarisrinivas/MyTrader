@@ -1,0 +1,9 @@
+{
+  "decision_threshold": 0.45,
+  "min_confidence": 0.55,
+  "exploration_rate": 0.3,
+  "risk_multiplier": 0.99,
+  "max_trades_per_day": 2,
+  "target_daily_trades": 4,
+  "last_adjusted_at": "2025-12-14T21:15:48.709507+00:00"
+}

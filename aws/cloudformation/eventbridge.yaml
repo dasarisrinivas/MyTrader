@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'EventBridge Rules for Trading Bot Scheduled Tasks'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  NightlyFlowStateMachineArn:
+    Type: String
+    Description: Nightly Flow State Machine ARN
+
+  EventBridgeRoleArn:
+    Type: String
+    Description: EventBridge Role ARN
+
+Resources:
+  # ============================================
+  # NIGHTLY DATA PROCESSING RULE
+  # Triggers at 11 PM CST (5 AM UTC) every trading day
+  # ============================================
+  NightlyDataProcessingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-nightly-processing'
+      Description: Trigger nightly data processing and learning workflow
+      ScheduleExpression: 'cron(0 5 ? * MON-FRI *)'  # 5 AM UTC = 11 PM CST
+      State: ENABLED
+      Targets:
+        - Id: NightlyFlowTarget
+          Arn: !Ref NightlyFlowStateMachineArn
+          RoleArn: !Ref EventBridgeRoleArn
+          Input: |
+            {
+              "trigger": "scheduled",
+              "schedule_type": "nightly"
+            }
+
+  # ============================================
+  # WEEKLY LEARNING REVIEW RULE
+  # Triggers Sunday at 8 PM CST (2 AM UTC Monday)
+  # ============================================
+  WeeklyLearningRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-weekly-learning'
+      Description: Trigger weekly comprehensive learning review
+      ScheduleExpression: 'cron(0 2 ? * MON *)'  # 2 AM UTC Monday = 8 PM CST Sunday
+      State: ENABLED
+      Targets:
+        - Id: WeeklyLearningTarget
+          Arn: !Ref NightlyFlowStateMachineArn
+          RoleArn: !Ref EventBridgeRoleArn
+          Input: |
+            {
+              "trigger": "scheduled",
+              "schedule_type": "weekly",
+              "analysis_type": "weekly"
+            }
+
+  # ============================================
+  # S3 EVENT RULE - NEW RAW DATA
+  # Triggers when new raw data is uploaded
+  # ============================================
+  RawDataUploadRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-raw-data-upload'
+      Description: Trigger processing when new raw data is uploaded to S3
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Sub '${ProjectName}-data-${AWS::AccountId}'
+          object:
+            key:
+              - prefix: 'raw/'
+      State: ENABLED
+      Targets:
+        - Id: ProcessRawDataTarget
+          Arn: !Ref NightlyFlowStateMachineArn
+          RoleArn: !Ref EventBridgeRoleArn
+          InputTransformer:
+            InputPathsMap:
+              bucket: '$.detail.bucket.name'
+              key: '$.detail.object.key'
+            InputTemplate: |
+              {
+                "trigger": "s3_event",
+                "s3_bucket": "<bucket>",
+                "s3_key": "<key>",
+                "event_type": "raw_data_upload"
+              }
+
+Outputs:
+  NightlyProcessingRuleArn:
+    Description: Nightly Processing Rule ARN
+    Value: !GetAtt NightlyDataProcessingRule.Arn
+
+  WeeklyLearningRuleArn:
+    Description: Weekly Learning Rule ARN
+    Value: !GetAtt WeeklyLearningRule.Arn
+
+  RawDataUploadRuleArn:
+    Description: Raw Data Upload Rule ARN
+    Value: !GetAtt RawDataUploadRule.Arn

@@ -5,7 +5,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from ..utils.logger import logger
 from .data_schema import TradeOutcome, TradeRecommendation, TradingContext
@@ -137,6 +137,24 @@ class TradeLogger:
                 sharpe_ratio REAL DEFAULT 0.0,
                 max_drawdown REAL DEFAULT 0.0,
                 llm_accuracy REAL DEFAULT 0.0,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_state_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                trend_strength REAL,
+                volatility_rank REAL,
+                range_position REAL,
+                atr REAL,
+                rsi REAL,
+                rag_weighted_win_rate REAL,
+                rag_similar_trades INTEGER,
+                decision TEXT,
+                confidence REAL,
+                historical_avg_trend REAL,
                 created_at TEXT NOT NULL
             )
         """)
@@ -376,6 +394,87 @@ class TradeLogger:
                 "avg_duration_minutes": avg_duration,
                 "profit_factor": profit_factor,
             }
+
+    def record_market_metrics(self, metrics: Dict[str, Any]) -> None:
+        """Persist snapshot of market structure metrics for decision memory."""
+        if "timestamp" not in metrics:
+            raise ValueError("metrics must include 'timestamp'")
+        
+        payload = {
+            "timestamp": metrics["timestamp"],
+            "trend_strength": metrics.get("trend_strength"),
+            "volatility_rank": metrics.get("volatility_rank"),
+            "range_position": metrics.get("range_position"),
+            "atr": metrics.get("atr"),
+            "rsi": metrics.get("rsi"),
+            "rag_weighted_win_rate": metrics.get("rag_weighted_win_rate"),
+            "rag_similar_trades": metrics.get("rag_similar_trades"),
+            "decision": metrics.get("decision"),
+            "confidence": metrics.get("confidence"),
+            "historical_avg_trend": metrics.get("historical_avg_trend"),
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO market_state_metrics (
+                    timestamp, trend_strength, volatility_rank, range_position, atr, rsi,
+                    rag_weighted_win_rate, rag_similar_trades, decision, confidence,
+                    historical_avg_trend, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["timestamp"],
+                    payload["trend_strength"],
+                    payload["volatility_rank"],
+                    payload["range_position"],
+                    payload["atr"],
+                    payload["rsi"],
+                    payload["rag_weighted_win_rate"],
+                    payload["rag_similar_trades"],
+                    payload["decision"],
+                    payload["confidence"],
+                    payload["historical_avg_trend"],
+                    payload["created_at"],
+                ),
+            )
+            conn.commit()
+
+    def get_recent_market_metrics(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Fetch recent market metrics for structural context."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT timestamp, trend_strength, volatility_rank, range_position, atr,
+                       rsi, rag_weighted_win_rate, rag_similar_trades, decision, confidence,
+                       historical_avg_trend
+                FROM market_state_metrics
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cursor.fetchall()
+        
+        records: List[Dict[str, Any]] = []
+        for row in rows:
+            records.append(
+                {
+                    "timestamp": row[0],
+                    "trend_strength": row[1],
+                    "volatility_rank": row[2],
+                    "range_position": row[3],
+                    "atr": row[4],
+                    "rsi": row[5],
+                    "rag_weighted_win_rate": row[6],
+                    "rag_similar_trades": row[7],
+                    "decision": row[8],
+                    "confidence": row[9],
+                    "historical_avg_trend": row[10],
+                }
+            )
+        return records
     
     def export_training_data(self, output_path: Union[str, Path]) -> int:
         """Export trade data for LLM training.

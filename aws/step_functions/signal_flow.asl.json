@@ -1,0 +1,149 @@
+{
+  "Comment": "Signal Flow - Real-time trading decision workflow",
+  "StartAt": "InvokeDecisionEngine",
+  "States": {
+    "InvokeDecisionEngine": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeAgent",
+      "Parameters": {
+        "AgentId.$": "$.agent_ids.decision_engine",
+        "AgentAliasId": "TSTALIASID",
+        "SessionId.$": "$.session_id",
+        "InputText.$": "States.Format('Analyze market conditions and generate trading decision: {}', States.JsonToString($.market_snapshot))"
+      },
+      "ResultPath": "$.decision_result",
+      "Next": "ParseDecision",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "DecisionError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ParseDecision": {
+      "Type": "Pass",
+      "Parameters": {
+        "decision.$": "$.decision_result.completion",
+        "market_snapshot.$": "$.market_snapshot",
+        "account_state.$": "$.account_state",
+        "agent_ids.$": "$.agent_ids",
+        "session_id.$": "$.session_id"
+      },
+      "Next": "CheckDecisionAction"
+    },
+    "CheckDecisionAction": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.decision.action",
+          "StringEquals": "WAIT",
+          "Next": "ReturnWaitDecision"
+        }
+      ],
+      "Default": "InvokeRiskControl"
+    },
+    "ReturnWaitDecision": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "WAIT",
+        "approved": false,
+        "reason": "Decision engine recommends waiting",
+        "decision.$": "$.decision"
+      },
+      "End": true
+    },
+    "InvokeRiskControl": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeAgent",
+      "Parameters": {
+        "AgentId.$": "$.agent_ids.risk_control",
+        "AgentAliasId": "TSTALIASID",
+        "SessionId.$": "$.session_id",
+        "InputText.$": "States.Format('Evaluate risk for proposed trade: {} with account state: {} and market conditions: {}', States.JsonToString($.decision), States.JsonToString($.account_state), States.JsonToString($.market_snapshot))"
+      },
+      "ResultPath": "$.risk_result",
+      "Next": "ParseRiskResult",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "RiskError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ParseRiskResult": {
+      "Type": "Pass",
+      "Parameters": {
+        "approved.$": "$.risk_result.completion.approved",
+        "position_size.$": "$.risk_result.completion.position_size",
+        "risk_score.$": "$.risk_result.completion.risk_score",
+        "decision.$": "$.decision",
+        "risk_warnings.$": "$.risk_result.completion.warnings"
+      },
+      "Next": "CheckApproval"
+    },
+    "CheckApproval": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.approved",
+          "BooleanEquals": true,
+          "Next": "ApprovedTrade"
+        }
+      ],
+      "Default": "RejectedTrade"
+    },
+    "ApprovedTrade": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "APPROVED",
+        "approved": true,
+        "action.$": "$.decision.action",
+        "position_size.$": "$.position_size",
+        "confidence.$": "$.decision.confidence",
+        "stop_loss.$": "$.decision.stop_loss",
+        "take_profit.$": "$.decision.take_profit",
+        "risk_score.$": "$.risk_score",
+        "reason.$": "$.decision.reason",
+        "warnings.$": "$.risk_warnings"
+      },
+      "End": true
+    },
+    "RejectedTrade": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "REJECTED",
+        "approved": false,
+        "action.$": "$.decision.action",
+        "position_size": 0,
+        "reason.$": "$.risk_result.completion.reason",
+        "risk_score.$": "$.risk_score",
+        "warnings.$": "$.risk_warnings"
+      },
+      "End": true
+    },
+    "DecisionError": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "ERROR",
+        "approved": false,
+        "position_size": 0,
+        "reason": "Decision engine error",
+        "error.$": "$.error"
+      },
+      "End": true
+    },
+    "RiskError": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "ERROR",
+        "approved": false,
+        "position_size": 0,
+        "reason": "Risk control error",
+        "error.$": "$.error"
+      },
+      "End": true
+    }
+  }
+}

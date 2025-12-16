@@ -45,6 +45,7 @@ class OrderTracker:
                     rationale TEXT,
                     features TEXT,
                     market_regime TEXT,
+                    trade_cycle_id TEXT,
                     status TEXT NOT NULL,
                     filled_quantity INTEGER DEFAULT 0,
                     avg_fill_price REAL,
@@ -66,6 +67,8 @@ class OrderTracker:
                     conn.execute("ALTER TABLE orders ADD COLUMN features TEXT")
                 if "market_regime" not in columns:
                     conn.execute("ALTER TABLE orders ADD COLUMN market_regime TEXT")
+                if "trade_cycle_id" not in columns:
+                    conn.execute("ALTER TABLE orders ADD COLUMN trade_cycle_id TEXT")
             except Exception as e:
                 logger.error(f"Migration failed: {e}")
             
@@ -118,6 +121,7 @@ class OrderTracker:
         rationale: Optional[str] = None,
         features: Optional[str] = None,
         market_regime: Optional[str] = None,
+        trade_cycle_id: Optional[str] = None,
     ) -> None:
         """Record a new order placement."""
         now = datetime.utcnow().isoformat()
@@ -128,13 +132,14 @@ class OrderTracker:
                     order_id, parent_order_id, timestamp, symbol, action, quantity,
                     order_type, limit_price, stop_price, entry_price, stop_loss,
                     take_profit, confidence, atr, rationale, features, market_regime,
+                    trade_cycle_id,
                     status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 order_id, parent_order_id, now, symbol, action, quantity,
                 order_type, limit_price, stop_price, entry_price, stop_loss,
                 take_profit, confidence, atr, rationale, features, market_regime,
-                "Placed", now, now
+                trade_cycle_id, "Placed", now, now
             ))
             
             conn.execute("""

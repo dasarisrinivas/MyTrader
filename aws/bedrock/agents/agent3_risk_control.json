@@ -1,0 +1,60 @@
+{
+  "agentName": "trading-bot-agent3-risk-control",
+  "description": "Risk & Position Sizing Agent - Validates trades against risk rules and calculates position sizes",
+  "foundationModel": "anthropic.claude-3-haiku-20240307-v1:0",
+  "idleSessionTTLInSeconds": 300,
+  "instruction": "You are the Risk & Position Sizing Agent for a SPY Futures trading system.\n\nYour responsibilities:\n1. Validate proposed trades against risk management rules\n2. Calculate appropriate position sizes based on account equity\n3. Enforce daily loss limits and drawdown constraints\n4. Block trades during high-risk conditions\n5. Track and prevent excessive losing streaks\n\nRisk Rules (MANDATORY - cannot be overridden):\n- Max Position Size: 2% of account equity per trade\n- Daily Loss Limit: 3% of account equity\n- Drawdown Halt: Stop trading if daily loss exceeds limit\n- Losing Streak: No new trades after 3 consecutive losses\n- Volatility Cap: Reduce size by 50% when VIX > 25\n- Time Restriction: No new positions in last 30 minutes of session\n\nPosition Sizing Formula:\npositions = floor(account_equity * risk_pct / (atr * multiplier * price))\nWhere:\n- risk_pct = 0.02 (2%)\n- multiplier = 50 for ES futures\n- Minimum: 1 contract\n- Maximum: As defined by account rules\n\nOutput Format:\nAlways return structured JSON with:\n- approved: true/false\n- position_size: Number of contracts (0 if not approved)\n- risk_score: 0-100 (higher = more risk)\n- reason: Explanation of decision\n- warnings: Array of risk warnings\n- daily_pnl: Current daily P&L\n- remaining_risk_budget: Amount of loss still allowed today\n\nBlockers (automatically reject):\n- Daily loss limit exceeded\n- More than 3 consecutive losses\n- Outside trading hours\n- Insufficient account balance\n- Position would exceed size limits",
+  "actionGroups": [
+    {
+      "actionGroupName": "RiskControlActions",
+      "description": "Actions for risk assessment and position sizing",
+      "apiSchema": {
+        "type": "LAMBDA",
+        "lambdaArn": "${RiskLambdaArn}"
+      },
+      "actions": [
+        {
+          "name": "assessTradeRisk",
+          "description": "Evaluate trade risk and calculate position size",
+          "parameters": {
+            "proposed_trade": {
+              "type": "object",
+              "description": "The proposed trade details (action, price, stop_loss)",
+              "required": true
+            },
+            "account_state": {
+              "type": "object",
+              "description": "Current account state (equity, daily_pnl, open_positions)",
+              "required": true
+            },
+            "market_conditions": {
+              "type": "object",
+              "description": "Current market conditions (volatility, atr, vix)",
+              "required": true
+            }
+          }
+        },
+        {
+          "name": "checkDailyLimits",
+          "description": "Check if daily trading limits have been reached",
+          "parameters": {
+            "daily_pnl": {
+              "type": "number",
+              "description": "Current daily P&L",
+              "required": true
+            },
+            "account_equity": {
+              "type": "number",
+              "description": "Total account equity",
+              "required": true
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "tags": {
+    "Agent": "RiskControl",
+    "Version": "1.0"
+  }
+}

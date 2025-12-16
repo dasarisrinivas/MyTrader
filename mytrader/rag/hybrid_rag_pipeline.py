@@ -17,6 +17,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from .retrieval_strategies import (
+    recency_weight_from_timestamp,
+    hybrid_trade_score,
+)
+
 # Import CST utilities
 try:
     from ..utils.timezone_utils import now_cst, today_cst, format_cst, CST
@@ -63,6 +68,7 @@ class RuleEngineResult:
     # Market context
     market_trend: str = ""
     volatility_regime: str = ""
+    daily_bias: str = "NEUTRAL"  # BULLISH, BEARISH, or NEUTRAL based on PDH/PDL/EMA50
     
     @property
     def should_proceed(self) -> bool:
@@ -75,11 +81,13 @@ class RAGRetrievalResult:
     """Result from Layer 2: RAG Retrieval."""
     documents: List[Tuple[str, str, float]] = field(default_factory=list)  # (doc_id, content, score)
     similar_trades: List[Dict[str, Any]] = field(default_factory=list)
+    trade_priority_scores: List[float] = field(default_factory=list)
     
     # Aggregated insights
     historical_win_rate: float = 0.5
     similar_trade_count: int = 0
     avg_pnl_similar: float = 0.0
+    weighted_win_rate: float = 0.5
     
     # Context summary for LLM
     context_summary: str = ""
@@ -147,6 +155,7 @@ class HybridPipelineResult:
                 "documents_count": len(self.rag_retrieval.documents),
                 "similar_trades_count": self.rag_retrieval.similar_trade_count,
                 "historical_win_rate": self.rag_retrieval.historical_win_rate,
+                "weighted_win_rate": self.rag_retrieval.weighted_win_rate,
             },
             "llm_decision": {
                 "action": self.llm_decision.action.value if self.llm_decision else None,
@@ -312,6 +321,26 @@ class RuleEngine:
             result.signal = TradeAction.BLOCKED
             return result
         
+        # ===== DAILY BIAS - Broader market context =====
+        # Compare current price to previous day's range and EMA50 for daily bias
+        daily_bias = "NEUTRAL"
+        pdh_pct = (price - pdh) / pdh * 100 if pdh > 0 else 0
+        pdl_pct = (price - pdl) / pdl * 100 if pdl > 0 else 0
+        ema50_pct = (price - ema_50) / ema_50 * 100 if ema_50 > 0 else 0
+        
+        # Strong DOWN day: price below PDL (previous day low) or significantly below EMA50
+        if pdl_pct < -0.3 or ema50_pct < -0.5:  
+            daily_bias = "BEARISH"
+            result.filters_passed.append(f"DAILY_BIAS:BEARISH(pdl={pdl_pct:.2f}%,ema50={ema50_pct:.2f}%)")
+        # Strong UP day: price above PDH (previous day high) or significantly above EMA50
+        elif pdh_pct > 0.3 or ema50_pct > 0.5:
+            daily_bias = "BULLISH"
+            result.filters_passed.append(f"DAILY_BIAS:BULLISH(pdh={pdh_pct:.2f}%,ema50={ema50_pct:.2f}%)")
+        else:
+            result.filters_passed.append(f"DAILY_BIAS:NEUTRAL(pdl={pdl_pct:.2f}%,pdh={pdh_pct:.2f}%)")
+        
+        result.daily_bias = daily_bias  # Store for later use
+        
         # ===== SIGNAL GENERATION =====
         
         buy_score = 0
@@ -446,6 +475,21 @@ class RuleEngine:
             result.filters_passed.append("HIGH_VOLUME")
             score_details.append(f"HIGH_VOL(x1.1)")
         
+        # ===== DAILY BIAS ADJUSTMENT =====
+        # Penalize signals that go against the daily bias, boost signals that align
+        if daily_bias == "BEARISH":
+            # On bearish days, boost sell signals and penalize buy signals
+            sell_score *= 1.3  # 30% boost to sell
+            buy_score *= 0.6   # 40% penalty to buy (don't buy falling knives)
+            score_details.append(f"DAILY_BEARISH(SELL*1.3,BUY*0.6)")
+        elif daily_bias == "BULLISH":
+            # On bullish days, boost buy signals and penalize sell signals
+            buy_score *= 1.3   # 30% boost to buy
+            sell_score *= 0.6  # 40% penalty to sell (don't short strength)
+            score_details.append(f"DAILY_BULLISH(BUY*1.3,SELL*0.6)")
+        else:
+            score_details.append("DAILY_NEUTRAL")
+        
         # Determine final signal - use scalp threshold in low-vol/range
         normal_threshold = self.config.get("signal_threshold", 40)
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold
@@ -454,7 +498,7 @@ class RuleEngine:
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"SCORE_DEBUG: buy={buy_score:.1f}, sell={sell_score:.1f}, "
-                   f"threshold={signal_threshold}, scalp_mode={is_scalp_mode}")
+                   f"threshold={signal_threshold}, scalp_mode={is_scalp_mode}, daily_bias={daily_bias}")
         logger.info(f"SCORE_BREAKDOWN: {' | '.join(score_details)}")
         
         if buy_score > sell_score and buy_score >= signal_threshold:
@@ -557,14 +601,37 @@ class RAGRetriever:
                     limit=5,
                 )
                 
-                result.similar_trades = [t.to_dict() for t in similar_trades]
-                result.similar_trade_count = len(similar_trades)
+                priority_scores = []
+                weighted_wins = 0.0
+                weight_sum = 0.0
+                enriched_trades: List[Dict[str, Any]] = []
                 
-                # Calculate win rate for similar trades
+                for idx, trade in enumerate(similar_trades):
+                    trade_dict = trade.to_dict()
+                    similarity_rank = 1.0 - (idx / max(1, len(similar_trades)))
+                    recency_weight = recency_weight_from_timestamp(trade_dict.get("timestamp"))
+                    priority = hybrid_trade_score(similarity_rank, recency_weight, trade_dict.get("pnl"))
+                    
+                    trade_dict["similarity_rank"] = round(similarity_rank, 3)
+                    trade_dict["recency_weight"] = round(recency_weight, 3)
+                    trade_dict["priority_score"] = round(priority, 3)
+                    
+                    priority_scores.append(priority)
+                    weight_sum += priority
+                    if trade_dict.get("result") == "WIN":
+                        weighted_wins += priority
+                    
+                    enriched_trades.append(trade_dict)
+                
+                result.similar_trades = enriched_trades
+                result.similar_trade_count = len(similar_trades)
+                result.trade_priority_scores = priority_scores
+                
                 if similar_trades:
                     wins = sum(1 for t in similar_trades if t.result == "WIN")
                     result.historical_win_rate = wins / len(similar_trades)
                     result.avg_pnl_similar = sum(t.pnl for t in similar_trades) / len(similar_trades)
+                    result.weighted_win_rate = weighted_wins / weight_sum if weight_sum else result.historical_win_rate
                 
             except Exception as e:
                 logger.warning(f"Similar trade retrieval failed: {e}")

@@ -117,10 +117,11 @@ def get_rag_engine() -> RAGEngine:
             # Load settings
             settings = load_settings()
             
-            if not settings.rag.enabled:
+            backend_mode = getattr(settings.rag, "backend", "off")
+            if not settings.rag.enabled or backend_mode == "off":
                 raise HTTPException(
                     status_code=503,
-                    detail="RAG is not enabled. Set rag.enabled=true in config.yaml"
+                    detail="RAG is not enabled. Set rag.enabled=true and choose a backend in config.yaml"
                 )
             
             # Create Bedrock client

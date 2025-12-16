@@ -9,7 +9,7 @@ This module captures and logs all trade details for:
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING, List
 
 from loguru import logger
 
@@ -29,6 +29,17 @@ except ImportError:
         return datetime.now(CST)
     def today_cst():
         return datetime.now(CST).strftime("%Y-%m-%d")
+
+if TYPE_CHECKING:
+    from mytrader.llm.trade_logger import TradeLogger as MetricsLogger
+
+
+def _to_utc_datetime(timestamp: str) -> datetime:
+    """Convert ISO timestamps to timezone-aware UTC datetimes."""
+    ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 
 class TradeLogger:
@@ -50,6 +61,8 @@ class TradeLogger:
         """
         self.storage = storage or get_rag_storage()
         self.active_trades: Dict[str, TradeRecord] = {}
+        self._metrics_logger: Optional["MetricsLogger"] = None
+        self._metrics_logger_error_logged = False
         
         logger.info("TradeLogger initialized")
     
@@ -107,8 +120,11 @@ class TradeLogger:
         pivot = market_data.get("pivot", 0)
         
         # Calculate level proximity
-        price_vs_pdh_pct = ((entry_price - pdh) / pdh * 100) if pdh > 0 else 0
-        price_vs_pdl_pct = ((entry_price - pdl) / pdl * 100) if pdl > 0 else 0
+        safe_entry = entry_price if entry_price is not None else market_data.get("close", 0.0) or 0.0
+        safe_pdh = pdh or 0.0
+        safe_pdl = pdl or 0.0
+        price_vs_pdh_pct = ((safe_entry - safe_pdh) / safe_pdh * 100) if safe_pdh > 0 else 0
+        price_vs_pdl_pct = ((safe_entry - safe_pdl) / safe_pdl * 100) if safe_pdl > 0 else 0
         
         # Extract pipeline results if available
         llm_action = ""
@@ -244,10 +260,10 @@ class TradeLogger:
         
         # Calculate duration
         try:
-            entry_time = datetime.fromisoformat(trade.timestamp.replace("Z", "+00:00"))
-            duration = (now_cst() - entry_time).total_seconds() / 60
+            entry_time = _to_utc_datetime(trade.timestamp)
+            duration = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
             trade.duration_minutes = duration
-        except:
+        except Exception:
             trade.duration_minutes = 0
         
         # Save to storage
@@ -330,6 +346,39 @@ class TradeLogger:
             TradeRecord or None if not found
         """
         return self.active_trades.get(trade_id)
+
+    # ------------------------------------------------------------------
+    # Structural metric persistence (backed by llm.trade_logger)
+    # ------------------------------------------------------------------
+    def _get_metrics_logger(self) -> Optional["MetricsLogger"]:
+        """Lazy-load the SQLite-backed metrics logger."""
+        if self._metrics_logger is not None:
+            return self._metrics_logger
+        if self._metrics_logger_error_logged:
+            return None
+        try:
+            from mytrader.llm.trade_logger import TradeLogger as MetricsLogger  # Local import
+            self._metrics_logger = MetricsLogger()
+            logger.info("Metrics logger ready for structural persistence")
+        except Exception as exc:
+            logger.warning(f"Unable to initialize metrics logger: {exc}")
+            self._metrics_logger_error_logged = True
+            self._metrics_logger = None
+        return self._metrics_logger
+
+    def record_market_metrics(self, metrics: Dict[str, Any]) -> None:
+        """Persist structural market metrics for downstream decision making."""
+        metrics_logger = self._get_metrics_logger()
+        if not metrics_logger:
+            raise RuntimeError("Metrics logger unavailable")
+        metrics_logger.record_market_metrics(metrics)
+
+    def get_recent_market_metrics(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Fetch stored structural metrics for historical context."""
+        metrics_logger = self._get_metrics_logger()
+        if not metrics_logger:
+            raise RuntimeError("Metrics logger unavailable")
+        return metrics_logger.get_recent_market_metrics(limit=limit)
 
 
 # Singleton instance

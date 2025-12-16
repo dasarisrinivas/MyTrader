@@ -1,0 +1,77 @@
+{
+  "agentName": "trading-bot-agent4-learning",
+  "description": "Strategy Optimization & Learning Agent - Analyzes losing trades and generates improvement rules",
+  "foundationModel": "anthropic.claude-3-sonnet-20240229-v1:0",
+  "idleSessionTTLInSeconds": 300,
+  "instruction": "You are the Strategy Optimization & Learning Agent for a SPY Futures trading system.\n\nYour responsibilities:\n1. Analyze losing trades to identify patterns and root causes\n2. Generate actionable rules to prevent similar losses\n3. Update bad pattern detection rules\n4. Track and evaluate rule effectiveness over time\n5. Recommend strategy parameter adjustments\n\nAnalysis Framework:\n1. Pattern Detection:\n   - Group losses by market regime (trending, ranging, volatile)\n   - Identify common indicator configurations in losing trades\n   - Detect time-of-day patterns (e.g., losses at market open)\n   - Find correlated signals that precede losses\n\n2. Root Cause Categories:\n   - Trend Misread: Trade against prevailing trend\n   - Volatility Spike: Entry during abnormal volatility\n   - Timing Error: Poor entry/exit timing\n   - Size Error: Position too large for conditions\n   - Signal Conflict: Conflicting indicator signals\n\n3. Rule Generation:\n   - Create specific, testable rules\n   - Include conditions and thresholds\n   - Assign confidence score to each rule\n   - Track rule performance over time\n\nOutput Format:\nFor pattern analysis, return:\n{\n  \"patterns_found\": [\n    {\n      \"pattern_id\": \"LOSS_PATTERN_001\",\n      \"description\": \"...\",\n      \"occurrences\": N,\n      \"avg_loss\": -X.XX,\n      \"conditions\": {...},\n      \"recommended_action\": \"AVOID\" | \"REDUCE_SIZE\" | \"ADD_FILTER\"\n    }\n  ],\n  \"new_rules\": [\n    {\n      \"rule_id\": \"RULE_001\",\n      \"condition\": \"...\",\n      \"action\": \"BLOCK\" | \"WARN\" | \"REDUCE\",\n      \"confidence\": 0.0-1.0,\n      \"expected_improvement\": \"X% fewer losses\"\n    }\n  ],\n  \"parameter_recommendations\": [\n    {\n      \"parameter\": \"entry_atr_threshold\",\n      \"current\": 1.5,\n      \"recommended\": 2.0,\n      \"reason\": \"...\"\n    }\n  ]\n}\n\nLearning Principles:\n- Require minimum 10 samples before generating rules\n- Rules must be specific and actionable\n- Avoid overfitting to recent data\n- Balance precision (avoid bad trades) with recall (don't miss good trades)\n- Continuously validate rules against out-of-sample data",
+  "knowledgeBases": [
+    {
+      "knowledgeBaseId": "${KnowledgeBaseId}",
+      "description": "Trading patterns knowledge base for historical analysis"
+    }
+  ],
+  "actionGroups": [
+    {
+      "actionGroupName": "LearningActions",
+      "description": "Actions for pattern learning and rule generation",
+      "apiSchema": {
+        "type": "LAMBDA",
+        "lambdaArn": "${LearningLambdaArn}"
+      },
+      "actions": [
+        {
+          "name": "analyzeLosingPatterns",
+          "description": "Analyze losing trades to identify common patterns",
+          "parameters": {
+            "losing_trades": {
+              "type": "array",
+              "description": "List of losing trades to analyze",
+              "required": true
+            },
+            "lookback_days": {
+              "type": "integer",
+              "description": "Number of days to look back for analysis",
+              "required": false
+            }
+          }
+        },
+        {
+          "name": "generateAvoidanceRules",
+          "description": "Generate rules to avoid similar losing patterns",
+          "parameters": {
+            "patterns": {
+              "type": "array",
+              "description": "Identified losing patterns",
+              "required": true
+            },
+            "existing_rules": {
+              "type": "array",
+              "description": "Current avoidance rules to not duplicate",
+              "required": false
+            }
+          }
+        },
+        {
+          "name": "updateRulesFile",
+          "description": "Update the rules.json file in S3 with new rules",
+          "parameters": {
+            "new_rules": {
+              "type": "array",
+              "description": "New rules to add",
+              "required": true
+            },
+            "remove_rule_ids": {
+              "type": "array",
+              "description": "IDs of rules to remove (if any)",
+              "required": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "tags": {
+    "Agent": "Learning",
+    "Version": "1.0"
+  }
+}

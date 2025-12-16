@@ -1,0 +1,54 @@
+# AWS Deployed Resources Configuration
+# Auto-generated from CloudFormation deployment
+# Date: 2025-12-10
+
+environment: dev
+region: us-east-1
+account_id: "897729113303"
+
+# S3 Buckets
+s3:
+  data_bucket: trading-bot-data-897729113303
+  artifacts_bucket: trading-bot-artifacts-897729113303
+
+# OpenSearch Serverless
+opensearch:
+  collection_name: trading-bot-dev-vectors
+  collection_id: ny2esb91kjju5lz8och4
+  index_name: trading-bot-trading-index
+
+# Bedrock Knowledge Base
+knowledge_base:
+  id: Z0EPG8YT8F
+  name: trading-bot-dev-kb
+
+# Bedrock Agents
+agents:
+  data_ingestion:
+    id: VOVTP6XIZF
+    alias_id: UE9NTWRRNS
+    name: trading-bot-dev-agent1-data
+  decision_engine:
+    id: NCZKO9CMEE
+    alias_id: IL3KIG8YD2
+    name: trading-bot-dev-agent2-decision
+  risk_control:
+    id: YNQJHCMEUO
+    alias_id: 0Q8EYP7XVE
+    name: trading-bot-dev-agent3-risk
+  learning:
+    id: KVXVWKKJBX
+    alias_id: JZHNV93HQI
+    name: trading-bot-dev-agent4-learning
+
+# Lambda Functions
+lambda:
+  clean_structure_data: trading-bot-dev-clean-structure-data
+  calculate_winrate: trading-bot-dev-calculate-winrate
+  risk_control: trading-bot-dev-risk-control
+  learn_from_losses: trading-bot-dev-learn-from-losses
+
+# Step Functions
+step_functions:
+  signal_flow: arn:aws:states:us-east-1:897729113303:stateMachine:trading-bot-dev-signal-flow
+  nightly_flow: arn:aws:states:us-east-1:897729113303:stateMachine:trading-bot-dev-nightly-flow

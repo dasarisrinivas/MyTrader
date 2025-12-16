@@ -1,0 +1,64 @@
+{
+  "date": "2025-11-18",
+  "processed_at": "2025-12-14T21:15:40.799729+00:00",
+  "patterns_identified": [
+    {
+      "type": "REGIME_PATTERN",
+      "pattern": {
+        "regime": "UPTREND"
+      },
+      "occurrences": 2,
+      "description": "Multiple losses in UPTREND regime",
+      "recommendation": "Reduce trading in UPTREND conditions"
+    }
+  ],
+  "rules_updated": [
+    {
+      "parameter": "risk_multiplier",
+      "new_value": 0.99,
+      "reason": "Reduced risk budget after losing day"
+    },
+    {
+      "parameter": "decision_threshold",
+      "new_value": 0.46,
+      "reason": "Reduced risk budget after losing day"
+    }
+  ],
+  "bad_patterns_added": [
+    {
+      "type": "REGIME_PATTERN",
+      "pattern": {
+        "regime": "UPTREND"
+      },
+      "occurrences": 2,
+      "description": "Multiple losses in UPTREND regime",
+      "recommendation": "Reduce trading in UPTREND conditions"
+    }
+  ],
+  "summary": {
+    "trades_analyzed": 2,
+    "patterns_found": 1,
+    "total_loss": 0,
+    "daily_summary": {
+      "date": "2025-11-18",
+      "trades_taken": 2,
+      "decision_events": 1379,
+      "agent2_invocations": 1380,
+      "pnl": -27.5,
+      "missed_opportunity": 0.0,
+      "open_position": 0
+    },
+    "strategy_state": {
+      "decision_threshold": 0.46,
+      "min_confidence": 0.55,
+      "exploration_rate": 0.3,
+      "risk_multiplier": 0.99,
+      "max_trades_per_day": 2,
+      "target_daily_trades": 2,
+      "last_adjusted_at": "2025-12-14T21:15:40.799573+00:00"
+    },
+    "adjustment_notes": [
+      "Reduced risk budget after losing day"
+    ]
+  }
+}

@@ -525,7 +525,7 @@ async def run_integrated_live_trading(settings):
                     quantity=qty,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
-                    metadata={"atr_value": atr}
+                    metadata={"atr_value": atr, "entry_price": current_price}
                 )
                 
                 logger.info(f"✅ Order result: {result.status}")

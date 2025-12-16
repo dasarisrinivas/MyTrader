@@ -1,0 +1,16 @@
+{
+  "symbol": "ES",
+  "exchange": "CME",
+  "currency": "USD",
+  "contract_local_symbol": "ESZ5",
+  "contract_expiry": "20251219",
+  "bar_size": "1 min",
+  "what_to_show": "TRADES",
+  "use_rth": false,
+  "rows": 40935,
+  "start": "2025-11-02 17:00:00-06:00",
+  "end": "2025-12-12 15:59:00-06:00",
+  "generated_at_utc": "2025-12-14T21:11:08.831533+00:00",
+  "out": "data/ib/ES_1m_last30d.parquet",
+  "format": "parquet"
+}

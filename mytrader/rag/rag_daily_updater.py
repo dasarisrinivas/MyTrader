@@ -19,6 +19,7 @@ from mytrader.rag.rag_storage_manager import (
     TradeRecord,
     get_rag_storage,
 )
+from .data_ingestion import RAGDataIngestionPipeline, IngestionResult
 
 
 class RAGDailyUpdater:
@@ -31,6 +32,7 @@ class RAGDailyUpdater:
         self,
         storage: Optional[RAGStorageManager] = None,
         embedding_builder: Optional[Any] = None,  # Will be EmbeddingBuilder
+        ingestion_pipeline: Optional[RAGDataIngestionPipeline] = None,
     ):
         """Initialize the daily updater.
         
@@ -40,6 +42,7 @@ class RAGDailyUpdater:
         """
         self.storage = storage or get_rag_storage()
         self.embedding_builder = embedding_builder
+        self.ingestion_pipeline = ingestion_pipeline or RAGDataIngestionPipeline(storage=self.storage)
         
         logger.info("RAGDailyUpdater initialized")
     
@@ -66,7 +69,16 @@ class RAGDailyUpdater:
             "losing_trades_analyzed": 0,
             "embeddings_rebuilt": False,
             "documents_indexed": 0,
+            "external_docs_ingested": 0,
         }
+
+        # Step 0: ingest curated external datasets
+        if self.ingestion_pipeline:
+            try:
+                ingestion = self.ingestion_pipeline.ingest(date=str(today))
+                results["external_docs_ingested"] = ingestion.total
+            except Exception as ingestion_error:
+                logger.error(f"Failed to ingest external data: {ingestion_error}")
         
         # Step 1: Generate and save daily market summary
         try:
@@ -448,12 +460,10 @@ News Impact: {summary['news_impact']}
 
 
 def create_daily_updater(storage: Optional[RAGStorageManager] = None) -> RAGDailyUpdater:
-    """Factory function to create a RAGDailyUpdater.
-    
-    Args:
-        storage: Optional storage manager
-        
-    Returns:
-        RAGDailyUpdater instance
-    """
-    return RAGDailyUpdater(storage=storage)
+    """Factory function to create a RAGDailyUpdater."""
+    storage = storage or get_rag_storage()
+    ingestion_pipeline = RAGDataIngestionPipeline(storage=storage)
+    return RAGDailyUpdater(
+        storage=storage,
+        ingestion_pipeline=ingestion_pipeline,
+    )

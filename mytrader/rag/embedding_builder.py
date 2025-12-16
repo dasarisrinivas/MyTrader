@@ -9,6 +9,7 @@ All vectors and metadata are stored in AWS S3:
 - Bucket: rag-bot-storage
 - Prefix: spy-futures-bot/vectors/
 """
+import hashlib
 import io
 import json
 import pickle
@@ -72,8 +73,8 @@ class EmbeddingBuilder:
         try:
             self.s3 = S3Storage(bucket_name=bucket_name, prefix=prefix)
         except S3StorageError as e:
-            logger.error(f"Failed to initialize S3 storage: {e}")
-            raise
+            logger.warning(f"S3 storage unavailable ({e}) - operating in local-only mode")
+            self.s3 = None
         
         self.model_name = model_name
         self.use_bedrock = use_bedrock
@@ -82,6 +83,7 @@ class EmbeddingBuilder:
         # Initialize embedding model
         self.model = None
         self.embedding_dim = 384  # Default for MiniLM
+        self._fallback_mode = False
         
         if not use_bedrock:
             self._init_sentence_transformer()
@@ -93,6 +95,8 @@ class EmbeddingBuilder:
         self.doc_metadata: List[Dict[str, Any]] = []
         self.doc_ids: List[str] = []
         self.doc_texts: List[str] = []
+        self._local_embeddings: Optional[np.ndarray] = None
+        self._logged_empty_index = False
         
         # Try to load existing index from S3
         self._load_index()
@@ -102,7 +106,7 @@ class EmbeddingBuilder:
     def _init_sentence_transformer(self) -> None:
         """Initialize the sentence transformer model."""
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            logger.error("sentence-transformers not available")
+            self._enable_fallback("sentence-transformers not available")
             return
         
         try:
@@ -110,7 +114,91 @@ class EmbeddingBuilder:
             self.embedding_dim = self.model.get_sentence_embedding_dimension()
             logger.info(f"Loaded sentence transformer: {self.model_name} (dim={self.embedding_dim})")
         except Exception as e:
-            logger.error(f"Failed to load sentence transformer: {e}")
+            self._enable_fallback(f"Failed to load sentence transformer: {e}")
+
+    def _enable_fallback(self, reason: str) -> None:
+        """Enable lightweight hash-based embeddings when transformers are unavailable."""
+        self._fallback_mode = True
+        if self.embedding_dim <= 0 or not self.embedding_dim:
+            self.embedding_dim = 256
+        logger.warning(f"Using fallback embedding mode ({self.embedding_dim} dims) - {reason}")
+        self.model = None
+
+    def has_index(self) -> bool:
+        """Return True if FAISS index has vectors."""
+        return self.index is not None and getattr(self.index, "ntotal", 0) > 0
+
+    def _normalize_vectors(self, vectors: np.ndarray) -> np.ndarray:
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return vectors / norms
+
+    def _store_local_embeddings(
+        self,
+        embeddings: np.ndarray,
+        replace: bool = False,
+    ) -> None:
+        """Keep in-memory embeddings for CPU fallback search."""
+        normalized = self._normalize_vectors(embeddings.astype(np.float32))
+        if replace or self._local_embeddings is None:
+            self._local_embeddings = normalized
+        else:
+            self._local_embeddings = np.vstack([self._local_embeddings, normalized])
+
+    def _ensure_local_embeddings(self) -> bool:
+        """Ensure local embeddings exist for fallback search."""
+        if self._local_embeddings is not None:
+            expected = len(self.doc_texts)
+            if expected == self._local_embeddings.shape[0]:
+                return True
+        if not self.doc_texts:
+            return False
+        batch = self.embed_batch(self.doc_texts)
+        if batch is None:
+            return False
+        self._store_local_embeddings(batch, replace=True)
+        return True
+
+    def _log_empty_index_if_needed(self) -> None:
+        if not self._logged_empty_index:
+            logger.error("FAISS index is empty - falling back to CPU similarity search")
+            self._logged_empty_index = True
+
+    def _fallback_search(
+        self,
+        query: str,
+        top_k: int,
+        min_score: float,
+        filter_type: Optional[str],
+    ) -> List[Tuple[str, str, float, Dict[str, Any]]]:
+        """CPU-based similarity search used when FAISS is unavailable."""
+        if not self.doc_texts:
+            return []
+        if not self._ensure_local_embeddings():
+            return []
+        query_embedding = self.embed_text(query)
+        if query_embedding is None:
+            return []
+        query_vec = query_embedding.astype(np.float32)
+        q_norm = np.linalg.norm(query_vec)
+        if q_norm > 0:
+            query_vec /= q_norm
+        sims = np.dot(self._local_embeddings, query_vec)
+        if sims.size == 0:
+            return []
+        ranked_idx = np.argsort(sims)[::-1]
+        results: List[Tuple[str, str, float, Dict[str, Any]]] = []
+        for idx in ranked_idx:
+            score = float((sims[idx] + 1.0) / 2.0)  # map cosine (-1,1) -> (0,1)
+            if score < min_score:
+                continue
+            metadata = self.doc_metadata[idx]
+            if filter_type and metadata.get("type") != filter_type:
+                continue
+            results.append((self.doc_ids[idx], self.doc_texts[idx], score, metadata))
+            if len(results) >= top_k:
+                break
+        return results
     
     def embed_text(self, text: str) -> Optional[np.ndarray]:
         """Generate embedding for a single text.
@@ -123,8 +211,9 @@ class EmbeddingBuilder:
         """
         if self.use_bedrock:
             return self._embed_with_bedrock(text)
-        else:
-            return self._embed_with_transformer(text)
+        if self._fallback_mode or self.model is None:
+            return self._embed_with_fallback(text)
+        return self._embed_with_transformer(text)
     
     def _embed_with_transformer(self, text: str) -> Optional[np.ndarray]:
         """Generate embedding using sentence transformer.
@@ -172,6 +261,21 @@ class EmbeddingBuilder:
         except Exception as e:
             logger.error(f"Failed to generate Bedrock embedding: {e}")
             return None
+
+    def _embed_with_fallback(self, text: str) -> Optional[np.ndarray]:
+        """Generate deterministic hashing-based embedding when transformers are unavailable."""
+        vector = np.zeros(self.embedding_dim, dtype=np.float32)
+        if not text:
+            return vector
+        tokens = text.lower().split()
+        for token in tokens:
+            token_hash = int(hashlib.sha256(token.encode("utf-8")).hexdigest(), 16)
+            idx = token_hash % self.embedding_dim
+            vector[idx] += 1.0
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector /= norm
+        return vector
     
     def embed_batch(self, texts: List[str]) -> Optional[np.ndarray]:
         """Generate embeddings for multiple texts.
@@ -196,17 +300,16 @@ class EmbeddingBuilder:
                     # Use zero vector as fallback
                     embeddings.append(np.zeros(self.embedding_dim, dtype=np.float32))
             return np.vstack(embeddings)
-        else:
-            if self.model is None:
-                logger.error("Model not initialized")
-                return None
-            
-            try:
-                embeddings = self.model.encode(texts, convert_to_numpy=True)
-                return embeddings.astype(np.float32)
-            except Exception as e:
-                logger.error(f"Failed to generate batch embeddings: {e}")
-                return None
+        if self._fallback_mode or self.model is None:
+            vectors = [self._embed_with_fallback(text) for text in texts]
+            return np.vstack(vectors)
+        
+        try:
+            embeddings = self.model.encode(texts, convert_to_numpy=True)
+            return embeddings.astype(np.float32)
+        except Exception as e:
+            logger.error(f"Failed to generate batch embeddings: {e}")
+            return None
     
     def build_index(
         self,
@@ -222,10 +325,6 @@ class EmbeddingBuilder:
         Returns:
             True if successful
         """
-        if not FAISS_AVAILABLE:
-            logger.error("FAISS not available")
-            return False
-        
         if not documents:
             logger.warning("No documents to index")
             return False
@@ -242,17 +341,24 @@ class EmbeddingBuilder:
         if embeddings is None:
             logger.error("Failed to generate embeddings")
             return False
+        embeddings = embeddings.astype(np.float32)
+        self._store_local_embeddings(embeddings, replace=True)
+        self._logged_empty_index = False
         
-        # Create FAISS index - using L2 distance
-        self.index = faiss.IndexFlatL2(self.embedding_dim)
-        
-        # Add vectors to index
-        self.index.add(embeddings)
-        
-        logger.info(f"Built FAISS index with {self.index.ntotal} vectors")
-        
-        if save:
-            self._save_index()
+        if FAISS_AVAILABLE:
+            # Create FAISS index - using L2 distance
+            self.index = faiss.IndexFlatL2(self.embedding_dim)
+            
+            # Add vectors to index
+            self.index.add(embeddings)
+            
+            logger.info(f"Built FAISS index with {self.index.ntotal} vectors")
+            
+            if save:
+                self._save_index()
+        else:
+            self.index = None
+            logger.warning("FAISS not available - using CPU fallback search only")
         
         return True
     
@@ -270,8 +376,8 @@ class EmbeddingBuilder:
         Returns:
             Number of documents added
         """
-        if self.index is None:
-            # No existing index, build from scratch
+        if self.index is None and not self.doc_ids:
+            # No existing data, build from scratch
             if self.build_index(documents, save=save):
                 return len(documents)
             return 0
@@ -292,9 +398,12 @@ class EmbeddingBuilder:
         embeddings = self.embed_batch(new_texts)
         if embeddings is None:
             return 0
+        embeddings = embeddings.astype(np.float32)
         
-        # Add to index
-        self.index.add(embeddings)
+        # Add to index if available, always update local cache
+        if self.index is not None:
+            self.index.add(embeddings)
+        self._store_local_embeddings(embeddings)
         
         # Update metadata
         self.doc_ids.extend(new_ids)
@@ -326,9 +435,11 @@ class EmbeddingBuilder:
         Returns:
             List of (doc_id, content, score, metadata) tuples
         """
-        if self.index is None or self.index.ntotal == 0:
-            logger.warning("Index is empty or not initialized")
-            return []
+        if not self.has_index():
+            results = self._fallback_search(query, top_k, min_score, filter_type)
+            if not results:
+                self._log_empty_index_if_needed()
+            return results
         
         # Generate query embedding
         query_embedding = self.embed_text(query)
@@ -409,6 +520,9 @@ class EmbeddingBuilder:
         if self.index is None:
             return False
         
+        if self.s3 is None:
+            return True
+        
         try:
             # Serialize FAISS index to bytes
             index_buffer = io.BytesIO()
@@ -443,7 +557,7 @@ class EmbeddingBuilder:
         Returns:
             True if successful
         """
-        if not FAISS_AVAILABLE:
+        if not FAISS_AVAILABLE or self.s3 is None:
             return False
         
         try:
@@ -468,6 +582,8 @@ class EmbeddingBuilder:
             self.doc_ids = metadata["doc_ids"]
             self.doc_texts = metadata["doc_texts"]
             self.doc_metadata = metadata["doc_metadata"]
+            self._local_embeddings = None
+            self._logged_empty_index = False
             
             logger.info(f"Loaded FAISS index from S3 with {self.index.ntotal} vectors")
             return True
@@ -482,7 +598,7 @@ class EmbeddingBuilder:
         Returns:
             Statistics dictionary
         """
-        if self.index is None:
+        if not self.doc_texts:
             return {"status": "not_initialized", "documents": 0}
         
         # Count by type
@@ -493,7 +609,8 @@ class EmbeddingBuilder:
         
         return {
             "status": "ready",
-            "documents": self.index.ntotal,
+            "engine": "faiss" if self.has_index() else "cpu",
+            "documents": self.index.ntotal if self.has_index() else len(self.doc_texts),
             "embedding_dim": self.embedding_dim,
             "model": self.model_name if not self.use_bedrock else "bedrock-titan",
             "type_counts": type_counts,

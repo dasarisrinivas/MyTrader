@@ -30,6 +30,7 @@ class TradingConfig:
     max_position_size: int = field(default_factory=lambda: int(os.environ.get("MAX_POSITION_SIZE", "5")))
     contracts_per_order: int = 1
     max_daily_loss: float = field(default_factory=lambda: float(os.environ.get("MAX_DAILY_LOSS", "2000.0")))
+    max_loss_per_trade: float = field(default_factory=lambda: float(os.environ.get("MAX_LOSS_PER_TRADE", "1250.0")))
     max_daily_trades: int = 20
     initial_capital: float = field(default_factory=lambda: float(os.environ.get("INITIAL_CAPITAL", "100000.0")))
     contract_multiplier: float = 50.0
@@ -65,6 +66,7 @@ class TradingConfig:
     margin_limit_pct: float = field(default_factory=lambda: float(os.environ.get("MARGIN_LIMIT_PCT", "0.80")))
     decision_min_interval_seconds: int = field(default_factory=lambda: int(os.environ.get("DECISION_MIN_INTERVAL_SECONDS", "30")))
     order_retry_limit: int = field(default_factory=lambda: int(os.environ.get("ORDER_RETRY_LIMIT", "3")))
+    contract_month_offset: int = field(default_factory=lambda: int(os.environ.get("CONTRACT_MONTH_OFFSET", "0")))
 
 
 @dataclass
@@ -127,6 +129,8 @@ class LLMConfig:
 class RAGConfig:
     """Configuration for Retrieval-Augmented Generation (RAG)."""
     enabled: bool = field(default_factory=lambda: os.environ.get("RAG_ENABLED", "False").lower() == "true")
+    backend: str = field(default_factory=lambda: os.environ.get("RAG_BACKEND", "local_faiss").lower())
+    opensearch_enabled: bool = field(default_factory=lambda: os.environ.get("OPENSEARCH_ENABLED", "False").lower() in {"1", "true", "yes"})
     embedding_model_id: str = "amazon.titan-embed-text-v1"
     region_name: str = "us-east-1"
     vector_store_path: str = "data/rag_index"
@@ -137,6 +141,11 @@ class RAGConfig:
     cache_ttl_seconds: int = 3600
     batch_size: int = 10
     knowledge_base_path: str = "data/knowledge_base"
+    local_store_path: str = "rag_data/local_kb/local_kb.sqlite"
+    kb_cache_ttl_seconds: int = 120
+
+    def __post_init__(self) -> None:
+        self.backend = (self.backend or "off").lower()
 
 
 @dataclass
@@ -177,6 +186,55 @@ class HybridConfig:
 
 
 @dataclass
+class AWSAgentsConfig:
+    """Configuration for AWS Bedrock Agents (multi-agent decision system)."""
+    # Master enable/disable
+    enabled: bool = field(default_factory=lambda: os.environ.get("AWS_AGENTS_ENABLED", "False").lower() == "true")
+    block_on_wait: bool = True
+    wait_override_confidence: float = 0.75
+    
+    # Configuration source
+    use_deployed_config: bool = True  # Auto-load from deployed_resources.yaml
+    config_path: str = "aws/config/deployed_resources.yaml"
+    
+    # Manual configuration (used if use_deployed_config=false)
+    region_name: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-east-1"))
+    
+    # Agent IDs (filled automatically from deployed_resources.yaml)
+    data_agent_id: str = ""
+    data_agent_alias: str = ""
+    decision_agent_id: str = ""
+    decision_agent_alias: str = ""
+    risk_agent_id: str = ""
+    risk_agent_alias: str = ""
+    learning_agent_id: str = ""
+    learning_agent_alias: str = ""
+    
+    # Knowledge Base
+    knowledge_base_id: str = ""
+
+
+@dataclass
+class LearningConfig:
+    """Local learning/ingestion hooks."""
+    enabled: bool = True
+    outcomes_dir: str = "rag_data/training/trade_outcomes"
+    history_dir: str = "rag_data/history_snapshots"
+    history_days: int = 45
+    ingest_window_days: int = 60
+    reason_code_retention_days: int = 90
+
+
+@dataclass
+class FeatureFlagsConfig:
+    """Feature flags to safely roll out guardrails."""
+    enforce_entry_risk_checks: bool = field(default_factory=lambda: os.environ.get("FF_ENTRY_RISK_GUARDS", "true").lower() not in {"0", "false", "no"})
+    enforce_wait_blocking: bool = field(default_factory=lambda: os.environ.get("FF_WAIT_BLOCKING", "true").lower() not in {"0", "false", "no"})
+    enforce_reduce_only_exits: bool = field(default_factory=lambda: os.environ.get("FF_EXIT_GUARDS", "true").lower() not in {"0", "false", "no"})
+    enable_learning_hooks: bool = field(default_factory=lambda: os.environ.get("FF_LEARNING_HOOKS", "true").lower() not in {"0", "false", "no"})
+
+
+@dataclass
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
@@ -187,6 +245,9 @@ class Settings:
     rag: RAGConfig = field(default_factory=RAGConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     hybrid: HybridConfig = field(default_factory=HybridConfig)
+    aws_agents: AWSAgentsConfig = field(default_factory=AWSAgentsConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
+    features: FeatureFlagsConfig = field(default_factory=FeatureFlagsConfig)
 
     def validate(self) -> None:
         if self.trading.initial_capital <= 0:

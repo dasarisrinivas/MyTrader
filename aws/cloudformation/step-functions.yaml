@@ -1,0 +1,382 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Step Functions State Machines for Trading Bot Orchestration'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  StepFunctionsRoleArn:
+    Type: String
+    Description: Step Functions Role ARN
+
+  Agent1Arn:
+    Type: String
+    Description: Agent 1 ARN
+
+  Agent2Arn:
+    Type: String
+    Description: Agent 2 ARN
+
+  Agent3Arn:
+    Type: String
+    Description: Agent 3 ARN
+
+  Agent4Arn:
+    Type: String
+    Description: Agent 4 ARN
+
+Resources:
+  # ============================================
+  # SIGNAL FLOW STATE MACHINE
+  # Real-time trading signal processing
+  # ============================================
+  SignalFlowStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}-signal-flow'
+      RoleArn: !Ref StepFunctionsRoleArn
+      StateMachineType: EXPRESS
+      TracingConfiguration:
+        Enabled: true
+      LoggingConfiguration:
+        Level: ERROR
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt SignalFlowLogGroup.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Signal Flow: Market Snapshot -> Agent2 (Decision) -> Agent3 (Risk) -> Response",
+          "StartAt": "ValidateInput",
+          "States": {
+            "ValidateInput": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.market_snapshot",
+                  "IsPresent": true,
+                  "Next": "InvokeDecisionAgent"
+                }
+              ],
+              "Default": "InputValidationFailed"
+            },
+            "InputValidationFailed": {
+              "Type": "Fail",
+              "Error": "InvalidInput",
+              "Cause": "Missing market_snapshot in input"
+            },
+            "InvokeDecisionAgent": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::bedrock:invokeAgent",
+              "Parameters": {
+                "AgentId": "${Agent2Arn}",
+                "AgentAliasId": "TSTALIASID",
+                "SessionId.$": "$.session_id",
+                "InputText.$": "States.Format('Analyze this market snapshot and provide a trading decision: {}', States.JsonToString($.market_snapshot))"
+              },
+              "ResultPath": "$.decision_result",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.Timeout", "States.TaskFailed"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "DecisionAgentFailed"
+                }
+              ],
+              "Next": "CheckDecision"
+            },
+            "DecisionAgentFailed": {
+              "Type": "Pass",
+              "Result": {
+                "decision": "WAIT",
+                "confidence": 0,
+                "reason": "Decision agent failed, defaulting to WAIT"
+              },
+              "ResultPath": "$.decision_result",
+              "Next": "ReturnResult"
+            },
+            "CheckDecision": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.decision_result.decision",
+                  "StringEquals": "WAIT",
+                  "Next": "ReturnResult"
+                }
+              ],
+              "Default": "InvokeRiskAgent"
+            },
+            "InvokeRiskAgent": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::bedrock:invokeAgent",
+              "Parameters": {
+                "AgentId": "${Agent3Arn}",
+                "AgentAliasId": "TSTALIASID",
+                "SessionId.$": "$.session_id",
+                "InputText.$": "States.Format('Evaluate this trade decision for risk: Decision={}, Confidence={}, Account Metrics={}', $.decision_result.decision, $.decision_result.confidence, States.JsonToString($.account_metrics))"
+              },
+              "ResultPath": "$.risk_result",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.Timeout", "States.TaskFailed"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "RiskAgentFailed"
+                }
+              ],
+              "Next": "BuildFinalResponse"
+            },
+            "RiskAgentFailed": {
+              "Type": "Pass",
+              "Result": {
+                "allowed_to_trade": false,
+                "size_multiplier": 0,
+                "reason": "Risk agent failed, blocking trade for safety"
+              },
+              "ResultPath": "$.risk_result",
+              "Next": "BuildFinalResponse"
+            },
+            "BuildFinalResponse": {
+              "Type": "Pass",
+              "Parameters": {
+                "decision.$": "$.decision_result.decision",
+                "confidence.$": "$.decision_result.confidence",
+                "reason.$": "$.decision_result.reason",
+                "stop_loss.$": "$.decision_result.stop_loss",
+                "take_profit.$": "$.decision_result.take_profit",
+                "allowed_to_trade.$": "$.risk_result.allowed_to_trade",
+                "size_multiplier.$": "$.risk_result.size_multiplier",
+                "adjusted_size.$": "$.risk_result.adjusted_size",
+                "risk_flags.$": "$.risk_result.risk_flags",
+                "timestamp.$": "$$.State.EnteredTime"
+              },
+              "Next": "ReturnResult"
+            },
+            "ReturnResult": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  SignalFlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${ProjectName}-${Environment}-signal-flow'
+      RetentionInDays: 14
+
+  # ============================================
+  # NIGHTLY FLOW STATE MACHINE
+  # Nightly data processing and learning
+  # ============================================
+  NightlyFlowStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}-nightly-flow'
+      RoleArn: !Ref StepFunctionsRoleArn
+      StateMachineType: STANDARD
+      TracingConfiguration:
+        Enabled: true
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt NightlyFlowLogGroup.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Nightly Flow: Data Ingestion -> KB Sync -> Learning -> Risk Rules Update",
+          "StartAt": "GetTodaysDate",
+          "States": {
+            "GetTodaysDate": {
+              "Type": "Pass",
+              "Parameters": {
+                "date.$": "$$.Execution.StartTime",
+                "execution_id.$": "$$.Execution.Id"
+              },
+              "Next": "InvokeDataIngestionAgent"
+            },
+            "InvokeDataIngestionAgent": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::bedrock:invokeAgent",
+              "Parameters": {
+                "AgentId": "${Agent1Arn}",
+                "AgentAliasId": "TSTALIASID",
+                "SessionId.$": "$.execution_id",
+                "InputText": "Process today's raw trade data from S3 and create structured Parquet and JSON files. Trigger knowledge base ingestion after processing."
+              },
+              "ResultPath": "$.ingestion_result",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.Timeout", "States.TaskFailed"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.ingestion_error",
+                  "Next": "LogIngestionError"
+                }
+              ],
+              "Next": "WaitForKBSync"
+            },
+            "LogIngestionError": {
+              "Type": "Pass",
+              "Parameters": {
+                "error_stage": "data_ingestion",
+                "error.$": "$.ingestion_error"
+              },
+              "ResultPath": "$.logged_error",
+              "Next": "WaitForKBSync"
+            },
+            "WaitForKBSync": {
+              "Type": "Wait",
+              "Seconds": 60,
+              "Comment": "Wait for Knowledge Base to sync new data",
+              "Next": "InvokeLearningAgent"
+            },
+            "InvokeLearningAgent": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::bedrock:invokeAgent",
+              "Parameters": {
+                "AgentId": "${Agent4Arn}",
+                "AgentAliasId": "TSTALIASID",
+                "SessionId.$": "$.execution_id",
+                "InputText": "Analyze today's losing trades, identify patterns, and update strategy rules. Analysis type: daily."
+              },
+              "ResultPath": "$.learning_result",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.Timeout", "States.TaskFailed"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.learning_error",
+                  "Next": "LogLearningError"
+                }
+              ],
+              "Next": "CheckLearningResults"
+            },
+            "LogLearningError": {
+              "Type": "Pass",
+              "Parameters": {
+                "error_stage": "learning",
+                "error.$": "$.learning_error"
+              },
+              "ResultPath": "$.logged_error",
+              "Next": "GenerateSummary"
+            },
+            "CheckLearningResults": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.learning_result.rules_updated",
+                  "IsPresent": true,
+                  "Next": "UpdateRiskRules"
+                }
+              ],
+              "Default": "GenerateSummary"
+            },
+            "UpdateRiskRules": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::bedrock:invokeAgent",
+              "Parameters": {
+                "AgentId": "${Agent3Arn}",
+                "AgentAliasId": "TSTALIASID",
+                "SessionId.$": "$.execution_id",
+                "InputText.$": "States.Format('Update risk rules based on learning insights: {}', States.JsonToString($.learning_result))"
+              },
+              "ResultPath": "$.risk_update_result",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.Timeout", "States.TaskFailed"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.risk_update_error",
+                  "Next": "GenerateSummary"
+                }
+              ],
+              "Next": "GenerateSummary"
+            },
+            "GenerateSummary": {
+              "Type": "Pass",
+              "Parameters": {
+                "execution_id.$": "$.execution_id",
+                "date.$": "$.date",
+                "ingestion_status.$": "States.Format('{}', $.ingestion_result)",
+                "learning_status.$": "States.Format('{}', $.learning_result)",
+                "completed_at.$": "$$.State.EnteredTime"
+              },
+              "Next": "NightlyFlowComplete"
+            },
+            "NightlyFlowComplete": {
+              "Type": "Succeed"
+            }
+          }
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  NightlyFlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${ProjectName}-${Environment}-nightly-flow'
+      RetentionInDays: 30
+
+Outputs:
+  SignalFlowStateMachineArn:
+    Description: Signal Flow State Machine ARN
+    Value: !Ref SignalFlowStateMachine
+
+  SignalFlowStateMachineName:
+    Description: Signal Flow State Machine Name
+    Value: !GetAtt SignalFlowStateMachine.Name
+
+  NightlyFlowStateMachineArn:
+    Description: Nightly Flow State Machine ARN
+    Value: !Ref NightlyFlowStateMachine
+
+  NightlyFlowStateMachineName:
+    Description: Nightly Flow State Machine Name
+    Value: !GetAtt NightlyFlowStateMachine.Name
