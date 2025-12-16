@@ -108,7 +108,8 @@ class RiskManager:
         
         contracts = int(dollar_risk / dollar_risk_per_contract)
 
-        size_factor = 1.0 if confidence >= 0.7 else 0.5
+        threshold = getattr(self.config, "confidence_threshold", 0.7)
+        size_factor = 1.0 if confidence >= threshold else 0.5
         scaled_contracts = int(max(1, contracts * size_factor))
         
         return max(1, min(self.config.max_position_size, scaled_contracts))
@@ -155,7 +156,8 @@ class RiskManager:
         stop_ticks = max(1.0, self.config.stop_loss_ticks)
         contracts = int(dollar_risk / (tick_value * stop_ticks))
 
-        size_factor = 1.0 if confidence >= 0.7 else 0.5
+        threshold = getattr(self.config, "confidence_threshold", 0.7)
+        size_factor = 1.0 if confidence >= threshold else 0.5
         scaled_contracts = int(max(1, contracts * size_factor))
         
         return max(1, min(self.config.max_position_size, scaled_contracts))

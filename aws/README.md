@@ -214,6 +214,16 @@ aws:
     nightly_batch_arn: "arn:aws:states:..."
 ```
 
+### Regime & Risk Controls
+
+| Setting | Description | Default / Override |
+|---------|-------------|--------------------|
+| `rag.min_similar_trades` | Minimum number of similar historical trades required before the LLM stage is called. If the retrieval count is below this threshold the Hybrid pipeline holds the trade to avoid acting in unfamiliar regimes. | `3` (override with `MIN_SIMILAR_TRADES`) |
+| `rag.min_weighted_win_rate` | Lowest acceptable weighted win rate from retrieved trades. Falling below this ratio triggers a HOLD with a detailed reasoning string so you know the regime guard tripped. | `0.5` (override with `MIN_WEIGHTED_WIN_RATE`) |
+| `trading.confidence_threshold` | Confidence score needed to take full position size. RiskManager automatically halves the contracts below this value, so reducing it makes the bot more aggressive while increasing it enforces smaller feeler positions until conviction rises. | `0.7` (override with `CONFIDENCE_THRESHOLD`) |
+
+These knobs power the new regime filter, confirmation trigger, and dynamic risk sizing features. The defaults live in `config.yaml`, but you can tune them per session using environment variables before running `. start_bot.sh`. The start script now forwards `MIN_SIMILAR_TRADES`, `MIN_WEIGHTED_WIN_RATE`, and `CONFIDENCE_THRESHOLD` into the Python process so `load_settings()` and `HybridRAGPipeline` stay in sync with your launch parameters.
+
 ## Signal Flow (Real-time)
 
 ```

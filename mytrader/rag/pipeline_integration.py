@@ -101,6 +101,11 @@ class HybridPipelineIntegration:
                 "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 60),
             }
         
+        rag_cfg = getattr(settings, 'rag', None)
+        if rag_cfg:
+            hybrid_config["min_similar_trades"] = getattr(rag_cfg, "min_similar_trades", 2)
+            hybrid_config["min_weighted_win_rate"] = getattr(rag_cfg, "min_weighted_win_rate", 0.45)
+        
         # Initialize components
         self.storage = get_rag_storage()
         self.trade_logger = get_trade_logger()

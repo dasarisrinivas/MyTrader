@@ -1075,18 +1075,23 @@ class HybridRAGPipeline:
         pdh = rule_result.indicators.get("pdh")
         pdl = rule_result.indicators.get("pdl")
         confirmation_reason = ""
+        confirmation_triggered = False
         if final_action == TradeAction.BUY and pdh is not None and price <= pdh:
             final_action = TradeAction.HOLD
             confirmation_reason = "waiting for close above PDH for confirmation"
+            confirmation_triggered = True
         elif final_action == TradeAction.SELL and pdl is not None and price >= pdl:
             final_action = TradeAction.HOLD
             confirmation_reason = "waiting for close below PDL for confirmation"
+            confirmation_triggered = True
 
         if confirmation_reason:
             if final_reasoning:
                 final_reasoning = f"{final_reasoning}; {confirmation_reason}"
             else:
                 final_reasoning = confirmation_reason
+        if confirmation_triggered:
+            final_confidence = 0
         
         result = HybridPipelineResult(
             final_action=final_action,

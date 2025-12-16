@@ -60,6 +60,7 @@ class TradingConfig:
     
     # Weighted voting thresholds
     min_weighted_confidence: float = 0.70
+    confidence_threshold: float = field(default_factory=lambda: float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7")))
 
     # Hard Safety Constraints
     max_contracts_limit: int = field(default_factory=lambda: int(os.environ.get("MAX_CONTRACTS", "5")))
@@ -143,6 +144,8 @@ class RAGConfig:
     knowledge_base_path: str = "data/knowledge_base"
     local_store_path: str = "rag_data/local_kb/local_kb.sqlite"
     kb_cache_ttl_seconds: int = 120
+    min_similar_trades: int = field(default_factory=lambda: int(os.environ.get("MIN_SIMILAR_TRADES", "2")))
+    min_weighted_win_rate: float = field(default_factory=lambda: float(os.environ.get("MIN_WEIGHTED_WIN_RATE", "0.45")))
 
     def __post_init__(self) -> None:
         self.backend = (self.backend or "off").lower()

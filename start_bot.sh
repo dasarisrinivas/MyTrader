@@ -33,23 +33,64 @@ if pgrep -f "python.*run_bot.py" > /dev/null; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Check if IB Gateway/TWS is running
-echo -e "${BLUE}[INFO]${NC} Checking IB Gateway/TWS..."
-if lsof -i:4002 > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ IB Gateway/TWS is running${NC}"
-else
-    echo -e "${RED}❌ IB Gateway/TWS is NOT running on port 4002${NC}"
-    echo ""
-    echo "Please start IB Gateway or TWS before running the bot."
-    return 1 2>/dev/null || exit 1
-fi
-
 # Check if config file exists
-if [ ! -f "config.yaml" ]; then
-    echo -e "${RED}❌ config.yaml not found!${NC}"
+CONFIG_FILE=${CONFIG_FILE:-"config.yaml"}
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo -e "${RED}❌ ${CONFIG_FILE} not found!${NC}"
     echo ""
     echo "Copy config.example.yaml to config.yaml and configure it:"
     echo "  cp config.example.yaml config.yaml"
+    return 1 2>/dev/null || exit 1
+fi
+
+export MYTRADER_CONFIG_FILE="$CONFIG_FILE"
+CONFIG_VALUES=$(python - <<'PY'
+import os
+import yaml
+
+cfg_path = os.environ.get("MYTRADER_CONFIG_FILE", "config.yaml")
+try:
+    with open(cfg_path, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+except FileNotFoundError:
+    data = {}
+
+def get_value(obj, path, default):
+    current = obj
+    for key in path.split("."):
+        if not isinstance(current, dict):
+            return default
+        current = current.get(key)
+        if current is None:
+            return default
+    return current
+
+values = [
+    str(get_value(data, "data.ibkr_host", "127.0.0.1")),
+    str(get_value(data, "data.ibkr_port", 4002)),
+    str(get_value(data, "rag.min_similar_trades", 2)),
+    str(get_value(data, "rag.min_weighted_win_rate", 0.45)),
+    str(get_value(data, "trading.confidence_threshold", 0.7)),
+]
+print("|".join(values))
+PY
+)
+IFS='|' read -r CFG_IBKR_HOST CFG_IBKR_PORT CFG_MIN_SIMILAR_TRADES CFG_MIN_WEIGHTED_WIN_RATE CFG_CONFIDENCE_THRESHOLD <<< "$CONFIG_VALUES"
+
+export IBKR_HOST=${IBKR_HOST:-$CFG_IBKR_HOST}
+export IBKR_PORT=${IBKR_PORT:-$CFG_IBKR_PORT}
+export MIN_SIMILAR_TRADES=${MIN_SIMILAR_TRADES:-$CFG_MIN_SIMILAR_TRADES}
+export MIN_WEIGHTED_WIN_RATE=${MIN_WEIGHTED_WIN_RATE:-$CFG_MIN_WEIGHTED_WIN_RATE}
+export CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD:-$CFG_CONFIDENCE_THRESHOLD}
+
+# Check if IB Gateway/TWS is running
+echo -e "${BLUE}[INFO]${NC} Checking IB Gateway/TWS on port ${IBKR_PORT}..."
+if lsof -i:"$IBKR_PORT" > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ IB Gateway/TWS is running${NC}"
+else
+    echo -e "${RED}❌ IB Gateway/TWS is NOT running on port ${IBKR_PORT}${NC}"
+    echo ""
+    echo "Please start IB Gateway or TWS before running the bot."
     return 1 2>/dev/null || exit 1
 fi
 

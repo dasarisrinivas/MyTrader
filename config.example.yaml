@@ -43,6 +43,7 @@ trading:
   
   # Weighted voting threshold
   min_weighted_confidence: 0.70
+  confidence_threshold: 0.7  # Confidence required for full position sizing
 backtest:
   data_path: "data/historical_spy_es.parquet"
   start_date: null
@@ -135,6 +136,8 @@ rag:
   knowledge_base_path: "data/knowledge_base"  # Directory containing trading knowledge documents
   local_store_path: "rag_data/local_kb/local_kb.sqlite"
   kb_cache_ttl_seconds: 120
+  min_similar_trades: 3
+  min_weighted_win_rate: 0.5
 
 # Telegram Notifications Configuration
 telegram:
