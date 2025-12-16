@@ -107,11 +107,11 @@ class RiskManager:
         dollar_risk_per_contract = tick_value * stop_ticks
         
         contracts = int(dollar_risk / dollar_risk_per_contract)
+
+        size_factor = 1.0 if confidence >= 0.7 else 0.5
+        scaled_contracts = int(max(1, contracts * size_factor))
         
-        # Apply confidence scaling (optional - can be removed for pure fixed fractional)
-        # contracts = int(contracts * min(1.0, confidence))
-        
-        return max(1, min(self.config.max_position_size, contracts))
+        return max(1, min(self.config.max_position_size, scaled_contracts))
 
     def _kelly_criterion_size(
         self,
@@ -154,8 +154,11 @@ class RiskManager:
         tick_value = self.config.tick_value
         stop_ticks = max(1.0, self.config.stop_loss_ticks)
         contracts = int(dollar_risk / (tick_value * stop_ticks))
+
+        size_factor = 1.0 if confidence >= 0.7 else 0.5
+        scaled_contracts = int(max(1, contracts * size_factor))
         
-        return max(1, min(self.config.max_position_size, contracts))
+        return max(1, min(self.config.max_position_size, scaled_contracts))
 
     def calculate_atr_stop(
         self, 

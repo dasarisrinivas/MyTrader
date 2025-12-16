@@ -1013,6 +1013,29 @@ class HybridRAGPipeline:
         # Layer 2: RAG Retrieval (only on signal)
         rag_result = self.rag_retriever.retrieve(rule_result, market_data)
         logger.debug(f"Layer 2 - RAG: {rag_result.similar_trade_count} similar trades, {len(rag_result.documents)} docs")
+
+        # Regime filter using RAG context before invoking the LLM
+        min_similar_trades = self.config.get("min_similar_trades", 2)
+        min_weighted_win_rate = self.config.get("min_weighted_win_rate", 0.45)
+        if (
+            rag_result.similar_trade_count < min_similar_trades
+            or rag_result.weighted_win_rate < min_weighted_win_rate
+        ):
+            reasoning = (
+                "Regime filter triggered: "
+                f"similar_trades={rag_result.similar_trade_count} (min={min_similar_trades}), "
+                f"weighted_win_rate={rag_result.weighted_win_rate:.2f} "
+                f"(min={min_weighted_win_rate:.2f})"
+            )
+            return HybridPipelineResult(
+                final_action=TradeAction.HOLD,
+                final_confidence=0,
+                final_reasoning=reasoning,
+                rule_engine=rule_result,
+                rag_retrieval=rag_result,
+                timestamp=now_cst().isoformat(),
+                processing_time_ms=(time.time() - start_time) * 1000,
+            )
         
         # Layer 3: LLM Decision (only on signal with sufficient score)
         llm_result = None
@@ -1047,6 +1070,23 @@ class HybridRAGPipeline:
             # Default: 1.5 ATR stop, 2 ATR target
             stop_loss = atr * 1.5
             take_profit = atr * 2.0
+
+        # Require price confirmation relative to PDH/PDL before acting
+        pdh = rule_result.indicators.get("pdh")
+        pdl = rule_result.indicators.get("pdl")
+        confirmation_reason = ""
+        if final_action == TradeAction.BUY and pdh is not None and price <= pdh:
+            final_action = TradeAction.HOLD
+            confirmation_reason = "waiting for close above PDH for confirmation"
+        elif final_action == TradeAction.SELL and pdl is not None and price >= pdl:
+            final_action = TradeAction.HOLD
+            confirmation_reason = "waiting for close below PDL for confirmation"
+
+        if confirmation_reason:
+            if final_reasoning:
+                final_reasoning = f"{final_reasoning}; {confirmation_reason}"
+            else:
+                final_reasoning = confirmation_reason
         
         result = HybridPipelineResult(
             final_action=final_action,
