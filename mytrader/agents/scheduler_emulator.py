@@ -72,7 +72,8 @@ class SchedulerEmulator:
         self,
         date: str,
         tz: str = "America/Chicago",
-        losing_trades: Optional[list] = None
+        losing_trades: Optional[list] = None,
+        daily_summary: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Run Agent 4: Strategy Optimization & Learning Agent for a specific date.
@@ -84,6 +85,7 @@ class SchedulerEmulator:
             date: Date string in YYYY-MM-DD format
             tz: Timezone (default: America/Chicago for CST)
             losing_trades: Optional list of losing trades for the day
+            daily_summary: Optional summary of daily performance metrics
         
         Returns:
             Agent 4 response with patterns identified and rules updated
@@ -101,7 +103,9 @@ class SchedulerEmulator:
                 'start': date,
                 'end': date
             },
-            'losing_trades': losing_trades
+            'losing_trades': losing_trades,
+            'daily_summary': daily_summary or {},
+            'backtest_date': date,
         }
         
         result = self.agent4_wrapper.invoke(event)

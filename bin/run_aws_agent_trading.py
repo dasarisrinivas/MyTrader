@@ -358,6 +358,10 @@ class AWSAgentTradingIntegration:
                 limit_price=current_price,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
+                metadata={
+                    "entry_price": current_price,
+                    "agent_decision": decision,
+                },
             )
             
             logger.info(f"✅ Order placed: {action} {size} contracts (order_id={order_id})")

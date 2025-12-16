@@ -8,10 +8,12 @@ signatures as the AWS Lambda handlers for compatibility.
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 from collections import defaultdict
 from statistics import mean, stdev
+
+from ..learning.strategy_state import StrategyStateManager
 
 # Import Lambda function logic directly
 try:
@@ -48,7 +50,7 @@ try:
         _apply_rule_updates,
     )
     LAMBDA_IMPORTS_AVAILABLE = True
-except ImportError:
+except Exception:
     LAMBDA_IMPORTS_AVAILABLE = False
 
 
@@ -58,6 +60,40 @@ class LocalLambdaWrapper:
     def __init__(self, artifacts_dir: Path):
         self.artifacts_dir = artifacts_dir
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _resolve_artifact_date(
+        self,
+        event: Optional[Dict[str, Any]] = None,
+        default: Optional[str] = None
+    ) -> str:
+        """Figure out which logical trading day an artifact belongs to."""
+        if default is None:
+            default = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        if not event:
+            return default
+        
+        for key in ('backtest_date', 'date', 'target_date', 'event_date'):
+            candidate = event.get(key) if isinstance(event, dict) else None
+            if candidate:
+                return str(candidate)
+        
+        date_range = event.get('date_range') if isinstance(event, dict) else None
+        if isinstance(date_range, dict):
+            for key in ('end', 'start'):
+                candidate = date_range.get(key)
+                if candidate:
+                    return str(candidate)
+        
+        context = event.get('current_context') if isinstance(event, dict) else None
+        if isinstance(context, dict):
+            candidate = context.get('date')
+            if candidate:
+                return str(candidate)
+        
+        env_override = os.environ.get('FF_BACKTEST_TARGET_DATE')
+        if env_override:
+            return env_override
+        return default
     
     def _save_artifact(self, date: str, filename: str, data: Any) -> Path:
         """Save artifact to date-specific directory."""
@@ -187,7 +223,7 @@ class Agent2DecisionEngineWrapper(LocalLambdaWrapper):
             result = self._fallback_decision(event)
         
         # Log decision
-        date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        date = self._resolve_artifact_date(event)
         decision_log = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'decision': result.get('decision'),
@@ -197,6 +233,7 @@ class Agent2DecisionEngineWrapper(LocalLambdaWrapper):
             'stop_loss': result.get('stop_loss'),
             'take_profit': result.get('take_profit'),
             'similar_trades_count': len(event.get('similar_trades', [])),
+            'placeholder_reason': event.get('placeholder_reason'),
         }
         self._save_artifact(date, 'agent2_decisions.ndjson', decision_log)
         
@@ -206,57 +243,154 @@ class Agent2DecisionEngineWrapper(LocalLambdaWrapper):
         """Fallback decision logic if Lambda imports unavailable."""
         similar_trades = event.get('similar_trades', [])
         current_context = event.get('current_context', {})
+        strategy_params = event.get('strategy_params', {})
         
-        if not similar_trades:
+        if similar_trades:
+            wins = [t for t in similar_trades if t.get('outcome') == 'WIN']
+            win_rate = len(wins) / len(similar_trades) if similar_trades else 0
+            
+            if win_rate >= 0.5 and len(similar_trades) >= 5:
+                buys = [t for t in similar_trades if t.get('action') == 'BUY']
+                sells = [t for t in similar_trades if t.get('action') == 'SELL']
+                buy_win_rate = len([t for t in buys if t.get('outcome') == 'WIN']) / len(buys) if buys else 0
+                sell_win_rate = len([t for t in sells if t.get('outcome') == 'WIN']) / len(sells) if sells else 0
+                
+                if buy_win_rate > sell_win_rate + 0.05:
+                    decision = 'BUY'
+                    confidence = min(0.85, max(win_rate, buy_win_rate))
+                elif sell_win_rate > buy_win_rate + 0.05:
+                    decision = 'SELL'
+                    confidence = min(0.85, max(win_rate, sell_win_rate))
+                else:
+                    decision = 'WAIT'
+                    confidence = win_rate * 0.6
+            else:
+                decision = 'WAIT'
+                confidence = max(0.2, win_rate * 0.5)
+            
+            result = {
+                'status': 'success',
+                'decision': decision,
+                'confidence': confidence,
+                'reason': f'Pattern win rate {win_rate*100:.1f}% from {len(similar_trades)} matches',
+                'statistics': {
+                    'total_matches': len(similar_trades),
+                    'win_rate': win_rate,
+                    'win_count': len(wins),
+                    'loss_count': len(similar_trades) - len(wins),
+                    'mode': 'retrieval',
+                },
+                'stop_loss': 'Entry - 2.0 ATR' if decision != 'WAIT' else None,
+                'take_profit': 'Entry + 3.0 ATR' if decision != 'WAIT' else None
+            }
+            if decision != 'WAIT':
+                return result
+        
+        # Fall back to heuristic decisioning when retrieval could not trigger a trade
+        return self._heuristic_decision(current_context, strategy_params, event)
+
+    def _heuristic_decision(
+        self,
+        current_context: Dict[str, Any],
+        strategy_params: Dict[str, Any],
+        event: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Generate a deterministic trade signal when retrieval data is sparse."""
+        if not current_context:
             return {
                 'status': 'success',
                 'decision': 'WAIT',
                 'confidence': 0.0,
-                'reason': 'No similar historical patterns found',
-                'statistics': {'total_matches': 0, 'win_rate': 0},
+                'reason': 'No market context provided',
+                'statistics': {'mode': 'heuristic', 'detail': 'missing_context'},
                 'stop_loss': None,
                 'take_profit': None
             }
         
-        # Simple statistics
-        wins = [t for t in similar_trades if t.get('outcome') == 'WIN']
-        win_rate = len(wins) / len(similar_trades) if similar_trades else 0
+        trend = current_context.get('trend', 'RANGE')
+        rsi = float(current_context.get('rsi', 50))
+        macd = float(current_context.get('macd_histogram', 0))
+        atr = float(current_context.get('atr', 1.0))
+        volatility = current_context.get('volatility', 'MED')
+        pdh_delta = float(current_context.get('PDH_delta', 0) or 0)
+        pdl_delta = float(current_context.get('PDL_delta', 0) or 0)
+        threshold = strategy_params.get('decision_threshold', 0.58)
+        min_confidence = strategy_params.get('min_confidence', 0.55)
+        exploration_rate = strategy_params.get('exploration_rate', 0.0)
         
-        # Simple decision logic
-        if win_rate < 0.5 or len(similar_trades) < 10:
-            decision = 'WAIT'
-            confidence = 0.3
-        elif win_rate >= 0.6:
-            # Determine best action
-            buys = [t for t in similar_trades if t.get('action') == 'BUY']
-            sells = [t for t in similar_trades if t.get('action') == 'SELL']
-            buy_win_rate = len([t for t in buys if t.get('outcome') == 'WIN']) / len(buys) if buys else 0
-            sell_win_rate = len([t for t in sells if t.get('outcome') == 'WIN']) / len(sells) if sells else 0
-            
-            if buy_win_rate > sell_win_rate + 0.1:
-                decision = 'BUY'
-            elif sell_win_rate > buy_win_rate + 0.1:
-                decision = 'SELL'
-            else:
-                decision = 'WAIT'
-            confidence = min(win_rate, 0.85)
+        buy_score = 0.0
+        sell_score = 0.0
+        
+        if trend == 'UPTREND':
+            buy_score += 0.35
+        elif trend == 'DOWNTREND':
+            sell_score += 0.35
         else:
-            decision = 'WAIT'
-            confidence = win_rate * 0.7
+            buy_score += 0.1
+            sell_score += 0.1
+        
+        buy_score += max(0.0, (rsi - 52) / 100.0)
+        sell_score += max(0.0, (48 - rsi) / 100.0)
+        
+        if macd > 0:
+            buy_score += min(0.2, macd / 4.0)
+        elif macd < 0:
+            sell_score += min(0.2, abs(macd) / 4.0)
+        
+        if pdh_delta > 0:
+            buy_score += 0.05
+        if pdl_delta < 0:
+            sell_score += 0.05
+        
+        if volatility == 'HIGH':
+            buy_score -= 0.05
+            sell_score -= 0.05
+        
+        buy_score = max(0.0, min(1.0, buy_score))
+        sell_score = max(0.0, min(1.0, sell_score))
+        
+        action = 'BUY' if buy_score >= sell_score else 'SELL'
+        signal_strength = max(buy_score, sell_score)
+        
+        if signal_strength + exploration_rate < threshold:
+            return {
+                'status': 'success',
+                'decision': 'WAIT',
+                'confidence': signal_strength,
+                'reason': (
+                    f'Heuristic signal {signal_strength:.2f} below threshold '
+                    f'{threshold:.2f}'
+                ),
+                'statistics': {
+                    'mode': 'heuristic',
+                    'buy_score': buy_score,
+                    'sell_score': sell_score,
+                    'threshold': threshold,
+                },
+                'stop_loss': None,
+                'take_profit': None
+            }
+        
+        confidence = max(min_confidence, min(0.95, signal_strength + exploration_rate / 2))
+        reason = (
+            f"Heuristic {action} signal strength {signal_strength:.2f} "
+            f"(threshold {threshold:.2f}, volatility {volatility})"
+        )
         
         return {
             'status': 'success',
-            'decision': decision,
+            'decision': action,
             'confidence': confidence,
-            'reason': f'Win rate: {win_rate*100:.1f}%, {len(similar_trades)} similar patterns',
+            'reason': reason,
             'statistics': {
-                'total_matches': len(similar_trades),
-                'win_rate': win_rate,
-                'win_count': len(wins),
-                'loss_count': len(similar_trades) - len(wins),
+                'mode': 'heuristic',
+                'buy_score': buy_score,
+                'sell_score': sell_score,
+                'threshold': threshold,
+                'exploration': exploration_rate,
             },
-            'stop_loss': 'Entry - 2.0 ATR' if decision != 'WAIT' else None,
-            'take_profit': 'Entry + 3.0 ATR' if decision != 'WAIT' else None
+            'stop_loss': f'Entry - {2.0 * atr:.2f} ATR' if action == 'BUY' else f'Entry + {2.0 * atr:.2f} ATR',
+            'take_profit': f'Entry + {3.0 * atr:.2f} ATR' if action == 'BUY' else f'Entry - {3.0 * atr:.2f} ATR'
         }
 
 
@@ -307,7 +441,7 @@ class Agent3RiskControlWrapper(LocalLambdaWrapper):
             result = self._fallback_risk_check(event)
         
         # Log risk evaluation
-        date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        date = self._resolve_artifact_date(event)
         risk_log = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'trade_decision': event.get('trade_decision', {}),
@@ -316,6 +450,7 @@ class Agent3RiskControlWrapper(LocalLambdaWrapper):
             'adjusted_size': result.get('adjusted_size', 0),
             'risk_flags': result.get('risk_flags', []),
             'reason': result.get('reason', ''),
+            'placeholder_reason': event.get('placeholder_reason'),
         }
         self._save_artifact(date, 'agent3_risk.ndjson', risk_log)
         
@@ -326,6 +461,26 @@ class Agent3RiskControlWrapper(LocalLambdaWrapper):
         trade_decision = event.get('trade_decision', {})
         account_metrics = event.get('account_metrics', {})
         market_conditions = event.get('market_conditions', {})
+        strategy_params = event.get('strategy_params', {})
+        
+        placeholder_reason = event.get('placeholder_reason')
+        if placeholder_reason:
+            return _create_response(
+                allowed=False,
+                multiplier=0.0,
+                size=0,
+                flags=['PLACEHOLDER'],
+                reason=placeholder_reason
+            )
+        
+        if not trade_decision or trade_decision.get('action') in (None, 'WAIT'):
+            return _create_response(
+                allowed=False,
+                multiplier=0.0,
+                size=0,
+                flags=['NO_SIGNAL'],
+                reason='No actionable decision supplied'
+            )
         
         # Simple risk checks
         risk_flags = []
@@ -359,6 +514,17 @@ class Agent3RiskControlWrapper(LocalLambdaWrapper):
             size_multiplier *= 0.8
             risk_flags.append('LOSING_STREAK_WARNING')
         
+        max_trades_per_day = strategy_params.get('max_trades_per_day')
+        if max_trades_per_day is not None:
+            if account_metrics.get('trades_today', 0) >= max_trades_per_day:
+                return _create_response(
+                    allowed=False,
+                    multiplier=0.0,
+                    size=0,
+                    flags=['DAILY_TRADE_CAP'],
+                    reason='Adaptive cap on number of trades reached'
+                )
+        
         # Volatility check
         volatility = market_conditions.get('volatility', 'MED')
         if volatility == 'HIGH':
@@ -370,6 +536,8 @@ class Agent3RiskControlWrapper(LocalLambdaWrapper):
         if confidence < 0.6:
             size_multiplier *= 0.5
             risk_flags.append('LOW_CONFIDENCE')
+        
+        size_multiplier *= max(0.2, float(strategy_params.get('risk_multiplier', 1.0)))
         
         proposed_size = trade_decision.get('proposed_size', 1)
         adjusted_size = max(1, int(proposed_size * size_multiplier))
@@ -387,6 +555,10 @@ class Agent3RiskControlWrapper(LocalLambdaWrapper):
 
 class Agent4LearningWrapper(LocalLambdaWrapper):
     """Local wrapper for Agent 4: Strategy Optimization & Learning Agent."""
+    
+    def __init__(self, artifacts_dir: Path):
+        super().__init__(artifacts_dir)
+        self.strategy_manager = StrategyStateManager(artifacts_dir / 'strategy_state.json')
     
     def invoke(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -434,48 +606,121 @@ class Agent4LearningWrapper(LocalLambdaWrapper):
         """Fallback learning analysis if Lambda imports unavailable."""
         losing_trades = event.get('losing_trades', [])
         date = event.get('date_range', {}).get('end', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+        daily_summary = event.get('daily_summary', {})
+        current_state = self.strategy_manager.load_state()
+        
+        patterns = []
+        if losing_trades:
+            regime_counts = defaultdict(int)
+            for trade in losing_trades:
+                regime = trade.get('regime', 'UNKNOWN')
+                regime_counts[regime] += 1
+            
+            for regime, count in regime_counts.items():
+                if count >= 2:
+                    patterns.append({
+                        'type': 'REGIME_PATTERN',
+                        'pattern': {'regime': regime},
+                        'occurrences': count,
+                        'description': f'Multiple losses in {regime} regime',
+                        'recommendation': f'Reduce trading in {regime} conditions'
+                    })
+        
+        updates, notes = self._derive_state_updates(current_state, daily_summary, losing_trades)
+        updated_state = current_state
+        if updates:
+            updated_state = self.strategy_manager.update_state(updates)
+            self.strategy_manager.append_adjustment_record({
+                'date': date,
+                'updates': updates,
+                'notes': notes,
+                'pnl': daily_summary.get('pnl'),
+                'trades_taken': daily_summary.get('trades_taken'),
+            })
+        
+        rules_updated = []
+        if updates:
+            for key, value in updates.items():
+                rules_updated.append({
+                    'parameter': key,
+                    'new_value': updated_state.get(key),
+                    'reason': '; '.join(notes) or 'Adaptive tuning',
+                })
+        
+        summary_payload = {
+            'trades_analyzed': len(losing_trades),
+            'patterns_found': len(patterns),
+            'total_loss': sum(t.get('pnl', 0) for t in losing_trades),
+            'daily_summary': daily_summary,
+            'strategy_state': updated_state,
+            'adjustment_notes': notes,
+        }
         
         if not losing_trades:
-            return {
-                'status': 'success',
-                'message': 'No losing trades to analyze',
-                'patterns_identified': [],
-                'rules_updated': [],
-                'bad_patterns_added': [],
-                'summary': {
-                    'trades_analyzed': 0,
-                    'patterns_found': 0
-                }
-            }
-        
-        # Simple pattern identification
-        patterns = []
-        regime_counts = defaultdict(int)
-        for trade in losing_trades:
-            regime = trade.get('regime', 'UNKNOWN')
-            regime_counts[regime] += 1
-        
-        for regime, count in regime_counts.items():
-            if count >= 2:
-                patterns.append({
-                    'type': 'REGIME_PATTERN',
-                    'pattern': {'regime': regime},
-                    'occurrences': count,
-                    'description': f'Multiple losses in {regime} regime',
-                    'recommendation': f'Reduce trading in {regime} conditions'
-                })
+            summary_payload['message'] = 'No losing trades to analyze'
         
         return {
             'status': 'success',
             'patterns_identified': patterns,
-            'rules_updated': [],
-            'bad_patterns_added': patterns[:5],  # Top 5 patterns
-            'summary': {
-                'trades_analyzed': len(losing_trades),
-                'patterns_found': len(patterns),
-                'total_loss': sum(t.get('pnl', 0) for t in losing_trades)
-            }
+            'rules_updated': rules_updated,
+            'bad_patterns_added': patterns[:5],
+            'summary': summary_payload
         }
+    
+    def _derive_state_updates(
+        self,
+        current_state: Dict[str, Any],
+        daily_summary: Dict[str, Any],
+        losing_trades: List[Dict[str, Any]],
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Translate daily outcomes into strategy parameter adjustments."""
+        updates: Dict[str, Any] = {}
+        notes: List[str] = []
+        
+        trades_taken = daily_summary.get('trades_taken', 0)
+        pnl = daily_summary.get('pnl', 0.0) or 0.0
+        decision_events = daily_summary.get('decision_events', 0)
+        missed_opportunity = abs(daily_summary.get('missed_opportunity', 0.0) or 0.0)
+        
+        if trades_taken == 0 and decision_events == 0:
+            updates['decision_threshold'] = max(
+                0.45, current_state.get('decision_threshold', 0.58) - 0.02
+            )
+            updates['exploration_rate'] = min(
+                0.3, current_state.get('exploration_rate', 0.1) + 0.02
+            )
+            notes.append('Loosened signal threshold due to zero activity')
+        
+        if trades_taken == 0 and missed_opportunity > 0:
+            updates['target_daily_trades'] = min(
+                4, current_state.get('target_daily_trades', 2) + 1
+            )
+            notes.append('Raising target trades after missed move')
+        
+        if pnl < 0 and losing_trades:
+            updates['risk_multiplier'] = max(
+                0.5, current_state.get('risk_multiplier', 1.0) - 0.05
+            )
+            updates['decision_threshold'] = min(
+                0.9, current_state.get('decision_threshold', 0.58) + 0.01
+            )
+            notes.append('Reduced risk budget after losing day')
+        elif pnl > 0 and trades_taken > 0:
+            updates['risk_multiplier'] = min(
+                1.5, current_state.get('risk_multiplier', 1.0) + 0.02
+            )
+            notes.append('Rewarding profitable day with higher risk allowance')
+        
+        max_trades = current_state.get('max_trades_per_day', 6)
+        target_trades = current_state.get('target_daily_trades', 2)
+        if trades_taken > target_trades and max_trades < 8:
+            updates['max_trades_per_day'] = max_trades + 1
+            notes.append('Allowing more trades after exceeding target')
+        elif trades_taken == 0 and max_trades > 2:
+            updates['max_trades_per_day'] = max(2, max_trades - 1)
+            notes.append('Reducing trade cap after inactivity')
+        
+        return updates, notes
 
 
 def _create_response(

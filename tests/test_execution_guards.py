@@ -4,7 +4,27 @@ from unittest.mock import Mock, patch
 
 from mytrader.execution.order_builder import validate_bracket_prices
 from mytrader.execution.guards import WaitDecisionContext, should_block_on_wait, compute_trade_risk_dollars
+from mytrader.execution.ib_executor import TradeExecutor
 from mytrader.risk.atr_module import compute_protective_offsets
+from mytrader.config import Settings
+from mytrader.execution.position_manager import DecisionResult
+
+
+class DummyIB:
+    def __init__(self):
+        self._connected = True
+
+    def isConnected(self):
+        return True
+
+    def openTrades(self):
+        return []
+
+    def positions(self):
+        return []
+
+    async def accountSummaryAsync(self):
+        return []
 
 
 def test_buy_bracket_rejects_take_profit_below_entry():
@@ -109,6 +129,54 @@ def test_bracket_validation_rejects_immediate_fill_distances():
     assert result.valid  # Should be adjusted, not rejected
     assert abs(result.stop_loss - 6890.50) >= 1.0  # At least 4 ticks away
     assert abs(result.take_profit - 6890.50) >= 1.0
+
+
+@pytest.mark.asyncio
+async def test_executor_blocks_missing_stop_loss_before_submission():
+    """TradeExecutor must cancel live orders that omit protective stops."""
+    settings = Settings()
+    executor = TradeExecutor(DummyIB(), settings.trading, settings.data.ibkr_symbol)
+    result = await executor.place_order(
+        action="BUY",
+        quantity=1,
+        limit_price=100.0,
+        stop_loss=None,
+        take_profit=101.0,
+        metadata={"entry_price": 100.0},
+    )
+    assert result.status == "Cancelled"
+    assert "stop-loss" in (result.message or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_executor_blocks_invalid_stop_orientation():
+    """Guard should reject BUY orders with stops above entry."""
+    settings = Settings()
+    executor = TradeExecutor(DummyIB(), settings.trading, settings.data.ibkr_symbol)
+    result = await executor.place_order(
+        action="BUY",
+        quantity=1,
+        limit_price=100.0,
+        stop_loss=101.0,
+        take_profit=102.0,
+        metadata={"entry_price": 100.0},
+    )
+    assert result.status == "Cancelled"
+    assert "stop-loss" in (result.message or "").lower()
+
+
+def test_protective_guard_skips_reduce_only():
+    """Reduce-only exits can omit SL/TP without tripping the guard."""
+    settings = Settings()
+    executor = TradeExecutor(DummyIB(), settings.trading, settings.data.ibkr_symbol)
+    reason = executor._validate_protective_invariants(
+        action="SELL",
+        entry_price=None,
+        stop_loss=None,
+        take_profit=None,
+        reduce_only=True,
+    )
+    assert reason is None
 
 
 def test_validate_entry_guard_blocks_missing_protection():

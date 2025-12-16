@@ -970,6 +970,7 @@ async def run_live(settings: Settings) -> None:
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     metadata={
+                        "entry_price": current_price,
                         "trailing_atr_multiplier": trailing_atr_multiplier,
                         "trailing_percent": trailing_percent,
                         "atr_value": atr,

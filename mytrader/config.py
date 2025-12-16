@@ -66,6 +66,7 @@ class TradingConfig:
     margin_limit_pct: float = field(default_factory=lambda: float(os.environ.get("MARGIN_LIMIT_PCT", "0.80")))
     decision_min_interval_seconds: int = field(default_factory=lambda: int(os.environ.get("DECISION_MIN_INTERVAL_SECONDS", "30")))
     order_retry_limit: int = field(default_factory=lambda: int(os.environ.get("ORDER_RETRY_LIMIT", "3")))
+    contract_month_offset: int = field(default_factory=lambda: int(os.environ.get("CONTRACT_MONTH_OFFSET", "0")))
 
 
 @dataclass

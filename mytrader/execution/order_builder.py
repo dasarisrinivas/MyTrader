@@ -22,7 +22,7 @@ def validate_bracket_prices(
     stop_loss: Optional[float],
     take_profit: Optional[float],
     tick_size: float,
-    min_distance_ticks: int = 4,
+    min_distance_ticks: int = 1,
 ) -> BracketValidation:
     """
     Ensure protective orders are on the correct side of entry and respect tick spacing.

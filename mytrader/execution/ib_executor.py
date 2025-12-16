@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import time
+from uuid import uuid4
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, Stop
 from ..config import TradingConfig
 from ..monitoring.order_tracker import OrderTracker
 from ..utils.logger import logger
+from ..utils.structured_logging import log_structured_event
 from ..utils.telegram_notifier import TelegramNotifier
 from .order_builder import format_bracket_snapshot, validate_bracket_prices
 
@@ -259,10 +261,16 @@ class TradeExecutor:
                 logger.error(f"Could not find any contracts for {self.symbol}")
                 return None
             
-            # Sort by expiration date to get the front month (earliest expiration)
+            # Sort by expiration date to get the desired month (offset driven)
             details.sort(key=lambda d: d.contract.lastTradeDateOrContractMonth)
-            front_month = details[0].contract
-            logger.info(f"Qualified contract: {front_month.localSymbol} (exp: {front_month.lastTradeDateOrContractMonth})")
+            offset = max(0, min(getattr(self.config, "contract_month_offset", 0), len(details) - 1))
+            front_month = details[offset].contract
+            logger.info(
+                "Qualified contract: {symbol} (exp: {expiry}) [offset={offset}]",
+                symbol=front_month.localSymbol,
+                expiry=front_month.lastTradeDateOrContractMonth,
+                offset=offset,
+            )
             
             # Cache it
             self._qualified_contract = front_month
@@ -281,12 +289,20 @@ class TradeExecutor:
         self._connection_port = port
         self._connection_client_id = client_id
         
-        logger.info("Connecting executor to IBKR %s:%s (client_id=%d, timeout=%ds)", 
-                   host, port, client_id, timeout)
+        logger.info(
+            "Connecting executor to IBKR {host}:{port} (client_id={client_id}, timeout={timeout}s)",
+            host=host,
+            port=port,
+            client_id=client_id,
+            timeout=timeout,
+        )
         try:
             await self.ib.connectAsync(host, port, clientId=client_id, timeout=timeout)
         except TimeoutError:
-            logger.error("Connection timeout after %ds. IB Gateway may be in bad state.", timeout)
+            logger.error(
+                "Connection timeout after {timeout}s. IB Gateway may be in bad state.",
+                timeout=timeout,
+            )
             logger.error("Try restarting IB Gateway: Close it completely, wait 30s, then restart")
             raise
         
@@ -498,7 +514,7 @@ class TradeExecutor:
                     )
                     logger.info(f"Reconciled position: {self.symbol} qty={position.position} avg_cost={per_contract_cost:.2f} (total_cost={position.avgCost:.2f})")
         except Exception as e:
-            logger.error("Failed to reconcile positions: %s", e)
+            logger.error("Failed to reconcile positions: {}", e)
 
     def _on_order_status(self, trade: Trade) -> None:
         """Callback for order status updates."""
@@ -733,6 +749,41 @@ class TradeExecutor:
                 action = required_action
             quantity = min(quantity, abs(current_position.quantity))
             metadata["reduce_only"] = True
+
+        guard_reason = self._validate_protective_invariants(
+            action=action,
+            entry_price=limit_price if limit_price is not None else metadata.get("entry_price"),
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            reduce_only=reduce_only,
+        )
+        if guard_reason:
+            incident_id = uuid4().hex[:10]
+            message = f"Protective guard blocked order: {guard_reason} (incident={incident_id})"
+            logger.error(message)
+            log_structured_event(
+                agent="ib_executor",
+                event_type="risk.order_blocked",
+                message=message,
+                payload={
+                    "incident_id": incident_id,
+                    "reason": guard_reason,
+                    "action": action,
+                    "quantity": quantity,
+                    "entry_price": limit_price if limit_price is not None else metadata.get("entry_price"),
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "reduce_only": reduce_only,
+                    "trade_cycle_id": metadata.get("trade_cycle_id"),
+                },
+            )
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(
+                trade=dummy_trade,
+                status="Cancelled",
+                message=message,
+            )
         
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
@@ -765,8 +816,8 @@ class TradeExecutor:
         
         if self._order_locked:
             logger.warning(
-                "Order lock active (%s) - rejecting new order request",
-                self._order_lock_reason or "pending bracket confirmation",
+                "Order lock active ({reason}) - rejecting new order request",
+                reason=self._order_lock_reason or "pending bracket confirmation",
             )
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
@@ -929,10 +980,10 @@ class TradeExecutor:
                 metadata.get("atr_fallback_used"),
             )
             logger.info(
-                "📡 Bracket telemetry | qty=%d lock=%s %s",
-                quantity,
-                self._order_locked,
-                snapshot,
+                "📡 Bracket telemetry | qty={qty} lock={locked} {snapshot}",
+                qty=quantity,
+                locked=self._order_locked,
+                snapshot=snapshot,
             )
 
         # Place parent order
@@ -944,6 +995,7 @@ class TradeExecutor:
 
         try:
             parent_trade = self.ib.placeOrder(contract, order)
+            self._log_trade_status(parent_trade, label="parent-submit")
             parent_id = parent_trade.order.orderId
             self.order_metadata[parent_id] = dict(metadata)
             
@@ -992,6 +1044,7 @@ class TradeExecutor:
                 child.parentId = parent_id
             for i, child in enumerate(bracket_children):
                 child_trade = self.ib.placeOrder(contract, child)
+                self._log_trade_status(child_trade, label=f"child-submit-{i+1}")
                 child_id = child_trade.order.orderId
                 self.active_orders[child_id] = child_trade
                 await self._await_order_submission(child_trade, label=f"child-{child_id}")
@@ -1052,8 +1105,12 @@ class TradeExecutor:
                 )
                 logger.info("Position metadata stored for trailing stops")
         
-        logger.info("Order %s placed: orderId=%d status=%s", 
-                   action, parent_id, status)
+        logger.info(
+            "Order {action} placed: orderId={order_id} status={status}",
+            action=action,
+            order_id=parent_id,
+            status=status,
+        )
         
         return OrderResult(
             trade=parent_trade, 
@@ -1062,16 +1119,68 @@ class TradeExecutor:
             filled_quantity=int(parent_trade.orderStatus.filled)
         )
 
+    def _validate_protective_invariants(
+        self,
+        action: str,
+        entry_price: Optional[float],
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+        reduce_only: bool,
+    ) -> Optional[str]:
+        """Ensure every non-reduce order ships with sane protective levels."""
+        if reduce_only:
+            return None
+        if stop_loss is None or stop_loss <= 0:
+            return "missing or non-positive stop-loss"
+        if take_profit is None or take_profit <= 0:
+            return "missing or non-positive take-profit"
+        if entry_price is None or entry_price <= 0:
+            return "missing entry price for protective validation"
+        normalized_action = action.upper()
+        if normalized_action == "BUY":
+            if stop_loss >= entry_price:
+                return f"BUY stop-loss {stop_loss:.2f} must be below entry {entry_price:.2f}"
+            if take_profit <= entry_price:
+                return f"BUY take-profit {take_profit:.2f} must be above entry {entry_price:.2f}"
+        else:
+            if stop_loss <= entry_price:
+                return f"SELL stop-loss {stop_loss:.2f} must be above entry {entry_price:.2f}"
+            if take_profit >= entry_price:
+                return f"SELL take-profit {take_profit:.2f} must be below entry {entry_price:.2f}"
+        return None
+
+    def _log_trade_status(self, trade: Trade | None, label: str) -> None:
+        """Emit a detailed snapshot of the IB response for troubleshooting."""
+        if trade is None or getattr(trade, "order", None) is None:
+            logger.info("🛰️ {label} -> no trade/order data available", label=label)
+            return
+        order = trade.order
+        order_status = trade.orderStatus
+        status = getattr(order_status, "status", "UNKNOWN")
+        client_id = getattr(order_status, "clientId", getattr(order, "clientId", "NA"))
+        perm_id = getattr(order, "permId", None) or getattr(order_status, "permId", "NA")
+        filled = getattr(order_status, "filled", "NA")
+        remaining = getattr(order_status, "remaining", "NA")
+        backend_name = type(self.ib).__name__ if self.ib else "Unknown"
+        is_mock = backend_name.lower().startswith("mock")
+        logger.info(
+            "🛰️ {label} | backend={backend} mock={mock} orderId={order_id} permId={perm_id} status={status} filled={filled} remaining={remaining} clientId={client_id}",
+            label=label,
+            backend=backend_name,
+            mock=is_mock,
+            order_id=getattr(order, "orderId", "NA"),
+            perm_id=perm_id,
+            status=status,
+            filled=filled,
+            remaining=remaining,
+            client_id=client_id,
+        )
+
     async def _await_order_submission(self, trade: Trade, label: str = "order", timeout: float = 3.0) -> None:
         """Wait for IB to acknowledge submission so we don't leave PendingSubmit ghosts."""
         if not self.ib or trade is None:
             return
-        logger.debug(
-            "Awaiting IB acknowledgment for %s %s (status=%s)",
-            label,
-            trade.order.orderId,
-            trade.orderStatus.status,
-        )
+        self._log_trade_status(trade, f"{label}-ack-start")
         start = time.monotonic()
         while trade.orderStatus.status in ("PendingSubmit", "PendingCancel"):
             await asyncio.sleep(0.2)
@@ -1080,27 +1189,22 @@ class TradeExecutor:
                     f"⏳ {label} {trade.order.orderId} still {trade.orderStatus.status} after {timeout}s"
                 )
                 break
-        logger.debug(
-            "IB acknowledged %s %s with status=%s",
-            label,
-            trade.order.orderId,
-            trade.orderStatus.status,
-        )
+        self._log_trade_status(trade, f"{label}-ack-complete")
 
     async def cancel_order(self, order_id: int) -> bool:
         """Cancel a specific order by ID."""
         if order_id not in self.active_orders:
-            logger.warning("Order %d not found in active orders", order_id)
+            logger.warning("Order {order_id} not found in active orders", order_id=order_id)
             return False
         
         try:
             trade = self.active_orders[order_id]
             self.ib.cancelOrder(trade.order)
             self.ib.waitOnUpdate()  # waitOnUpdate is synchronous, not async
-            logger.info("Cancelled order %d", order_id)
+            logger.info("Cancelled order {order_id}", order_id=order_id)
             return True
         except Exception as e:
-            logger.error("Failed to cancel order %d: %s", order_id, e)
+            logger.error("Failed to cancel order {order_id}: {error}", order_id=order_id, error=e)
             return False
 
     async def cancel_all_orders(self) -> int:
@@ -1109,7 +1213,7 @@ class TradeExecutor:
         for order_id in list(self.active_orders.keys()):
             if await self.cancel_order(order_id):
                 count += 1
-        logger.info("Cancelled %d orders", count)
+        logger.info("Cancelled {count} orders", count=count)
         return count
 
     async def get_current_position(self) -> PositionInfo | None:
@@ -1223,7 +1327,7 @@ class TradeExecutor:
         action = "SELL" if position.quantity > 0 else "BUY"
         quantity = abs(position.quantity)
         
-        logger.info("Closing position: %s %d contracts", action, quantity)
+        logger.info("Closing position: {action} {quantity} contracts", action=action, quantity=quantity)
         return await self.place_order(action, quantity)
 
     async def update_trailing_stops(self, current_price: float, current_atr: float | None = None) -> bool:
@@ -1308,8 +1412,12 @@ class TradeExecutor:
             # Update position info
             position.stop_loss = new_stop
             
-            logger.info("Trailing stop updated: %.2f -> %.2f (price=%.2f)", 
-                       current_stop or 0, new_stop, current_price)
+            logger.info(
+                "Trailing stop updated: {old:.2f} -> {new:.2f} (price={price:.2f})",
+                old=current_stop or 0,
+                new=new_stop,
+                price=current_price,
+            )
             return True
         
         return False

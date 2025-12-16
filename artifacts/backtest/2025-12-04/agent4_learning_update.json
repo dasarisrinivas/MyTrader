@@ -1,0 +1,40 @@
+{
+  "date": "2025-12-04",
+  "processed_at": "2025-12-14T21:15:46.140064+00:00",
+  "patterns_identified": [],
+  "rules_updated": [
+    {
+      "parameter": "target_daily_trades",
+      "new_value": 4,
+      "reason": "Raising target trades after missed move"
+    }
+  ],
+  "bad_patterns_added": [],
+  "summary": {
+    "trades_analyzed": 0,
+    "patterns_found": 0,
+    "total_loss": 0,
+    "daily_summary": {
+      "date": "2025-12-04",
+      "trades_taken": 0,
+      "decision_events": 1380,
+      "agent2_invocations": 1380,
+      "pnl": 0.0,
+      "missed_opportunity": 93.75,
+      "open_position": 0
+    },
+    "strategy_state": {
+      "decision_threshold": 0.45,
+      "min_confidence": 0.55,
+      "exploration_rate": 0.3,
+      "risk_multiplier": 0.99,
+      "max_trades_per_day": 2,
+      "target_daily_trades": 4,
+      "last_adjusted_at": "2025-12-14T21:15:46.139906+00:00"
+    },
+    "adjustment_notes": [
+      "Raising target trades after missed move"
+    ],
+    "message": "No losing trades to analyze"
+  }
+}

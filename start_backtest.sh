@@ -104,14 +104,15 @@ PYTHON_BIN="python3"
 
 # Set up data directory and file
 DATA_DIR="data/ib"
-DATA_FILE="$DATA_DIR/${SYMBOL}_1m_last30d.parquet"
+DATA_FILE_PARQUET="$DATA_DIR/${SYMBOL}_1m_last30d.parquet"
+DATA_FILE_CSV="$DATA_DIR/${SYMBOL}_1m_last30d.csv"
 
 mkdir -p "$DATA_DIR"
 
 # Handle IBKR data download
 if [ "$DATA_SOURCE" = "ib" ]; then
-    echo -e "${BLUE}[INFO]${NC} Downloading last 30 days from IBKR into $DATA_FILE ..."
-    if ! $PYTHON_BIN tools/ib_download_last30d.py --symbol "$SYMBOL" --out "$DATA_FILE"; then
+    echo -e "${BLUE}[INFO]${NC} Downloading last 30 days from IBKR into $DATA_FILE_PARQUET ..."
+    if ! $PYTHON_BIN tools/ib_download_last30d.py --symbol "$SYMBOL" --out "$DATA_FILE_PARQUET"; then
         echo -e "${RED}❌ Failed to download data from IBKR${NC}"
         exit 1
     fi
@@ -119,10 +120,10 @@ if [ "$DATA_SOURCE" = "ib" ]; then
     echo -e "${GREEN}✅ Data download complete${NC}"
 fi
 
-# Auto-download if local data is missing
-if [ "$DATA_SOURCE" = "local" ] && [ ! -f "$DATA_FILE" ]; then
-    echo -e "${YELLOW}[WARN]${NC} Missing $DATA_FILE. Auto-downloading from IBKR..."
-    if ! $PYTHON_BIN tools/ib_download_last30d.py --symbol "$SYMBOL" --out "$DATA_FILE"; then
+# Auto-download if local data is missing (check both parquet and CSV)
+if [ "$DATA_SOURCE" = "local" ] && [ ! -f "$DATA_FILE_PARQUET" ] && [ ! -f "$DATA_FILE_CSV" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Missing data file. Auto-downloading from IBKR..."
+    if ! $PYTHON_BIN tools/ib_download_last30d.py --symbol "$SYMBOL" --out "$DATA_FILE_PARQUET"; then
         echo -e "${RED}❌ Failed to download data from IBKR${NC}"
         exit 1
     fi

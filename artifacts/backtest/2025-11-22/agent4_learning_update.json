@@ -1,0 +1,45 @@
+{
+  "date": "2025-11-22",
+  "processed_at": "2025-12-14T21:15:42.035074+00:00",
+  "patterns_identified": [],
+  "rules_updated": [
+    {
+      "parameter": "decision_threshold",
+      "new_value": 0.45,
+      "reason": "Loosened signal threshold due to zero activity"
+    },
+    {
+      "parameter": "exploration_rate",
+      "new_value": 0.3,
+      "reason": "Loosened signal threshold due to zero activity"
+    }
+  ],
+  "bad_patterns_added": [],
+  "summary": {
+    "trades_analyzed": 0,
+    "patterns_found": 0,
+    "total_loss": 0,
+    "daily_summary": {
+      "date": "2025-11-22",
+      "trades_taken": 0,
+      "decision_events": 0,
+      "agent2_invocations": 0,
+      "pnl": 0.0,
+      "missed_opportunity": 0.0,
+      "status": "NO_DATA"
+    },
+    "strategy_state": {
+      "decision_threshold": 0.45,
+      "min_confidence": 0.55,
+      "exploration_rate": 0.3,
+      "risk_multiplier": 0.99,
+      "max_trades_per_day": 2,
+      "target_daily_trades": 4,
+      "last_adjusted_at": "2025-12-14T21:15:42.034875+00:00"
+    },
+    "adjustment_notes": [
+      "Loosened signal threshold due to zero activity"
+    ],
+    "message": "No losing trades to analyze"
+  }
+}

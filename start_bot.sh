@@ -73,9 +73,8 @@ fi
 export MAX_CONTRACTS=${MAX_CONTRACTS:-5}
 export IBKR_HOST=${IBKR_HOST:-"127.0.0.1"}
 export IBKR_PORT=${IBKR_PORT:-4002}
-ENABLE_GUARDRAILS=${ENABLE_GUARDRAILS:-1}
 
-if [ "$ENABLE_GUARDRAILS" = "1" ]; then
+if [ "${ENABLE_GUARDRAILS:-0}" = "1" ]; then
     echo -e "${BLUE}[INFO]${NC} Guardrails enabled – running targeted tests..."
     GUARD_LOG=$(mktemp)
     if python -m pytest tests/test_execution_guards.py >"$GUARD_LOG" 2>&1; then

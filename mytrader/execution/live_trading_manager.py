@@ -2079,6 +2079,22 @@ TRADING GUIDANCE:
                     label = "SCALP ATR" if is_scalp else "ATR"
                     logger.info(f"🎯 Using {label} offsets: SL={stop_offset:.2f}, TP={target_offset:.2f}")
             
+            # Guardrails require a minimum of four ticks of distance, so normalize offsets here
+            min_guard_ticks = getattr(self.settings.trading, "min_distance_ticks", 4)
+            min_guard_offset = self.settings.trading.tick_size * max(1, int(min_guard_ticks))
+            if stop_offset < min_guard_offset:
+                logger.info(
+                    f"🛡️ Stop offset {stop_offset:.2f} too tight (<{min_guard_ticks} ticks); "
+                    f"expanding to {min_guard_offset:.2f}"
+                )
+                stop_offset = min_guard_offset
+            if target_offset < min_guard_offset:
+                logger.info(
+                    f"🛡️ Target offset {target_offset:.2f} too tight (<{min_guard_ticks} ticks); "
+                    f"expanding to {min_guard_offset:.2f}"
+                )
+                target_offset = min_guard_offset
+    
             stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
             take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
             

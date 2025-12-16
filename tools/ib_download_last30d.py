@@ -5,7 +5,6 @@ Download last 30 days of ES futures data from IBKR.
 Reuses the repo's existing IB connection and contract qualification logic.
 """
 import argparse
-import asyncio
 import json
 import os
 import sys
@@ -15,6 +14,10 @@ from pathlib import Path
 
 import pandas as pd
 from ib_insync import IB, Future, util
+import nest_asyncio
+
+# Apply nest_asyncio to allow nested event loops (required for ib_insync)
+nest_asyncio.apply()
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -24,7 +27,7 @@ from mytrader.utils.logger import configure_logging, logger
 from mytrader.utils.settings_loader import load_settings
 
 
-async def get_qualified_contract(ib: IB, symbol: str, exchange: str, currency: str) -> Future:
+def get_qualified_contract(ib: IB, symbol: str, exchange: str, currency: str) -> Future:
     """
     Get qualified front month contract using repo's logic.
     
@@ -32,8 +35,8 @@ async def get_qualified_contract(ib: IB, symbol: str, exchange: str, currency: s
     """
     contract = Future(symbol=symbol, exchange=exchange, currency=currency)
     
-    # Request contract details to find front month
-    details = await ib.reqContractDetailsAsync(contract)
+    # Request contract details to find front month (synchronous)
+    details = ib.reqContractDetails(contract)
     if not details:
         raise ValueError(
             f"Could not find any contracts for {symbol} on {exchange}. "
@@ -49,7 +52,7 @@ async def get_qualified_contract(ib: IB, symbol: str, exchange: str, currency: s
     return front_month
 
 
-async def download_historical_data(
+def download_historical_data(
     ib: IB,
     contract: Future,
     duration_days: int,
@@ -118,7 +121,7 @@ async def download_historical_data(
         if remaining > 0:
             sleep_time = 2.0
             logger.debug(f"    ⏳ Sleeping {sleep_time}s before next chunk...")
-            await asyncio.sleep(sleep_time)
+            ib.sleep(sleep_time)  # Use IB's sleep method which respects the event loop
     
     if not chunks:
         raise ValueError("No bars returned from IB. Check contract permissions/subscription.")
@@ -137,7 +140,7 @@ async def download_historical_data(
     return full_df
 
 
-async def main():
+def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Download last 30 days of ES futures data from IBKR"
@@ -176,14 +179,15 @@ async def main():
     # Create output directory
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Meta path will be updated if we fall back to CSV
     meta_path = out_path.with_suffix(".meta.json")
     
-    # Connect to IB
+    # Connect to IB (synchronous)
     ib = IB()
     logger.info(f"🔌 Connecting to IBKR at {host}:{port} (client_id={client_id})...")
     
     try:
-        await ib.connectAsync(host, port, clientId=client_id, timeout=30)
+        ib.connect(host, port, clientId=client_id, timeout=30)
         logger.info("✅ Connected to IBKR")
     except Exception as e:
         logger.error(f"❌ Failed to connect to IBKR: {e}")
@@ -192,10 +196,10 @@ async def main():
     
     try:
         # Get qualified contract (front month)
-        contract = await get_qualified_contract(ib, args.symbol, exchange, currency)
+        contract = get_qualified_contract(ib, args.symbol, exchange, currency)
         
         # Download historical data
-        df = await download_historical_data(
+        df = download_historical_data(
             ib,
             contract,
             args.duration_days,
@@ -215,11 +219,26 @@ async def main():
         })
         df_clean.set_index('timestamp', inplace=True)
         
-        # Save to parquet
-        df_clean.to_parquet(out_path, index=True)
-        logger.info(f"💾 Saved data to: {out_path} ({len(df_clean)} rows)")
+        # Save to parquet (fallback to CSV if pyarrow not available)
+        try:
+            df_clean.to_parquet(out_path, index=True)
+            logger.info(f"💾 Saved data to: {out_path} ({len(df_clean)} rows)")
+        except (ImportError, ValueError) as e:
+            # Fallback to CSV if parquet not available
+            error_str = str(e).lower()
+            if 'parquet' in error_str or 'pyarrow' in error_str or 'fastparquet' in error_str:
+                logger.warning("⚠️  Parquet support not available, saving as CSV instead")
+                logger.warning("   Install pyarrow for better performance: pip install pyarrow")
+                csv_path = out_path.with_suffix('.csv')
+                df_clean.to_csv(csv_path, index=True)
+                logger.info(f"💾 Saved data to: {csv_path} ({len(df_clean)} rows)")
+                # Update paths for metadata
+                out_path = csv_path
+                meta_path = csv_path.with_suffix('.meta.json')
+            else:
+                raise
         
-        # Save metadata
+        # Save metadata (update path if we fell back to CSV)
         meta = {
             "symbol": args.symbol,
             "exchange": exchange,
@@ -234,6 +253,7 @@ async def main():
             "end": str(df_clean.index.max()),
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "out": str(out_path),
+            "format": "parquet" if out_path.suffix == ".parquet" else "csv",
         }
         
         with open(meta_path, "w") as f:
@@ -253,5 +273,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    exit_code = asyncio.run(main())
+    exit_code = main()
     sys.exit(exit_code)

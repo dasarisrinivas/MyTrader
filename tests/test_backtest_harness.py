@@ -21,6 +21,7 @@ from mytrader.agents.lambda_wrappers import (
     Agent4LearningWrapper,
 )
 from mytrader.config import Settings, TradingConfig, BacktestConfig
+from mytrader.learning.strategy_state import StrategyStateManager
 from mytrader.utils.settings_loader import load_settings
 
 
@@ -274,6 +275,15 @@ def test_artifact_validation(temp_artifacts_dir):
     # Now validation should pass (or at least have fewer missing)
     validation = logger.validate_artifacts(date)
     # Note: May still have missing if wrappers don't create all files, but structure should be there
+
+
+def test_strategy_state_manager(temp_artifacts_dir):
+    """Ensure adaptive strategy state persists and updates."""
+    manager = StrategyStateManager(temp_artifacts_dir / "strategy_state.json")
+    state = manager.load_state()
+    assert 'decision_threshold' in state
+    updated = manager.update_state({'decision_threshold': state['decision_threshold'] + 0.05})
+    assert updated['decision_threshold'] == pytest.approx(state['decision_threshold'] + 0.05)
 
 
 if __name__ == '__main__':
