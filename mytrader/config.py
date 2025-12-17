@@ -26,6 +26,28 @@ class DataSourceConfig:
 
 
 @dataclass
+class EntryFilterConfig:
+    """Configuration for optional entry filters used by TradingFilters."""
+    wait_for_candle_close: bool = True
+    require_trend_alignment: bool = True
+    allow_counter_trend: bool = False
+    ema_fast_period: int = 9
+    ema_slow_period: int = 20
+    ema_alignment_tolerance_pct: float = 0.0002  # 0.02% of price
+    counter_trend_penalty: float = 0.10
+    atr_period: int = 14
+    min_atr_threshold: float = 0.5
+    min_atr_percentile: Optional[float] = None  # e.g. 10 = 10th percentile
+    atr_percentile_lookback: int = 120
+    low_atr_penalty_mode: bool = False
+    low_atr_penalty: float = 0.10
+    max_atr_threshold: float = 5.0
+    chop_zone_buffer_pct: float = 0.25
+    sr_proximity_ticks: int = 8
+    candle_period_seconds: int = 60
+
+
+@dataclass
 class TradingConfig:
     max_position_size: int = field(default_factory=lambda: int(os.environ.get("MAX_POSITION_SIZE", "5")))
     contracts_per_order: int = 1
@@ -61,6 +83,8 @@ class TradingConfig:
     # Weighted voting thresholds
     min_weighted_confidence: float = 0.70
     confidence_threshold: float = field(default_factory=lambda: float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7")))
+    min_confidence_for_trade: float = 0.60
+    min_stop_distance_ticks: int = 4
 
     # Hard Safety Constraints
     max_contracts_limit: int = field(default_factory=lambda: int(os.environ.get("MAX_CONTRACTS", "5")))
@@ -68,6 +92,9 @@ class TradingConfig:
     decision_min_interval_seconds: int = field(default_factory=lambda: int(os.environ.get("DECISION_MIN_INTERVAL_SECONDS", "30")))
     order_retry_limit: int = field(default_factory=lambda: int(os.environ.get("ORDER_RETRY_LIMIT", "3")))
     contract_month_offset: int = field(default_factory=lambda: int(os.environ.get("CONTRACT_MONTH_OFFSET", "0")))
+    
+    # Optional entry filter tuning
+    entry_filters: EntryFilterConfig = field(default_factory=EntryFilterConfig)
 
 
 @dataclass

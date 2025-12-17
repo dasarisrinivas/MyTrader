@@ -143,6 +143,7 @@ Resources:
         Agent2Arn: !GetAtt BedrockAgentsStack.Outputs.Agent2Arn
         Agent3Arn: !GetAtt BedrockAgentsStack.Outputs.Agent3Arn
         Agent4Arn: !GetAtt BedrockAgentsStack.Outputs.Agent4Arn
+        LearnFromLossesLambdaArn: !GetAtt LambdaFunctionsStack.Outputs.LearnFromLossesLambdaArn
       Tags:
         - Key: Project
           Value: !Ref ProjectName

@@ -198,6 +198,84 @@ Resources:
       Principal: bedrock.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
 
+  # ============================================
+  # CLOUDWATCH ALARMS FOR LEARNING AGENT
+  # ============================================
+  LearningAgentAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-learning-alarms'
+      DisplayName: !Sub '${ProjectName}-${Environment}-LearningAgent'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  Agent4NoSuccessAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-agent4-no-success'
+      AlarmDescription: 'No successful Agent 4 runs detected in the last 24h'
+      Namespace: 'MyTrader/LearningAgent'
+      MetricName: 'Agent4Success'
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+        - Name: Agent
+          Value: 'Agent4'
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: BREACHING
+      AlarmActions:
+        - !Ref LearningAgentAlarmTopic
+
+  Agent4NoUpdatesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-agent4-no-updates'
+      AlarmDescription: 'Agent 4 invoked but wrote no updates multiple times'
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: NOT_BREACHING
+      Metrics:
+        - Id: updates
+          MetricStat:
+            Metric:
+              Namespace: 'MyTrader/LearningAgent'
+              MetricName: 'Agent4UpdatesWritten'
+              Dimensions:
+                - Name: Environment
+                  Value: !Ref Environment
+                - Name: Agent
+                  Value: 'Agent4'
+            Period: 3600
+            Stat: Sum
+        - Id: invokes
+          MetricStat:
+            Metric:
+              Namespace: 'MyTrader/LearningAgent'
+              MetricName: 'Agent4Invocations'
+              Dimensions:
+                - Name: Environment
+                  Value: !Ref Environment
+                - Name: Agent
+                  Value: 'Agent4'
+            Period: 3600
+            Stat: Sum
+        - Id: expr1
+          Expression: "IF(invokes > 0 AND updates = 0, 1, 0)"
+          Label: "Invocations with zero updates"
+          ReturnData: true
+      AlarmActions:
+        - !Ref LearningAgentAlarmTopic
+
 Outputs:
   CleanDataLambdaArn:
     Description: Clean and Structure Data Lambda ARN
@@ -230,3 +308,7 @@ Outputs:
   LearnFromLossesLambdaName:
     Description: Learn From Losses Lambda Name
     Value: !Ref LearnFromLossesFunction
+
+  LearningAgentAlarmTopicArn:
+    Description: Learning Agent alarm SNS topic ARN
+    Value: !Ref LearningAgentAlarmTopic

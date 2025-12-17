@@ -16,6 +16,7 @@ Usage:
         await self._place_order(result.signal, current_price, features)
 """
 import asyncio
+import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,17 +29,24 @@ from loguru import logger
 from mytrader.hybrid.multi_factor_scorer import MultiFactorScorer
 from mytrader.hybrid.coordination import AgentBus
 from mytrader.utils.structured_logging import log_structured_event
+from mytrader.utils.hold_reason import HoldReason
 from mytrader.rag.hybrid_rag_pipeline import (
     HybridRAGPipeline,
     TradeAction,
     HybridPipelineResult,
     create_hybrid_pipeline,
 )
+from mytrader.risk.protection_validator import (
+    ProtectionComputation,
+    calculate_protection,
+)
 from mytrader.rag.rag_storage_manager import get_rag_storage
 from mytrader.rag.embedding_builder import create_embedding_builder
 from mytrader.rag.trade_logger import TradeLogger, get_trade_logger
 from mytrader.rag.mistake_analyzer import MistakeAnalyzer, get_mistake_analyzer
 from mytrader.rag.rag_daily_updater import RAGDailyUpdater, create_daily_updater
+
+TRADE_ACTIONS = {"BUY", "SELL", "SCALP_BUY", "SCALP_SELL"}
 
 
 class HybridSignal:
@@ -98,7 +106,7 @@ class HybridPipelineIntegration:
                 "llm": {
                     "min_confidence": getattr(settings.hybrid, 'min_confidence', 60),
                 },
-                "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 60),
+                "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 40),
             }
         
         rag_cfg = getattr(settings, 'rag', None)
@@ -183,6 +191,14 @@ class HybridPipelineIntegration:
                 logger.warning(f"Failed to build local RAG index: {e}")
         else:
             logger.warning(f"No local RAG documents found in {self.rag_data_path}")
+
+    def _get_tick_size(self) -> float:
+        """Return configured tick size with safe fallback."""
+        trading_cfg = getattr(self.settings, "trading", None)
+        tick_size = getattr(trading_cfg, "tick_size", 0.25) if trading_cfg else 0.25
+        if not tick_size or not math.isfinite(tick_size):
+            return 0.25
+        return max(1e-6, float(tick_size))
 
     def ensure_ready(self, min_documents: int = 1) -> Dict[str, Any]:
         """Verify embedding builder has enough documents and warm it up if needed."""
@@ -376,14 +392,49 @@ class HybridPipelineIntegration:
             market_metrics=market_metrics_payload,
         )
         
-        stop_points = max(0.0, float(result.stop_loss or 0.0))
-        take_points = max(0.0, float(result.take_profit or 0.0))
-        if stop_points == 0.0 or take_points == 0.0:
+        entry_price = market_data.get("price", current_price)
+        atr_value = market_data.get("atr", 0.0)
+        raw_stop = self._safe_float(result.stop_loss)
+        raw_target = self._safe_float(result.take_profit)
+        action_value = result.final_action.value
+        protection: Optional[ProtectionComputation] = None
+
+        if (
+            action_value in TRADE_ACTIONS
+            and (raw_stop <= 0 or raw_target <= 0)
+        ):
             logger.warning(
-                "Hybrid pipeline produced non-positive protective levels (stop=%s, target=%s)",
-                result.stop_loss,
-                result.take_profit,
+                "Hybrid pipeline produced non-positive protective levels "
+                "(action=%s stop=%.4f target=%.4f entry=%.2f atr=%.4f)",
+                action_value,
+                raw_stop,
+                raw_target,
+                entry_price,
+                atr_value,
             )
+
+        if action_value in TRADE_ACTIONS:
+            protection = calculate_protection(
+                action=action_value,
+                entry_price=entry_price,
+                stop_points=result.stop_loss,
+                target_points=result.take_profit,
+                atr_value=atr_value,
+                tick_size=self._get_tick_size(),
+                volatility=result.rule_engine.volatility_regime,
+            )
+            stop_points = protection.stop_offset
+            take_points = protection.target_offset
+            if protection.source == "fallback_atr":
+                logger.warning(
+                    "⚠️ Protective fallback used (action=%s reason=%s atr=%.4f)",
+                    action_value,
+                    protection.fallback_reason or "fallback",
+                    atr_value,
+                )
+        else:
+            stop_points = max(0.0, raw_stop)
+            take_points = max(0.0, raw_target)
 
         metadata = {
             "hybrid_reasoning": result.final_reasoning,
@@ -406,11 +457,32 @@ class HybridPipelineIntegration:
             "momentum_score": market_data.get("momentum_score"),
         }
         
+        if protection:
+            metadata.update(
+                {
+                    "stop_loss_absolute": protection.stop_price,
+                    "take_profit_absolute": protection.target_price,
+                    "protection_source": protection.source,
+                    "protection_fallback_reason": protection.fallback_reason,
+                }
+            )
+        
         signal = HybridSignal(
             action=decision.action if result.final_action != TradeAction.BLOCKED else "HOLD",
             confidence=decision.confidence,
             metadata=metadata,
         )
+
+        if protection:
+            self._log_protection_snapshot(
+                action_value=action_value,
+                entry_price=entry_price,
+                atr=atr_value,
+                protection=protection,
+                confidence=signal.confidence,
+                trend=result.rule_engine.market_trend,
+                volatility=result.rule_engine.volatility_regime,
+            )
 
         if self.context_bus:
             self.context_bus.publish(

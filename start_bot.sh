@@ -10,6 +10,18 @@
 
 set -e
 
+# Determine Python interpreter
+if [ -z "$PYTHON_BIN" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    else
+        echo -e "${RED}❌ Python interpreter not found (install python3 or set PYTHON_BIN)${NC}"
+        return 1 2>/dev/null || exit 1
+    fi
+fi
+
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -44,7 +56,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 export MYTRADER_CONFIG_FILE="$CONFIG_FILE"
-CONFIG_VALUES=$(python - <<'PY'
+CONFIG_VALUES=$("$PYTHON_BIN" - <<'PY'
 import os
 import yaml
 
@@ -118,7 +130,7 @@ export IBKR_PORT=${IBKR_PORT:-4002}
 if [ "${ENABLE_GUARDRAILS:-0}" = "1" ]; then
     echo -e "${BLUE}[INFO]${NC} Guardrails enabled – running targeted tests..."
     GUARD_LOG=$(mktemp)
-    if python -m pytest tests/test_execution_guards.py >"$GUARD_LOG" 2>&1; then
+    if "${PYTHON_BIN}" -m pytest tests/test_execution_guards.py >"$GUARD_LOG" 2>&1; then
         echo -e "${GREEN}✅ Guardrail tests passed${NC}"
     else
         if grep -q "No module named pytest" "$GUARD_LOG"; then
@@ -136,7 +148,7 @@ if [ "${ENABLE_GUARDRAILS:-0}" = "1" ]; then
     if [ -f "logs/bot.log" ]; then
         GUARD_ORDER=${GUARDRAIL_REPLAY_ORDER:-14812}
         echo -e "${BLUE}[INFO]${NC} Verifying guardrails against log order ${GUARD_ORDER}..."
-        if ! python scripts/replay_trade_from_logs.py --log logs/bot.log --order-id "$GUARD_ORDER" >/tmp/guardrail_replay.log 2>&1; then
+        if ! "$PYTHON_BIN" scripts/replay_trade_from_logs.py --log logs/bot.log --order-id "$GUARD_ORDER" >/tmp/guardrail_replay.log 2>&1; then
             cat /tmp/guardrail_replay.log
             rm -f /tmp/guardrail_replay.log
             echo -e "${RED}❌ Guardrail replay failed${NC}"
@@ -166,7 +178,7 @@ if [ "${MYTRADER_SIMULATION:-0}" = "1" ]; then
 fi
 
 echo -e "${BLUE}[INFO]${NC} Starting trading bot (MAX_CONTRACTS=$MAX_CONTRACTS)..."
-nohup python run_bot.py $BOT_ARGS > logs/bot.log 2>&1 &
+nohup "$PYTHON_BIN" run_bot.py $BOT_ARGS > logs/bot.log 2>&1 &
 BOT_PID=$!
 
 # Wait a bit and check if it's still running

@@ -1,23 +1,44 @@
 {
   "Comment": "Nightly Batch Flow - Data ingestion and learning workflow",
-  "StartAt": "InvokeDataIngestion",
+  "StartAt": "AssembleRunContext",
   "States": {
+    "AssembleRunContext": {
+      "Type": "Pass",
+      "Parameters": {
+        "defaults": {
+          "run_id.$": "$$.Execution.Id",
+          "started_at.$": "$$.Execution.StartTime",
+          "schedule_type": "nightly",
+          "trigger": "scheduled",
+          "mode": "live",
+          "source": "step-functions/nightly-flow",
+          "analysis_type": "daily",
+          "dry_run": false
+        },
+        "overrides.$": "$"
+      },
+      "ResultSelector": {
+        "run_context.$": "States.JsonMerge($.defaults, $.overrides, true)"
+      },
+      "ResultPath": "$",
+      "OutputPath": "$",
+      "Next": "InvokeDataIngestion"
+    },
     "InvokeDataIngestion": {
       "Type": "Task",
       "Resource": "arn:aws:states:::bedrock:invokeAgent",
       "Parameters": {
         "AgentId.$": "$.agent_ids.data_ingestion",
         "AgentAliasId": "TSTALIASID",
-        "SessionId.$": "$.session_id",
-        "InputText.$": "States.Format('Process today\\'s trading data. Date: {}. Process raw files from /raw/ prefix, clean and structure them to /structured/ prefix.', $.date)"
+        "SessionId.$": "$.run_context.run_id",
+        "InputText": "Process today's raw trade data from S3 and create structured files."
       },
       "ResultPath": "$.ingestion_result",
-      "Next": "WaitForKBSync",
       "Retry": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
-          "IntervalSeconds": 60,
-          "MaxAttempts": 2,
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
           "BackoffRate": 2.0
         }
       ],
@@ -27,108 +48,40 @@
           "Next": "IngestionError",
           "ResultPath": "$.error"
         }
-      ]
+      ],
+      "Next": "WaitForKBSync"
     },
     "WaitForKBSync": {
       "Type": "Wait",
-      "Seconds": 300,
-      "Comment": "Wait 5 minutes for Knowledge Base to sync new data",
-      "Next": "TriggerKBSync"
+      "Seconds": 60,
+      "Comment": "Allow Bedrock KB sync to finish",
+      "Next": "InvokeLearningLambda"
     },
-    "TriggerKBSync": {
+    "InvokeLearningLambda": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:bedrockagent:startIngestionJob",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "KnowledgeBaseId.$": "$.knowledge_base_id",
-        "DataSourceId.$": "$.data_source_id"
-      },
-      "ResultPath": "$.kb_sync_result",
-      "Next": "WaitForKBComplete",
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "KBSyncError",
-          "ResultPath": "$.error"
+        "FunctionName.$": "$.lambda_arns.learn_from_losses",
+        "Payload": {
+          "mode.$": "$.run_context.mode",
+          "source.$": "$.run_context.source",
+          "schedule_type.$": "$.run_context.schedule_type",
+          "trigger.$": "$.run_context.trigger",
+          "date.$": "$.run_context.started_at",
+          "run_id.$": "$.run_context.run_id",
+          "dry_run.$": "$.run_context.dry_run",
+          "analysis_type.$": "$.run_context.analysis_type"
         }
-      ]
-    },
-    "WaitForKBComplete": {
-      "Type": "Wait",
-      "Seconds": 120,
-      "Comment": "Wait for KB ingestion to complete",
-      "Next": "GetDailyPnL"
-    },
-    "GetDailyPnL": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
-      "Parameters": {
-        "Bucket.$": "$.s3_bucket",
-        "Key.$": "States.Format('pnl/pnl_{}.json', $.date)"
       },
-      "ResultPath": "$.pnl_data",
       "ResultSelector": {
-        "body.$": "States.StringToJson($.Body)"
-      },
-      "Next": "CheckForLosses",
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "NoPnLData",
-          "ResultPath": "$.error"
-        }
-      ]
-    },
-    "NoPnLData": {
-      "Type": "Pass",
-      "Parameters": {
-        "pnl_data": {
-          "body": {
-            "total_pnl": 0,
-            "trades": [],
-            "losing_trades": []
-          }
-        }
-      },
-      "ResultPath": "$.pnl_data",
-      "Next": "CheckForLosses"
-    },
-    "CheckForLosses": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.pnl_data.body.total_pnl",
-          "NumericLessThan": 0,
-          "Next": "InvokeLearningAgent"
-        }
-      ],
-      "Default": "SkipLearning"
-    },
-    "SkipLearning": {
-      "Type": "Pass",
-      "Parameters": {
-        "status": "COMPLETED",
-        "learning_skipped": true,
-        "reason": "No losses today - learning skipped",
-        "ingestion_result.$": "$.ingestion_result"
-      },
-      "End": true
-    },
-    "InvokeLearningAgent": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::bedrock:invokeAgent",
-      "Parameters": {
-        "AgentId.$": "$.agent_ids.learning",
-        "AgentAliasId": "TSTALIASID",
-        "SessionId.$": "$.session_id",
-        "InputText.$": "States.Format('Analyze today\\'s losing trades and generate avoidance rules. Date: {}. P&L Data: {}', $.date, States.JsonToString($.pnl_data.body))"
+        "output.$": "$.Payload"
       },
       "ResultPath": "$.learning_result",
-      "Next": "UpdateRules",
       "Retry": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
-          "IntervalSeconds": 60,
-          "MaxAttempts": 2,
+          "ErrorEquals": ["States.Timeout", "States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
           "BackoffRate": 2.0
         }
       ],
@@ -138,75 +91,69 @@
           "Next": "LearningError",
           "ResultPath": "$.error"
         }
-      ]
+      ],
+      "Next": "CheckLearningResults"
     },
-    "UpdateRules": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "Parameters": {
-        "FunctionName.$": "$.lambda_arns.learn_from_losses",
-        "Payload": {
-          "action": "update_rules",
-          "learning_result.$": "$.learning_result.completion",
-          "date.$": "$.date"
+    "CheckLearningResults": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.learning_result.output.rules_updated",
+          "IsPresent": true,
+          "Next": "UpdateRiskRules"
         }
+      ],
+      "Default": "GenerateSummary"
+    },
+    "UpdateRiskRules": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeAgent",
+      "Parameters": {
+        "AgentId.$": "$.agent_ids.risk_control",
+        "AgentAliasId": "TSTALIASID",
+        "SessionId.$": "$.run_context.run_id",
+        "InputText.$": "States.Format('Update risk rules based on learning insights: {}', States.JsonToString($.learning_result.output))"
       },
-      "ResultPath": "$.rules_update_result",
-      "Next": "NightlyComplete",
+      "ResultPath": "$.risk_update_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
           "Next": "RulesUpdateError",
           "ResultPath": "$.error"
         }
-      ]
+      ],
+      "Next": "GenerateSummary"
     },
-    "NightlyComplete": {
+    "GenerateSummary": {
       "Type": "Pass",
       "Parameters": {
-        "status": "COMPLETED",
-        "learning_skipped": false,
-        "ingestion_result.$": "$.ingestion_result",
-        "learning_result.$": "$.learning_result",
-        "rules_updated": true
+        "run_context.$": "$.run_context",
+        "ingestion_status.$": "States.Format('{}', $.ingestion_result)",
+        "learning_status.$": "States.Format('{}', $.learning_result)",
+        "completed_at.$": "$$.State.EnteredTime"
       },
-      "End": true
+      "Next": "NightlyComplete"
+    },
+    "NightlyComplete": {
+      "Type": "Succeed"
     },
     "IngestionError": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::sns:publish",
-      "Parameters": {
-        "TopicArn.$": "$.sns_topic_arn",
-        "Subject": "Trading Bot - Data Ingestion Error",
-        "Message.$": "States.Format('Data ingestion failed for date: {}. Error: {}', $.date, States.JsonToString($.error))"
-      },
-      "ResultPath": "$.notification_result",
-      "Next": "IngestionFailed"
-    },
-    "IngestionFailed": {
       "Type": "Fail",
       "Error": "IngestionError",
       "Cause": "Data ingestion agent failed"
     },
-    "KBSyncError": {
-      "Type": "Pass",
-      "Parameters": {
-        "status": "PARTIAL",
-        "kb_sync_failed": true,
-        "error.$": "$.error",
-        "ingestion_result.$": "$.ingestion_result"
-      },
-      "End": true
-    },
     "LearningError": {
-      "Type": "Pass",
-      "Parameters": {
-        "status": "PARTIAL",
-        "learning_failed": true,
-        "error.$": "$.error",
-        "ingestion_result.$": "$.ingestion_result"
-      },
-      "End": true
+      "Type": "Fail",
+      "Error": "LearningLambdaError",
+      "Cause": "Learning lambda invocation failed"
     },
     "RulesUpdateError": {
       "Type": "Pass",
@@ -214,7 +161,6 @@
         "status": "PARTIAL",
         "rules_update_failed": true,
         "error.$": "$.error",
-        "ingestion_result.$": "$.ingestion_result",
         "learning_result.$": "$.learning_result"
       },
       "End": true

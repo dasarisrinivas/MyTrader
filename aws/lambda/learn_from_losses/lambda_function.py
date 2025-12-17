@@ -8,25 +8,214 @@ and updates strategy rules to avoid similar mistakes in the future.
 
 import json
 import os
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+import time
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 import boto3
 from botocore.exceptions import ClientError
 
 # Initialize AWS clients
 s3_client = boto3.client('s3')
+cloudwatch_client = boto3.client('cloudwatch')
 
 # Environment variables
 S3_BUCKET = os.environ.get('S3_BUCKET', 'trading-bot-data')
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+METRIC_NAMESPACE = 'MyTrader/LearningAgent'
 
 # Analysis configuration
 MIN_PATTERN_OCCURRENCES = 3
 LOOKBACK_DAYS = 30
 CONFIDENCE_DECAY = 0.95  # How much old patterns decay in importance
+
+
+class DailyLossSummaryBuilder:
+    """Builds a per-day loss summary from S3 structured data."""
+
+    def __init__(self, bucket: str):
+        self.bucket = bucket
+
+    def build(self, target_date: str) -> Dict[str, Any]:
+        """Load trades and pnl data for a target date."""
+        trades, source_key = self._load_structured_trades(target_date)
+        losing_trades = [t for t in trades if _is_losing_trade(t)]
+        pnl_doc = self._load_json(f'pnl/pnl_{target_date}.json')
+
+        summary = {
+            'date': target_date,
+            'total_trades': len(trades),
+            'losing_trades': losing_trades,
+            'loss_count': len(losing_trades),
+            'loss_pnl': sum(t.get('pnl', 0) for t in losing_trades),
+            'trade_source_key': source_key,
+            'pnl_document': pnl_doc,
+            'generated_at': datetime.now(timezone.utc).isoformat()
+        }
+
+        return summary
+
+    def _load_structured_trades(self, target_date: str) -> Tuple[List[Dict[str, Any]], str]:
+        key = f'structured/{target_date}/trades.json'
+        try:
+            response = s3_client.get_object(Bucket=self.bucket, Key=key)
+            trades = json.loads(response['Body'].read().decode('utf-8'))
+            return trades, key
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return [], key
+            raise
+
+    def _load_json(self, key: str) -> Dict[str, Any]:
+        try:
+            response = s3_client.get_object(Bucket=self.bucket, Key=key)
+            return json.loads(response['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return {}
+            raise
+
+
+def _log_event(event_type: str, payload: Dict[str, Any]) -> None:
+    """Emit structured CloudWatch log entry."""
+    entry = {
+        'event': event_type,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        **payload
+    }
+    print(json.dumps(entry, default=str))
+
+
+def _publish_metrics(metrics: List[Dict[str, Any]]) -> None:
+    """Publish CloudWatch metrics with shared dimensions."""
+    if not metrics:
+        return
+
+    timestamp = datetime.now(timezone.utc)
+    dimensions = [
+        {'Name': 'Environment', 'Value': ENVIRONMENT},
+        {'Name': 'Agent', 'Value': 'Agent4'}
+    ]
+
+    metric_payload = []
+    for metric in metrics:
+        metric_payload.append({
+            'MetricName': metric['name'],
+            'Timestamp': timestamp,
+            'Value': metric['value'],
+            'Unit': metric.get('unit', 'Count'),
+            'Dimensions': dimensions
+        })
+
+    try:
+        cloudwatch_client.put_metric_data(
+            Namespace=METRIC_NAMESPACE,
+            MetricData=metric_payload
+        )
+    except ClientError as e:
+        print(f"[WARN] Failed to push CloudWatch metrics: {e}")
+
+
+def _resolve_target_date(value: Optional[str]) -> str:
+    """Normalize incoming date/timestamp to YYYY-MM-DD."""
+    if not value:
+        return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    try:
+        if 'T' in value:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        else:
+            parsed = datetime.strptime(value, '%Y-%m-%d')
+        return parsed.date().isoformat()
+    except Exception:
+        return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+
+def _build_analysis_range(target_date: str, lookback: int = LOOKBACK_DAYS) -> Dict[str, str]:
+    """Build analysis date range inclusive of target date."""
+    end_dt = datetime.strptime(target_date, '%Y-%m-%d')
+    start_dt = end_dt - timedelta(days=lookback)
+    return {
+        'start': start_dt.strftime('%Y-%m-%d'),
+        'end': end_dt.strftime('%Y-%m-%d')
+    }
+
+
+def _persist_learning_outputs(
+    target_date: str,
+    run_id: str,
+    mode: str,
+    source: str,
+    schedule_type: str,
+    daily_summary: Dict[str, Any],
+    learning_payload: Dict[str, Any],
+    dry_run: bool = False
+) -> int:
+    """Persist learning artifacts to S3 (idempotent writes)."""
+    if dry_run:
+        return 0
+
+    learning_key = f'learning/{target_date}/agent4_learning_update.json'
+    state_key = 'learning/strategy_state.json'
+    artifacts_written = 0
+
+    learning_document = {
+        'run_id': run_id,
+        'mode': mode,
+        'source': source,
+        'schedule_type': schedule_type,
+        'date': target_date
+    }
+    learning_document.update(learning_payload)
+    if 'daily_summary' not in learning_document:
+        learning_document['daily_summary'] = daily_summary
+
+    s3_client.put_object(
+        Bucket=S3_BUCKET,
+        Key=learning_key,
+        Body=json.dumps(learning_document, indent=2).encode('utf-8'),
+        ContentType='application/json'
+    )
+    artifacts_written += 1
+
+    state_document = {
+        'last_run_id': run_id,
+        'last_run_date': target_date,
+        'mode': mode,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+        'summary': {
+            'patterns_identified': len(learning_payload.get('patterns_identified', [])),
+            'rules_updated': len(learning_payload.get('rules_updated', [])),
+            'bad_patterns_added': len(learning_payload.get('bad_patterns_added', [])),
+            'loss_count': daily_summary.get('loss_count', 0),
+            'loss_pnl': daily_summary.get('loss_pnl', 0)
+        }
+    }
+
+    s3_client.put_object(
+        Bucket=S3_BUCKET,
+        Key=state_key,
+        Body=json.dumps(state_document, indent=2).encode('utf-8'),
+        ContentType='application/json'
+    )
+    artifacts_written += 1
+
+    print(f"[INFO] Persisted learning artifacts to s3://{S3_BUCKET}/{learning_key} and {state_key}")
+    return artifacts_written
+
+
+def _is_losing_trade(trade: Dict[str, Any]) -> bool:
+    """Determine whether a trade is a loss."""
+    if trade.get('outcome') == 'LOSS':
+        return True
+    pnl = trade.get('pnl')
+    try:
+        return pnl is not None and float(pnl) < 0
+    except (TypeError, ValueError):
+        return False
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -41,7 +230,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     if 'actionGroup' in event:
         return _handle_bedrock_agent_request(event, context)
     
-    # Handle direct invocation (for testing)
+    # Handle direct invocation (Step Functions, API, manual)
     return _handle_direct_request(event, context)
 
 
@@ -109,103 +298,147 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
 
 
 def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle direct Lambda invocation.
-    
-    Input Event:
-    {
-        "analysis_type": "daily" | "weekly" | "on_demand",
-        "date_range": {
-            "start": "2024-01-01",
-            "end": "2024-01-15"
-        },
-        "losing_trades": [...]  # Optional: direct input
+    """Handle direct Lambda invocation."""
+    start_time = time.time()
+    run_id = str(event.get('run_id') or (getattr(context, 'aws_request_id', None)) or uuid4())
+    schedule_type = event.get('schedule_type', 'nightly')
+    source = event.get('source', 'direct')
+    mode = event.get('mode') or ('backtest' if event.get('backtest_date') else 'live')
+    dry_run = bool(event.get('dry_run', False))
+    analysis_type = event.get('analysis_type', 'daily')
+
+    target_date = _resolve_target_date(
+        event.get('date') or event.get('backtest_date') or event.get('date_range', {}).get('end')
+    )
+    analysis_range = event.get('date_range') or _build_analysis_range(target_date)
+
+    run_metadata = {
+        'run_id': run_id,
+        'target_date': target_date,
+        'mode': mode,
+        'source': source,
+        'schedule_type': schedule_type,
+        'analysis_type': analysis_type,
+        'dry_run': dry_run,
+        'analysis_range': analysis_range
     }
-    """
-    print(f"[INFO] Direct invocation: {json.dumps(event, default=str)[:500]}")
-    
+    _log_event('LEARNING_AGENT_START', run_metadata)
+
     try:
-        analysis_type = event.get('analysis_type', 'daily')
-        date_range = event.get('date_range', _default_date_range(analysis_type))
-        
-        # Get losing trades
-        if 'losing_trades' in event:
-            losing_trades = event['losing_trades']
+        summary_builder = DailyLossSummaryBuilder(S3_BUCKET)
+        daily_summary = summary_builder.build(target_date)
+        provided_losses = event.get('losing_trades')
+
+        if provided_losses is not None:
+            losing_trades = provided_losses
         else:
-            losing_trades = _fetch_losing_trades(date_range)
-        
+            losing_trades = _fetch_losing_trades(analysis_range)
+            if not losing_trades:
+                losing_trades = daily_summary.get('losing_trades', [])
+
         if not losing_trades:
-            return {
+            result = {
                 'status': 'success',
                 'message': 'No losing trades to analyze',
                 'patterns_identified': [],
                 'rules_updated': [],
-                'bad_patterns_added': []
+                'bad_patterns_added': [],
+                'run_id': run_id,
+                'date': target_date,
+                'analysis_range': analysis_range,
+                'daily_summary': daily_summary
             }
-        
-        # Analyze patterns in losing trades
+            duration_ms = int((time.time() - start_time) * 1000)
+            _publish_metrics([
+                {'name': 'Agent4Invocations', 'value': 1},
+                {'name': 'Agent4Success', 'value': 1},
+                {'name': 'Agent4DurationMs', 'value': duration_ms, 'unit': 'Milliseconds'},
+                {'name': 'Agent4UpdatesWritten', 'value': 0}
+            ])
+            _log_event('LEARNING_AGENT_END', {**run_metadata, 'status': 'SKIPPED', 'duration_ms': duration_ms,
+                                              'updates_written': 0})
+            return result
+
         patterns = _identify_loss_patterns(losing_trades)
-        
-        # Load existing strategy rules
         current_rules = _load_strategy_rules()
-        
-        # Load existing bad patterns
         bad_patterns = _load_bad_patterns()
-        
-        # Generate rule updates based on patterns
+
         rules_updated, new_bad_patterns = _generate_rule_updates(
             patterns, current_rules, bad_patterns
         )
-        
-        # Save updated rules
-        if rules_updated:
+
+        artifacts_written = 0
+        if rules_updated and not dry_run:
             updated_rules = _apply_rule_updates(current_rules, rules_updated)
             _save_strategy_rules(updated_rules)
-        
-        # Save new bad patterns
-        if new_bad_patterns:
+
+        if new_bad_patterns and not dry_run:
             bad_patterns.extend(new_bad_patterns)
             _save_bad_patterns(bad_patterns)
-        
-        # Generate summary
+
         summary = _generate_analysis_summary(
-            losing_trades, patterns, rules_updated, new_bad_patterns
+            losing_trades, patterns, rules_updated, new_bad_patterns, analysis_range
         )
-        
-        return {
+
+        result_payload = {
             'status': 'success',
             'patterns_identified': patterns,
             'rules_updated': rules_updated,
             'bad_patterns_added': new_bad_patterns,
             'summary': summary,
+            'run_id': run_id,
+            'date': target_date,
+            'analysis_range': analysis_range,
+            'analysis_type': analysis_type,
+            'dry_run': dry_run,
+            'daily_summary': daily_summary,
             'analyzed_at': datetime.now(timezone.utc).isoformat()
         }
-        
+
+        artifacts_written = _persist_learning_outputs(
+            target_date=target_date,
+            run_id=run_id,
+            mode=mode,
+            source=source,
+            schedule_type=schedule_type,
+            daily_summary=daily_summary,
+            learning_payload=result_payload,
+            dry_run=dry_run
+        )
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        _publish_metrics([
+            {'name': 'Agent4Invocations', 'value': 1},
+            {'name': 'Agent4Success', 'value': 1},
+            {'name': 'Agent4DurationMs', 'value': duration_ms, 'unit': 'Milliseconds'},
+            {'name': 'Agent4UpdatesWritten', 'value': artifacts_written}
+        ])
+        _log_event('LEARNING_AGENT_END', {**run_metadata, 'status': 'SUCCESS', 'duration_ms': duration_ms,
+                                          'updates_written': artifacts_written})
+
+        return result_payload
+
     except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        _publish_metrics([
+            {'name': 'Agent4Invocations', 'value': 1},
+            {'name': 'Agent4Success', 'value': 0},
+            {'name': 'Agent4DurationMs', 'value': duration_ms, 'unit': 'Milliseconds'},
+            {'name': 'Agent4UpdatesWritten', 'value': 0}
+        ])
+        _log_event('LEARNING_AGENT_END', {**run_metadata, 'status': 'FAILED', 'error': str(e),
+                                          'duration_ms': duration_ms})
         print(f"[ERROR] Learning analysis failed: {str(e)}")
         return {
             'status': 'error',
             'message': str(e),
             'patterns_identified': [],
             'rules_updated': [],
-            'bad_patterns_added': []
+            'bad_patterns_added': [],
+            'run_id': run_id,
+            'date': target_date
         }
 
-
-def _default_date_range(analysis_type: str) -> Dict[str, str]:
-    """Get default date range based on analysis type."""
-    today = datetime.now(timezone.utc)
-    
-    if analysis_type == 'daily':
-        start = today - timedelta(days=1)
-    elif analysis_type == 'weekly':
-        start = today - timedelta(days=7)
-    else:
-        start = today - timedelta(days=LOOKBACK_DAYS)
-    
-    return {
-        'start': start.strftime('%Y-%m-%d'),
-        'end': today.strftime('%Y-%m-%d')
-    }
 
 
 def _fetch_losing_trades(date_range: Dict) -> List[Dict]:
@@ -229,7 +462,7 @@ def _fetch_losing_trades(date_range: Dict) -> List[Dict]:
             
             # Filter for losses
             for trade in trades:
-                if trade.get('outcome') == 'LOSS':
+                if _is_losing_trade(trade):
                     trade['date'] = date_str
                     losing_trades.append(trade)
                     
@@ -613,7 +846,8 @@ def _generate_analysis_summary(
     trades: List[Dict],
     patterns: List[Dict],
     rules_updated: List[Dict],
-    bad_patterns: List[Dict]
+    bad_patterns: List[Dict],
+    analysis_range: Optional[Dict[str, str]] = None
 ) -> Dict:
     """Generate summary of the analysis."""
     return {
@@ -623,6 +857,7 @@ def _generate_analysis_summary(
         'rules_updated_count': len(rules_updated),
         'new_bad_patterns_count': len(bad_patterns),
         'top_pattern': patterns[0] if patterns else None,
+        'analysis_window': analysis_range,
         'recommendations': [
             p.get('recommendation') for p in patterns[:5]
         ]

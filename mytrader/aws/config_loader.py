@@ -99,6 +99,10 @@ class AWSConfigLoader:
     def get_s3_bucket(self) -> str:
         """Get S3 data bucket name."""
         return self.config.get('s3', {}).get('data_bucket', '')
+
+    def get_lambda_functions(self) -> Dict[str, str]:
+        """Get deployed Lambda function names."""
+        return self.config.get('lambda', {})
     
     def get_step_function_arn(self, flow_name: str) -> str:
         """Get Step Function ARN by name.
@@ -129,6 +133,8 @@ class AWSConfigLoader:
             'knowledge_base_id': self.get_knowledge_base_id(),
             'signal_flow_arn': self.get_step_function_arn('signal_flow'),
             'nightly_flow_arn': self.get_step_function_arn('nightly_flow'),
+            'lambda_functions': self.get_lambda_functions(),
+            'learning_lambda_name': self.get_lambda_functions().get('learn_from_losses', '')
         }
 
 
