@@ -1,0 +1,272 @@
+2025-12-10 19:02:54.781 | INFO     | __main__:test_agent_integration:346 - ============================================================
+2025-12-10 19:02:54.781 | INFO     | __main__:test_agent_integration:347 - Testing AWS Agent Integration
+2025-12-10 19:02:54.781 | INFO     | __main__:test_agent_integration:348 - ============================================================
+2025-12-10 19:02:54.781 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:02:54.781 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:02:54.784 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:02:54.918 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:02:54.918 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:02:54.919 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:02:54.919 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:02:54.919 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:02:54.919 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:02:54.919 | INFO     | __main__:test_agent_integration:376 - 
+--- Test Cycle 1 ---
+2025-12-10 19:02:54.919 | DEBUG    | __main__:get_market_snapshot:161 - Using mock snapshot: {'symbol': 'ES', 'timestamp': '2025-12-11T01:02:54.919396+00:00', 'price': 5988.960016572519, 'bid': 5988.710016572519, 'ask': 5989.210016572519, 'spread': 0.5, 'volume': 62050, 'rsi': 43.691291120557835, 'macd': 0, 'macd_histogram': 0, 'macd_signal': 0, 'ema_9': 5985.025061521035, 'ema_20': 5993.879992117462, 'atr': 11.508388544947902, 'adx': 25, 'pdh': 6014.401415191826, 'pdl': 5972.0131105751225, 'PDH_delta': -0.42300799136959794, 'PDL_delta': 0.2837720829411275, 'week_high': 6074.545429343744, 'week_low': 5912.292979469371, 'prev_week_high': 0, 'prev_week_low': 0, 'trend': 'UPTREND', 'regime': 'UPTREND', 'volatility': 'HIGH', 'time_of_day': 'EXTENDED', 'sentiment_score': 0, 'sentiment_source': 'none', 'adr': 42.38830461670386, 'range_position': 0.3998014582238803, 'vix': 18.034156204729094}
+2025-12-10 19:02:54.919 | INFO     | __main__:process_trading_cycle:219 - 📊 Market snapshot: price=5988.960016572519, trend=UPTREND, vol=HIGH
+2025-12-10 19:02:54.919 | INFO     | __main__:process_trading_cycle:223 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:02:54.919 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:02:54.919 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:03:03.817 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:03:03.819 | INFO     | __main__:process_trading_cycle:229 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:03:03.819 | INFO     | __main__:test_agent_integration:378 - Result: {
+  "decision": "WAIT",
+  "confidence": 0.5,
+  "reason": "The current market conditions show signs of a potential reversal, with the EMA 9 below the EMA 20, high volatility, and selling pressure. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a reversal pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.",
+  "allowed_to_trade": false,
+  "size_multiplier": 0,
+  "adjusted_size": 0,
+  "risk_flags": [],
+  "stop_loss": null,
+  "take_profit": null,
+  "decision_details": {
+    "decision": "WAIT",
+    "confidence": 0.5,
+    "reason": "The current market conditions show signs of a potential reversal, with the EMA 9 below the EMA 20, high volatility, and selling pressure. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a reversal pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.",
+    "stop_loss": null,
+    "take_profit": null,
+    "similar_patterns": 0,
+    "raw_response": "{\n  \"decision\": \"WAIT\",\n  \"confidence\": 50,\n  \"reason\": \"The current market conditions show signs of a potential reversal, with the EMA 9 below the EMA 20, high volatility, and selling pressure. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a reversal pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.\",\n  \"stop_loss\": null,\n  \"take_profit\": null\n}",
+    "session_id": "5c0c8679-17e7-4f4e-904d-2d5ea8bd41f8"
+  },
+  "risk_details": null,
+  "latency_ms": 8899,
+  "timestamp": "2025-12-11T01:03:03.818970+00:00"
+}
+2025-12-10 19:03:05.821 | INFO     | __main__:test_agent_integration:376 - 
+--- Test Cycle 2 ---
+2025-12-10 19:03:05.822 | DEBUG    | __main__:get_market_snapshot:161 - Using mock snapshot: {'symbol': 'ES', 'timestamp': '2025-12-11T01:03:05.822463+00:00', 'price': 5957.076059565749, 'bid': 5956.826059565749, 'ask': 5957.326059565749, 'spread': 0.5, 'volume': 60489, 'rsi': 44.55560615221765, 'macd': 0, 'macd_histogram': 0, 'macd_signal': 0, 'ema_9': 5961.507198687791, 'ema_20': 5965.504469252419, 'atr': 11.56224240092213, 'adx': 25, 'pdh': 5968.51087493011, 'pdl': 5929.875412936505, 'PDH_delta': -0.19158573392889017, 'PDL_delta': 0.4587051958950727, 'week_high': 6028.195983679411, 'week_low': 5870.57665880714, 'prev_week_high': 0, 'prev_week_low': 0, 'trend': 'UPTREND', 'regime': 'UPTREND', 'volatility': 'LOW', 'time_of_day': 'EXTENDED', 'sentiment_score': 0, 'sentiment_source': 'none', 'adr': 38.63546199360462, 'range_position': 0.7040331660521286, 'vix': 17.13456471452948}
+2025-12-10 19:03:05.823 | INFO     | __main__:process_trading_cycle:219 - 📊 Market snapshot: price=5957.076059565749, trend=UPTREND, vol=LOW
+2025-12-10 19:03:05.823 | INFO     | __main__:process_trading_cycle:223 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:03:05.824 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:03:05.824 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:03:14.104 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:03:14.105 | INFO     | __main__:process_trading_cycle:229 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:03:14.106 | INFO     | __main__:test_agent_integration:378 - Result: {
+  "decision": "WAIT",
+  "confidence": 0.5,
+  "reason": "The current market conditions show signs of a potential continuation pattern, with the EMA 9 below the EMA 20, low volatility, and selling pressure. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a continuation pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.",
+  "allowed_to_trade": false,
+  "size_multiplier": 0,
+  "adjusted_size": 0,
+  "risk_flags": [],
+  "stop_loss": null,
+  "take_profit": null,
+  "decision_details": {
+    "decision": "WAIT",
+    "confidence": 0.5,
+    "reason": "The current market conditions show signs of a potential continuation pattern, with the EMA 9 below the EMA 20, low volatility, and selling pressure. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a continuation pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.",
+    "stop_loss": null,
+    "take_profit": null,
+    "similar_patterns": 0,
+    "raw_response": "{\n  \"decision\": \"WAIT\",\n  \"confidence\": 50,\n  \"reason\": \"The current market conditions show signs of a potential continuation pattern, with the EMA 9 below the EMA 20, low volatility, and selling pressure. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a continuation pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.\",\n  \"stop_loss\": null,\n  \"take_profit\": null\n}",
+    "session_id": "5c0c8679-17e7-4f4e-904d-2d5ea8bd41f8"
+  },
+  "risk_details": null,
+  "latency_ms": 8281,
+  "timestamp": "2025-12-11T01:03:14.105526+00:00"
+}
+2025-12-10 19:03:16.107 | INFO     | __main__:test_agent_integration:376 - 
+--- Test Cycle 3 ---
+2025-12-10 19:03:16.108 | DEBUG    | __main__:get_market_snapshot:161 - Using mock snapshot: {'symbol': 'ES', 'timestamp': '2025-12-11T01:03:16.108685+00:00', 'price': 5951.106801832647, 'bid': 5950.856801832647, 'ask': 5951.356801832647, 'spread': 0.5, 'volume': 35285, 'rsi': 58.723194871983, 'macd': 0, 'macd_histogram': 0, 'macd_signal': 0, 'ema_9': 5954.590770141649, 'ema_20': 5951.183826340432, 'atr': 8.522499035595636, 'adx': 25, 'pdh': 5979.908142853815, 'pdl': 5929.983980364348, 'PDH_delta': -0.4816351745400378, 'PDL_delta': 0.35620368517422085, 'week_high': 6039.707224282353, 'week_low': 5870.684140560705, 'prev_week_high': 0, 'prev_week_low': 0, 'trend': 'RANGE', 'regime': 'RANGE', 'volatility': 'MED', 'time_of_day': 'EXTENDED', 'sentiment_score': 0, 'sentiment_source': 'none', 'adr': 49.92416248946665, 'range_position': 0.4230981635947402, 'vix': 21.28791558729121}
+2025-12-10 19:03:16.109 | INFO     | __main__:process_trading_cycle:219 - 📊 Market snapshot: price=5951.106801832647, trend=RANGE, vol=MED
+2025-12-10 19:03:16.109 | INFO     | __main__:process_trading_cycle:223 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:03:16.109 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:03:16.110 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:03:24.868 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:03:24.869 | INFO     | __main__:process_trading_cycle:229 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:03:24.870 | INFO     | __main__:test_agent_integration:378 - Result: {
+  "decision": "WAIT",
+  "confidence": 0.5,
+  "reason": "The current market conditions suggest a range-bound trading pattern, with medium volatility, RSI around 58, and the EMA 9 above the EMA 20. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a range-bound trading pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.",
+  "allowed_to_trade": false,
+  "size_multiplier": 0,
+  "adjusted_size": 0,
+  "risk_flags": [],
+  "stop_loss": null,
+  "take_profit": null,
+  "decision_details": {
+    "decision": "WAIT",
+    "confidence": 0.5,
+    "reason": "The current market conditions suggest a range-bound trading pattern, with medium volatility, RSI around 58, and the EMA 9 above the EMA 20. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a range-bound trading pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.",
+    "stop_loss": null,
+    "take_profit": null,
+    "similar_patterns": 0,
+    "raw_response": "{\n  \"decision\": \"WAIT\",\n  \"confidence\": 50,\n  \"reason\": \"The current market conditions suggest a range-bound trading pattern, with medium volatility, RSI around 58, and the EMA 9 above the EMA 20. However, the historical data in the knowledge base does not contain enough information to confidently predict the outcome of a range-bound trading pattern in this market. More historical data is needed to perform a thorough analysis and provide a trading recommendation with higher confidence.\",\n  \"stop_loss\": null,\n  \"take_profit\": null\n}",
+    "session_id": "5c0c8679-17e7-4f4e-904d-2d5ea8bd41f8"
+  },
+  "risk_details": null,
+  "latency_ms": 8759,
+  "timestamp": "2025-12-11T01:03:24.869857+00:00"
+}
+2025-12-10 19:03:26.871 | INFO     | __main__:shutdown:336 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:03:26.871 | INFO     | __main__:test_agent_integration:382 - Test complete!
+2025-12-10 19:04:50.056 | INFO     | __main__:main:451 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:04:50.056 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:04:50.056 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:04:50.059 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:04:50.188 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:04:50.189 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:04:50.189 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:04:50.189 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:04:50.189 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:04:50.189 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:04:50.189 | INFO     | __main__:run:317 - 🚀 Starting AWS Agent Trading Loop (poll every 60s)
+2025-12-10 19:04:50.189 | DEBUG    | __main__:get_market_snapshot:161 - Using mock snapshot: {'symbol': 'ES', 'timestamp': '2025-12-11T01:04:50.189882+00:00', 'price': 5998.833331365364, 'bid': 5998.583331365364, 'ask': 5999.083331365364, 'spread': 0.5, 'volume': 60944, 'rsi': 41.86709317026637, 'macd': 0, 'macd_histogram': 0, 'macd_signal': 0, 'ema_9': 5997.3179826062205, 'ema_20': 6004.381296083719, 'atr': 7.074621586318692, 'adx': 25, 'pdh': 6014.64444388378, 'pdl': 5970.717867285398, 'PDH_delta': -0.26287692757123937, 'PDL_delta': 0.470889174549939, 'week_high': 6074.790888322617, 'week_low': 5911.010688612544, 'prev_week_high': 0, 'prev_week_low': 0, 'trend': 'DOWNTREND', 'regime': 'DOWNTREND', 'volatility': 'HIGH', 'time_of_day': 'EXTENDED', 'sentiment_score': 0, 'sentiment_source': 'none', 'adr': 43.92657659838187, 'range_position': 0.6400558900144662, 'vix': 14.543415620637202}
+2025-12-10 19:04:50.189 | INFO     | __main__:process_trading_cycle:219 - 📊 Market snapshot: price=5998.833331365364, trend=DOWNTREND, vol=HIGH
+2025-12-10 19:04:50.189 | INFO     | __main__:process_trading_cycle:223 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:04:50.190 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:04:50.190 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:05:04.545 | INFO     | __main__:handle_signal:462 - Shutdown signal received
+2025-12-10 19:05:06.002 | WARNING  | mytrader.aws.bedrock_agent_client:_parse_decision_response:319 - Failed to parse decision JSON: Invalid control character at: line 4 column 143 (char 186)
+2025-12-10 19:05:06.002 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:05:06.003 | INFO     | __main__:process_trading_cycle:229 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:06:06.006 | INFO     | __main__:shutdown:336 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:08:22.302 | INFO     | __main__:main:545 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:08:22.302 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:08:22.302 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:08:22.305 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:08:22.435 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:08:22.435 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:08:22.435 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:08:22.435 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:08:22.435 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:08:22.436 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:08:22.604 | INFO     | __main__:initialize:115 - Connecting to IBKR at 127.0.0.1:4002 (client_id=101)...
+2025-12-10 19:08:23.175 | WARNING  | __main__:initialize:132 - ⚠️ IBKR connection failed: __init__() got an unexpected keyword argument 'simulation_mode'
+2025-12-10 19:08:23.175 | WARNING  | __main__:initialize:133 - Running in offline mode - will use mock data
+2025-12-10 19:08:23.175 | INFO     | __main__:run:411 - 🚀 Starting AWS Agent Trading Loop (poll every 60s)
+2025-12-10 19:08:23.175 | DEBUG    | __main__:get_market_snapshot:215 - Using mock snapshot: price=6039.52
+2025-12-10 19:08:23.175 | INFO     | __main__:process_trading_cycle:313 - 📊 Market snapshot: price=6039.522462475277, trend=RANGE, vol=LOW
+2025-12-10 19:08:23.175 | INFO     | __main__:process_trading_cycle:317 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:08:23.175 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:08:23.175 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:08:31.198 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:08:31.199 | INFO     | __main__:process_trading_cycle:323 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:09:31.206 | DEBUG    | __main__:get_market_snapshot:215 - Using mock snapshot: price=6010.77
+2025-12-10 19:09:31.208 | INFO     | __main__:process_trading_cycle:313 - 📊 Market snapshot: price=6010.766736915886, trend=RANGE, vol=LOW
+2025-12-10 19:09:31.208 | INFO     | __main__:process_trading_cycle:317 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:09:31.208 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:09:31.208 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:09:38.065 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 60.00%)
+2025-12-10 19:09:38.067 | INFO     | __main__:process_trading_cycle:323 - 📈 Agent Decision: WAIT (confidence=60.00%, allowed=False)
+2025-12-10 19:09:53.132 | INFO     | __main__:main:559 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:09:53.132 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:09:53.132 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:09:53.135 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:09:53.257 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:09:53.257 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:09:53.257 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:09:53.257 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:09:53.257 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:09:53.257 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:09:53.387 | INFO     | __main__:initialize:115 - Connecting to IBKR at 127.0.0.1:4002 (client_id=101)...
+2025-12-10 19:09:57.390 | WARNING  | __main__:initialize:141 - ⚠️ IBKR connection failed: 
+2025-12-10 19:09:57.391 | WARNING  | __main__:initialize:142 - Running in offline mode - will use mock data
+2025-12-10 19:09:57.391 | INFO     | __main__:run:425 - 🚀 Starting AWS Agent Trading Loop (poll every 60s)
+2025-12-10 19:09:57.392 | DEBUG    | __main__:get_market_snapshot:224 - Using mock snapshot: price=5981.04
+2025-12-10 19:09:57.392 | INFO     | __main__:process_trading_cycle:322 - 📊 Market snapshot: price=5981.039482865645, trend=RANGE, vol=MED
+2025-12-10 19:09:57.392 | INFO     | __main__:process_trading_cycle:326 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:09:57.392 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:09:57.392 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:10:06.566 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:10:06.567 | INFO     | __main__:process_trading_cycle:332 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:10:14.894 | INFO     | __main__:handle_signal:570 - Shutdown signal received
+2025-12-10 19:10:38.070 | DEBUG    | __main__:get_market_snapshot:215 - Using mock snapshot: price=6031.26
+2025-12-10 19:10:38.073 | INFO     | __main__:process_trading_cycle:313 - 📊 Market snapshot: price=6031.255415707608, trend=DOWNTREND, vol=MED
+2025-12-10 19:10:38.073 | INFO     | __main__:process_trading_cycle:317 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:10:38.073 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:10:38.073 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:10:46.527 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: SELL (confidence: 70.00%)
+2025-12-10 19:10:46.527 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:209 - Invoking Risk Agent...
+2025-12-10 19:10:46.528 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent risk (attempt 1)
+2025-12-10 19:10:52.562 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:233 - Risk Agent response: allowed=False, size_multiplier=0.00
+2025-12-10 19:10:52.563 | INFO     | __main__:process_trading_cycle:323 - 📈 Agent Decision: SELL (confidence=70.00%, allowed=False)
+2025-12-10 19:11:06.571 | INFO     | __main__:shutdown:444 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:11:06.714 | INFO     | __main__:handle_signal:556 - Shutdown signal received
+2025-12-10 19:11:25.146 | INFO     | __main__:main:561 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:11:25.147 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:11:25.147 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:11:25.149 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:11:25.277 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:11:25.277 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:11:25.277 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:11:25.277 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:11:25.278 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:11:25.278 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:11:25.407 | INFO     | __main__:initialize:117 - Connecting to IBKR at 127.0.0.1:4002 (client_id=283)...
+2025-12-10 19:11:25.974 | WARNING  | __main__:initialize:143 - ⚠️ IBKR connection failed: __init__() got an unexpected keyword argument 'stop_loss_points'
+2025-12-10 19:11:25.974 | WARNING  | __main__:initialize:144 - Running in offline mode - will use mock data
+2025-12-10 19:11:25.974 | INFO     | __main__:run:427 - 🚀 Starting AWS Agent Trading Loop (poll every 60s)
+2025-12-10 19:11:25.974 | DEBUG    | __main__:get_market_snapshot:226 - Using mock snapshot: price=6012.77
+2025-12-10 19:11:25.974 | INFO     | __main__:process_trading_cycle:324 - 📊 Market snapshot: price=6012.765955050531, trend=UPTREND, vol=HIGH
+2025-12-10 19:11:25.974 | INFO     | __main__:process_trading_cycle:328 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:11:25.974 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:11:25.974 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:11:36.703 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:11:36.705 | INFO     | __main__:process_trading_cycle:334 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:11:52.567 | INFO     | __main__:shutdown:430 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:12:18.064 | INFO     | __main__:handle_signal:572 - Shutdown signal received
+2025-12-10 19:12:19.346 | INFO     | __main__:main:553 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:12:19.346 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:12:19.346 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:12:19.349 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:12:19.462 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:12:19.462 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:12:19.462 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:12:19.462 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:12:19.463 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:12:19.463 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:12:19.595 | INFO     | __main__:initialize:117 - Connecting to IBKR at 127.0.0.1:4002 (client_id=230)...
+2025-12-10 19:12:20.116 | INFO     | mytrader.monitoring.order_tracker:_init_database:101 - Order tracker database initialized: /Users/svss/Documents/code/MyTrader/data/orders.db
+2025-12-10 19:12:20.118 | INFO     | __main__:initialize:133 - ✅ IBKR connection established (symbol: ES)
+2025-12-10 19:12:20.118 | INFO     | __main__:run:419 - 🚀 Starting AWS Agent Trading Loop (poll every 60s)
+2025-12-10 19:12:20.402 | INFO     | mytrader.execution.ib_executor:get_qualified_contract:237 - Qualified contract: ESZ5 (exp: 20251219)
+2025-12-10 19:12:20.402 | INFO     | mytrader.execution.ib_executor:get_current_price:1155 - Requesting market data for ESZ5...
+2025-12-10 19:12:20.903 | DEBUG    | mytrader.execution.ib_executor:get_current_price:1165 - Attempt 1/10: last=6873.75, close=6891.75, bid=6873.75, ask=6874.0
+2025-12-10 19:12:20.904 | INFO     | mytrader.execution.ib_executor:get_current_price:1169 - Got last price: 6873.75
+2025-12-10 19:12:20.904 | DEBUG    | __main__:get_market_snapshot:210 - Real market snapshot: price=6873.75, RSI=50.0, trend=RANGE
+2025-12-10 19:12:20.904 | ERROR    | __main__:run:427 - Error in trading cycle: 'PnLUpdater' object has no attribute 'get_daily_pnl'
+2025-12-10 19:12:36.707 | INFO     | __main__:shutdown:446 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:12:36.710 | INFO     | __main__:shutdown:451 - Disconnected from IBKR
+2025-12-10 19:13:17.245 | INFO     | __main__:handle_signal:564 - Shutdown signal received
+2025-12-10 19:13:18.523 | INFO     | __main__:main:548 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:13:18.524 | WARNING  | __main__:__init__:79 - 🔶 SIMULATION MODE - No real orders will be placed
+2025-12-10 19:13:18.524 | INFO     | __main__:initialize:89 - Initializing AWS Agent Invoker...
+2025-12-10 19:13:18.527 | INFO     | mytrader.aws.config_loader:load:56 - Loaded AWS config from /Users/svss/Documents/code/MyTrader/aws/config/deployed_resources.yaml
+2025-12-10 19:13:18.664 | INFO     | mytrader.aws.bedrock_agent_client:__init__:92 - Initialized Bedrock Agent client in us-east-1
+2025-12-10 19:13:18.664 | INFO     | mytrader.aws.agent_invoker:__init__:104 - Initialized AgentInvoker with agents: ['data', 'decision', 'risk', 'learning']
+2025-12-10 19:13:18.664 | INFO     | __main__:initialize:93 - ✅ AWS Agent Invoker initialized
+2025-12-10 19:13:18.664 | INFO     | __main__:initialize:97 - ✅ Market Snapshot Builder initialized
+2025-12-10 19:13:18.665 | INFO     | mytrader.aws.pnl_updater:__init__:65 - Initialized PnLUpdater (balance: $100,000.00)
+2025-12-10 19:13:18.665 | INFO     | __main__:initialize:101 - ✅ P&L Updater initialized
+2025-12-10 19:13:18.798 | INFO     | __main__:initialize:117 - Connecting to IBKR at 127.0.0.1:4002 (client_id=253)...
+2025-12-10 19:13:19.326 | INFO     | mytrader.monitoring.order_tracker:_init_database:101 - Order tracker database initialized: /Users/svss/Documents/code/MyTrader/data/orders.db
+2025-12-10 19:13:19.328 | INFO     | __main__:initialize:133 - ✅ IBKR connection established (symbol: ES)
+2025-12-10 19:13:19.328 | INFO     | __main__:run:414 - 🚀 Starting AWS Agent Trading Loop (poll every 60s)
+2025-12-10 19:13:19.408 | INFO     | mytrader.execution.ib_executor:get_qualified_contract:237 - Qualified contract: ESZ5 (exp: 20251219)
+2025-12-10 19:13:19.408 | INFO     | mytrader.execution.ib_executor:get_current_price:1155 - Requesting market data for ESZ5...
+2025-12-10 19:13:19.909 | DEBUG    | mytrader.execution.ib_executor:get_current_price:1165 - Attempt 1/10: last=6873.5, close=6891.75, bid=6873.25, ask=6873.5
+2025-12-10 19:13:19.910 | INFO     | mytrader.execution.ib_executor:get_current_price:1169 - Got last price: 6873.5
+2025-12-10 19:13:19.910 | DEBUG    | __main__:get_market_snapshot:210 - Real market snapshot: price=6873.50, RSI=50.0, trend=RANGE
+2025-12-10 19:13:19.910 | INFO     | __main__:process_trading_cycle:311 - 📊 Market snapshot: price=6873.5, trend=RANGE, vol=MED
+2025-12-10 19:13:19.910 | INFO     | __main__:process_trading_cycle:315 - 🤖 Invoking AWS Bedrock Agents...
+2025-12-10 19:13:19.911 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:182 - Invoking Decision Agent...
+2025-12-10 19:13:19.911 | DEBUG    | mytrader.aws.bedrock_agent_client:invoke_agent:133 - Invoking agent decision (attempt 1)
+2025-12-10 19:13:20.906 | INFO     | __main__:shutdown:438 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:13:20.909 | INFO     | __main__:shutdown:443 - Disconnected from IBKR
+2025-12-10 19:13:28.292 | INFO     | mytrader.aws.agent_invoker:_invoke_direct:187 - Decision Agent response: WAIT (confidence: 50.00%)
+2025-12-10 19:13:28.293 | INFO     | __main__:process_trading_cycle:321 - 📈 Agent Decision: WAIT (confidence=50.00%, allowed=False)
+2025-12-10 19:14:25.980 | INFO     | __main__:handle_signal:559 - Shutdown signal received
+2025-12-10 19:14:28.297 | INFO     | __main__:shutdown:433 - Shutting down AWS Agent Trading Integration...
+2025-12-10 19:14:28.299 | INFO     | __main__:shutdown:438 - Disconnected from IBKR

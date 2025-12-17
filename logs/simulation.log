@@ -1,0 +1,299 @@
+2025-12-09 08:36:51.124 | INFO     | __main__:main:251 - Simulation replay for 2025-12-08
+2025-12-09 08:36:51.205 | ERROR    | __main__:main:261 - No data found for 2025-12-08
+2025-12-09 08:37:45.182 | INFO     | __main__:main:251 - Simulation replay for 2025-10-31
+2025-12-09 08:37:45.262 | INFO     | __main__:run_simulation:84 - Starting simulation with 192 bars
+2025-12-09 08:37:45.262 | INFO     | mytrader.hybrid.d_engine:__init__:138 - DeterministicEngine initialized with config: {'rsi_oversold': 30.0, 'rsi_overbought': 70.0, 'rsi_weight': 0.25, 'macd_weight': 0.25, 'ema_fast': 9, 'ema_slow': 20, 'ema_weight': 0.25, 'atr_min_threshold': 0.5, 'atr_max_threshold': 50.0, 'atr_weight': 0.15, 'volume_weight': 0.1, 'candidate_threshold': 0.55, 'level_proximity_atr_mult': 0.5, 'atr_stop_mult': 2.0, 'atr_target_mult': 3.0}
+2025-12-09 08:37:45.263 | INFO     | mytrader.hybrid.h_engine:__init__:184 - HeuristicEngine initialized with config: {'ticker': 'MES', 'timeframe': '1m', 'top_k': 5, 'cache_ttl_seconds': 300, 'min_interval_seconds': 60, 'max_calls_per_hour': 10}
+2025-12-09 08:37:45.263 | INFO     | mytrader.hybrid.confidence:__init__:104 - ConfidenceScorer initialized: weights={'technical': 0.5, 'model': 0.3, 'rag': 0.2}, threshold=0.6, consensus=True
+2025-12-09 08:37:45.263 | INFO     | mytrader.hybrid.safety:__init__:93 - SafetyManager initialized: cooldown=5min, max_orders=3/15min, max_drop=2.5%, dry_run=True
+2025-12-09 08:37:45.264 | INFO     | mytrader.hybrid.decision_logger:__init__:61 - DecisionLogger initialized: reports
+2025-12-09 08:37:45.264 | INFO     | mytrader.hybrid.hybrid_decision:__init__:141 - HybridDecisionEngine initialized
+2025-12-09 08:37:45.310 | INFO     | __main__:run_simulation:130 - Features engineered: 192 rows, 39 columns
+2025-12-09 08:37:45.310 | DEBUG    | mytrader.hybrid.d_engine:set_levels:160 - Levels updated: PDH=6918.5, PDL=6843.5, WH=None, WL=None
+2025-12-09 08:37:45.311 | INFO     | __main__:run_simulation:137 - Price levels: PDH=6918.50, PDL=6843.50
+2025-12-09 08:37:45.314 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #1
+2025-12-09 08:37:45.314 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.317 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #2
+2025-12-09 08:37:45.317 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.319 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #3
+2025-12-09 08:37:45.319 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.321 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #4
+2025-12-09 08:37:45.321 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.324 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #5
+2025-12-09 08:37:45.324 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.327 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #6
+2025-12-09 08:37:45.327 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.330 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #7
+2025-12-09 08:37:45.330 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.334 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #8
+2025-12-09 08:37:45.334 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.337 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #9
+2025-12-09 08:37:45.337 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.341 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #10
+2025-12-09 08:37:45.341 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.344 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #11
+2025-12-09 08:37:45.345 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.349 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #12
+2025-12-09 08:37:45.349 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.352 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #13
+2025-12-09 08:37:45.352 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.356 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #14
+2025-12-09 08:37:45.356 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.38)
+2025-12-09 08:37:45.361 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #15
+2025-12-09 08:37:45.361 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.366 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #16
+2025-12-09 08:37:45.366 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.38)
+2025-12-09 08:37:45.371 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #17
+2025-12-09 08:37:45.371 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.376 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #18
+2025-12-09 08:37:45.376 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.381 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #19
+2025-12-09 08:37:45.381 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.386 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #20
+2025-12-09 08:37:45.386 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.34)
+2025-12-09 08:37:45.392 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #21
+2025-12-09 08:37:45.392 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.398 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #22
+2025-12-09 08:37:45.398 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.405 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #23
+2025-12-09 08:37:45.405 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:45.412 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #24
+2025-12-09 08:37:45.412 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.419 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #25
+2025-12-09 08:37:45.419 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.427 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #26
+2025-12-09 08:37:45.427 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:45.433 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #27
+2025-12-09 08:37:45.433 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:45.441 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #28
+2025-12-09 08:37:45.441 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.448 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #29
+2025-12-09 08:37:45.448 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.38)
+2025-12-09 08:37:45.456 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #30
+2025-12-09 08:37:45.456 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.463 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #31
+2025-12-09 08:37:45.463 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.470 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #32
+2025-12-09 08:37:45.471 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.478 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #33
+2025-12-09 08:37:45.478 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:45.486 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #34
+2025-12-09 08:37:45.486 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.495 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #35
+2025-12-09 08:37:45.495 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.36)
+2025-12-09 08:37:45.504 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #36
+2025-12-09 08:37:45.504 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.514 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #37
+2025-12-09 08:37:45.514 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.45)
+2025-12-09 08:37:45.525 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #38
+2025-12-09 08:37:45.525 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.56)
+2025-12-09 08:37:45.534 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #39
+2025-12-09 08:37:45.534 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.52)
+2025-12-09 08:37:45.544 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #40
+2025-12-09 08:37:45.544 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.554 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #41
+2025-12-09 08:37:45.555 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.38)
+2025-12-09 08:37:45.564 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #42
+2025-12-09 08:37:45.565 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.574 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #43
+2025-12-09 08:37:45.574 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.586 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #44
+2025-12-09 08:37:45.586 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.597 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #45
+2025-12-09 08:37:45.597 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.41)
+2025-12-09 08:37:45.608 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #46
+2025-12-09 08:37:45.608 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.41)
+2025-12-09 08:37:45.620 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #47
+2025-12-09 08:37:45.620 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.632 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #48
+2025-12-09 08:37:45.632 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.646 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #49
+2025-12-09 08:37:45.647 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.661 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #50
+2025-12-09 08:37:45.661 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.673 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #51
+2025-12-09 08:37:45.673 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.686 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #52
+2025-12-09 08:37:45.686 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.698 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #53
+2025-12-09 08:37:45.699 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.713 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #54
+2025-12-09 08:37:45.713 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.727 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #55
+2025-12-09 08:37:45.728 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.52)
+2025-12-09 08:37:45.740 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #56
+2025-12-09 08:37:45.741 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.48)
+2025-12-09 08:37:45.754 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #57
+2025-12-09 08:37:45.754 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:45.770 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #58
+2025-12-09 08:37:45.770 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.41)
+2025-12-09 08:37:45.784 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #59
+2025-12-09 08:37:45.785 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.54)
+2025-12-09 08:37:45.799 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #60
+2025-12-09 08:37:45.799 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.41)
+2025-12-09 08:37:45.813 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #61
+2025-12-09 08:37:45.814 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.827 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #62
+2025-12-09 08:37:45.827 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.835 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #63
+2025-12-09 08:37:45.836 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.44)
+2025-12-09 08:37:45.852 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #64
+2025-12-09 08:37:45.852 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.869 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #65
+2025-12-09 08:37:45.869 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.884 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #66
+2025-12-09 08:37:45.884 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:45.891 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #67
+2025-12-09 08:37:45.891 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.908 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #68
+2025-12-09 08:37:45.908 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:45.925 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #69
+2025-12-09 08:37:45.925 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:45.943 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #70
+2025-12-09 08:37:45.943 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:45.962 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #71
+2025-12-09 08:37:45.963 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:45.980 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #72
+2025-12-09 08:37:45.981 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:45.997 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #73
+2025-12-09 08:37:45.998 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.016 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #74
+2025-12-09 08:37:46.016 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.032 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #75
+2025-12-09 08:37:46.032 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.050 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #76
+2025-12-09 08:37:46.050 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:46.070 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #77
+2025-12-09 08:37:46.070 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:46.087 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #78
+2025-12-09 08:37:46.087 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:46.105 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #79
+2025-12-09 08:37:46.105 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.43)
+2025-12-09 08:37:46.127 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #80
+2025-12-09 08:37:46.127 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.46)
+2025-12-09 08:37:46.146 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #81
+2025-12-09 08:37:46.146 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.166 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #82
+2025-12-09 08:37:46.166 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.187 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #83
+2025-12-09 08:37:46.187 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.206 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #84
+2025-12-09 08:37:46.206 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.48)
+2025-12-09 08:37:46.226 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #85
+2025-12-09 08:37:46.227 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.248 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #86
+2025-12-09 08:37:46.248 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.53)
+2025-12-09 08:37:46.269 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #87
+2025-12-09 08:37:46.270 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.291 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #88
+2025-12-09 08:37:46.291 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.312 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #89
+2025-12-09 08:37:46.312 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.333 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #90
+2025-12-09 08:37:46.333 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.354 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #91
+2025-12-09 08:37:46.354 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.378 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #92
+2025-12-09 08:37:46.378 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.402 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #93
+2025-12-09 08:37:46.402 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.423 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #94
+2025-12-09 08:37:46.424 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.446 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #95
+2025-12-09 08:37:46.446 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.470 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #96
+2025-12-09 08:37:46.470 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.491 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #97
+2025-12-09 08:37:46.491 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.514 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #98
+2025-12-09 08:37:46.514 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.47)
+2025-12-09 08:37:46.538 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #99
+2025-12-09 08:37:46.538 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.562 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #100
+2025-12-09 08:37:46.562 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.562 | INFO     | __main__:run_simulation:184 - Processed 100/142 bars
+2025-12-09 08:37:46.586 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #101
+2025-12-09 08:37:46.587 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.609 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #102
+2025-12-09 08:37:46.609 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.634 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #103
+2025-12-09 08:37:46.634 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.659 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #104
+2025-12-09 08:37:46.659 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.683 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #105
+2025-12-09 08:37:46.683 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.706 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #106
+2025-12-09 08:37:46.706 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.731 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #107
+2025-12-09 08:37:46.731 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.756 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #108
+2025-12-09 08:37:46.756 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.779 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #109
+2025-12-09 08:37:46.779 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.804 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #110
+2025-12-09 08:37:46.804 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.830 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #111
+2025-12-09 08:37:46.831 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.42)
+2025-12-09 08:37:46.858 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #112
+2025-12-09 08:37:46.858 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:46.884 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #113
+2025-12-09 08:37:46.884 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.911 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #114
+2025-12-09 08:37:46.911 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.937 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #115
+2025-12-09 08:37:46.937 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.953 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #116
+2025-12-09 08:37:46.954 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:46.983 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #117
+2025-12-09 08:37:46.983 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.011 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #118
+2025-12-09 08:37:47.012 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.040 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #119
+2025-12-09 08:37:47.040 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.066 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #120
+2025-12-09 08:37:47.066 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.094 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #121
+2025-12-09 08:37:47.094 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.121 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #122
+2025-12-09 08:37:47.121 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.150 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #123
+2025-12-09 08:37:47.151 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.181 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #124
+2025-12-09 08:37:47.182 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.46)
+2025-12-09 08:37:47.213 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #125
+2025-12-09 08:37:47.213 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.53)
+2025-12-09 08:37:47.240 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #126
+2025-12-09 08:37:47.241 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.273 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #127
+2025-12-09 08:37:47.273 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.302 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #128
+2025-12-09 08:37:47.302 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.39)
+2025-12-09 08:37:47.333 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #129
+2025-12-09 08:37:47.333 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.46)
+2025-12-09 08:37:47.362 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #130
+2025-12-09 08:37:47.362 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.46)
+2025-12-09 08:37:47.392 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #131
+2025-12-09 08:37:47.393 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.46)
+2025-12-09 08:37:47.425 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #132
+2025-12-09 08:37:47.425 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.40)
+2025-12-09 08:37:47.454 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #133
+2025-12-09 08:37:47.454 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.484 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #134
+2025-12-09 08:37:47.485 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.515 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #135
+2025-12-09 08:37:47.515 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.548 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #136
+2025-12-09 08:37:47.548 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.580 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #137
+2025-12-09 08:37:47.581 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.613 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #138
+2025-12-09 08:37:47.613 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.646 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #139
+2025-12-09 08:37:47.647 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.680 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #140
+2025-12-09 08:37:47.680 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.712 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #141
+2025-12-09 08:37:47.712 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.746 | DEBUG    | mytrader.hybrid.decision_logger:log_decision:137 - Decision logged: #142
+2025-12-09 08:37:47.746 | DEBUG    | mytrader.hybrid.hybrid_decision:evaluate:266 - ⚪ No action: HOLD (score=0.37)
+2025-12-09 08:37:47.751 | INFO     | __main__:run_simulation:202 - Simulation complete. Report saved to reports/simulation_report_2025-10-31.json
