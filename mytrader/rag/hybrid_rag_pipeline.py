@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from mytrader.utils.hold_reason import HoldReason
+
 from .retrieval_strategies import (
     recency_weight_from_timestamp,
     hybrid_trade_score,
@@ -126,6 +128,7 @@ class HybridPipelineResult:
     rule_engine: RuleEngineResult
     rag_retrieval: RAGRetrievalResult
     llm_decision: Optional[LLMDecisionResult] = None
+    hold_reason: Optional[HoldReason] = None
     
     # Execution parameters
     entry_price: float = 0.0
@@ -166,6 +169,7 @@ class HybridPipelineResult:
             "stop_loss": self.stop_loss,
             "take_profit": self.take_profit,
             "timestamp": self.timestamp,
+            "hold_reason": self.hold_reason.to_dict() if self.hold_reason else None,
         }
 
 
@@ -978,7 +982,7 @@ class HybridRAGPipeline:
         # Pipeline settings
         self.skip_llm_on_low_score = config.get("skip_llm_on_low_score", True)
         self.min_score_for_llm = config.get("min_score_for_llm", 30)
-        self.min_confidence_for_trade = config.get("min_confidence_for_trade", 60)
+        self.min_confidence_for_trade = config.get("min_confidence_for_trade", 40)
         
         logger.info("HybridRAGPipeline initialized")
     
@@ -993,6 +997,7 @@ class HybridRAGPipeline:
         """
         import time
         start_time = time.time()
+        hold_reason: Optional[HoldReason] = None
         
         # Layer 1: Rule Engine (always runs)
         rule_result = self.rule_engine.evaluate(market_data)
@@ -1000,12 +1005,26 @@ class HybridRAGPipeline:
         
         # Early exit if blocked or no signal
         if not rule_result.should_proceed:
+            hold_reason = HoldReason(
+                gate="hybrid_pipeline.rule_engine",
+                reason_code="FILTER_BLOCK",
+                reason_detail="blocked filters",
+                context={"filters_blocked": rule_result.filters_blocked, "signal": rule_result.signal.value},
+            )
+            logger.info(
+                "🚫 HOLD [%s] gate=%s detail=%s filters=%s",
+                hold_reason.reason_code,
+                hold_reason.gate,
+                hold_reason.reason_detail,
+                rule_result.filters_blocked,
+            )
             return HybridPipelineResult(
                 final_action=rule_result.signal,
                 final_confidence=0,
                 final_reasoning=f"Blocked by filters: {', '.join(rule_result.filters_blocked)}",
                 rule_engine=rule_result,
                 rag_retrieval=RAGRetrievalResult(),
+                hold_reason=hold_reason,
                 timestamp=now_cst().isoformat(),
                 processing_time_ms=(time.time() - start_time) * 1000,
             )
@@ -1013,6 +1032,45 @@ class HybridRAGPipeline:
         # Layer 2: RAG Retrieval (only on signal)
         rag_result = self.rag_retriever.retrieve(rule_result, market_data)
         logger.debug(f"Layer 2 - RAG: {rag_result.similar_trade_count} similar trades, {len(rag_result.documents)} docs")
+
+        # Regime filter using RAG context before invoking the LLM
+        min_similar_trades = self.config.get("min_similar_trades", 2)
+        min_weighted_win_rate = self.config.get("min_weighted_win_rate", 0.45)
+        if (
+            rag_result.similar_trade_count < min_similar_trades
+            or rag_result.weighted_win_rate < min_weighted_win_rate
+        ):
+            reasoning = (
+                "Regime filter triggered: "
+                f"similar_trades={rag_result.similar_trade_count} (min={min_similar_trades}), "
+                f"weighted_win_rate={rag_result.weighted_win_rate:.2f} "
+                f"(min={min_weighted_win_rate:.2f})"
+            )
+            hold_reason = HoldReason(
+                gate="hybrid_pipeline.rag",
+                reason_code="RAG_REGIME_FILTER",
+                reason_detail=reasoning,
+                context={
+                    "similar_trades": rag_result.similar_trade_count,
+                    "weighted_win_rate": rag_result.weighted_win_rate,
+                },
+            )
+            logger.info(
+                "🚫 HOLD [%s] gate=%s detail=%s",
+                hold_reason.reason_code,
+                hold_reason.gate,
+                hold_reason.reason_detail,
+            )
+            return HybridPipelineResult(
+                final_action=TradeAction.HOLD,
+                final_confidence=0,
+                final_reasoning=reasoning,
+                rule_engine=rule_result,
+                rag_retrieval=rag_result,
+                hold_reason=hold_reason,
+                timestamp=now_cst().isoformat(),
+                processing_time_ms=(time.time() - start_time) * 1000,
+            )
         
         # Layer 3: LLM Decision (only on signal with sufficient score)
         llm_result = None
@@ -1021,6 +1079,7 @@ class HybridRAGPipeline:
             logger.debug(f"Layer 3 - LLM: {llm_result.action.value} ({llm_result.confidence:.1f}%)")
         
         # Determine final action
+        hold_reason = None
         if llm_result:
             final_action = llm_result.action
             final_confidence = llm_result.confidence
@@ -1030,6 +1089,16 @@ class HybridRAGPipeline:
             if final_confidence < self.min_confidence_for_trade:
                 final_action = TradeAction.HOLD
                 final_reasoning = f"Confidence too low ({final_confidence:.0f}% < {self.min_confidence_for_trade}%)"
+                hold_reason = HoldReason(
+                    gate="hybrid_pipeline.llm",
+                    reason_code="CONFIDENCE_TOO_LOW",
+                    reason_detail=final_reasoning,
+                    context={
+                        "confidence": final_confidence,
+                        "threshold": self.min_confidence_for_trade,
+                        "llm_action": llm_result.action.value,
+                    },
+                )
         else:
             # Use rule engine result directly
             final_action = rule_result.signal
@@ -1047,6 +1116,34 @@ class HybridRAGPipeline:
             # Default: 1.5 ATR stop, 2 ATR target
             stop_loss = atr * 1.5
             take_profit = atr * 2.0
+
+        # Require price confirmation relative to PDH/PDL before acting
+        pdh = rule_result.indicators.get("pdh")
+        pdl = rule_result.indicators.get("pdl")
+        confirmation_reason = ""
+        confirmation_triggered = False
+        if final_action == TradeAction.BUY and pdh is not None and price <= pdh:
+            final_action = TradeAction.HOLD
+            confirmation_reason = "waiting for close above PDH for confirmation"
+            confirmation_triggered = True
+        elif final_action == TradeAction.SELL and pdl is not None and price >= pdl:
+            final_action = TradeAction.HOLD
+            confirmation_reason = "waiting for close below PDL for confirmation"
+            confirmation_triggered = True
+
+        if confirmation_reason:
+            if final_reasoning:
+                final_reasoning = f"{final_reasoning}; {confirmation_reason}"
+            else:
+                final_reasoning = confirmation_reason
+        if confirmation_triggered:
+            final_confidence = 0
+            hold_reason = HoldReason(
+                gate="hybrid_pipeline.rule_engine",
+                reason_code="LEVEL_CONFIRMATION",
+                reason_detail=confirmation_reason,
+                context={"price": price, "pdh": pdh, "pdl": pdl},
+            )
         
         result = HybridPipelineResult(
             final_action=final_action,
@@ -1061,8 +1158,16 @@ class HybridRAGPipeline:
             position_size=llm_result.position_size_factor if llm_result else 1.0,
             timestamp=now_cst().isoformat(),
             processing_time_ms=(time.time() - start_time) * 1000,
+            hold_reason=hold_reason if final_action == TradeAction.HOLD else None,
         )
         
+        if result.hold_reason:
+            logger.info(
+                "🚫 HOLD [%s] gate=%s detail=%s",
+                result.hold_reason.reason_code,
+                result.hold_reason.gate,
+                result.hold_reason.reason_detail,
+            )
         logger.info(
             f"Pipeline result: {result.final_action.value} "
             f"(conf={result.final_confidence:.0f}%, time={result.processing_time_ms:.0f}ms)"

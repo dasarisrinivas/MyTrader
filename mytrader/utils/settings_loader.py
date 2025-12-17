@@ -1,6 +1,7 @@
 """Helper for loading application settings from YAML overrides."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,23 @@ def load_settings(path: str | Path | None = None) -> Settings:
 
     with cfg_path.open("r", encoding="utf-8") as fh:
         data: dict[str, Any] = yaml.safe_load(fh) or {}
+
+    # Allow environment overrides for critical runtime thresholds
+    env_overrides = [
+        ("rag", "min_similar_trades", "MIN_SIMILAR_TRADES", int),
+        ("rag", "min_weighted_win_rate", "MIN_WEIGHTED_WIN_RATE", float),
+        ("trading", "confidence_threshold", "CONFIDENCE_THRESHOLD", float),
+    ]
+    for section, key, env_name, caster in env_overrides:
+        raw_value = os.environ.get(env_name)
+        if raw_value is None:
+            continue
+        try:
+            cast_value = caster(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{env_name} value '{raw_value}' is invalid") from exc
+        section_data = data.setdefault(section, {})
+        section_data[key] = cast_value
 
     # Handle strategies separately since they need special parsing
     if "strategies" in data:

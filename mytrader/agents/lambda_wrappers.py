@@ -7,6 +7,8 @@ signatures as the AWS Lambda handlers for compatibility.
 """
 import json
 import os
+import time
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
@@ -14,6 +16,7 @@ from collections import defaultdict
 from statistics import mean, stdev
 
 from ..learning.strategy_state import StrategyStateManager
+from ..utils.structured_logging import log_structured_event
 
 # Import Lambda function logic directly
 try:
@@ -583,22 +586,78 @@ class Agent4LearningWrapper(LocalLambdaWrapper):
                 "summary": {...}
             }
         """
-        if LAMBDA_IMPORTS_AVAILABLE:
-            result = learning_handler(event, None)
-        else:
-            result = self._fallback_learning(event)
+        default_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        target_date = event.get('date_range', {}).get('end')
+        if not target_date:
+            target_date = self._resolve_artifact_date(event, default=default_date)
+        mode = "backtest" if os.environ.get('FF_BACKTEST_MODE') else "live"
+        run_id = str(event.get('run_id') or f"{target_date}-{uuid.uuid4().hex[:8]}")
+        analysis_type = event.get('analysis_type', 'daily')
+        losing_count = len(event.get('losing_trades') or [])
+        start_clock = time.perf_counter()
+        log_structured_event(
+            agent="agent4",
+            event_type="LEARNING_AGENT_START",
+            message=f"Agent 4 learning run {run_id} started",
+            payload={
+                "run_id": run_id,
+                "date": target_date,
+                "mode": mode,
+                "analysis_type": analysis_type,
+                "losing_trade_count": losing_count,
+            },
+        )
+
+        result: Dict[str, Any] = {}
+        error_message: Optional[str] = None
+        try:
+            if LAMBDA_IMPORTS_AVAILABLE:
+                result = learning_handler(event, None)
+            else:
+                result = self._fallback_learning(event)
+        except Exception as exc:  # pragma: no cover - propagate after logging
+            error_message = str(exc)
+            raise
+        finally:
+            duration_ms = int((time.perf_counter() - start_clock) * 1000)
+            outputs = [
+                rule.get('parameter')
+                for rule in result.get('rules_updated', [])
+                if isinstance(rule, dict) and rule.get('parameter')
+            ]
+            status = result.get('status')
+            if not status:
+                status = 'error' if error_message else 'unknown'
+            payload = {
+                "run_id": run_id,
+                "date": target_date,
+                "mode": mode,
+                "status": status,
+                "duration_ms": duration_ms,
+                "patterns_identified": len(result.get('patterns_identified', [])),
+                "rules_updated": len(result.get('rules_updated', [])),
+                "outputs": outputs,
+            }
+            if error_message:
+                payload["error"] = error_message
+            log_structured_event(
+                agent="agent4",
+                event_type="LEARNING_AGENT_END",
+                message=f"Agent 4 learning run {run_id} completed",
+                payload=payload,
+                severity="error" if error_message else "info",
+            )
         
         # Save learning update
-        date = event.get('date_range', {}).get('end', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
         learning_update = {
-            'date': date,
+            'date': target_date,
             'processed_at': datetime.now(timezone.utc).isoformat(),
             'patterns_identified': result.get('patterns_identified', []),
             'rules_updated': result.get('rules_updated', []),
             'bad_patterns_added': result.get('bad_patterns_added', []),
             'summary': result.get('summary', {}),
         }
-        self._save_artifact(date, 'agent4_learning_update.json', learning_update)
+        self._save_artifact(target_date, 'agent4_learning_update.json', learning_update)
         
         return result
     

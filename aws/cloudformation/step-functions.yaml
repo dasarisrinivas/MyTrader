@@ -30,6 +30,10 @@ Parameters:
     Type: String
     Description: Agent 4 ARN
 
+  LearnFromLossesLambdaArn:
+    Type: String
+    Description: Learn From Losses Lambda ARN
+
 Resources:
   # ============================================
   # SIGNAL FLOW STATE MACHINE
@@ -209,15 +213,29 @@ Resources:
               LogGroupArn: !GetAtt NightlyFlowLogGroup.Arn
       DefinitionString: !Sub |
         {
-          "Comment": "Nightly Flow: Data Ingestion -> KB Sync -> Learning -> Risk Rules Update",
-          "StartAt": "GetTodaysDate",
+          "Comment": "Nightly Flow: Data Ingestion -> KB Sync -> Learning Lambda -> Risk Rules Update",
+          "StartAt": "AssembleRunContext",
           "States": {
-            "GetTodaysDate": {
+            "AssembleRunContext": {
               "Type": "Pass",
               "Parameters": {
-                "date.$": "$$.Execution.StartTime",
-                "execution_id.$": "$$.Execution.Id"
+                "defaults": {
+                  "run_id.$": "$$.Execution.Id",
+                  "started_at.$": "$$.Execution.StartTime",
+                  "schedule_type": "nightly",
+                  "trigger": "scheduled",
+                  "mode": "live",
+                  "source": "step-functions/nightly-flow",
+                  "analysis_type": "daily",
+                  "dry_run": false
+                },
+                "overrides.$": "$"
               },
+              "ResultSelector": {
+                "run_context.$": "States.JsonMerge($.defaults, $.overrides, true)"
+              },
+              "ResultPath": "$",
+              "OutputPath": "$",
               "Next": "InvokeDataIngestionAgent"
             },
             "InvokeDataIngestionAgent": {
@@ -226,7 +244,7 @@ Resources:
               "Parameters": {
                 "AgentId": "${Agent1Arn}",
                 "AgentAliasId": "TSTALIASID",
-                "SessionId.$": "$.execution_id",
+                "SessionId.$": "$.run_context.run_id",
                 "InputText": "Process today's raw trade data from S3 and create structured Parquet and JSON files. Trigger knowledge base ingestion after processing."
               },
               "ResultPath": "$.ingestion_result",
@@ -260,16 +278,26 @@ Resources:
               "Type": "Wait",
               "Seconds": 60,
               "Comment": "Wait for Knowledge Base to sync new data",
-              "Next": "InvokeLearningAgent"
+              "Next": "InvokeLearningLambda"
             },
-            "InvokeLearningAgent": {
+            "InvokeLearningLambda": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::bedrock:invokeAgent",
+              "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "AgentId": "${Agent4Arn}",
-                "AgentAliasId": "TSTALIASID",
-                "SessionId.$": "$.execution_id",
-                "InputText": "Analyze today's losing trades, identify patterns, and update strategy rules. Analysis type: daily."
+                "FunctionName": "${LearnFromLossesLambdaArn}",
+                "Payload": {
+                  "mode.$": "$.run_context.mode",
+                  "source.$": "$.run_context.source",
+                  "schedule_type.$": "$.run_context.schedule_type",
+                  "trigger.$": "$.run_context.trigger",
+                  "date.$": "$.run_context.started_at",
+                  "run_id.$": "$.run_context.run_id",
+                  "dry_run.$": "$.run_context.dry_run",
+                  "analysis_type.$": "$.run_context.analysis_type"
+                }
+              },
+              "ResultSelector": {
+                "output.$": "$.Payload"
               },
               "ResultPath": "$.learning_result",
               "Retry": [
@@ -302,7 +330,7 @@ Resources:
               "Type": "Choice",
               "Choices": [
                 {
-                  "Variable": "$.learning_result.rules_updated",
+                  "Variable": "$.learning_result.output.rules_updated",
                   "IsPresent": true,
                   "Next": "UpdateRiskRules"
                 }
@@ -315,8 +343,8 @@ Resources:
               "Parameters": {
                 "AgentId": "${Agent3Arn}",
                 "AgentAliasId": "TSTALIASID",
-                "SessionId.$": "$.execution_id",
-                "InputText.$": "States.Format('Update risk rules based on learning insights: {}', States.JsonToString($.learning_result))"
+                "SessionId.$": "$.run_context.run_id",
+                "InputText.$": "States.Format('Update risk rules based on learning insights: {}', States.JsonToString($.learning_result.output))"
               },
               "ResultPath": "$.risk_update_result",
               "Retry": [
@@ -339,8 +367,7 @@ Resources:
             "GenerateSummary": {
               "Type": "Pass",
               "Parameters": {
-                "execution_id.$": "$.execution_id",
-                "date.$": "$.date",
+                "run_context.$": "$.run_context",
                 "ingestion_status.$": "States.Format('{}', $.ingestion_result)",
                 "learning_status.$": "States.Format('{}', $.learning_result)",
                 "completed_at.$": "$$.State.EnteredTime"

@@ -87,6 +87,14 @@ class TradingFilters:
         sr_proximity_ticks: int = 8,  # Ticks proximity to S/R to avoid entry
         require_candle_close: bool = True,  # Wait for candle close
         candle_period_seconds: int = 60,  # 1-minute candles
+        require_trend_alignment: bool = True,
+        allow_counter_trend: bool = False,
+        ema_alignment_tolerance_pct: float = 0.0002,
+        counter_trend_penalty: float = 0.10,
+        min_atr_percentile: Optional[float] = None,
+        atr_percentile_lookback: int = 120,
+        low_atr_penalty_mode: bool = False,
+        low_atr_penalty: float = 0.10,
     ):
         self.ema_fast = ema_fast
         self.ema_slow = ema_slow
@@ -97,6 +105,14 @@ class TradingFilters:
         self.sr_proximity_ticks = sr_proximity_ticks
         self.require_candle_close = require_candle_close
         self.candle_period_seconds = candle_period_seconds
+        self.require_trend_alignment = require_trend_alignment
+        self.allow_counter_trend = allow_counter_trend
+        self.ema_alignment_tolerance_pct = ema_alignment_tolerance_pct
+        self.counter_trend_penalty = counter_trend_penalty
+        self.min_atr_percentile = min_atr_percentile
+        self.atr_percentile_lookback = atr_percentile_lookback
+        self.low_atr_penalty_mode = low_atr_penalty_mode
+        self.low_atr_penalty = low_atr_penalty
         
         # State tracking
         self._levels: Optional[PriceLevels] = None
@@ -217,6 +233,7 @@ class TradingFilters:
             return result
             
         latest = features.iloc[-1]
+        price_for_tolerance = self._get_price_for_tolerance(current_price, latest)
         
         # 1. CANDLE CLOSE VALIDATION
         if self.require_candle_close:
@@ -225,37 +242,69 @@ class TradingFilters:
                 result.add_reason("Waiting for candle close")
                 return result
         
-        # 2. TREND CONFIRMATION (EMA-based)
+        # 2. TREND CONFIRMATION (EMA-based with tolerance)
         ema_fast = latest.get(f'EMA_{self.ema_fast}', None)
         ema_slow = latest.get(f'EMA_{self.ema_slow}', None)
         
         if ema_fast is not None and ema_slow is not None:
+            ema_diff = ema_fast - ema_slow
+            tolerance = self._calculate_ema_tolerance(price_for_tolerance)
+            within_tolerance = tolerance > 0 and abs(ema_diff) <= tolerance
+            
             if proposed_action == "BUY":
-                if ema_fast < ema_slow:
-                    result.can_trade = False
-                    result.add_reason(f"Trend filter: EMA{self.ema_fast}({ema_fast:.2f}) < EMA{self.ema_slow}({ema_slow:.2f})")
-                    return result
-                else:
+                if ema_diff > tolerance:
                     result.confidence_adjustment += 0.05
-                    result.add_reason(f"Trend aligned: EMA{self.ema_fast} > EMA{self.ema_slow}")
+                    result.add_reason(f"Trend aligned: EMA{self.ema_fast}({ema_fast:.2f}) > EMA{self.ema_slow}({ema_slow:.2f})")
+                elif ema_diff >= 0 or within_tolerance:
+                    result.add_reason(f"Trend neutral: EMA{self.ema_fast}~EMA{self.ema_slow}")
+                else:
+                    should_block = self.require_trend_alignment and not self.allow_counter_trend and not within_tolerance
+                    if should_block:
+                        result.can_trade = False
+                        result.add_reason(
+                            f"Trend filter: EMA{self.ema_fast}({ema_fast:.2f}) < EMA{self.ema_slow}({ema_slow:.2f})"
+                        )
+                        return result
+                    penalty = self.counter_trend_penalty if self.allow_counter_trend or not self.require_trend_alignment else 0.0
+                    if penalty:
+                        result.confidence_adjustment -= penalty
+                    result.add_reason("Counter-trend long penalized")
                     
             elif proposed_action == "SELL":
-                if ema_fast > ema_slow:
-                    result.can_trade = False
-                    result.add_reason(f"Trend filter: EMA{self.ema_fast}({ema_fast:.2f}) > EMA{self.ema_slow}({ema_slow:.2f})")
-                    return result
-                else:
+                if ema_diff < -tolerance:
                     result.confidence_adjustment += 0.05
-                    result.add_reason(f"Trend aligned: EMA{self.ema_fast} < EMA{self.ema_slow}")
+                    result.add_reason(f"Trend aligned: EMA{self.ema_fast}({ema_fast:.2f}) < EMA{self.ema_slow}({ema_slow:.2f})")
+                elif ema_diff <= 0 or within_tolerance:
+                    result.add_reason(f"Trend neutral: EMA{self.ema_fast}~EMA{self.ema_slow}")
+                else:
+                    should_block = self.require_trend_alignment and not self.allow_counter_trend and not within_tolerance
+                    if should_block:
+                        result.can_trade = False
+                        result.add_reason(
+                            f"Trend filter: EMA{self.ema_fast}({ema_fast:.2f}) > EMA{self.ema_slow}({ema_slow:.2f})"
+                        )
+                        return result
+                    penalty = self.counter_trend_penalty if self.allow_counter_trend or not self.require_trend_alignment else 0.0
+                    if penalty:
+                        result.confidence_adjustment -= penalty
+                    result.add_reason("Counter-trend short penalized")
         
         # 3. VOLATILITY FILTER (ATR-based)
-        atr = latest.get('ATR_14', latest.get(f'ATR_{self.atr_period}', 0))
+        atr_series = self._get_atr_series(features)
+        atr = float(atr_series.iloc[-1]) if atr_series is not None and len(atr_series) > 0 else 0.0
+        effective_min_atr = self._compute_min_atr_threshold(atr_series)
         
         if atr > 0:
-            if atr < self.min_atr_threshold:
-                result.can_trade = False
-                result.add_reason(f"Volatility too low: ATR={atr:.2f} < {self.min_atr_threshold}")
-                return result
+            if atr < effective_min_atr:
+                if self.low_atr_penalty_mode:
+                    penalty = max(0.0, self.low_atr_penalty)
+                    if penalty:
+                        result.confidence_adjustment -= penalty
+                    result.add_reason(f"Low ATR penalty: {atr:.2f} < floor {effective_min_atr:.2f}")
+                else:
+                    result.can_trade = False
+                    result.add_reason(f"Volatility too low: ATR={atr:.2f} < {effective_min_atr:.2f}")
+                    return result
                 
             if atr > self.max_atr_threshold:
                 result.can_trade = False
@@ -337,6 +386,60 @@ class TradingFilters:
                 result.add_reason(f"High volume: {volume} > 150% avg ({avg_volume:.0f})")
         
         return result
+    
+    def _get_atr_series(self, features: pd.DataFrame) -> Optional[pd.Series]:
+        """Return ATR series for dynamic threshold calculations."""
+        candidate_cols = [f'ATR_{self.atr_period}', 'ATR_14']
+        for col in candidate_cols:
+            if col in features.columns:
+                series = features[col].dropna()
+                if len(series) > 0:
+                    return series
+        return None
+    
+    def _compute_min_atr_threshold(self, atr_series: Optional[pd.Series]) -> float:
+        """Compute adaptive ATR floor using configured percentile."""
+        threshold = self.min_atr_threshold
+        if atr_series is None or self.min_atr_percentile is None:
+            return threshold
+        
+        recent = atr_series
+        if self.atr_percentile_lookback > 0:
+            recent = recent.tail(self.atr_percentile_lookback)
+        recent = recent.dropna()
+        if len(recent) == 0:
+            return threshold
+        
+        percentile_value = self.min_atr_percentile
+        if percentile_value <= 1:
+            percentile_value *= 100
+        percentile_value = max(0.0, min(100.0, percentile_value))
+        
+        try:
+            dynamic_floor = float(np.percentile(recent, percentile_value))
+        except Exception as exc:
+            logger.debug(f"ATR percentile calculation failed: {exc}")
+            return threshold
+        
+        if np.isnan(dynamic_floor):
+            return threshold
+        return max(threshold, dynamic_floor)
+    
+    def _get_price_for_tolerance(self, current_price: Optional[float], latest_row: pd.Series) -> float:
+        """Resolve price used when computing EMA tolerance bands."""
+        if current_price is not None:
+            return float(current_price)
+        fallback = latest_row.get('close', latest_row.get('price'))
+        try:
+            return float(fallback) if fallback is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+    
+    def _calculate_ema_tolerance(self, price: float) -> float:
+        """Calculate EMA tolerance using configured percentage of price."""
+        if price > 0 and self.ema_alignment_tolerance_pct > 0:
+            return price * self.ema_alignment_tolerance_pct
+        return 0.0
     
     def _is_candle_closed(self) -> bool:
         """Check if we're at a candle boundary (close)."""

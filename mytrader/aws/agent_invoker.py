@@ -19,6 +19,7 @@ import json
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
+from uuid import uuid4
 
 try:
     import boto3
@@ -86,16 +87,21 @@ class AgentInvoker:
             agent_alias_ids=agent_alias_ids,
         )
         
-        # Step Functions client (if enabled)
-        if use_step_functions and BOTO3_AVAILABLE:
-            self.sfn_client = boto3.client(
-                'stepfunctions',
-                region_name=config.get('region_name', 'us-east-1')
-            )
-            self.signal_flow_arn = config.get('signal_flow_arn')
+        self.signal_flow_arn = config.get('signal_flow_arn')
+        self.nightly_flow_arn = config.get('nightly_flow_arn')
+        lambda_functions = config.get('lambda_functions', {})
+        self.learning_lambda_name = config.get('learning_lambda_name') or lambda_functions.get('learn_from_losses')
+        
+        region = config.get('region_name', 'us-east-1')
+        if BOTO3_AVAILABLE and (use_step_functions or self.nightly_flow_arn or self.signal_flow_arn):
+            self.sfn_client = boto3.client('stepfunctions', region_name=region)
         else:
             self.sfn_client = None
-            self.signal_flow_arn = None
+        
+        if BOTO3_AVAILABLE:
+            self.lambda_client = boto3.client('lambda', region_name=region)
+        else:
+            self.lambda_client = None
         
         # Metrics
         self._invocation_count = 0
@@ -309,6 +315,65 @@ class AgentInvoker:
             'latency_ms': int((time.time() - start_time) * 1000),
             'timestamp': datetime.now(timezone.utc).isoformat(),
         }
+    
+    def invoke_learning_agent(
+        self,
+        date: Optional[str] = None,
+        mode: str = 'live',
+        dry_run: bool = False,
+        schedule_type: str = 'manual'
+    ) -> Dict[str, Any]:
+        """Trigger the nightly learning workflow via Step Functions or Lambda."""
+        if not self.nightly_flow_arn and not (self.learning_lambda_name and self.lambda_client):
+            raise BedrockAgentClientError("Learning agent runtime not configured")
+        
+        run_id = str(uuid4())
+        target_date = date or datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        payload = {
+            'date': target_date,
+            'mode': mode,
+            'dry_run': dry_run,
+            'schedule_type': schedule_type,
+            'trigger': 'agent_invoker',
+            'source': 'agent_invoker',
+            'run_id': run_id,
+            'analysis_type': 'daily'
+        }
+        
+        if self.nightly_flow_arn and self.sfn_client:
+            logger.info(f"Starting Step Functions learning run ({run_id}) for {target_date}")
+            execution_name = f"agent4-{uuid4()}"
+            response = self.sfn_client.start_execution(
+                stateMachineArn=self.nightly_flow_arn,
+                name=execution_name,
+                input=json.dumps(payload)
+            )
+            return {
+                'status': 'started',
+                'mode': 'stepfunctions',
+                'executionArn': response.get('executionArn'),
+                'run_id': run_id,
+                'date': target_date
+            }
+        
+        if self.learning_lambda_name and self.lambda_client:
+            logger.info(f"Invoking learning Lambda ({self.learning_lambda_name}) for {target_date}")
+            response = self.lambda_client.invoke(
+                FunctionName=self.learning_lambda_name,
+                InvocationType='RequestResponse',
+                Payload=json.dumps(payload).encode('utf-8')
+            )
+            response_body = response.get('Payload')
+            body = json.loads(response_body.read().decode('utf-8')) if response_body else {}
+            return {
+                'status': 'completed',
+                'mode': 'lambda',
+                'run_id': run_id,
+                'date': target_date,
+                'response': body
+            }
+        
+        raise BedrockAgentClientError("Learning agent invocation failed to resolve a runtime target")
     
     def upload_trade_data(
         self,

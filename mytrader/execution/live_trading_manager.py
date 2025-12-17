@@ -146,6 +146,18 @@ class LiveTradingManager:
         
         # NEW: Trading filters for multi-timeframe analysis
         self.trading_filters: Optional[TradingFilters] = None
+        self._entry_filter_cfg = getattr(getattr(settings, "trading", None), "entry_filters", None)
+        self._min_confidence_for_trade = getattr(
+            getattr(settings, "trading", None),
+            "min_confidence_for_trade",
+            self.MIN_CONFIDENCE_THRESHOLD,
+        )
+        self._min_stop_distance_ticks = getattr(
+            getattr(settings, "trading", None),
+            "min_stop_distance_ticks",
+            4,
+        )
+        self._min_stop_distance = self.settings.trading.tick_size * max(1, self._min_stop_distance_ticks)
         
         # NEW: Hybrid RAG+LLM Pipeline
         self.hybrid_pipeline: Optional[HybridPipelineIntegration] = None
@@ -219,7 +231,10 @@ class LiveTradingManager:
         
         # NEW: Candle tracking for proper candle-close validation
         self._last_candle_processed: Optional[datetime] = None
-        self._waiting_for_candle_close: bool = True
+        wait_for_close = True
+        if self._entry_filter_cfg and hasattr(self._entry_filter_cfg, "wait_for_candle_close"):
+            wait_for_close = bool(self._entry_filter_cfg.wait_for_candle_close)
+        self._waiting_for_candle_close: bool = wait_for_close
         
         # Callbacks for WebSocket broadcasting
         self.on_status_update: Optional[callable] = None
@@ -230,6 +245,32 @@ class LiveTradingManager:
         
         if simulation_mode:
             logger.warning("🔶 SIMULATION MODE ENABLED - Orders will NOT be sent to IBKR")
+    
+    def _build_trading_filters(self) -> TradingFilters:
+        """Instantiate TradingFilters using YAML configuration overrides."""
+        cfg = getattr(getattr(self.settings, "trading", None), "entry_filters", None)
+        if not cfg:
+            return TradingFilters()
+        
+        return TradingFilters(
+            ema_fast=getattr(cfg, "ema_fast_period", 9),
+            ema_slow=getattr(cfg, "ema_slow_period", 20),
+            atr_period=getattr(cfg, "atr_period", 14),
+            min_atr_threshold=getattr(cfg, "min_atr_threshold", 0.5),
+            max_atr_threshold=getattr(cfg, "max_atr_threshold", 5.0),
+            chop_zone_buffer_pct=getattr(cfg, "chop_zone_buffer_pct", 0.25),
+            sr_proximity_ticks=getattr(cfg, "sr_proximity_ticks", 8),
+            require_candle_close=getattr(cfg, "wait_for_candle_close", True),
+            candle_period_seconds=getattr(cfg, "candle_period_seconds", 60),
+            require_trend_alignment=getattr(cfg, "require_trend_alignment", True),
+            allow_counter_trend=getattr(cfg, "allow_counter_trend", False),
+            ema_alignment_tolerance_pct=getattr(cfg, "ema_alignment_tolerance_pct", 0.0002),
+            counter_trend_penalty=getattr(cfg, "counter_trend_penalty", 0.10),
+            min_atr_percentile=getattr(cfg, "min_atr_percentile", None),
+            atr_percentile_lookback=getattr(cfg, "atr_percentile_lookback", 120),
+            low_atr_penalty_mode=getattr(cfg, "low_atr_penalty_mode", False),
+            low_atr_penalty=getattr(cfg, "low_atr_penalty", 0.10),
+        )
     
     async def initialize(self):
         """Initialize trading components."""
@@ -1074,8 +1115,8 @@ TRADING GUIDANCE:
         if self.trading_filters is None:
             # Initialize trading filters on first use (lazy initialization)
             try:
-                self.trading_filters = TradingFilters()
-                logger.info("✅ Trading filters initialized")
+                self.trading_filters = self._build_trading_filters()
+                logger.info("✅ Trading filters initialized from config overrides")
             except Exception as e:
                 logger.warning(f"⚠️ Could not initialize trading filters: {e}")
         
@@ -1097,16 +1138,22 @@ TRADING GUIDANCE:
                 filters_applied = filter_result.reasons
                 
                 # Calculate enhanced confidence using the enhanced function
-                enhanced_conf, conf_reasons = calculate_enhanced_confidence(
+                calc_conf, conf_reasons = calculate_enhanced_confidence(
                     base_confidence=signal.confidence,
                     features=features,
                     action=signal.action,
                     price_levels=filter_result.levels,
                     current_price=current_price
                 )
+                # Guard against enhanced calculation reducing conviction
+                enhanced_conf = max(signal.confidence, calc_conf)
+                pre_filter_conf = enhanced_conf
                 
                 # Add confidence adjustment from filter result
-                enhanced_conf = min(1.0, max(0.0, enhanced_conf + filter_result.confidence_adjustment))
+                enhanced_conf = min(
+                    1.0,
+                    max(0.0, enhanced_conf + filter_result.confidence_adjustment)
+                )
                 
                 # Log filter results
                 if not filters_passed:
@@ -1115,7 +1162,13 @@ TRADING GUIDANCE:
                     logger.info(f"✅ Filters PASSED: {filters_applied}")
                     if conf_reasons:
                         logger.info(f"   Confidence factors: {conf_reasons}")
-                    logger.info(f"   Enhanced confidence: {signal.confidence:.3f} -> {enhanced_conf:.3f}")
+                    logger.info(
+                        "   Enhanced confidence: %.3f -> %.3f (filter adj %+0.3f => %.3f)",
+                        signal.confidence,
+                        pre_filter_conf,
+                        filter_result.confidence_adjustment,
+                        enhanced_conf,
+                    )
                 
                 # Update status with filter info
                 self.status.filters_applied = filters_applied
@@ -1134,8 +1187,11 @@ TRADING GUIDANCE:
         cycle_ctx["volatility"] = cycle_ctx.get("volatility") or getattr(self.status, "hybrid_volatility_regime", None)
         
         # === NEW: Minimum confidence threshold check ===
-        if signal.confidence < self.MIN_CONFIDENCE_THRESHOLD and signal.action != "HOLD":
-            logger.info(f"🔽 Signal confidence {signal.confidence:.3f} below threshold {self.MIN_CONFIDENCE_THRESHOLD:.3f}, converting to HOLD")
+        if signal.confidence < self._min_confidence_for_trade and signal.action != "HOLD":
+            logger.info(
+                f"🔽 Signal confidence {signal.confidence:.3f} below threshold "
+                f"{self._min_confidence_for_trade:.3f}, converting to HOLD"
+            )
             signal.action = "HOLD"
         
         self.status.last_signal = signal.action
@@ -1526,7 +1582,7 @@ TRADING GUIDANCE:
                         logger.warning(f"  ⚠️ AWS Risk Agent REJECTED trade: {risk_flags}")
                     elif aws_decision == 'WAIT':
                         wait_penalty = -0.10
-                        if signal.confidence >= max(self.MIN_CONFIDENCE_THRESHOLD, 0.55) and not risk_flags:
+                        if signal.confidence >= max(self._min_confidence_for_trade, 0.55) and not risk_flags:
                             wait_penalty = -0.05
                             logger.info("  📌 AWS issued WAIT but local signal strong; soft penalty applied")
                         aws_adjustment = wait_penalty
@@ -2309,7 +2365,7 @@ TRADING GUIDANCE:
             
             # Calculate dynamic distances
             if atr > 0:
-                stop_offset = max(atr * atr_mult_sl, self.settings.trading.tick_size)
+                stop_offset = max(atr * atr_mult_sl, self._min_stop_distance)
                 target_offset = max(atr * atr_mult_tp, stop_offset + self.settings.trading.tick_size)
                 metadata["atr_fallback_used"] = False
             else:
@@ -2543,9 +2599,9 @@ TRADING GUIDANCE:
                 self._add_reason_code("INVALID_BRACKET")
                 return False
         
-        # Check 4: Minimum distance in ticks (default 4 ticks = 1 point for ES)
-        min_distance_ticks = 4  # Configurable via settings if needed
-        min_distance = self.settings.trading.tick_size * min_distance_ticks
+        # Check 4: Minimum distance in ticks (configurable)
+        min_distance_ticks = max(1, self._min_stop_distance_ticks)
+        min_distance = self._min_stop_distance
         sl_distance = abs(entry_price - stop_loss)
         tp_distance = abs(take_profit - entry_price)
         if sl_distance < min_distance:

@@ -28,7 +28,7 @@ Resources:
     Properties:
       Name: !Sub '${ProjectName}-${Environment}-nightly-processing'
       Description: Trigger nightly data processing and learning workflow
-      ScheduleExpression: 'cron(0 5 ? * MON-FRI *)'  # 5 AM UTC = 11 PM CST
+      ScheduleExpression: 'cron(55 5 ? * MON-FRI *)'  # 5:55 AM UTC = 11:55 PM CST
       State: ENABLED
       Targets:
         - Id: NightlyFlowTarget
@@ -37,7 +37,10 @@ Resources:
           Input: |
             {
               "trigger": "scheduled",
-              "schedule_type": "nightly"
+              "schedule_type": "nightly",
+              "mode": "live",
+              "source": "eventbridge",
+              "dry_run": false
             }
 
   # ============================================
@@ -59,7 +62,10 @@ Resources:
             {
               "trigger": "scheduled",
               "schedule_type": "weekly",
-              "analysis_type": "weekly"
+              "analysis_type": "weekly",
+              "mode": "live",
+              "source": "eventbridge",
+              "dry_run": false
             }
 
   # ============================================

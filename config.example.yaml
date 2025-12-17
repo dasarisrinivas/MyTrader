@@ -43,6 +43,28 @@ trading:
   
   # Weighted voting threshold
   min_weighted_confidence: 0.70
+  confidence_threshold: 0.7  # Confidence required for full position sizing
+  min_confidence_for_trade: 0.55  # Convert signals below this threshold to HOLD by default
+  min_stop_distance_ticks: 4  # Hard guardrail for stop/target proximity
+  
+  # Entry filter tuning
+  entry_filters:
+    wait_for_candle_close: true
+    require_trend_alignment: true
+    allow_counter_trend: false
+    ema_fast_period: 9
+    ema_slow_period: 20
+    ema_alignment_tolerance_pct: 0.0002
+    counter_trend_penalty: 0.10
+    atr_period: 14
+    min_atr_threshold: 0.30
+    min_atr_percentile: 10
+    atr_percentile_lookback: 240
+    low_atr_penalty_mode: false
+    low_atr_penalty: 0.10
+    max_atr_threshold: 5.0
+    chop_zone_buffer_pct: 0.25
+    sr_proximity_ticks: 8
 backtest:
   data_path: "data/historical_spy_es.parquet"
   start_date: null
@@ -135,6 +157,8 @@ rag:
   knowledge_base_path: "data/knowledge_base"  # Directory containing trading knowledge documents
   local_store_path: "rag_data/local_kb/local_kb.sqlite"
   kb_cache_ttl_seconds: 120
+  min_similar_trades: 0
+  min_weighted_win_rate: 0.3
 
 # Telegram Notifications Configuration
 telegram:

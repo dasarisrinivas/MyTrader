@@ -184,6 +184,37 @@ def test_counter_trend_blocked():
     print("✅ Counter-trend blocking works")
 
 
+def test_counter_trend_penalty():
+    """Ensure we can downgrade counter-trend trades instead of blocking."""
+    print("\n=== Test: Counter-Trend Penalty Mode ===")
+    
+    df = create_test_dataframe(100)
+    
+    df['EMA_9'] = df['close'] - 5
+    df['EMA_20'] = df['close'] + 5
+    
+    filters = TradingFilters(
+        require_candle_close=False,
+        allow_counter_trend=True,
+        counter_trend_penalty=0.2
+    )
+    
+    current_price = float(df['close'].iloc[-1])
+    result = filters.evaluate(
+        current_price=current_price,
+        proposed_action="BUY",
+        features=df
+    )
+    
+    print(f"   Can trade: {result.can_trade}, adjustment={result.confidence_adjustment}")
+    print(f"   Reasons: {result.reasons}")
+    
+    assert result.can_trade, "Counter-trend trades should be allowed in penalty mode"
+    assert any("counter-trend" in reason.lower() for reason in result.reasons), "Penalty reason missing"
+    assert result.confidence_adjustment <= 0, "Penalty should reduce confidence"
+    print("✅ Counter-trend penalty applied")
+
+
 def test_volatility_filter():
     """Test volatility filter with extreme ATR."""
     print("\n=== Test: Volatility Filter ===")
@@ -225,6 +256,39 @@ def test_volatility_filter():
     assert not result.can_trade, "Should block on high ATR"
     
     print("✅ Volatility filter working")
+
+
+def test_dynamic_atr_floor_penalty():
+    """Verify percentile-based ATR floor applies penalty instead of block."""
+    print("\n=== Test: Dynamic ATR Floor (Penalty Mode) ===")
+    
+    df = create_test_dataframe(200)
+    df['EMA_9'] = df['close'] + 2
+    df['EMA_20'] = df['close'] - 2
+    
+    atr_values = np.linspace(0.35, 0.05, len(df))
+    df['ATR_14'] = atr_values
+    
+    filters = TradingFilters(
+        require_candle_close=False,
+        min_atr_threshold=0.2,
+        min_atr_percentile=10,
+        low_atr_penalty_mode=True,
+        low_atr_penalty=0.15
+    )
+    
+    result = filters.evaluate(
+        current_price=float(df['close'].iloc[-1]),
+        proposed_action="BUY",
+        features=df
+    )
+    
+    print(f"   Can trade: {result.can_trade}, adjustment={result.confidence_adjustment}")
+    print(f"   Reasons: {result.reasons}")
+    
+    assert result.can_trade, "Low ATR penalty mode should not block trades"
+    assert any("atr" in reason.lower() for reason in result.reasons), "Expected ATR penalty reason"
+    print("✅ Dynamic ATR penalty applied")
 
 
 def test_enhanced_confidence():
