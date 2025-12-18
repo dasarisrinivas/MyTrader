@@ -153,7 +153,13 @@ class TelegramNotifier:
         commission: Optional[float] = None,
         realized_pnl: Optional[float] = None,
         stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None
+        take_profit: Optional[float] = None,
+        entry_price: Optional[float] = None,
+        exit_price: Optional[float] = None,
+        points: Optional[float] = None,
+        gross_pnl: Optional[float] = None,
+        net_pnl: Optional[float] = None,
+        risk_reward: Optional[float] = None,
     ) -> str:
         """
         Format a trade execution alert message.
@@ -170,6 +176,12 @@ class TelegramNotifier:
             realized_pnl: Realized P&L if closing position
             stop_loss: Stop loss price
             take_profit: Take profit price
+            entry_price: Entry price for the trade
+            exit_price: Exit price (if applicable)
+            points: Points gained/lost on the close
+            gross_pnl: Gross profit before commissions
+            net_pnl: Net profit after commissions
+            risk_reward: Reported risk/reward ratio
             
         Returns:
             Formatted HTML message
@@ -198,6 +210,11 @@ class TelegramNotifier:
             f"Price: <b>${fill_price:.2f}</b>",
             f"Time: {timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
         ]
+
+        if entry_price is not None:
+            lines.append(f"Entry: ${entry_price:.2f}")
+        if exit_price is not None:
+            lines.append(f"Exit: ${exit_price:.2f}")
         
         # Optional fields
         if order_id is not None:
@@ -210,9 +227,22 @@ class TelegramNotifier:
         if commission is not None:
             lines.append(f"Commission: ${commission:.2f}")
         
-        if realized_pnl is not None:
+        if points is not None:
+            lines.append(f"Points: {points:+.2f}")
+
+        if gross_pnl is not None:
+            pnl_emoji = "💰" if gross_pnl >= 0 else "📉"
+            lines.append(f"{pnl_emoji} Gross P&L: <b>${gross_pnl:+.2f}</b>")
+
+        if net_pnl is not None:
+            pnl_emoji = "💰" if net_pnl >= 0 else "📉"
+            lines.append(f"{pnl_emoji} Net P&L: <b>${net_pnl:+.2f}</b>")
+        elif realized_pnl is not None:
             pnl_emoji = "💰" if realized_pnl >= 0 else "📉"
             lines.append(f"{pnl_emoji} Realized P&L: <b>${realized_pnl:+.2f}</b>")
+
+        if risk_reward is not None:
+            lines.append(f"R:R Ratio: {risk_reward:.2f}")
         
         # Risk management levels
         if stop_loss is not None or take_profit is not None:

@@ -26,6 +26,8 @@ def load_settings(path: str | Path | None = None) -> Settings:
     env_overrides = [
         ("rag", "min_similar_trades", "MIN_SIMILAR_TRADES", int),
         ("rag", "min_weighted_win_rate", "MIN_WEIGHTED_WIN_RATE", float),
+        ("rag", "min_weighted_win_rate_soft_floor", "MIN_WEIGHTED_WIN_RATE_SOFT_FLOOR", float),
+        ("rag", "min_similar_trades_for_full_threshold", "MIN_SIMILAR_TRADES_FOR_FULL_THRESHOLD", int),
         ("trading", "confidence_threshold", "CONFIDENCE_THRESHOLD", float),
     ]
     for section, key, env_name, caster in env_overrides:

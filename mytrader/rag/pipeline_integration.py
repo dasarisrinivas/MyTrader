@@ -90,6 +90,9 @@ class HybridPipelineIntegration:
         self.settings = settings
         self.enabled = enabled
         self.context_bus = context_bus
+        data_cfg = getattr(settings, "data", None)
+        self._symbol = getattr(data_cfg, "ibkr_symbol", "ES")
+        self._timeframe = getattr(data_cfg, "tradingview_interval", "1m")
         
         # Get hybrid config from settings if available
         hybrid_config = {}
@@ -105,6 +108,12 @@ class HybridPipelineIntegration:
                 },
                 "llm": {
                     "min_confidence": getattr(settings.hybrid, 'min_confidence', 60),
+                    "uncertainty_band": (
+                        getattr(settings.hybrid, 'llm_uncertainty_band_low', 0.35),
+                        getattr(settings.hybrid, 'llm_uncertainty_band_high', 0.65),
+                    ),
+                    "call_cooldown_seconds": getattr(settings.hybrid, 'llm_call_cooldown_seconds', 60),
+                    "response_cache_ttl_seconds": getattr(settings.hybrid, 'llm_response_cache_ttl_seconds', 900),
                 },
                 "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 40),
             }
@@ -113,6 +122,16 @@ class HybridPipelineIntegration:
         if rag_cfg:
             hybrid_config["min_similar_trades"] = getattr(rag_cfg, "min_similar_trades", 2)
             hybrid_config["min_weighted_win_rate"] = getattr(rag_cfg, "min_weighted_win_rate", 0.45)
+            hybrid_config["min_weighted_win_rate_soft_floor"] = getattr(
+                rag_cfg,
+                "min_weighted_win_rate_soft_floor",
+                getattr(rag_cfg, "min_weighted_win_rate", 0.45),
+            )
+            hybrid_config["min_similar_trades_for_full_threshold"] = getattr(
+                rag_cfg,
+                "min_similar_trades_for_full_threshold",
+                0,
+            )
         
         # Initialize components
         self.storage = get_rag_storage()
@@ -237,6 +256,11 @@ class HybridPipelineIntegration:
             return {"close": current_price, "price": current_price}
         
         row = features.iloc[-1]
+        timestamp = features.index[-1]
+        if hasattr(timestamp, "isoformat"):
+            candle_ts = timestamp.isoformat()
+        else:
+            candle_ts = now_cst().isoformat()
         
         # Extract indicators with safe defaults
         market_data = {
@@ -272,7 +296,24 @@ class HybridPipelineIntegration:
             
             # Additional
             "volatility": float(row.get("volatility_5m", row.get("volatility", 0))),
+            "symbol": self._symbol,
+            "timeframe": self._timeframe,
+            "candle_timestamp": candle_ts,
         }
+        recent = features.tail(50)
+        recent_bars: List[Dict[str, float]] = []
+        for idx, bar in recent.iterrows():
+            if hasattr(idx, "isoformat"):
+                ts_value = idx.isoformat()
+            else:
+                ts_value = str(idx)
+            recent_bars.append(
+                {
+                    "ts": ts_value,
+                    "close": float(bar.get("close", current_price)),
+                }
+            )
+        market_data["recent_bars"] = recent_bars
         
         market_data.update(self._compute_historical_structure(features))
         
@@ -291,6 +332,25 @@ class HybridPipelineIntegration:
         )
         
         return market_data
+
+    @staticmethod
+    def _safe_float(value: object, default: Optional[float] = None) -> Optional[float]:
+        """Convert arbitrary input to float without raising."""
+        if value is None:
+            return default
+        try:
+            if isinstance(value, str):
+                stripped = value.strip()
+                if not stripped or stripped.lower() in {"nan", "none"}:
+                    return default
+                parsed = float(stripped)
+            else:
+                parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(parsed):
+            return default
+        return parsed
 
     def _compute_historical_structure(self, features) -> Dict[str, float]:
         """Compute multi-candle metrics so the pipeline sees broader context."""
@@ -394,8 +454,8 @@ class HybridPipelineIntegration:
         
         entry_price = market_data.get("price", current_price)
         atr_value = market_data.get("atr", 0.0)
-        raw_stop = self._safe_float(result.stop_loss)
-        raw_target = self._safe_float(result.take_profit)
+        raw_stop = self._safe_float(result.stop_loss, default=0.0)
+        raw_target = self._safe_float(result.take_profit, default=0.0)
         action_value = result.final_action.value
         protection: Optional[ProtectionComputation] = None
 
@@ -515,15 +575,60 @@ class HybridPipelineIntegration:
             decision=decision,
             historical_summary=historical_summary,
         )
-        
+
         logger.info(
             f"Hybrid Pipeline: {signal.action} "
             f"(conf={signal.confidence:.2f}, "
             f"trend={result.rule_engine.market_trend}, "
             f"vol={result.rule_engine.volatility_regime})"
         )
-        
+
         return signal, result
+
+    def _log_protection_snapshot(
+        self,
+        action_value: str,
+        entry_price: float,
+        atr: float,
+        protection: ProtectionComputation,
+        confidence: float,
+        trend: Optional[str],
+        volatility: Optional[str],
+    ) -> None:
+        """Emit telemetry about the computed protective bracket."""
+        if not protection:
+            return
+
+        fallback_used = protection.source != "pipeline"
+        message = (
+            f"{action_value} entry={entry_price:.2f} "
+            f"SL={protection.stop_price:.2f} ({protection.stop_offset:.2f}) "
+            f"TP={protection.target_price:.2f} ({protection.target_offset:.2f})"
+        )
+        payload = {
+            "action": action_value,
+            "entry_price": entry_price,
+            "stop_loss": protection.stop_price,
+            "take_profit": protection.target_price,
+            "stop_offset": protection.stop_offset,
+            "target_offset": protection.target_offset,
+            "atr": atr,
+            "trend": trend,
+            "volatility": volatility,
+            "confidence": confidence,
+            "source": protection.source,
+            "fallback_reason": protection.fallback_reason,
+            "fallback_used": fallback_used,
+        }
+        log_structured_event(
+            agent="hybrid_pipeline",
+            event_type="protection.snapshot",
+            message=message,
+            payload=payload,
+        )
+        logger.info(
+            "🛡️ Protection snapshot | %s fallback=%s", message, "yes" if fallback_used else "no"
+        )
     
     async def process(
         self,

@@ -8,16 +8,22 @@ This is the core trading decision pipeline that combines:
 The pipeline ensures safe, explainable, and context-aware trading decisions.
 Uses CST (Central Standard Time) for all timestamps.
 """
+import hashlib
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from collections import deque
 
 from loguru import logger
 
 from mytrader.utils.hold_reason import HoldReason
+from mytrader.utils.structured_logging import log_structured_event
 
 from .retrieval_strategies import (
     recency_weight_from_timestamp,
@@ -746,6 +752,19 @@ class LLMDecisionMaker:
         self.config = config or {}
         
         self.min_confidence_threshold = self.config.get("min_confidence", 60)
+        band = self.config.get("uncertainty_band")
+        if isinstance(band, (list, tuple)) and len(band) == 2:
+            self.uncertainty_band = (float(band[0]), float(band[1]))
+        else:
+            self.uncertainty_band = (0.35, 0.65)
+        self.call_cooldown_seconds = self.config.get("call_cooldown_seconds", 60)
+        self.response_cache_ttl = self.config.get("response_cache_ttl_seconds", 900)
+        self._response_cache: Dict[str, Tuple[float, LLMDecisionResult]] = {}
+        self._last_call_candle: Optional[str] = None
+        self._last_call_time: Optional[float] = None
+        self._cache_store_path = Path(self.config.get("cache_store_path", "data/hybrid_llm_cache.json"))
+        self._recent_call_times: deque[float] = deque()
+        self._restore_cache_from_disk()
         
         logger.info("LLMDecisionMaker initialized")
     
@@ -767,16 +786,30 @@ class LLMDecisionMaker:
         """
         # Build prompt
         prompt = self._build_prompt(rule_result, rag_result, market_data)
+        cache_key = self._make_cache_key(prompt, market_data)
+        cached = self._get_cached_response(cache_key)
+        should_call, suppression_reason = self._should_invoke_llm(rule_result, rag_result, market_data)
         
-        # Call LLM
-        if self.llm_client:
+        if cached and not should_call:
+            logger.debug(f"LLM skipped ({suppression_reason}); using cached response")
+            return cached
+        
+        if self.llm_client and should_call:
             try:
-                response = self._call_llm(prompt)
-                return self._parse_response(response)
+                response = self._call_llm(prompt, len(prompt))
+                decision = self._parse_response(response)
+                self._store_cached_response(cache_key, decision)
+                self._last_call_candle = market_data.get("candle_timestamp")
+                self._last_call_time = time.time()
+                return decision
             except Exception as e:
                 logger.error(f"LLM call failed: {e}")
         
-        # Fallback to rule-based decision if LLM unavailable
+        if cached:
+            logger.debug("LLM unavailable; using cached decision")
+            return cached
+        
+        # Fallback to rule-based decision if LLM unavailable or skipped
         return self._fallback_decision(rule_result, rag_result)
     
     def _build_prompt(
@@ -795,6 +828,14 @@ class LLMDecisionMaker:
         Returns:
             Prompt string
         """
+        recent_bars = market_data.get("recent_bars") or []
+        if recent_bars:
+            window = recent_bars[-50:]
+            closes = ", ".join(f"{bar['ts']}: {bar['close']:.2f}" for bar in window)
+            recent_section = f"\n=== LAST {len(window)} CLOSES ===\n{closes}\n"
+        else:
+            recent_section = ""
+        
         return f"""You are a professional SPY futures trader making a trading decision.
 
 === RULE ENGINE SIGNAL ===
@@ -813,6 +854,8 @@ ATR: {rule_result.indicators.get('atr', 0):.2f}
 PDH: {rule_result.indicators.get('pdh', 0):.2f}
 PDL: {rule_result.indicators.get('pdl', 0):.2f}
 
+{recent_section}
+
 {rag_result.context_summary}
 
 === YOUR TASK ===
@@ -830,7 +873,7 @@ POSITION_SIZE: [0.5|1.0|1.5 - relative position size]
 REASONING: [2-3 sentences explaining your decision]
 """
     
-    def _call_llm(self, prompt: str) -> str:
+    def _call_llm(self, prompt: str, prompt_chars: int) -> str:
         """Call the LLM API.
         
         Args:
@@ -839,8 +882,13 @@ REASONING: [2-3 sentences explaining your decision]
         Returns:
             LLM response text
         """
-        import json
-        
+        start_time = time.time()
+        log_structured_event(
+            agent="hybrid_pipeline",
+            event_type="bedrock.call_start",
+            message="Invoking Bedrock LLM",
+            payload={"prompt_chars": prompt_chars},
+        )
         response = self.llm_client.invoke_model(
             modelId="anthropic.claude-3-haiku-20240307-v1:0",
             contentType="application/json",
@@ -854,7 +902,136 @@ REASONING: [2-3 sentences explaining your decision]
         )
         
         result = json.loads(response["body"].read())
+        latency_ms = (time.time() - start_time) * 1000
+        now = time.time()
+        self._recent_call_times.append(now)
+        while self._recent_call_times and now - self._recent_call_times[0] > 60:
+            self._recent_call_times.popleft()
+        log_structured_event(
+            agent="hybrid_pipeline",
+            event_type="bedrock.call_complete",
+            message="Bedrock call complete",
+            payload={
+                "latency_ms": latency_ms,
+                "prompt_chars": prompt_chars,
+                "calls_last_minute": len(self._recent_call_times),
+            },
+        )
         return result["content"][0]["text"]
+
+    def _should_invoke_llm(
+        self,
+        rule_result: RuleEngineResult,
+        rag_result: RAGRetrievalResult,
+        market_data: Dict[str, Any],
+    ) -> tuple[bool, Optional[str]]:
+        normalized_score = max(0.0, min(1.0, rule_result.score / 100.0))
+        band_low, band_high = self.uncertainty_band
+        in_band = band_low <= normalized_score <= band_high
+        rag_bias_sell = rag_result.weighted_win_rate < 0.45
+        rag_bias_buy = rag_result.weighted_win_rate > 0.55
+        signal = rule_result.signal
+        conflict = (
+            signal in (TradeAction.BUY, TradeAction.SCALP_BUY) and rag_bias_sell
+        ) or (
+            signal in (TradeAction.SELL, TradeAction.SCALP_SELL) and rag_bias_buy
+        )
+        candle_ts = market_data.get("candle_timestamp")
+        if self._last_call_candle == candle_ts and not conflict:
+            return False, "already_called_this_candle"
+        if self._last_call_time and not conflict:
+            if time.time() - self._last_call_time < self.call_cooldown_seconds:
+                return False, "cooldown_active"
+        if not in_band and not conflict:
+            return False, "outside_uncertainty_band"
+        return True, None
+
+    def _make_cache_key(self, prompt: str, market_data: Dict[str, Any]) -> str:
+        symbol = market_data.get("symbol", "UNKNOWN")
+        timeframe = market_data.get("timeframe", "1m")
+        candle_ts = market_data.get("candle_timestamp")
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+        return f"{symbol}|{timeframe}|{candle_ts}|{prompt_hash}"
+
+    def _get_cached_response(self, cache_key: str) -> Optional[LLMDecisionResult]:
+        entry = self._response_cache.get(cache_key)
+        if not entry:
+            return None
+        stored_at, result = entry
+        if time.time() - stored_at > self.response_cache_ttl:
+            self._response_cache.pop(cache_key, None)
+            return None
+        return self._clone_llm_result(result)
+
+    def _store_cached_response(self, cache_key: str, decision: LLMDecisionResult) -> None:
+        cloned = self._clone_llm_result(decision)
+        self._response_cache[cache_key] = (time.time(), cloned)
+        self._persist_cache_entry(cache_key, cloned)
+
+    def _clone_llm_result(self, decision: LLMDecisionResult) -> LLMDecisionResult:
+        return LLMDecisionResult(
+            action=decision.action,
+            confidence=decision.confidence,
+            reasoning=decision.reasoning,
+            suggested_stop_loss=decision.suggested_stop_loss,
+            suggested_take_profit=decision.suggested_take_profit,
+            position_size_factor=decision.position_size_factor,
+            raw_response=decision.raw_response,
+        )
+
+    def _restore_cache_from_disk(self) -> None:
+        if not self._cache_store_path:
+            return
+        try:
+            if not self._cache_store_path.exists():
+                return
+            payload = json.loads(self._cache_store_path.read_text())
+        except Exception:
+            return
+        for key, value in payload.items():
+            ts = value.get("timestamp")
+            if not ts:
+                continue
+            if time.time() - ts > self.response_cache_ttl:
+                continue
+            action_value = value.get("action", TradeAction.HOLD.value)
+            try:
+                action = TradeAction(action_value)
+            except ValueError:
+                action = TradeAction.HOLD
+            result = LLMDecisionResult(
+                action=action,
+                confidence=value.get("confidence", 0),
+                reasoning=value.get("reasoning", ""),
+                suggested_stop_loss=value.get("stop_loss", 0.0),
+                suggested_take_profit=value.get("take_profit", 0.0),
+                position_size_factor=value.get("position_size", 1.0),
+            )
+            self._response_cache[key] = (ts, result)
+
+    def _persist_cache_entry(self, cache_key: str, decision: LLMDecisionResult) -> None:
+        if not self._cache_store_path:
+            return
+        try:
+            existing = {}
+            if self._cache_store_path.exists():
+                existing = json.loads(self._cache_store_path.read_text())
+            existing[cache_key] = {
+                "timestamp": time.time(),
+                "action": decision.action.value,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+                "stop_loss": decision.suggested_stop_loss,
+                "take_profit": decision.suggested_take_profit,
+                "position_size": decision.position_size_factor,
+            }
+            while len(existing) > 50:
+                oldest_key = min(existing.items(), key=lambda item: item[1].get("timestamp", 0))[0]
+                existing.pop(oldest_key, None)
+            self._cache_store_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cache_store_path.write_text(json.dumps(existing))
+        except Exception as exc:
+            logger.debug(f"Skipping cache persistence: {exc}")
     
     def _parse_response(self, response: str) -> LLMDecisionResult:
         """Parse LLM response into structured result.
@@ -995,7 +1172,6 @@ class HybridRAGPipeline:
         Returns:
             HybridPipelineResult with final decision
         """
-        import time
         start_time = time.time()
         hold_reason: Optional[HoldReason] = None
         
@@ -1012,7 +1188,7 @@ class HybridRAGPipeline:
                 context={"filters_blocked": rule_result.filters_blocked, "signal": rule_result.signal.value},
             )
             logger.info(
-                "🚫 HOLD [%s] gate=%s detail=%s filters=%s",
+                "🚫 HOLD [{}] gate={} detail={} filters={}",
                 hold_reason.reason_code,
                 hold_reason.gate,
                 hold_reason.reason_detail,
@@ -1036,15 +1212,29 @@ class HybridRAGPipeline:
         # Regime filter using RAG context before invoking the LLM
         min_similar_trades = self.config.get("min_similar_trades", 2)
         min_weighted_win_rate = self.config.get("min_weighted_win_rate", 0.45)
+        soft_floor = min(
+            min_weighted_win_rate,
+            self.config.get("min_weighted_win_rate_soft_floor", min_weighted_win_rate),
+        )
+        full_threshold_trades = max(
+            min_similar_trades,
+            self.config.get("min_similar_trades_for_full_threshold", 0),
+        )
+        use_relaxed_threshold = (
+            rag_result.similar_trade_count < full_threshold_trades
+            and soft_floor < min_weighted_win_rate
+        )
+        effective_min_win_rate = soft_floor if use_relaxed_threshold else min_weighted_win_rate
+        threshold_mode = "relaxed" if use_relaxed_threshold else "strict"
         if (
             rag_result.similar_trade_count < min_similar_trades
-            or rag_result.weighted_win_rate < min_weighted_win_rate
+            or rag_result.weighted_win_rate < effective_min_win_rate
         ):
             reasoning = (
                 "Regime filter triggered: "
                 f"similar_trades={rag_result.similar_trade_count} (min={min_similar_trades}), "
                 f"weighted_win_rate={rag_result.weighted_win_rate:.2f} "
-                f"(min={min_weighted_win_rate:.2f})"
+                f"(min={effective_min_win_rate:.2f}, mode={threshold_mode})"
             )
             hold_reason = HoldReason(
                 gate="hybrid_pipeline.rag",
@@ -1053,10 +1243,13 @@ class HybridRAGPipeline:
                 context={
                     "similar_trades": rag_result.similar_trade_count,
                     "weighted_win_rate": rag_result.weighted_win_rate,
+                    "effective_min_weighted_win_rate": effective_min_win_rate,
+                    "threshold_mode": threshold_mode,
+                    "full_threshold_trades": full_threshold_trades,
                 },
             )
             logger.info(
-                "🚫 HOLD [%s] gate=%s detail=%s",
+                "🚫 HOLD [{}] gate={} detail={}",
                 hold_reason.reason_code,
                 hold_reason.gate,
                 hold_reason.reason_detail,
@@ -1163,7 +1356,7 @@ class HybridRAGPipeline:
         
         if result.hold_reason:
             logger.info(
-                "🚫 HOLD [%s] gate=%s detail=%s",
+                "🚫 HOLD [{}] gate={} detail={}",
                 result.hold_reason.reason_code,
                 result.hold_reason.gate,
                 result.hold_reason.reason_detail,

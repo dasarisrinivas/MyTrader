@@ -25,6 +25,7 @@ from mytrader.features.feature_engineer import engineer_features
 from mytrader.monitoring.live_tracker import LivePerformanceTracker
 from mytrader.optimization.optimizer import ParameterOptimizer
 from mytrader.risk.manager import RiskManager
+from mytrader.risk.trade_math import calculate_realized_pnl, get_contract_spec
 from mytrader.strategies.engine import StrategyEngine
 from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
 from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
@@ -41,6 +42,8 @@ except ImportError as exc:  # noqa: BLE001
 async def run_live(settings: Settings) -> None:
     """Run live trading with enhanced monitoring and risk management."""
     configure_logging(level="INFO")
+    contract_spec = get_contract_spec(settings.data.ibkr_symbol, settings.trading)
+    trading_mode = "paper" if getattr(settings.data, "ibkr_port", 4002) in (4002, 7497) else "live"
 
     # For actual live trading, we use a simpler approach:
     # 1. Connect to IBKR via executor
@@ -308,7 +311,8 @@ async def run_live(settings: Settings) -> None:
     # Initialize live performance tracker
     tracker = LivePerformanceTracker(
         initial_capital=settings.trading.initial_capital,
-        risk_free_rate=settings.backtest.risk_free_rate
+        risk_free_rate=settings.backtest.risk_free_rate,
+        point_value=contract_spec.point_value,
     )
 
     # Create IB instance and connect
@@ -365,11 +369,14 @@ async def run_live(settings: Settings) -> None:
     
     # Now wrap with executor
     executor = TradeExecutor(
-        ib, 
-        settings.trading, 
-        settings.data.ibkr_symbol, 
+        ib,
+        settings.trading,
+        settings.data.ibkr_symbol,
         settings.data.ibkr_exchange,
-        telegram_notifier=telegram_notifier
+        telegram_notifier=telegram_notifier,
+        trading_mode=trading_mode,
+        contract_spec=contract_spec,
+        commission_per_side=getattr(settings.trading, "commission_per_contract", None),
     )
     executor._connection_host = settings.data.ibkr_host
     executor._connection_port = settings.data.ibkr_port
@@ -512,7 +519,13 @@ async def run_live(settings: Settings) -> None:
                         
                         close_result = await executor.close_position()
                         if close_result and close_result.fill_price:
-                            realized = (close_result.fill_price - entry_price) * current_qty
+                            gross_pnl, _ = calculate_realized_pnl(
+                                entry_price,
+                                close_result.fill_price,
+                                current_qty,
+                                contract_spec,
+                            )
+                            realized = gross_pnl
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
                             logger.info(f"Position closed by disaster stop, realized PnL: {realized:.2f}")
@@ -538,7 +551,13 @@ async def run_live(settings: Settings) -> None:
                         
                         close_result = await executor.close_position()
                         if close_result and close_result.fill_price:
-                            realized = (close_result.fill_price - current_position.avg_cost) * current_qty
+                            gross_pnl, _ = calculate_realized_pnl(
+                                current_position.avg_cost,
+                                close_result.fill_price,
+                                current_qty,
+                                contract_spec,
+                            )
+                            realized = gross_pnl
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
                             logger.info(f"Position closed by time limit, realized PnL: {realized:.2f}")
@@ -786,7 +805,12 @@ async def run_live(settings: Settings) -> None:
                                     price=close_result.fill_price,
                                     quantity=abs(current_position.quantity)
                                 )
-                                realized = (close_result.fill_price - current_position.avg_cost) * current_position.quantity
+                                realized, _ = calculate_realized_pnl(
+                                    current_position.avg_cost,
+                                    close_result.fill_price,
+                                    current_position.quantity,
+                                    contract_spec,
+                                )
                                 risk.update_pnl(realized)
                                 tracker.update_equity(current_price, realized)
                                 logger.info(f"✅ Position closed: {exit_reason}, realized PnL: {realized:.2f}")
@@ -815,7 +839,12 @@ async def run_live(settings: Settings) -> None:
                                 price=close_result.fill_price,
                                 quantity=abs(current_position.quantity)
                             )
-                            realized = (close_result.fill_price - current_position.avg_cost) * current_position.quantity
+                            realized, _ = calculate_realized_pnl(
+                                current_position.avg_cost,
+                                close_result.fill_price,
+                                current_position.quantity,
+                                contract_spec,
+                            )
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
                             logger.info("Position closed on opposite signal, realized PnL: %.2f", realized)
