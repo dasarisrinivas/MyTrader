@@ -49,11 +49,13 @@ class LivePerformanceTracker:
         self,
         initial_capital: float,
         max_history: int = 10000,
-        risk_free_rate: float = 0.02
+        risk_free_rate: float = 0.02,
+        point_value: float = 50.0,
     ) -> None:
         self.initial_capital = initial_capital
         self.max_history = max_history
         self.risk_free_rate = risk_free_rate
+        self.point_value = point_value
         
         # Equity tracking
         self.equity_curve: Deque[tuple[datetime, float]] = deque(maxlen=max_history)
@@ -95,7 +97,8 @@ class LivePerformanceTracker:
         
         # Calculate unrealized PnL
         if self.current_position != 0:
-            self.unrealized_pnl = (current_price - self.position_entry_price) * self.current_position
+            price_delta = (current_price - self.position_entry_price) * self.current_position
+            self.unrealized_pnl = price_delta * self.point_value
         else:
             self.unrealized_pnl = 0.0
         
@@ -151,10 +154,18 @@ class LivePerformanceTracker:
         if action == "BUY":
             if self.current_position <= 0:
                 self.position_entry_price = price
+            else:
+                total_size = self.current_position + quantity
+                weighted = (self.position_entry_price * self.current_position + price * quantity) / total_size
+                self.position_entry_price = weighted
             self.current_position += quantity
         elif action == "SELL":
             if self.current_position >= 0:
                 self.position_entry_price = price
+            else:
+                total_size = abs(self.current_position) + quantity
+                weighted = (self.position_entry_price * abs(self.current_position) + price * quantity) / total_size
+                self.position_entry_price = weighted
             self.current_position -= quantity
         
         logger.info("Recorded trade: %s %d @ %.2f, position=%d", 

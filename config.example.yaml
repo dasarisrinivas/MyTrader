@@ -1,11 +1,11 @@
 data:
   tradingview_webhook_url: "https://your-server.com/tradingview"
-  tradingview_symbol: "ES"
+  tradingview_symbol: "MES"
   tradingview_interval: "1m"
   ibkr_host: "127.0.0.1"
   ibkr_port: 7497
   ibkr_client_id: 1
-  ibkr_symbol: "ES"
+  ibkr_symbol: "MES"
   ibkr_exchange: "GLOBEX"
   ibkr_currency: "USD"
   twitter_bearer_token: ""
@@ -158,7 +158,9 @@ rag:
   local_store_path: "rag_data/local_kb/local_kb.sqlite"
   kb_cache_ttl_seconds: 120
   min_similar_trades: 0
+  min_similar_trades_for_full_threshold: 0  # Only enforce strict win-rate once we have this many matches
   min_weighted_win_rate: 0.3
+  min_weighted_win_rate_soft_floor: 0.3  # Set <min_weighted_win_rate> to enable relaxed mode when data is thin
 
 # Telegram Notifications Configuration
 telegram:

@@ -1,6 +1,9 @@
 import math
+from types import SimpleNamespace
+from typing import List
+
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 from mytrader.execution.order_builder import validate_bracket_prices
 from mytrader.execution.guards import WaitDecisionContext, should_block_on_wait, compute_trade_risk_dollars
@@ -8,6 +11,7 @@ from mytrader.execution.ib_executor import TradeExecutor
 from mytrader.risk.atr_module import compute_protective_offsets
 from mytrader.config import Settings
 from mytrader.execution.position_manager import DecisionResult
+from mytrader.monitoring.order_tracker import OrderTracker
 
 
 class DummyIB:
@@ -25,6 +29,66 @@ class DummyIB:
 
     async def accountSummaryAsync(self):
         return []
+
+
+class StubEvent:
+    def __iadd__(self, handler):
+        return self
+
+    def __isub__(self, handler):
+        return self
+
+    def emit(self, *args, **kwargs):
+        return None
+
+
+class StubIB:
+    """Minimal IB stub for bracket validation tests."""
+
+    def __init__(self):
+        self._next_id = 1000
+        self.orderStatusEvent = StubEvent()
+        self.execDetailsEvent = StubEvent()
+        self._open_trades: List[SimpleNamespace] = []
+
+    def isConnected(self):
+        return True
+
+    def openTrades(self):
+        return list(self._open_trades)
+
+    def positions(self):
+        return []
+
+    async def accountSummaryAsync(self):
+        return []
+
+    async def reqContractDetailsAsync(self, contract):
+        detail = SimpleNamespace(
+            contract=SimpleNamespace(
+                localSymbol=contract.symbol,
+                lastTradeDateOrContractMonth="202512",
+            )
+        )
+        return [detail]
+
+    def placeOrder(self, contract, order):
+        if getattr(order, "orderId", 0) == 0:
+            order.orderId = self._next_id
+            self._next_id += 1
+        status = SimpleNamespace(
+            status="PendingSubmit",
+            filled=0,
+            remaining=order.totalQuantity,
+            avgFillPrice=0.0,
+        )
+        return SimpleNamespace(contract=contract, order=order, orderStatus=status)
+
+    def cancelOrder(self, order):
+        return None
+
+    def waitOnUpdate(self):
+        return None
 
 
 def test_buy_bracket_rejects_take_profit_below_entry():
@@ -177,6 +241,73 @@ def test_protective_guard_skips_reduce_only():
         reduce_only=True,
     )
     assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_executor_rejects_inverted_bracket_before_submission():
+    """TradeExecutor should reject inverted brackets without touching IB."""
+    settings = Settings()
+    executor = TradeExecutor(StubIB(), settings.trading, settings.data.ibkr_symbol)
+    result = await executor.place_order(
+        action="BUY",
+        quantity=1,
+        limit_price=100.0,
+        stop_loss=102.0,
+        take_profit=101.5,
+        metadata={"entry_price": 100.0},
+    )
+    assert result.status == "Cancelled"
+    assert "guard" in (result.message or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_executor_cancels_when_protective_orders_not_confirmed(monkeypatch, tmp_path):
+    """PendingSubmit children must trigger cancellation to avoid unprotected entries."""
+    settings = Settings()
+    executor = TradeExecutor(StubIB(), settings.trading, settings.data.ibkr_symbol)
+    executor.order_tracker = OrderTracker(db_path=tmp_path / "orders_state.db")
+    monkeypatch.setattr(
+        executor,
+        "_confirm_protective_orders",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        executor.position_manager,
+        "can_place_order",
+        AsyncMock(return_value=DecisionResult(allowed_contracts=1, reason="ok")),
+    )
+    metadata = {
+        "entry_price": 100.0,
+        "trade_cycle_id": "test",
+        "bar_close_timestamp": "2025-01-01T10:00:00",
+        "entry_price_bucket": 100.0,
+        "strategy_name": "legacy",
+        "signal_id": "test",
+    }
+    result = await executor.place_order(
+        action="BUY",
+        quantity=1,
+        limit_price=100.0,
+        stop_loss=99.0,
+        take_profit=101.0,
+        metadata=metadata,
+    )
+    assert result.status == "Cancelled"
+    assert "protective" in (result.message or "").lower()
+
+
+def test_pending_submit_counts_as_active_order():
+    """PendingSubmit orders must be treated as active for gating."""
+    settings = Settings()
+    ib = StubIB()
+    trade = SimpleNamespace(
+        contract=SimpleNamespace(symbol=settings.data.ibkr_symbol),
+        order=SimpleNamespace(orderId=42, action="BUY", totalQuantity=1, lmtPrice=100.0),
+        orderStatus=SimpleNamespace(status="PendingSubmit", filled=0, remaining=1),
+    )
+    ib._open_trades = [trade]
+    executor = TradeExecutor(ib, settings.trading, settings.data.ibkr_symbol)
+    assert executor.get_active_order_count(sync=True) == 1
 
 
 def test_validate_entry_guard_blocks_missing_protection():

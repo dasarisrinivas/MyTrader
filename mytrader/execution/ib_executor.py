@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 from uuid import uuid4
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,13 @@ from typing import Dict, List, Optional, TYPE_CHECKING, Any
 from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, StopLimitOrder, Trade
 
 from ..config import TradingConfig
+from ..risk.trade_math import (
+    ContractSpec,
+    TradingMode,
+    calculate_realized_pnl,
+    get_commission_per_side,
+    get_contract_spec,
+)
 from ..monitoring.order_tracker import OrderTracker
 from ..utils.logger import logger
 from ..utils.structured_logging import log_structured_event
@@ -51,6 +59,18 @@ class PositionInfo:
     entry_metadata: Optional[Dict] = None
 
 
+@dataclass
+class CloseFill:
+    """Represents the result of closing part of a position."""
+
+    contracts: float
+    entry_price: float
+    exit_price: float
+    direction: int  # +1 for closing long, -1 for closing short
+    gross_pnl: float
+    points: float
+
+
 class TradeExecutor:
     """Enhanced trade executor with real-time PnL tracking and order monitoring.
     
@@ -70,6 +90,9 @@ class TradeExecutor:
         telegram_notifier: Optional[TelegramNotifier] = None,
         reconcile_manager: Optional["ReconcileManager"] = None,
         live_data_manager: Optional["LiveDataManager"] = None,
+        trading_mode: TradingMode = "live",
+        contract_spec: Optional[ContractSpec] = None,
+        commission_per_side: Optional[float] = None,
     ) -> None:
         self.ib = ib
         self.config = config
@@ -80,9 +103,35 @@ class TradeExecutor:
         self.positions: Dict[str, PositionInfo] = {}
         self.order_tracker = OrderTracker()  # SQLite-based order tracking
         self.order_history: List[Dict] = []
-        self.realized_pnl = 0.0
+        self.contract_spec: ContractSpec = contract_spec or get_contract_spec(symbol, config)
+        self.trading_mode: TradingMode = trading_mode
+        self._commission_per_side = (
+            commission_per_side
+            if commission_per_side is not None
+            else get_commission_per_side(
+                self.contract_spec,
+                self.trading_mode,
+                getattr(config, "commission_per_contract", None),
+            )
+        )
+        self.realized_pnl_gross = 0.0
+        self.realized_pnl_net = 0.0
+        self.realized_pnl = 0.0  # Backwards compatibility alias (net PnL)
+        self.total_commission_paid = 0.0
+        self._local_position_qty = 0.0
+        self._local_avg_price = 0.0
+        self._open_position_commission = 0.0
         self.order_history: List[Dict] = []
         self._qualified_contract: Contract | None = None  # Cache the qualified front month contract
+        self._last_contract_refresh: Optional[float] = None
+        self._contract_call_timestamps: deque[float] = deque()
+        self._price_snapshot_timestamps: deque[float] = deque()
+        self._contract_cache_ttl = getattr(config, "contract_cache_ttl_seconds", 300)
+        self._price_snapshot_min_interval = getattr(config, "price_snapshot_min_interval_seconds", 5)
+        self._contract_warning_threshold = getattr(config, "contract_call_warning_threshold", 5)
+        self._snapshot_warning_threshold = getattr(config, "snapshot_call_warning_threshold", 30)
+        self._last_price_snapshot: Optional[float] = None
+        self._last_price_value: Optional[float] = None
         
         # Store stop loss / take profit for each order (for Telegram notifications)
         self.order_targets: Dict[int, Dict[str, float]] = {}  # {order_id: {'stop_loss': float, 'take_profit': float}}
@@ -108,6 +157,7 @@ class TradeExecutor:
         
         # NEW: Idempotency tracking for order submissions
         self._submission_signatures: Dict[str, datetime] = {}
+        self._signature_ttl_seconds: int = getattr(config, "idempotency_signature_ttl_seconds", 900)
         
         # NEW: Initial state tracking (orders found on IB at startup)
         self._initial_state_order_ids: set = set()
@@ -183,37 +233,73 @@ class TradeExecutor:
         self,
         action: str,
         quantity: int,
-        price: Optional[float],
+        metadata: Dict[str, Any],
     ) -> str:
         """
         Generate idempotency signature for order submission.
-        Prevents duplicate orders during reconnects/duplicate events.
+        Includes trading context so restarts avoid replaying entries.
         """
-        timestamp_rounded = (datetime.now(timezone.utc).timestamp() // 10) * 10
-        data = f"{self.symbol}|{quantity}|{price or 'MKT'}|{action}|{timestamp_rounded}"
-        return hashlib.sha256(data.encode()).hexdigest()[:32]
+        bar_ts = metadata.get("bar_close_timestamp") or ""
+        signal_id = metadata.get("signal_id") or metadata.get("trade_cycle_id") or ""
+        strategy = metadata.get("strategy_name") or metadata.get("signal_source") or "unknown"
+        bucket = metadata.get("entry_price_bucket")
+        bucket_str = f"{bucket:.2f}" if bucket is not None else ""
+        payload = "|".join(
+            [
+                self.symbol,
+                action.upper(),
+                str(bar_ts),
+                str(signal_id),
+                strategy,
+                str(quantity),
+                bucket_str,
+            ]
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()[:32]
     
     def is_duplicate_submission(self, signature: str) -> bool:
         """Check if a submission signature is a duplicate."""
         if signature in self._submission_signatures:
-            # Check if signature is still valid (within 60 seconds)
             created_at = self._submission_signatures[signature]
-            if (datetime.now(timezone.utc) - created_at).total_seconds() < 60:
+            if (datetime.now(timezone.utc) - created_at).total_seconds() < self._signature_ttl_seconds:
                 return True
-            else:
-                # Expired, remove it
-                del self._submission_signatures[signature]
+            del self._submission_signatures[signature]
+        try:
+            if self.order_tracker.signature_exists(signature, self._signature_ttl_seconds):
+                return True
+        except Exception as exc:
+            logger.debug(f"Signature lookup skipped: {exc}")
         return False
     
-    def record_submission(self, signature: str) -> None:
+    def record_submission(
+        self,
+        signature: str,
+        action: str,
+        quantity: int,
+        metadata: Dict[str, Any],
+    ) -> None:
         """Record a submission signature for idempotency."""
-        self._submission_signatures[signature] = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        self._submission_signatures[signature] = now
+        try:
+            self.order_tracker.record_submission_signature(
+                signature=signature,
+                symbol=self.symbol,
+                action=action,
+                quantity=quantity,
+                price_bucket=metadata.get("entry_price_bucket"),
+                bar_timestamp=metadata.get("bar_close_timestamp"),
+                signal_id=metadata.get("signal_id") or metadata.get("trade_cycle_id"),
+                strategy_name=metadata.get("strategy_name") or metadata.get("signal_source"),
+            )
+        except Exception as exc:
+            logger.debug(f"Signature persistence failed: {exc}")
         
         # Clean up old signatures (older than 5 minutes)
         cutoff = datetime.now(timezone.utc)
         old_sigs = [
             sig for sig, ts in self._submission_signatures.items()
-            if (cutoff - ts).total_seconds() > 300
+            if (cutoff - ts).total_seconds() > self._signature_ttl_seconds
         ]
         for sig in old_sigs:
             del self._submission_signatures[sig]
@@ -238,6 +324,14 @@ class TradeExecutor:
     
     async def get_qualified_contract(self) -> Contract | None:
         """Get the fully qualified front month contract."""
+        self._record_metric(self._contract_call_timestamps, "qualified_contract_calls", self._contract_warning_threshold)
+        if (
+            self._qualified_contract
+            and self._last_contract_refresh
+            and time.time() - self._last_contract_refresh < self._contract_cache_ttl
+        ):
+            logger.debug("Using cached contract %s", self._qualified_contract.localSymbol)
+            return self._qualified_contract
         try:
             # Check connection health before making API call
             if not self.ib.isConnected():
@@ -274,6 +368,7 @@ class TradeExecutor:
             
             # Cache it
             self._qualified_contract = front_month
+            self._last_contract_refresh = time.time()
             return front_month
         except Exception as e:
             logger.error(f"Failed to get qualified contract: {e}")
@@ -516,6 +611,112 @@ class TradeExecutor:
         except Exception as e:
             logger.error("Failed to reconcile positions: {}", e)
 
+    def _apply_fill_to_position(
+        self,
+        action: str,
+        quantity: float,
+        price: float,
+    ) -> Optional[CloseFill]:
+        """Update local position tracker and return closing stats if any."""
+        normalized = action.upper()
+        closing: Optional[CloseFill] = None
+        remaining = float(quantity)
+        if normalized == "BUY":
+            if self._local_position_qty < 0:
+                close_qty = min(remaining, abs(self._local_position_qty))
+                gross, points = calculate_realized_pnl(
+                    self._local_avg_price or price,
+                    price,
+                    -close_qty,
+                    self.contract_spec,
+                )
+                closing = CloseFill(
+                    contracts=close_qty,
+                    entry_price=self._local_avg_price or price,
+                    exit_price=price,
+                    direction=-1,
+                    gross_pnl=gross,
+                    points=points,
+                )
+                self._local_position_qty += close_qty
+                remaining -= close_qty
+                if abs(self._local_position_qty) < 1e-9:
+                    self._local_position_qty = 0.0
+                    self._local_avg_price = 0.0
+            if remaining > 0:
+                if self._local_position_qty <= 0:
+                    self._local_avg_price = price
+                    self._local_position_qty = remaining
+                else:
+                    total_cost = self._local_avg_price * self._local_position_qty + price * remaining
+                    self._local_position_qty += remaining
+                    self._local_avg_price = total_cost / max(self._local_position_qty, 1e-9)
+        else:  # SELL
+            if self._local_position_qty > 0:
+                close_qty = min(remaining, self._local_position_qty)
+                gross, points = calculate_realized_pnl(
+                    self._local_avg_price or price,
+                    price,
+                    close_qty,
+                    self.contract_spec,
+                )
+                closing = CloseFill(
+                    contracts=close_qty,
+                    entry_price=self._local_avg_price or price,
+                    exit_price=price,
+                    direction=1,
+                    gross_pnl=gross,
+                    points=points,
+                )
+                self._local_position_qty -= close_qty
+                remaining -= close_qty
+                if abs(self._local_position_qty) < 1e-9:
+                    self._local_position_qty = 0.0
+                    self._local_avg_price = 0.0
+            if remaining > 0:
+                if self._local_position_qty >= 0:
+                    self._local_avg_price = price
+                    self._local_position_qty = -remaining
+                else:
+                    total_cost = self._local_avg_price * abs(self._local_position_qty) + price * remaining
+                    self._local_position_qty -= remaining
+                    self._local_avg_price = total_cost / max(abs(self._local_position_qty), 1e-9)
+        return closing
+
+    def _allocate_entry_commission(
+        self,
+        closed_qty: float,
+        prev_abs_position: float,
+    ) -> float:
+        """Remove proportional entry commissions for contracts that just closed."""
+        if closed_qty <= 0 or prev_abs_position <= 0 or self._open_position_commission <= 0:
+            return 0.0
+        proportion = closed_qty / prev_abs_position
+        allocated = self._open_position_commission * proportion
+        self._open_position_commission -= allocated
+        if self._open_position_commission < 1e-6:
+            self._open_position_commission = 0.0
+        return allocated
+
+    def _estimate_fill_commission(
+        self,
+        quantity: float,
+        reported_commission: Optional[float],
+    ) -> float:
+        """Return commission paid for a fill, estimating when IB doesn't report it."""
+        if reported_commission is not None and abs(reported_commission) > 1e-6:
+            return float(reported_commission)
+        if quantity <= 0:
+            return 0.0
+        per_side = get_commission_per_side(
+            self.contract_spec,
+            self.trading_mode,
+            self._commission_per_side,
+        )
+        if self.trading_mode == "paper":
+            return 0.0
+        return per_side * quantity
+
     def _on_order_status(self, trade: Trade) -> None:
         """Callback for order status updates."""
         order_id = trade.order.orderId
@@ -560,8 +761,12 @@ class TradeExecutor:
         order_id = trade.order.orderId
         quantity = fill.execution.shares
         price = fill.execution.price
-        commission = fill.commissionReport.commission if hasattr(fill, 'commissionReport') else None
-        realized_pnl = None
+        commission_report = (
+            float(fill.commissionReport.commission)
+            if hasattr(fill, "commissionReport") and hasattr(fill.commissionReport, "commission")
+            else None
+        )
+        realized_pnl = 0.0
         
         # FIX: Check for excessive slippage
         order = trade.order
@@ -583,21 +788,48 @@ class TradeExecutor:
             else:
                 logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, slippage=${slippage:.2f}")
         else:
-            logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, commission={commission}")
+            logger.info(f"✅ Execution: Order {order_id}, qty={quantity}, price={price:.2f}, commission={commission_report}")
         
-        # Update realized PnL
-        if hasattr(fill, 'commissionReport') and hasattr(fill.commissionReport, 'realizedPNL'):
-            realized_pnl = float(fill.commissionReport.realizedPNL)
-            self.realized_pnl += realized_pnl
-            logger.info(f"💰 Realized PnL: {realized_pnl:.2f} (total: {self.realized_pnl:.2f})")
+        abs_quantity = abs(quantity)
+        commission_paid = self._estimate_fill_commission(abs_quantity, commission_report)
+        per_contract_commission = commission_paid / abs_quantity if abs_quantity else 0.0
+        prev_abs_position = abs(self._local_position_qty)
+        close_result = self._apply_fill_to_position(order.action, abs_quantity, price)
+        closed_qty = close_result.contracts if close_result else 0.0
+        entry_commission_alloc = self._allocate_entry_commission(closed_qty, prev_abs_position)
+        exit_commission_paid = per_contract_commission * closed_qty
+        round_trip_commission = entry_commission_alloc + exit_commission_paid
+        open_qty = max(abs_quantity - closed_qty, 0.0)
+        if open_qty > 0:
+            self._open_position_commission += per_contract_commission * open_qty
+        gross_pnl = close_result.gross_pnl if close_result else 0.0
+        realized_pnl = gross_pnl - round_trip_commission
+        self.total_commission_paid += commission_paid
+        if close_result:
+            self.realized_pnl_gross += gross_pnl
+            self.realized_pnl_net += realized_pnl
+            self.realized_pnl = self.realized_pnl_net
+            logger.info(
+                "💰 Realized PnL gross=%.2f net=%.2f (points=%.2f, commission=%.2f, totals gross=%.2f net=%.2f)",
+                gross_pnl,
+                realized_pnl,
+                close_result.points,
+                round_trip_commission,
+                self.realized_pnl_gross,
+                self.realized_pnl_net,
+            )
+        else:
+            logger.debug("Position updated without closure; tracking unrealized PnL only.")
         
         # Record execution in tracker
         self.order_tracker.record_execution(
             order_id=order_id,
             quantity=quantity,
             price=price,
-            commission=commission,
-            realized_pnl=realized_pnl
+            commission=commission_paid,
+            realized_pnl=realized_pnl,
+            gross_pnl=gross_pnl,
+            net_pnl=realized_pnl,
         )
         
         # Reconcile positions after execution to get updated position from IB
@@ -614,8 +846,13 @@ class TradeExecutor:
         # EMERGENCY STOP CHECK: Verify bracket protection after entry fill
         # Only check for entry orders (not exit orders which have metadata["exit_order"]=True)
         order_meta = self.order_metadata.get(order_id, {})
+        parent_id = getattr(order, "parentId", None)
+        parent_meta = self.order_metadata.get(parent_id) if parent_id is not None else None
+        metadata_source = parent_meta or order_meta
         is_exit_order = order_meta.get("exit_order", False)
         targets = self.order_targets.get(order_id, {})
+        if not targets and parent_id in self.order_targets:
+            targets = self.order_targets.get(parent_id, {})
         expected_stop_loss = targets.get('stop_loss')
         expected_take_profit = targets.get('take_profit')
         
@@ -686,16 +923,26 @@ class TradeExecutor:
                 
                 logger.info(f"📱 Sending Telegram alert: {side} {quantity} @ {price}, SL={expected_stop_loss}, TP={expected_take_profit}")
                 # Send notification in background (fire-and-forget)
+                entry_price_msg = close_result.entry_price if close_result else metadata_source.get("entry_price")
+                commission_msg = round_trip_commission if close_result else commission_paid
+                gross_msg = gross_pnl if close_result else 0.0
+                net_msg = realized_pnl if close_result else 0.0
+                points_msg = close_result.points if close_result else None
                 self.telegram.send_trade_alert_background(
                     symbol=self.symbol,
                     side=side,
-                    quantity=quantity,
+                    quantity=abs_quantity,
                     fill_price=price,
                     timestamp=datetime.utcnow(),
                     current_position=position_qty,
                     order_id=order_id,
-                    commission=commission,
-                    realized_pnl=realized_pnl,
+                    entry_price=entry_price_msg,
+                    exit_price=price if close_result else None,
+                    commission=commission_msg,
+                    gross_pnl=gross_msg,
+                    net_pnl=net_msg,
+                    points=points_msg,
+                    risk_reward=metadata_source.get("risk_reward"),
                     stop_loss=expected_stop_loss,
                     take_profit=expected_take_profit
                 )
@@ -715,6 +962,7 @@ class TradeExecutor:
         rationale: Dict | None = None,
         features: Dict | None = None,
         market_regime: str | None = None,
+        entry_price: float | None = None,
         reduce_only: bool = False,
     ) -> OrderResult:
         """Place an order with optional bracket orders for risk management.
@@ -736,6 +984,14 @@ class TradeExecutor:
             logger.info(f"📝 Converted action {original_action} -> {action} for IB API")
 
         metadata = dict(metadata or {})
+        entry_price_hint = entry_price
+        if entry_price_hint is None:
+            entry_price_hint = metadata.get("entry_price")
+        if entry_price_hint is None and limit_price is not None:
+            entry_price_hint = limit_price
+        if entry_price_hint is not None:
+            metadata.setdefault("entry_price", entry_price_hint)
+
         if reduce_only:
             current_position = await self.get_current_position()
             if not current_position or current_position.quantity == 0:
@@ -750,9 +1006,10 @@ class TradeExecutor:
             quantity = min(quantity, abs(current_position.quantity))
             metadata["reduce_only"] = True
 
+        guard_entry_price = entry_price_hint if entry_price_hint is not None else limit_price if limit_price is not None else metadata.get("entry_price")
         guard_reason = self._validate_protective_invariants(
             action=action,
-            entry_price=limit_price if limit_price is not None else metadata.get("entry_price"),
+            entry_price=guard_entry_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
             reduce_only=reduce_only,
@@ -770,7 +1027,7 @@ class TradeExecutor:
                     "reason": guard_reason,
                     "action": action,
                     "quantity": quantity,
-                    "entry_price": limit_price if limit_price is not None else metadata.get("entry_price"),
+                    "entry_price": guard_entry_price,
                     "stop_loss": stop_loss,
                     "take_profit": take_profit,
                     "reduce_only": reduce_only,
@@ -803,13 +1060,24 @@ class TradeExecutor:
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Trading not allowed - reconciliation pending or safe mode active")
         
         # NEW: Check for duplicate submission (idempotency)
-        submission_sig = self.generate_submission_signature(action, quantity, limit_price)
+        submission_sig = self.generate_submission_signature(action, quantity, metadata)
         if self.is_duplicate_submission(submission_sig):
             logger.warning(f"Duplicate order submission blocked: {action} {quantity} @ {limit_price}")
             self._log_reconcile_event("duplicate_submission_blocked", {
                 "action": action, "quantity": quantity, "limit_price": limit_price,
                 "signature": submission_sig
             }, "WARN")
+            log_structured_event(
+                agent="ib_executor",
+                event_type="duplicate_submission_blocked",
+                message="Duplicate submission blocked",
+                payload={
+                    "signature": submission_sig,
+                    "action": action,
+                    "quantity": quantity,
+                    "symbol": self.symbol,
+                },
+            )
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Duplicate submission blocked")
@@ -849,7 +1117,7 @@ class TradeExecutor:
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Failed to qualify contract")
         
         # NEW: Record submission signature for idempotency
-        self.record_submission(submission_sig)
+        self.record_submission(submission_sig, action, quantity, metadata)
         
         # Log order attempt for audit trail
         self._log_reconcile_event("order_placed", {
@@ -903,8 +1171,11 @@ class TradeExecutor:
         if metadata:
             order.orderRef = f"MyTrader_{metadata.get('signal_source', 'manual')}"
         
-        entry_price_estimate = limit_price if limit_price is not None else metadata.get("entry_price")
+        entry_price_estimate = guard_entry_price
+        if entry_price_estimate is None:
+            entry_price_estimate = limit_price if limit_price is not None else metadata.get("entry_price")
         bracket_children: list[Order] = []
+        placed_child_trades: list[Trade] = []
         if stop_loss is not None or take_profit is not None:
             validation = validate_bracket_prices(
                 action=action,
@@ -914,7 +1185,8 @@ class TradeExecutor:
                 tick_size=self.config.tick_size,
             )
             if not validation.valid:
-                logger.error(f"❌ Bracket rejected: invalid protective levels ({validation.reason})")
+                rejection = validation.reason or "Invalid protective levels"
+                logger.error(f"❌ Bracket rejected: {rejection}")
                 self._log_reconcile_event(
                     "bracket_rejected",
                     {
@@ -929,7 +1201,11 @@ class TradeExecutor:
                 )
                 from ib_insync import Trade as IBTrade
                 dummy_trade = IBTrade()
-                return OrderResult(trade=dummy_trade, status="Cancelled", message=validation.reason or "Invalid bracket")
+                return OrderResult(
+                    trade=dummy_trade,
+                    status="Cancelled",
+                    message=f"reject bracket: {rejection}",
+                )
 
             stop_loss = validation.stop_loss
             take_profit = validation.take_profit
@@ -1047,6 +1323,7 @@ class TradeExecutor:
                 self._log_trade_status(child_trade, label=f"child-submit-{i+1}")
                 child_id = child_trade.order.orderId
                 self.active_orders[child_id] = child_trade
+                placed_child_trades.append(child_trade)
                 await self._await_order_submission(child_trade, label=f"child-{child_id}")
                 
                 # Track bracket order creation time
@@ -1080,6 +1357,15 @@ class TradeExecutor:
                 logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
             await self._await_order_submission(parent_trade, label="parent")
+            confirmation_ok = await self._confirm_protective_orders(parent_trade, placed_child_trades)
+            if not confirmation_ok:
+                message = "Protective orders not confirmed"
+                self._handle_protective_confirmation_failure(parent_trade, placed_child_trades, message)
+                return OrderResult(
+                    trade=parent_trade,
+                    status="Cancelled",
+                    message=message,
+                )
         finally:
             if lock_engaged:
                 self._release_order_lock("bracket submission complete")
@@ -1148,6 +1434,25 @@ class TradeExecutor:
             if take_profit >= entry_price:
                 return f"SELL take-profit {take_profit:.2f} must be below entry {entry_price:.2f}"
         return None
+    
+    def _record_metric(self, timestamps: deque, label: str, threshold: int) -> None:
+        """Track call counts per minute and emit warnings when thresholds exceeded."""
+        now = time.time()
+        timestamps.append(now)
+        while timestamps and now - timestamps[0] > 60:
+            timestamps.popleft()
+        if len(timestamps) > threshold:
+            logger.warning(
+                "{} per minute high: {}",
+                label,
+                len(timestamps),
+            )
+            log_structured_event(
+                agent="ib_executor",
+                event_type=f"metrics.{label}",
+                message="Rate limit warning",
+                payload={"count_last_minute": len(timestamps)},
+            )
 
     def _log_trade_status(self, trade: Trade | None, label: str) -> None:
         """Emit a detailed snapshot of the IB response for troubleshooting."""
@@ -1190,6 +1495,74 @@ class TradeExecutor:
                 )
                 break
         self._log_trade_status(trade, f"{label}-ack-complete")
+    
+    async def _confirm_protective_orders(
+        self,
+        parent_trade: Trade,
+        child_trades: List[Trade],
+        timeout: float = 8.0,
+        poll_interval: float = 0.5,
+    ) -> bool:
+        """Ensure parent and children advance beyond PendingSubmit shortly after placement."""
+        if not child_trades:
+            return True
+        required_statuses = {"PreSubmitted", "Submitted", "Filled"}
+        start = time.monotonic()
+        parent_id = getattr(parent_trade.order, "orderId", "NA")
+        child_ids = [getattr(child.order, "orderId", "NA") for child in child_trades]
+        while time.monotonic() - start < timeout:
+            parent_status = getattr(parent_trade.orderStatus, "status", "UNKNOWN")
+            children_ready = all(
+                getattr(child.orderStatus, "status", "UNKNOWN") in required_statuses
+                for child in child_trades
+            )
+            if parent_status in required_statuses and children_ready:
+                return True
+            await asyncio.sleep(poll_interval)
+        logger.error(
+            "⚠️ Protective orders not confirmed for parent %s (children=%s)",
+            parent_id,
+            child_ids,
+        )
+        return False
+
+    def _handle_protective_confirmation_failure(
+        self,
+        parent_trade: Trade,
+        child_trades: List[Trade],
+        message: str,
+    ) -> None:
+        """Cancel parent/children and emit structured events when bracket confirmation fails."""
+        incident_id = uuid4().hex[:10]
+        payload = {
+            "incident_id": incident_id,
+            "parent_order_id": getattr(parent_trade.order, "orderId", None),
+            "child_order_ids": [getattr(child.order, "orderId", None) for child in child_trades],
+            "symbol": self.symbol,
+        }
+        logger.error("❌ %s (incident=%s)", message, incident_id)
+        log_structured_event(
+            agent="ib_executor",
+            event_type="protective_orders_not_confirmed",
+            message=message,
+            payload=payload,
+        )
+        self._log_reconcile_event("protective_orders_not_confirmed", payload, "ERROR")
+        for trade in [parent_trade, *child_trades]:
+            try:
+                self.ib.cancelOrder(trade.order)
+            except Exception as cancel_error:
+                logger.error("Failed to cancel order %s: %s", getattr(trade.order, "orderId", "NA"), cancel_error)
+            self.active_orders.pop(getattr(trade.order, "orderId", None), None)
+        parent_id = getattr(parent_trade.order, "orderId", None)
+        if parent_id in self.order_targets:
+            self.order_targets.pop(parent_id, None)
+        if parent_id is not None:
+            self.order_tracker.update_order_status(parent_id, "Cancelled", message=message)
+        for child in child_trades:
+            child_id = getattr(child.order, "orderId", None)
+            if child_id is not None:
+                self.order_tracker.update_order_status(child_id, "Cancelled", message=message)
 
     async def cancel_order(self, order_id: int) -> bool:
         """Cancel a specific order by ID."""
@@ -1250,11 +1623,21 @@ class TradeExecutor:
             # Log raw IB state for debugging - use INFO level to make sure we see it
             symbol_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
             
-            # Count only actually submitted orders (PreSubmitted/Submitted), not PendingSubmit ghost orders
-            submitted_trades = [t for t in symbol_trades if t.orderStatus.status in ['PreSubmitted', 'Submitted']]
-            pending_submit_trades = [t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit']
+            # Count submitted and PendingSubmit orders
+            submitted_trades = [
+                t
+                for t in symbol_trades
+                if t.orderStatus.status in ['PreSubmitted', 'Submitted', 'PendingSubmit']
+            ]
+            pending_submit_trades = [
+                t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit'
+            ]
             
-            logger.info(f"🔍 Sync: {len(submitted_trades)} active orders (ignoring {len(pending_submit_trades)} PendingSubmit)")
+            logger.info(
+                "🔍 Sync: %d active orders (%d PendingSubmit)",
+                len(submitted_trades),
+                len(pending_submit_trades),
+            )
             
             # Log each trade's status for debugging
             for trade in symbol_trades:
@@ -1269,12 +1652,7 @@ class TradeExecutor:
                     # Log what IB is reporting
                     logger.debug(f"IB reports order {order_id}: {trade.order.action} {trade.order.totalQuantity} @ {getattr(trade.order, 'lmtPrice', 'MKT')}, status={status}")
                     
-                    # Only count ACTUALLY SUBMITTED orders (PreSubmitted or Submitted)
-                    # PendingSubmit orders are NOT transmitted yet - they may be ghost orders from ib_insync cache
-                    # We NEVER count PendingSubmit as active orders because:
-                    # 1. If we just placed them, they should transition to PreSubmitted/Submitted quickly
-                    # 2. If they're stuck in PendingSubmit, something went wrong and we shouldn't block on them
-                    if status in ['PreSubmitted', 'Submitted']:
+                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
                         # Check if order is stuck (been active too long)
                         if order_id in self.order_creation_times:
                             order_age = (current_time - self.order_creation_times[order_id]).total_seconds() / 60
@@ -1288,10 +1666,6 @@ class TradeExecutor:
                                     logger.error(f"Failed to cancel stuck order {order_id}: {e}")
                         
                         synced_orders[order_id] = trade.order
-                    elif status == 'PendingSubmit':
-                        # Log PendingSubmit orders but DON'T count them as active
-                        # These are likely ghost orders stuck in ib_insync's cache
-                        logger.debug(f"   ⚠️  Ignoring PendingSubmit order {order_id} (not counting as active)")
                     else:
                         logger.debug(f"Skipping order {order_id} with status: {status}")
             
@@ -1529,7 +1903,15 @@ class TradeExecutor:
     async def get_current_price(self) -> float | None:
         """Get current market price for the contract."""
         import asyncio
-        
+        self._record_metric(self._price_snapshot_timestamps, "snapshot_price_requests", self._snapshot_warning_threshold)
+        now = time.time()
+        if (
+            self._last_price_value is not None
+            and self._last_price_snapshot
+            and now - self._last_price_snapshot < self._price_snapshot_min_interval
+        ):
+            logger.debug("Using cached price snapshot %.2f", self._last_price_value)
+            return self._last_price_value
         try:
             # Check connection health before making API call
             if not self.ib.isConnected():
@@ -1557,6 +1939,7 @@ class TradeExecutor:
             # Request market data snapshot - snapshot=True auto-cancels after first update
             # No manual cancellation needed for snapshots
             ticker = self.ib.reqMktData(front_month, snapshot=True)
+            derived_price: Optional[float] = None
             
             # Wait for ticker to populate with data
             for attempt in range(10):  # Try for up to 5 seconds
@@ -1567,14 +1950,21 @@ class TradeExecutor:
                 # Check if we have any price data
                 if ticker.last and ticker.last > 0:
                     logger.info(f"Got last price: {ticker.last}")
-                    return float(ticker.last)
+                    derived_price = float(ticker.last)
+                    break
                 elif ticker.close and ticker.close > 0:
                     logger.info(f"Got close price: {ticker.close}")
-                    return float(ticker.close)
+                    derived_price = float(ticker.close)
+                    break
                 elif ticker.bid and ticker.ask and ticker.bid > 0 and ticker.ask > 0:
                     midpoint = (ticker.bid + ticker.ask) / 2
                     logger.info(f"Got bid/ask: {ticker.bid}/{ticker.ask}, midpoint: {midpoint}")
-                    return float(midpoint)
+                    derived_price = float(midpoint)
+                    break
+            if derived_price is not None:
+                self._last_price_value = derived_price
+                self._last_price_snapshot = time.time()
+                return derived_price
             
             # Timeout - no data received
             logger.warning(f"Timeout waiting for price data. Ticker state: last={ticker.last}, close={ticker.close}, bid={ticker.bid}, ask={ticker.ask}")

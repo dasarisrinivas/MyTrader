@@ -11,6 +11,7 @@ ENHANCED VERSION with:
 - CST timestamps throughout (Central Standard Time)
 """
 import asyncio
+import math
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Set, Tuple
@@ -18,6 +19,7 @@ from dataclasses import dataclass, asdict, field
 import json
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -33,6 +35,15 @@ from ..strategies.engine import StrategyEngine
 from ..features.feature_engineer import engineer_features
 from ..risk.manager import RiskManager
 from ..risk.atr_module import compute_protective_offsets
+from ..risk.trade_math import (
+    ContractSpec,
+    TradingMode,
+    compute_risk_reward,
+    enforce_min_take_profit,
+    expected_target_outcome,
+    get_commission_per_side,
+    get_contract_spec,
+)
 from ..execution.guards import (
     WaitDecisionContext,
     compute_trade_risk_dollars,
@@ -130,6 +141,16 @@ class LiveTradingManager:
     def __init__(self, settings: Settings, simulation_mode: bool = False):
         self.settings = settings
         self.simulation_mode = simulation_mode  # NEW: Dry run mode
+        self.trading_mode: TradingMode = self._detect_trading_mode(settings)
+        self.contract_spec: ContractSpec = get_contract_spec(
+            settings.data.ibkr_symbol,
+            settings.trading,
+        )
+        self._commission_per_side = get_commission_per_side(
+            self.contract_spec,
+            self.trading_mode,
+            getattr(settings.trading, "commission_per_contract", None),
+        )
         self.feature_flags: FeatureFlagsConfig = getattr(settings, "features", FeatureFlagsConfig())
         self._enforce_entry_risk_checks = self.feature_flags.enforce_entry_risk_checks
         self._enforce_wait_blocking = self.feature_flags.enforce_wait_blocking
@@ -157,11 +178,15 @@ class LiveTradingManager:
             "min_stop_distance_ticks",
             4,
         )
-        self._min_stop_distance = self.settings.trading.tick_size * max(1, self._min_stop_distance_ticks)
+        self._min_stop_distance = self.contract_spec.tick_size * max(1, self._min_stop_distance_ticks)
         
         # NEW: Hybrid RAG+LLM Pipeline
         self.hybrid_pipeline: Optional[HybridPipelineIntegration] = None
         self._use_hybrid_pipeline: bool = False
+        hybrid_cfg = getattr(settings, "hybrid", None)
+        self._allow_hybrid_legacy_fallback: bool = bool(
+            getattr(hybrid_cfg, "allow_legacy_fallback", False)
+        )
         
         # NEW: AWS Bedrock Agents Pipeline
         self.aws_agent_invoker: Optional[AgentInvoker] = None
@@ -280,7 +305,8 @@ class LiveTradingManager:
             # Initialize other components first (non-IB)
             self.tracker = LivePerformanceTracker(
                 initial_capital=self.settings.trading.initial_capital,
-                risk_free_rate=self.settings.backtest.risk_free_rate
+                risk_free_rate=self.settings.backtest.risk_free_rate,
+                point_value=self.contract_spec.point_value,
             )
             
             self.engine = StrategyEngine(
@@ -308,7 +334,10 @@ class LiveTradingManager:
                 self.settings.trading,
                 self.settings.data.ibkr_symbol,
                 self.settings.data.ibkr_exchange,
-                telegram_notifier=self.telegram
+                telegram_notifier=self.telegram,
+                trading_mode=self.trading_mode,
+                contract_spec=self.contract_spec,
+                commission_per_side=self._commission_per_side,
             )
             
             # Connect to IB
@@ -319,6 +348,7 @@ class LiveTradingManager:
             )
             # Force reconciliation of active orders after IB connection
             await self.force_order_reconciliation()
+            self._load_persistent_cooldown_state()
             # Initialize RAG Storage
             try:
                 self.rag_storage = RAGStorage()
@@ -973,13 +1003,19 @@ TRADING GUIDANCE:
                 # Store pipeline result for trade logging
                 self._current_pipeline_result = pipeline_result
                 
-                # Skip legacy RAG and filter processing since hybrid handles it
+                # Skip legacy RAG and filter processing unless fallback explicitly allowed
+                run_legacy_after_hybrid = (
+                    hybrid_signal.action == "HOLD"
+                    and hybrid_signal.confidence <= 0
+                    and self._allow_hybrid_legacy_fallback
+                )
                 await self._process_hybrid_signal(signal, pipeline_result, current_price, features)
-                return
-                
+                if not run_legacy_after_hybrid:
+                    return
+                logger.info("ℹ️  Hybrid HOLD detected; legacy evaluation allowed per config")
             except Exception as e:
-                logger.error(f"Hybrid pipeline error, falling back to legacy: {e}")
-                # Fall through to legacy signal generation
+                await self._handle_hybrid_pipeline_failure(current_price, e)
+                return
         
         # Generate signal using existing bot logic (legacy path)
         
@@ -1381,6 +1417,27 @@ TRADING GUIDANCE:
         structure_score = max(-0.18, min(0.18, structure_score))
         return structure_score
 
+    async def _handle_hybrid_pipeline_failure(self, current_price: float, exc: Exception) -> None:
+        """Force HOLD when hybrid pipeline raises unexpected exception."""
+        logger.exception("Hybrid pipeline error - forcing HOLD")
+        self._add_reason_code("HYBRID_PIPELINE_ERROR")
+        log_structured_event(
+            agent="live_manager",
+            event_type="hybrid.pipeline_error",
+            message="Hybrid pipeline exception forced HOLD",
+            payload={
+                "trade_cycle_id": self._current_cycle_id,
+                "exception": repr(exc),
+            },
+        )
+        self.status.last_signal = "HOLD"
+        self.status.signal_confidence = 0.0
+        self.status.message = "Hybrid pipeline unavailable - holding"
+        self._current_pipeline_result = None
+        hold_signal = SimpleNamespace(action="HOLD", confidence=0.0, metadata={"error": str(exc)})
+        await self._broadcast_signal(hold_signal, current_price)
+        await self._broadcast_status()
+
     def _persist_structural_snapshot(
         self,
         structural_metrics: Dict[str, float],
@@ -1701,6 +1758,7 @@ TRADING GUIDANCE:
                 stop_loss=None,  # No stops for exit orders
                 take_profit=None,
                 reduce_only=True,  # HARD REQUIREMENT: Always reduce_only for exits
+                entry_price=current_price,
                 metadata={
                     "trade_cycle_id": entry_cycle_id,  # Use entry cycle ID, not current
                     "exit_order": True,
@@ -2007,16 +2065,39 @@ TRADING GUIDANCE:
             if self.simulation_mode:
                 # Simulation mode - just log, don't place real order
                 logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
-                self._last_trade_time = now_cst()
+                self._record_last_trade_timestamp()
+                return
+            
+            if not self._validate_entry_guard(
+                current_price,
+                stop_loss,
+                take_profit,
+                quantity,
+                action,
+            ):
+                self._add_reason_code("RISK_BLOCKED_INVALID_PROTECTION")
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="risk.entry_blocked",
+                    message="Entry blocked by hard guardrails",
+                    payload={"trade_cycle_id": self._current_cycle_id},
+                )
                 return
             
             # Place the order
+            metadata = self._prepare_order_metadata(
+                {"strategy_name": "aws_agents", "signal_source": "aws_agents"},
+                current_price,
+                "aws_agents",
+            )
             order_id = await self.executor.place_order(
                 action=action,
                 quantity=quantity,
                 limit_price=current_price,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
+                entry_price=current_price,
+                metadata=metadata,
             )
             
             logger.info(f"✅ AWS Agent order placed: ID={order_id}")
@@ -2032,7 +2113,7 @@ TRADING GUIDANCE:
             }
             
             # Update counters
-            self._last_trade_time = now_cst()
+            self._record_last_trade_timestamp()
             self._trades_today = getattr(self, '_trades_today', 0) + 1
             
             # Broadcast order update
@@ -2155,13 +2236,13 @@ TRADING GUIDANCE:
             take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
             
             # Build metadata from hybrid pipeline
-            metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+            base_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+            metadata = self._prepare_order_metadata(base_metadata, current_price, "hybrid")
             metadata["hybrid_pipeline"] = True
             metadata["hybrid_reasoning"] = metadata.get("hybrid_reasoning", "")
             metadata["market_trend"] = self.status.hybrid_market_trend
             metadata["volatility_regime"] = self.status.hybrid_volatility_regime
             metadata["atr_fallback_used"] = fallback_used
-            metadata["entry_price"] = current_price
             
             # Prepare market data for trade logging
             market_data = {
@@ -2215,7 +2296,7 @@ TRADING GUIDANCE:
             if self.simulation_mode:
                 logger.warning(f"🔶 SIMULATION: Would place HYBRID {signal.action} order for {qty} contracts @ {current_price:.2f}")
                 logger.warning(f"   SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
-                self._last_trade_time = now_cst()
+                self._record_last_trade_timestamp()
                 
                 # Log simulated trade entry
                 if self.hybrid_pipeline:
@@ -2247,7 +2328,8 @@ TRADING GUIDANCE:
                 metadata=metadata,
                 rationale=metadata,
                 features=market_data,
-                market_regime=self.status.hybrid_market_trend
+                market_regime=self.status.hybrid_market_trend,
+                entry_price=current_price,
             )
             
             # Broadcast result
@@ -2263,7 +2345,7 @@ TRADING GUIDANCE:
             
             if result.status not in {"Cancelled", "Inactive"}:
                 # Update cooldown
-                self._last_trade_time = now_cst()
+                self._record_last_trade_timestamp()
                 if self.hybrid_pipeline:
                     self.hybrid_pipeline.record_trade_for_cooldown()
                 logger.info(f"⏱️ HYBRID trade placed - cooldown activated")
@@ -2323,7 +2405,8 @@ TRADING GUIDANCE:
                 avg_loss=risk_stats.get("avg_loss")
             )
             
-            metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+            raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+            metadata = self._prepare_order_metadata(raw_metadata, current_price, "legacy")
             scaler = float(metadata.get("position_scaler", 1.0))
             if scaler > 0:
                 qty = max(1, int(round(qty * scaler)))
@@ -2389,8 +2472,6 @@ TRADING GUIDANCE:
                 logger.info(f"🎯 Dynamic Risk: ATR={atr:.2f}, SL={atr_mult_sl}x ({stop_offset:.2f}), TP={atr_mult_tp}x ({target_offset:.2f})")
             else:
                 logger.info(f"🎯 Dynamic Risk fallback: ATR={atr:.2f}, SL={stop_offset:.2f}, TP={target_offset:.2f}")
-            metadata["entry_price"] = current_price
-            
             # Broadcast order intent
             await self._broadcast_order_update({
                 "status": "placing",
@@ -2432,7 +2513,7 @@ TRADING GUIDANCE:
                 logger.warning(f"   SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
                 
                 # Update cooldown even in simulation to test timing
-                self._last_trade_time = datetime.now(timezone.utc)
+                self._record_last_trade_timestamp()
                 
                 await self._broadcast_order_update({
                     "status": "SIMULATED",
@@ -2443,6 +2524,26 @@ TRADING GUIDANCE:
                     "order_id": f"SIM-{datetime.now().strftime('%H%M%S')}"
                 })
                 return
+
+            # Attach projected payoff metadata for downstream consumers
+            _, reward_points, rr_ratio = compute_risk_reward(
+                current_price,
+                stop_loss,
+                take_profit,
+                signal.action,
+            )
+            projected = expected_target_outcome(
+                current_price,
+                take_profit,
+                qty,
+                self.contract_spec,
+                self.trading_mode,
+                self._commission_per_side,
+            )
+            metadata["risk_reward"] = rr_ratio
+            metadata["expected_reward_points"] = reward_points
+            metadata["expected_gross"] = projected.gross_pnl
+            metadata["expected_net"] = projected.net_pnl
             
             # Place order
             result = await self.executor.place_order(
@@ -2453,7 +2554,8 @@ TRADING GUIDANCE:
                 metadata=metadata,
                 rationale=self.current_trade_rationale,
                 features=self.current_trade_features,
-                market_regime=regime.value
+                market_regime=regime.value,
+                entry_price=current_price,
             )
             
             # Broadcast result
@@ -2468,7 +2570,7 @@ TRADING GUIDANCE:
             
             if result.status not in {"Cancelled", "Inactive"}:
                 # === NEW: Update cooldown after successful trade ===
-                self._last_trade_time = datetime.now(timezone.utc)
+                self._record_last_trade_timestamp()
                 logger.info(f"⏱️ Trade placed - cooldown activated for {self._cooldown_seconds}s")
                 
                 self.risk.register_trade()
@@ -2562,7 +2664,23 @@ TRADING GUIDANCE:
             )
             return False
         
-        # Check 2: Must be positive
+        # Check 2: Validate values are finite
+        for label, value in (("entry_price", entry_price), ("stop_loss", stop_loss), ("take_profit", take_profit)):
+            if value is None or not math.isfinite(value):
+                logger.warning(f"⚠️ Protective level {label} is non-finite - rejecting trade")
+                self._add_reason_code("INVALID_PROTECTION")
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="risk.invalid_levels",
+                    message=f"Non-finite {label}",
+                    payload={
+                        "trade_cycle_id": self._current_cycle_id,
+                        label: value,
+                    },
+                )
+                return False
+        
+        # Check 3: Must be positive
         if stop_loss <= 0 or take_profit <= 0:
             logger.warning("⚠️ Protective levels invalid (non-positive) - rejecting trade")
             self._add_reason_code("INVALID_PROTECTION")
@@ -2578,7 +2696,7 @@ TRADING GUIDANCE:
             )
             return False
         
-        # Check 3: Bracket orientation (BUY: stop < entry < target, SELL: target < entry < stop)
+        # Check 4: Bracket orientation (BUY: stop < entry < target, SELL: target < entry < stop)
         is_buy = action.upper() in ("BUY", "SCALP_BUY")
         if is_buy:
             if stop_loss >= entry_price:
@@ -2599,7 +2717,7 @@ TRADING GUIDANCE:
                 self._add_reason_code("INVALID_BRACKET")
                 return False
         
-        # Check 4: Minimum distance in ticks (configurable)
+        # Check 5: Minimum distance in ticks (configurable)
         min_distance_ticks = max(1, self._min_stop_distance_ticks)
         min_distance = self._min_stop_distance
         sl_distance = abs(entry_price - stop_loss)
@@ -2618,12 +2736,87 @@ TRADING GUIDANCE:
             )
             self._add_reason_code("INSUFFICIENT_DISTANCE")
             return False
+
+        # Check 7: Enforce minimum risk/reward ratio
+        _, reward_points, rr_ratio = compute_risk_reward(
+            entry_price,
+            stop_loss,
+            take_profit,
+            action,
+        )
+        if rr_ratio < 1.0 - 1e-6:
+            logger.warning(
+                f"⚠️ Risk/Reward {rr_ratio:.2f} < 1.0 requirement (reward={reward_points:.2f} pts)"
+            )
+            self._add_reason_code("POOR_RISK_REWARD")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.rr_reject",
+                message="Risk/reward below minimum 1:1",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "risk_reward": rr_ratio,
+                },
+            )
+            return False
+
+        # Check 8: Minimum viable take-profit in live mode
+        tp_ok, min_tp_points = enforce_min_take_profit(
+            entry_price,
+            take_profit,
+            self.contract_spec,
+            self.trading_mode,
+            action,
+        )
+        if not tp_ok:
+            logger.warning(
+                f"⚠️ Take profit {abs(take_profit - entry_price):.2f} pts < "
+                f"{min_tp_points:.2f} pts live minimum for {self.contract_spec.root_symbol}"
+            )
+            self._add_reason_code("MIN_TP")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.min_tp_reject",
+                message="Take profit below live minimum",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "min_points": min_tp_points,
+                },
+            )
+            return False
+
+        # Check 9: Net payoff after commissions must be positive
+        expected = expected_target_outcome(
+            entry_price,
+            take_profit,
+            quantity,
+            self.contract_spec,
+            self.trading_mode,
+            self._commission_per_side,
+        )
+        if expected.net_pnl <= 0:
+            logger.warning(
+                f"⚠️ Trade blocked: net PnL ${expected.net_pnl:.2f} <= 0 "
+                f"(gross ${expected.gross_pnl:.2f}, commission ${expected.commission:.2f})"
+            )
+            self._add_reason_code("NEGATIVE_NET")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.commission_reject",
+                message="Projected net PnL is non-positive after commissions",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "gross": expected.gross_pnl,
+                    "commission": expected.commission,
+                },
+            )
+            return False
         
-        # Check 5: Dollar risk must not exceed max_loss_per_trade
+        # Check 6: Dollar risk must not exceed max_loss_per_trade
         dollar_risk = compute_trade_risk_dollars(
             entry_price,
             stop_loss,
-            self.settings.trading.contract_multiplier,
+            self.contract_spec.point_value,
         ) * max(1, quantity)
         if dollar_risk > self.settings.trading.max_loss_per_trade:
             logger.warning(
@@ -2644,6 +2837,73 @@ TRADING GUIDANCE:
             return False
         
         return True
+    
+    def _prepare_order_metadata(
+        self,
+        base_metadata: Optional[Dict[str, Any]],
+        entry_price: float,
+        strategy_name: str,
+    ) -> Dict[str, Any]:
+        """Attach trade-cycle context so downstream guardrails have consistent data."""
+        metadata = dict(base_metadata or {})
+        metadata.setdefault("trade_cycle_id", self._current_cycle_id)
+        candle_ts = self._last_candle_processed
+        if isinstance(candle_ts, datetime):
+            metadata.setdefault("bar_close_timestamp", candle_ts.isoformat())
+        else:
+            metadata.setdefault("bar_close_timestamp", now_cst().replace(second=0, microsecond=0).isoformat())
+        metadata.setdefault("signal_id", metadata.get("signal_id") or metadata.get("signal_type") or self._current_cycle_id)
+        metadata.setdefault("strategy_name", strategy_name)
+        metadata["entry_price"] = entry_price
+        metadata.setdefault("entry_price_bucket", self._bucket_entry_price(entry_price))
+        return metadata
+
+    def _bucket_entry_price(self, price: float) -> float:
+        """Quantize entry intent price to reduce idempotency noise."""
+        tick_size = max(getattr(self.settings.trading, "tick_size", 0.25), 1e-6)
+        bucket_ticks = max(1, getattr(self.settings.trading, "min_stop_distance_ticks", 4))
+        bucket_size = tick_size * bucket_ticks
+        return round(price / bucket_size) * bucket_size
+
+    def _detect_trading_mode(self, settings: Settings) -> TradingMode:
+        """Infer trading mode from CLI arguments and IBKR connectivity."""
+        if self.simulation_mode:
+            return "paper"
+        ib_port = getattr(settings.data, "ibkr_port", 4002)
+        if ib_port in (4001, 7496):
+            return "live"
+        if ib_port in (4002, 7497):
+            return "paper"
+        # Default to live on unknown ports to avoid under-estimating commissions
+        return "live"
+
+    def _record_last_trade_timestamp(self, timestamp: Optional[datetime] = None) -> None:
+        """Persist the last trade time so cooldown survives restarts."""
+        ts = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        self._last_trade_time = ts
+        tracker = getattr(getattr(self.executor, "order_tracker", None), "record_last_trade_time", None)
+        if tracker:
+            try:
+                self.executor.order_tracker.record_last_trade_time(self.settings.data.ibkr_symbol, ts)
+            except Exception as exc:
+                logger.debug(f"Cooldown persistence skipped: {exc}")
+
+    def _load_persistent_cooldown_state(self) -> None:
+        """Restore last trade timestamp from order tracker at startup."""
+        tracker = getattr(getattr(self.executor, "order_tracker", None), "get_last_trade_time", None)
+        if not tracker:
+            return
+        try:
+            last_trade = self.executor.order_tracker.get_last_trade_time(self.settings.data.ibkr_symbol)
+        except Exception as exc:
+            logger.debug(f"Cooldown state restore skipped: {exc}")
+            return
+        if last_trade:
+            self._last_trade_time = last_trade
+            logger.info(
+                "⏱️ Cooldown resume: last trade at %s",
+                format_cst(utc_to_cst(last_trade)),
+            )
 
     def _register_trade_entry(
         self,

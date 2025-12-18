@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -51,6 +51,8 @@ class OrderTracker:
                     avg_fill_price REAL,
                     commission REAL,
                     realized_pnl REAL,
+                    gross_pnl REAL,
+                    net_pnl REAL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -69,6 +71,10 @@ class OrderTracker:
                     conn.execute("ALTER TABLE orders ADD COLUMN market_regime TEXT")
                 if "trade_cycle_id" not in columns:
                     conn.execute("ALTER TABLE orders ADD COLUMN trade_cycle_id TEXT")
+                if "gross_pnl" not in columns:
+                    conn.execute("ALTER TABLE orders ADD COLUMN gross_pnl REAL")
+                if "net_pnl" not in columns:
+                    conn.execute("ALTER TABLE orders ADD COLUMN net_pnl REAL")
             except Exception as e:
                 logger.error(f"Migration failed: {e}")
             
@@ -96,7 +102,40 @@ class OrderTracker:
                     price REAL NOT NULL,
                     commission REAL,
                     realized_pnl REAL,
+                    gross_pnl REAL,
+                    net_pnl REAL,
                     FOREIGN KEY (order_id) REFERENCES orders (order_id)
+                )
+            """)
+            try:
+                cursor = conn.execute("PRAGMA table_info(executions)")
+                exec_columns = [row[1] for row in cursor.fetchall()]
+                if "gross_pnl" not in exec_columns:
+                    conn.execute("ALTER TABLE executions ADD COLUMN gross_pnl REAL")
+                if "net_pnl" not in exec_columns:
+                    conn.execute("ALTER TABLE executions ADD COLUMN net_pnl REAL")
+            except Exception as exec_err:
+                logger.error(f"Execution table migration failed: {exec_err}")
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS submission_signatures (
+                    signature TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    price_bucket REAL,
+                    bar_timestamp TEXT,
+                    signal_id TEXT,
+                    strategy_name TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS symbol_state (
+                    symbol TEXT PRIMARY KEY,
+                    last_trade_time TEXT,
+                    updated_at TEXT NOT NULL
                 )
             """)
             
@@ -203,15 +242,17 @@ class OrderTracker:
         price: float,
         commission: Optional[float] = None,
         realized_pnl: Optional[float] = None,
+        gross_pnl: Optional[float] = None,
+        net_pnl: Optional[float] = None,
     ) -> None:
         """Record an order execution."""
         now = datetime.utcnow().isoformat()
         
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
-                INSERT INTO executions (order_id, timestamp, quantity, price, commission, realized_pnl)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (order_id, now, quantity, price, commission, realized_pnl))
+                INSERT INTO executions (order_id, timestamp, quantity, price, commission, realized_pnl, gross_pnl, net_pnl)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (order_id, now, quantity, price, commission, realized_pnl, gross_pnl, net_pnl))
             
             # Update order with execution info
             conn.execute("""
@@ -219,9 +260,11 @@ class OrderTracker:
                 SET avg_fill_price = ?,
                     commission = COALESCE(commission, 0) + COALESCE(?, 0),
                     realized_pnl = COALESCE(realized_pnl, 0) + COALESCE(?, 0),
+                    gross_pnl = COALESCE(gross_pnl, 0) + COALESCE(?, 0),
+                    net_pnl = COALESCE(net_pnl, 0) + COALESCE(?, 0),
                     updated_at = ?
                 WHERE order_id = ?
-            """, (price, commission, realized_pnl, now, order_id))
+            """, (price, commission, realized_pnl, gross_pnl, net_pnl, now, order_id))
             
             # Record event
             conn.execute("""
@@ -316,6 +359,8 @@ class OrderTracker:
                     SUM(CASE WHEN status = 'Filled' THEN 1 ELSE 0 END) as filled_orders,
                     SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
                     SUM(COALESCE(realized_pnl, 0)) as total_pnl,
+                    SUM(COALESCE(gross_pnl, 0)) as total_gross_pnl,
+                    SUM(COALESCE(net_pnl, 0)) as total_net_pnl,
                     SUM(COALESCE(commission, 0)) as total_commission,
                     AVG(CASE WHEN realized_pnl IS NOT NULL THEN realized_pnl ELSE NULL END) as avg_pnl_per_trade,
                     SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
@@ -330,10 +375,12 @@ class OrderTracker:
                 "filled_orders": row[1] or 0,
                 "cancelled_orders": row[2] or 0,
                 "total_pnl": row[3] or 0.0,
-                "total_commission": row[4] or 0.0,
-                "avg_pnl_per_trade": row[5] or 0.0,
-                "winning_trades": row[6] or 0,
-                "losing_trades": row[7] or 0,
+                "total_gross_pnl": row[4] or 0.0,
+                "total_net_pnl": row[5] or 0.0,
+                "total_commission": row[6] or 0.0,
+                "avg_pnl_per_trade": row[7] or 0.0,
+                "winning_trades": row[8] or 0,
+                "losing_trades": row[9] or 0,
             }
     
     def clear_old_orders(self, days: int = 7) -> None:
@@ -365,3 +412,93 @@ class OrderTracker:
             conn.commit()
         
         logger.info(f"🧹 Cleared orders older than {days} days")
+
+    def record_submission_signature(
+        self,
+        signature: str,
+        symbol: str,
+        action: str,
+        quantity: int,
+        price_bucket: float | None,
+        bar_timestamp: str | None,
+        signal_id: str | None,
+        strategy_name: str | None,
+    ) -> None:
+        """Persist an idempotency signature so restarts remember submissions."""
+        now = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO submission_signatures (
+                    signature, symbol, action, quantity, price_bucket,
+                    bar_timestamp, signal_id, strategy_name, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    signature,
+                    symbol,
+                    action,
+                    quantity,
+                    price_bucket,
+                    bar_timestamp,
+                    signal_id,
+                    strategy_name,
+                    now,
+                ),
+            )
+
+    def signature_exists(self, signature: str, ttl_seconds: int) -> bool:
+        """Check if an idempotency signature exists and is still valid."""
+        cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(seconds=ttl_seconds)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT created_at FROM submission_signatures WHERE signature = ?",
+                (signature,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+            created_at = row["created_at"]
+            if not created_at:
+                conn.execute("DELETE FROM submission_signatures WHERE signature = ?", (signature,))
+                return False
+            created_dt = datetime.fromisoformat(created_at)
+            if created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+            if created_dt < cutoff:
+                conn.execute("DELETE FROM submission_signatures WHERE signature = ?", (signature,))
+                return False
+        return True
+
+    def record_last_trade_time(self, symbol: str, timestamp: datetime) -> None:
+        """Persist the last trade time per symbol to enforce cooldown across restarts."""
+        ts = timestamp.astimezone(timezone.utc).isoformat()
+        now = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO symbol_state(symbol, last_trade_time, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    last_trade_time = excluded.last_trade_time,
+                    updated_at = excluded.updated_at
+                """,
+                (symbol, ts, now),
+            )
+
+    def get_last_trade_time(self, symbol: str) -> datetime | None:
+        """Retrieve the last trade timestamp for a symbol if recorded."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT last_trade_time FROM symbol_state WHERE symbol = ?",
+                (symbol,),
+            )
+            row = cursor.fetchone()
+            if not row or not row["last_trade_time"]:
+                return None
+            ts = datetime.fromisoformat(row["last_trade_time"])
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            return ts

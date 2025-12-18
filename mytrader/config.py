@@ -10,13 +10,13 @@ import os
 @dataclass
 class DataSourceConfig:
     tradingview_webhook_url: Optional[str] = field(default_factory=lambda: os.environ.get("TRADINGVIEW_WEBHOOK_URL"))
-    tradingview_symbol: str = field(default_factory=lambda: os.environ.get("TRADINGVIEW_SYMBOL", "ES"))
+    tradingview_symbol: str = field(default_factory=lambda: os.environ.get("TRADINGVIEW_SYMBOL", "MES"))
     tradingview_interval: str = field(default_factory=lambda: os.environ.get("TRADINGVIEW_INTERVAL", "1m"))
 
     ibkr_host: str = field(default_factory=lambda: os.environ.get("IBKR_HOST", "127.0.0.1"))
     ibkr_port: int = field(default_factory=lambda: int(os.environ.get("IBKR_PORT", "4002")))
     ibkr_client_id: int = field(default_factory=lambda: int(os.environ.get("IBKR_CLIENT_ID", "1")))
-    ibkr_symbol: str = field(default_factory=lambda: os.environ.get("IBKR_SYMBOL", "ES"))
+    ibkr_symbol: str = field(default_factory=lambda: os.environ.get("IBKR_SYMBOL", "MES"))
     ibkr_exchange: str = field(default_factory=lambda: os.environ.get("IBKR_EXCHANGE", "CME"))
     ibkr_currency: str = field(default_factory=lambda: os.environ.get("IBKR_CURRENCY", "USD"))
 
@@ -173,9 +173,22 @@ class RAGConfig:
     kb_cache_ttl_seconds: int = 120
     min_similar_trades: int = field(default_factory=lambda: int(os.environ.get("MIN_SIMILAR_TRADES", "2")))
     min_weighted_win_rate: float = field(default_factory=lambda: float(os.environ.get("MIN_WEIGHTED_WIN_RATE", "0.45")))
+    min_weighted_win_rate_soft_floor: float = field(
+        default_factory=lambda: float(
+            os.environ.get(
+                "MIN_WEIGHTED_WIN_RATE_SOFT_FLOOR",
+                os.environ.get("MIN_WEIGHTED_WIN_RATE", "0.45"),
+            )
+        )
+    )
+    min_similar_trades_for_full_threshold: int = field(
+        default_factory=lambda: int(os.environ.get("MIN_SIMILAR_TRADES_FOR_FULL_THRESHOLD", "0"))
+    )
 
     def __post_init__(self) -> None:
         self.backend = (self.backend or "off").lower()
+        if self.min_weighted_win_rate_soft_floor > self.min_weighted_win_rate:
+            self.min_weighted_win_rate_soft_floor = self.min_weighted_win_rate
 
 
 @dataclass
@@ -206,6 +219,11 @@ class HybridConfig:
     top_k: int = 5  # RAG retrieval count
     cache_ttl_seconds: int = 300
     cooldown_minutes: int = 15
+    allow_legacy_fallback: bool = False
+    llm_uncertainty_band_low: float = 0.35
+    llm_uncertainty_band_high: float = 0.65
+    llm_call_cooldown_seconds: int = 60
+    llm_response_cache_ttl_seconds: int = 900
     
     # Confidence thresholds
     min_confidence_threshold: float = 0.60
