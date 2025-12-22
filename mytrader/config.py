@@ -71,6 +71,25 @@ class TradingConfig:
     disaster_stop_pct: float = 0.007
     max_trade_duration_minutes: int = 60
     trade_cooldown_minutes: int = 5
+    order_lock_timeout_seconds: int = 300
+    pending_order_timeout_seconds: int = 180
+    reset_state_on_start: bool = False
+
+    def get_validated_cooldown(self, min_val: int = 1, max_val: int = 60) -> int:
+        """Return cooldown bounded to [min_val, max_val], log warning if out of bounds."""
+        val = getattr(self, 'trade_cooldown_minutes', 5)
+        if val < min_val:
+            import logging
+            logging.warning(f"trade_cooldown_minutes {val} too low; using {min_val}")
+            return min_val
+        if val > max_val:
+            import logging
+            logging.warning(f"trade_cooldown_minutes {val} too high; using {max_val}")
+            return max_val
+        if val > 30:
+            import logging
+            logging.warning(f"trade_cooldown_minutes unusually high: {val}")
+        return val
     
     # Indicator warm-up
     min_bars_for_signals: int = 200

@@ -122,6 +122,22 @@ class TradingStatus:
 
 
 class LiveTradingManager:
+    def reset_state(self):
+        """Manual override: reset last trade time and release order lock."""
+        if self.executor:
+            try:
+                self.executor.force_release_order_lock(reason="manual override", cancel_tracked=True)
+            except Exception as e:
+                logger.error(f"Failed to release order lock: {e}")
+        try:
+            # Reset last trade time in tracker if available
+            if hasattr(self, 'tracker') and self.tracker and hasattr(self.tracker, 'order_tracker'):
+                self.tracker.order_tracker.reset_symbol_state(self.settings.data.ibkr_symbol)
+            # Also try via executor's order_tracker if present
+            if self.executor and hasattr(self.executor, 'order_tracker'):
+                self.executor.order_tracker.reset_symbol_state(self.settings.data.ibkr_symbol)
+        except Exception as e:
+            logger.error(f"Failed to reset last trade time: {e}")
     """Manages live trading session with WebSocket broadcasting.
     
     ENHANCED with:
@@ -137,8 +153,18 @@ class LiveTradingManager:
     MIN_CONFIDENCE_THRESHOLD = 0.60  # Minimum confidence to place trade
     POLL_INTERVAL_SECONDS = 5  # How often to poll price (when NOT waiting for candle)
     CANDLE_PERIOD_SECONDS = 60  # 1-minute candles - only evaluate at candle close
+    MIN_COOLDOWN_MINUTES = 1
+    MAX_COOLDOWN_MINUTES = 60
+    COOLDOWN_WARNING_MINUTES = 30
+    PERSISTED_COOLDOWN_MAX_AGE = timedelta(days=7)
+    FUTURE_COOLDOWN_TOLERANCE_SECONDS = 120
     
-    def __init__(self, settings: Settings, simulation_mode: bool = False):
+    def __init__(
+        self,
+        settings: Settings,
+        simulation_mode: bool = False,
+        reset_state_on_start: bool | None = None,
+    ):
         self.settings = settings
         self.simulation_mode = simulation_mode  # NEW: Dry run mode
         self.trading_mode: TradingMode = self._detect_trading_mode(settings)
@@ -164,6 +190,10 @@ class LiveTradingManager:
         self.rag_storage: Optional[RAGStorage] = None
         self.metrics_logger: Optional["DecisionMetricsLogger"] = None
         self.telegram: Optional[TelegramNotifier] = None
+        reset_flag = reset_state_on_start
+        if reset_flag is None:
+            reset_flag = getattr(getattr(settings, "trading", None), "reset_state_on_start", False)
+        self._reset_state_on_start: bool = bool(reset_flag)
         
         # NEW: Trading filters for multi-timeframe analysis
         self.trading_filters: Optional[TradingFilters] = None
@@ -250,9 +280,14 @@ class LiveTradingManager:
         
         # NEW: Cooldown tracking
         self._last_trade_time: Optional[datetime] = None
-        self._cooldown_seconds = getattr(
-            settings.trading, 'trade_cooldown_minutes', 5
-        ) * 60  # Convert minutes to seconds
+        raw_cooldown_minutes = getattr(
+            settings.trading,
+            'trade_cooldown_minutes',
+            self.DEFAULT_COOLDOWN_SECONDS // 60,
+        )
+        sanitized_minutes = self._sanitize_cooldown_minutes(raw_cooldown_minutes)
+        self.settings.trading.trade_cooldown_minutes = sanitized_minutes
+        self._cooldown_seconds = sanitized_minutes * 60  # Convert minutes to seconds
         
         # NEW: Candle tracking for proper candle-close validation
         self._last_candle_processed: Optional[datetime] = None
@@ -270,6 +305,34 @@ class LiveTradingManager:
         
         if simulation_mode:
             logger.warning("🔶 SIMULATION MODE ENABLED - Orders will NOT be sent to IBKR")
+    
+    def _sanitize_cooldown_minutes(self, raw_value: Any) -> int:
+        """Clamp cooldown minutes to a safe range and emit warnings if needed."""
+        default_minutes = self.DEFAULT_COOLDOWN_SECONDS // 60
+        try:
+            minutes = int(raw_value)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid trade_cooldown_minutes=%r; defaulting to %d minutes",
+                raw_value,
+                default_minutes,
+            )
+            return default_minutes
+        clamped = max(self.MIN_COOLDOWN_MINUTES, min(self.MAX_COOLDOWN_MINUTES, minutes))
+        if clamped != minutes:
+            logger.warning(
+                "trade_cooldown_minutes=%d outside [%d, %d]; clamped to %d",
+                minutes,
+                self.MIN_COOLDOWN_MINUTES,
+                self.MAX_COOLDOWN_MINUTES,
+                clamped,
+            )
+        elif clamped >= self.COOLDOWN_WARNING_MINUTES:
+            logger.warning(
+                "trade_cooldown_minutes=%d is unusually high; verify this is intentional",
+                clamped,
+            )
+        return clamped
     
     def _build_trading_filters(self) -> TradingFilters:
         """Instantiate TradingFilters using YAML configuration overrides."""
@@ -349,6 +412,10 @@ class LiveTradingManager:
             # Force reconciliation of active orders after IB connection
             await self.force_order_reconciliation()
             self._load_persistent_cooldown_state()
+            if self._reset_state_on_start:
+                logger.warning("♻️  Reset-state flag detected - clearing cooldown/lock state at startup")
+                self._reset_state_on_start = False
+                self._apply_manual_state_reset()
             # Initialize RAG Storage
             try:
                 self.rag_storage = RAGStorage()
@@ -901,7 +968,12 @@ TRADING GUIDANCE:
             cooldown_remaining = self._cooldown_seconds - elapsed
             if cooldown_remaining > 0:
                 self.status.cooldown_remaining_seconds = int(cooldown_remaining)
-                logger.debug(f"⏳ Cooldown active: {cooldown_remaining:.0f}s remaining")
+                last_trade_display = format_cst(utc_to_cst(self._last_trade_time))
+                logger.info(
+                    "Skipping trade due to cooldown; %ds remaining (last trade %s)",
+                    int(cooldown_remaining),
+                    last_trade_display,
+                )
                 await self._broadcast_status()
                 return
             else:
@@ -910,7 +982,18 @@ TRADING GUIDANCE:
         if self.executor and self.executor.is_order_locked():
             self.status.pending_order = True
             self.status.order_lock_reason = self.executor.get_order_lock_reason() or "Awaiting bracket confirmation"
-            logger.warning(f"⏸️ Order lock active - deferring cycle ({self.status.order_lock_reason})")
+            lock_age_sec = 0.0
+            get_lock_age = getattr(self.executor, "get_order_lock_age_seconds", None)
+            if callable(get_lock_age):
+                try:
+                    lock_age_sec = float(get_lock_age())
+                except Exception:
+                    lock_age_sec = 0.0
+            logger.warning(
+                "Skipping trade; order lock active for %.1fs (%s)",
+                lock_age_sec,
+                self.status.order_lock_reason,
+            )
             await self._broadcast_status()
             return
         else:
@@ -1266,13 +1349,17 @@ TRADING GUIDANCE:
         
         # === NEW: Check if filters blocked the trade ===
         if not filters_passed:
-            logger.info(f"  ↳ Trade blocked by filters, skipping order placement")
+            reason_text = ", ".join(filters_applied) if filters_applied else "unspecified filter"
+            logger.info("Skipping trade due to filters: %s", reason_text)
             return
         
         # CRITICAL: Check for active orders FIRST - don't place ANY order (entry or exit) if we have pending orders
         active_orders = self.executor.get_active_order_count(sync=True)
         if active_orders > 0:
-            logger.info(f"  ↳ {active_orders} active orders pending, waiting for completion before placing new orders")
+            logger.info(
+                "Skipping trade; %d active orders pending reconciliation",
+                active_orders,
+            )
             return
         
         # Check if we should exit existing position
@@ -2898,12 +2985,57 @@ TRADING GUIDANCE:
         except Exception as exc:
             logger.debug(f"Cooldown state restore skipped: {exc}")
             return
-        if last_trade:
-            self._last_trade_time = last_trade
+        validated = self._validate_persisted_trade_time(last_trade)
+        if validated:
+            self._last_trade_time = validated
             logger.info(
                 "⏱️ Cooldown resume: last trade at %s",
-                format_cst(utc_to_cst(last_trade)),
+                format_cst(utc_to_cst(validated)),
             )
+        else:
+            self._last_trade_time = None
+
+    def _validate_persisted_trade_time(self, timestamp: Optional[datetime]) -> Optional[datetime]:
+        """Reject persisted cooldown timestamps that are implausible."""
+        if not timestamp:
+            return None
+        now_utc = datetime.now(timezone.utc)
+        if timestamp > now_utc + timedelta(seconds=self.FUTURE_COOLDOWN_TOLERANCE_SECONDS):
+            logger.warning(
+                "Ignoring future last trade timestamp: %s",
+                format_cst(utc_to_cst(timestamp)),
+            )
+            return None
+        if now_utc - timestamp > self.PERSISTED_COOLDOWN_MAX_AGE:
+            logger.warning(
+                "Ignoring stale last trade timestamp from %s (> %s old)",
+                format_cst(utc_to_cst(timestamp)),
+                self.PERSISTED_COOLDOWN_MAX_AGE,
+            )
+            return None
+        return timestamp
+
+    def _apply_manual_state_reset(self) -> None:
+        """Clear cooldown + lock state based on operator override."""
+        if not self.executor:
+            return
+        symbol = getattr(self.settings.data, "ibkr_symbol", "UNKNOWN")
+        tracker = getattr(self.executor, "order_tracker", None)
+        if tracker and hasattr(tracker, "reset_symbol_state"):
+            try:
+                tracker.reset_symbol_state(symbol)
+            except Exception as exc:
+                logger.warning("⚠️  Failed to clear persisted cooldown for %s: %s", symbol, exc)
+        self._last_trade_time = None
+        self.status.cooldown_remaining_seconds = 0
+        force_release = getattr(self.executor, "force_release_order_lock", None)
+        if callable(force_release):
+            force_release("manual reset")
+        else:
+            release = getattr(self.executor, "_release_order_lock", None)
+            if callable(release):
+                release("manual reset")
+        logger.warning("♻️  Manual override applied: cooldown cleared and order lock released")
 
     def _register_trade_entry(
         self,

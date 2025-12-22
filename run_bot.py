@@ -28,6 +28,11 @@ def parse_args():
         default=None,
         help="Override cooldown period in minutes (default: from config)"
     )
+    parser.add_argument(
+        "--reset-state",
+        action="store_true",
+        help="Reset last-trade cooldown and release any stale order locks on startup",
+    )
     return parser.parse_args()
 
 
@@ -50,8 +55,17 @@ async def main():
     settings = load_settings(args.config)
     
     # Initialize manager with simulation mode
-    manager = LiveTradingManager(settings, simulation_mode=args.simulation)
-    
+    manager = LiveTradingManager(
+        settings,
+        simulation_mode=args.simulation,
+        reset_state_on_start=args.reset_state,
+    )
+
+    # Manual override: reset state if requested
+    if args.reset_state:
+        logger.warning("♻️  Manual override: resetting last trade time and releasing order lock")
+        manager.reset_state()
+
     # Override cooldown if specified
     if args.cooldown is not None:
         manager._cooldown_seconds = args.cooldown * 60

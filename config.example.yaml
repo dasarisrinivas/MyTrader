@@ -32,6 +32,9 @@ trading:
   disaster_stop_pct: 0.007  # 0.7% emergency stop
   max_trade_duration_minutes: 60  # Exit if trade open > 60 minutes
   trade_cooldown_minutes: 5  # Wait 5 minutes after each trade
+  order_lock_timeout_seconds: 300  # Release stuck order locks after 5 minutes
+  pending_order_timeout_seconds: 180  # Auto-cancel pending orders older than 3 minutes
+  reset_state_on_start: false  # Force cooldown + lock reset on startup (or use --reset-state)
   
   # Indicator warm-up (INCREASED from 15 to 200)
   min_bars_for_signals: 200
