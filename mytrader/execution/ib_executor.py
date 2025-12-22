@@ -165,6 +165,11 @@ class TradeExecutor:
         # NEW: Hard order lock to prevent overlapping brackets
         self._order_locked: bool = False
         self._order_lock_reason: Optional[str] = None
+        self._order_lock_engaged_at: Optional[datetime] = None
+        self._order_lock_parent_id: Optional[int] = None
+        self._order_lock_order_ids: set[int] = set()
+        self._order_lock_timeout_seconds: int = getattr(config, "order_lock_timeout_seconds", 300)
+        self._pending_order_timeout_seconds: int = getattr(config, "pending_order_timeout_seconds", 180)
         
         # Initialize PositionManager
         from .position_manager import PositionManager
@@ -199,16 +204,32 @@ class TradeExecutor:
 
     def is_order_locked(self) -> bool:
         """Expose order lock status to trading manager."""
+        self._enforce_order_lock_timeout()
         return self._order_locked
     
     def get_order_lock_reason(self) -> Optional[str]:
         """Return current order lock reason for telemetry."""
+        self._enforce_order_lock_timeout()
         return self._order_lock_reason
+    
+    def get_order_lock_age_seconds(self) -> float:
+        """Return how long the current lock has been engaged (seconds)."""
+        self._enforce_order_lock_timeout()
+        return self._order_lock_age_seconds()
+
+    def force_release_order_lock(self, reason: str = "manual override", cancel_tracked: bool = True) -> None:
+        """Manually release any lock (optionally canceling tracked orders first)."""
+        if cancel_tracked:
+            self._cancel_locked_orders(reason)
+        self._release_order_lock(reason)
 
     def _engage_order_lock(self, reason: str) -> None:
         """Engage hard order lock until bracket placement is confirmed."""
         self._order_locked = True
         self._order_lock_reason = reason
+        self._order_lock_engaged_at = datetime.utcnow()
+        self._order_lock_order_ids.clear()
+        self._order_lock_parent_id = None
         logger.warning(f"🔒 Order lock engaged: {reason}")
 
     def _release_order_lock(self, context: str = "") -> None:
@@ -217,6 +238,52 @@ class TradeExecutor:
             logger.info(f"🔓 Order lock released ({context})")
         self._order_locked = False
         self._order_lock_reason = None
+        self._order_lock_engaged_at = None
+        self._order_lock_parent_id = None
+        self._order_lock_order_ids.clear()
+    
+    def _register_lock_order_id(self, order_id: Optional[int]) -> None:
+        """Track orders associated with the current lock for watchdog clean-up."""
+        if not self._order_locked or order_id is None:
+            return
+        self._order_lock_order_ids.add(order_id)
+        if self._order_lock_parent_id is None:
+            self._order_lock_parent_id = order_id
+    
+    def _cancel_locked_orders(self, reason: str) -> None:
+        """Cancel any tracked orders associated with the lock."""
+        if not self._order_lock_order_ids:
+            return
+        logger.warning("🧹 Canceling %d locked orders (%s)", len(self._order_lock_order_ids), reason)
+        for order_id in list(self._order_lock_order_ids):
+            trade = self.active_orders.get(order_id)
+            if not trade:
+                continue
+            self._cancel_trade(trade, reason, warn_if_missing=False)
+        self._order_lock_order_ids.clear()
+    
+    def _order_lock_age_seconds(self) -> float:
+        if not self._order_locked or not self._order_lock_engaged_at:
+            return 0.0
+        return (datetime.utcnow() - self._order_lock_engaged_at).total_seconds()
+    
+    def _enforce_order_lock_timeout(self) -> None:
+        """Watchdog to automatically clear locks that overstay the timeout."""
+        if not self._order_locked:
+            return
+        if self._order_lock_timeout_seconds <= 0:
+            return
+        age = self._order_lock_age_seconds()
+        if age < self._order_lock_timeout_seconds:
+            return
+        logger.error(
+            "⏰ Order lock watchdog triggered after %.0fs (reason=%s, parent=%s)",
+            age,
+            self._order_lock_reason,
+            self._order_lock_parent_id,
+        )
+        self._cancel_locked_orders("lock_timeout")
+        self._release_order_lock("watchdog timeout")
     
     def is_initial_state_order(self, order_id: int) -> bool:
         """Check if an order was found on IB at startup (external order)."""
@@ -519,7 +586,7 @@ class TradeExecutor:
                     
                     # Only track truly active orders (not cancelled/filled)
                     if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
-                        self.active_orders[order_id] = trade.order
+                        self.active_orders[order_id] = trade
                         logger.info(f"📋 Active order found: {order_id} - {trade.order.action} {trade.order.totalQuantity} {self.symbol} (status: {status})")
                     else:
                         logger.debug(f"Skipping order {order_id} with status: {status}")
@@ -1083,9 +1150,9 @@ class TradeExecutor:
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Duplicate submission blocked")
         
         if self._order_locked:
+            lock_age = self._order_lock_age_seconds() if hasattr(self, '_order_lock_age_seconds') else None
             logger.warning(
-                "Order lock active ({reason}) - rejecting new order request",
-                reason=self._order_lock_reason or "pending bracket confirmation",
+                f"Skipping trade; order lock active for {lock_age:.1f} seconds (reason: {self._order_lock_reason})" if lock_age is not None else f"Skipping trade; order lock active (reason: {self._order_lock_reason})"
             )
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
@@ -1101,11 +1168,10 @@ class TradeExecutor:
         # Check if we have too many active orders (IB limit is 15 per side)
         open_trades = self.ib.openTrades()
         active_count = sum(1 for t in open_trades if t.contract.symbol == self.symbol and t.orderStatus.status in ('PreSubmitted', 'Submitted'))
-        
-        if active_count >= 12:  # Stay below the 15 limit with some buffer
-            logger.warning(f"⚠️  Too many active orders ({active_count}), canceling old orders first...")
+        if active_count >= 12:
+            logger.warning(f"Skipping trade; too many active orders ({active_count}) - canceling old orders first...")
             await self._cancel_all_existing_orders()
-            await asyncio.sleep(2)  # Wait for cancellations
+            await asyncio.sleep(2)
         
         # Get the qualified front month contract
         contract = await self.get_qualified_contract()
@@ -1130,18 +1196,14 @@ class TradeExecutor:
         # Note: quantity is always positive in the argument, action determines direction
         signed_quantity = quantity if action == "BUY" else -quantity
         decision = await self.position_manager.can_place_order(signed_quantity)
-        
         if decision.allowed_contracts == 0:
-            logger.warning(f"⛔ Order rejected by PositionManager: {decision.reason}")
+            logger.warning(f"Skipping trade due to filter/PositionManager: {decision.reason}")
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message=f"Rejected: {decision.reason}")
-            
         if abs(decision.allowed_contracts) < quantity:
-            logger.warning(f"⚠️ Order size reduced by PositionManager: {quantity} -> {abs(decision.allowed_contracts)} ({decision.reason})")
+            logger.warning(f"Order size reduced by PositionManager: {quantity} -> {abs(decision.allowed_contracts)} ({decision.reason})")
             quantity = abs(decision.allowed_contracts)
-            # Update signed quantity for logic below if needed, though we just use 'quantity'
-        
         logger.info(f"✅ PositionManager approved: {quantity} contracts (Reason: {decision.reason})")
 
         order: Order
@@ -1273,6 +1335,7 @@ class TradeExecutor:
             parent_trade = self.ib.placeOrder(contract, order)
             self._log_trade_status(parent_trade, label="parent-submit")
             parent_id = parent_trade.order.orderId
+            self._register_lock_order_id(parent_id)
             self.order_metadata[parent_id] = dict(metadata)
             
             # Track order creation time
@@ -1322,6 +1385,7 @@ class TradeExecutor:
                 child_trade = self.ib.placeOrder(contract, child)
                 self._log_trade_status(child_trade, label=f"child-submit-{i+1}")
                 child_id = child_trade.order.orderId
+                self._register_lock_order_id(child_id)
                 self.active_orders[child_id] = child_trade
                 placed_child_trades.append(child_trade)
                 await self._await_order_submission(child_trade, label=f"child-{child_id}")
@@ -1564,6 +1628,43 @@ class TradeExecutor:
             if child_id is not None:
                 self.order_tracker.update_order_status(child_id, "Cancelled", message=message)
 
+    def _cancel_trade(
+        self,
+        trade_ref: Trade | Order | None,
+        reason: str,
+        warn_if_missing: bool = True,
+    ) -> bool:
+        """Cancel a trade/order object and clean up tracking structures."""
+        if trade_ref is None:
+            if warn_if_missing:
+                logger.warning("Cancel requested for missing trade (%s)", reason)
+            return False
+        order = trade_ref.order if hasattr(trade_ref, "order") else trade_ref
+        if order is None:
+            if warn_if_missing:
+                logger.warning("Cancel requested but no order handle available (%s)", reason)
+            return False
+        order_id = getattr(order, "orderId", None)
+        try:
+            self.ib.cancelOrder(order)
+            logger.info("✅ Cancelled order %s (%s)", order_id, reason)
+            success = True
+        except Exception as exc:
+            logger.error("Failed to cancel order %s (%s): %s", order_id, reason, exc)
+            success = False
+        if order_id in self.active_orders:
+            self.active_orders.pop(order_id, None)
+        if order_id in self.order_creation_times:
+            self.order_creation_times.pop(order_id, None)
+        if order_id in self.order_targets:
+            self.order_targets.pop(order_id, None)
+        if order_id is not None:
+            try:
+                self.order_tracker.update_order_status(order_id, "Cancelled", message=reason)
+            except Exception as tracker_error:
+                logger.debug("Order tracker update failed for %s: %s", order_id, tracker_error)
+        return success
+
     async def cancel_order(self, order_id: int) -> bool:
         """Cancel a specific order by ID."""
         if order_id not in self.active_orders:
@@ -1572,9 +1673,11 @@ class TradeExecutor:
         
         try:
             trade = self.active_orders[order_id]
-            self.ib.cancelOrder(trade.order)
+            order = trade.order if hasattr(trade, "order") else trade
+            self.ib.cancelOrder(order)
             self.ib.waitOnUpdate()  # waitOnUpdate is synchronous, not async
             logger.info("Cancelled order {order_id}", order_id=order_id)
+            self.active_orders.pop(order_id, None)
             return True
         except Exception as e:
             logger.error("Failed to cancel order {order_id}: {error}", order_id=order_id, error=e)
@@ -1610,69 +1713,72 @@ class TradeExecutor:
             sync: If True, reconcile with IB Gateway first (slower but accurate)
         """
         if sync:
+            self._enforce_order_lock_timeout()
             # Note: self.ib.openTrades() returns cached state, which is updated
             # automatically by ib_insync when running in an async event loop.
             # No need to call ib.sleep() which can conflict with asyncio.
             
             # Do a quick sync with IB to ensure accuracy
             open_trades = self.ib.openTrades()
-            synced_orders = {}
+            synced_orders: Dict[int, Trade] = {}
             current_time = datetime.utcnow()
-            stuck_order_threshold_minutes = 60  # Cancel orders stuck for > 60 minutes
+            pending_statuses = {'PreSubmitted', 'Submitted', 'PendingSubmit'}
+            stuck_threshold = max(30, self._pending_order_timeout_seconds)
             
-            # Log raw IB state for debugging - use INFO level to make sure we see it
             symbol_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
-            
-            # Count submitted and PendingSubmit orders
-            submitted_trades = [
-                t
-                for t in symbol_trades
-                if t.orderStatus.status in ['PreSubmitted', 'Submitted', 'PendingSubmit']
-            ]
-            pending_submit_trades = [
-                t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit'
-            ]
+            submitted_trades = [t for t in symbol_trades if t.orderStatus.status in pending_statuses]
+            pending_submit_trades = [t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit']
             
             logger.info(
-                "🔍 Sync: %d active orders (%d PendingSubmit)",
+                "🔍 Sync: %d active orders (%d PendingSubmit, lock=%s)",
                 len(submitted_trades),
                 len(pending_submit_trades),
+                f"{self._order_lock_reason} {self._order_lock_age_seconds():.0f}s"
+                if self._order_locked
+                else "idle",
             )
             
-            # Log each trade's status for debugging
+            order_snapshots: List[str] = []
             for trade in symbol_trades:
-                status_icon = "✅" if trade.orderStatus.status in ['PreSubmitted', 'Submitted'] else "⚠️"
-                logger.debug(f"   {status_icon} Order {trade.order.orderId}: {trade.order.action} {trade.order.totalQuantity} - status={trade.orderStatus.status}")
+                status = trade.orderStatus.status
+                order_id = trade.order.orderId
+                created_at = self.order_creation_times.get(order_id)
+                age_seconds = (current_time - created_at).total_seconds() if created_at else None
+                age_display = f"{age_seconds:.1f}s" if age_seconds is not None else "unknown"
+                order_snapshots.append(
+                    f"#{order_id} {trade.order.action} {trade.order.totalQuantity} status={status} age={age_display}"
+                )
+                
+                if status in pending_statuses:
+                    if (
+                        age_seconds is not None
+                        and age_seconds > stuck_threshold
+                        and status in {'PendingSubmit', 'Submitted'}
+                    ):
+                        logger.warning(
+                            "⚠️  Order %s stuck in %s for %.1fs (threshold=%ss) – canceling",
+                            order_id,
+                            status,
+                            age_seconds,
+                            stuck_threshold,
+                        )
+                        self._cancel_trade(trade, "pending_status_watchdog")
+                        if self._order_locked:
+                            self._release_order_lock("stuck order canceled during sync")
+                        continue
+                    synced_orders[order_id] = trade
+                else:
+                    logger.debug("Skipping order %s with status: %s", order_id, status)
             
-            for trade in open_trades:
-                if trade.contract.symbol == self.symbol:
-                    status = trade.orderStatus.status
-                    order_id = trade.order.orderId
-                    
-                    # Log what IB is reporting
-                    logger.debug(f"IB reports order {order_id}: {trade.order.action} {trade.order.totalQuantity} @ {getattr(trade.order, 'lmtPrice', 'MKT')}, status={status}")
-                    
-                    if status in ['PreSubmitted', 'Submitted', 'PendingSubmit']:
-                        # Check if order is stuck (been active too long)
-                        if order_id in self.order_creation_times:
-                            order_age = (current_time - self.order_creation_times[order_id]).total_seconds() / 60
-                            if order_age > stuck_order_threshold_minutes:
-                                logger.warning(f"⚠️  Order {order_id} has been active for {order_age:.1f} minutes, canceling stuck order")
-                                try:
-                                    self.ib.cancelOrder(trade.order)
-                                    logger.info(f"✅ Canceled stuck order {order_id}")
-                                    continue  # Don't add to synced_orders
-                                except Exception as e:
-                                    logger.error(f"Failed to cancel stuck order {order_id}: {e}")
-                        
-                        synced_orders[order_id] = trade.order
-                    else:
-                        logger.debug(f"Skipping order {order_id} with status: {status}")
+            if order_snapshots:
+                logger.info("   Active order detail: %s", "; ".join(order_snapshots))
             
             # ALWAYS update to match IB's state (this fixes the sync issue)
             old_count = len(self.active_orders)
             old_ids = list(self.active_orders.keys())
             self.active_orders = synced_orders
+            if not synced_orders and self._order_locked:
+                self._release_order_lock("active order sync cleared state")
             
             # Log sync result for debugging
             if old_count != len(synced_orders):

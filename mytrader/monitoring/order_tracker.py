@@ -10,6 +10,19 @@ from mytrader.utils.logger import logger
 
 
 class OrderTracker:
+    def validate_last_trade_time(self, symbol: str, max_past_days: int = 7) -> bool:
+        """Check if last trade time is not in the future or implausibly old."""
+        ts = self.get_last_trade_time(symbol)
+        if not ts:
+            return True
+        now = datetime.now(timezone.utc)
+        if ts > now:
+            logger.warning(f"Last trade time for {symbol} is in the future: {ts}")
+            return False
+        if (now - ts).total_seconds() > max_past_days * 86400:
+            logger.warning(f"Last trade time for {symbol} is more than {max_past_days} days ago: {ts}")
+            return False
+        return True
     """Track orders and their lifecycle in SQLite database."""
     
     def __init__(self, db_path: str | Path = None):
@@ -502,3 +515,10 @@ class OrderTracker:
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
             return ts
+
+    def reset_symbol_state(self, symbol: str) -> None:
+        """Remove persisted cooldown/lock state for a symbol."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM symbol_state WHERE symbol = ?", (symbol,))
+            conn.commit()
+        logger.info(f"♻️  Cleared symbol state for {symbol}")
