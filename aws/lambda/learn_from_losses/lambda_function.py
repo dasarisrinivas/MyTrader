@@ -242,12 +242,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     This function is invoked by Bedrock Agent as an action group.
     """
+    start_time = time.time()
     logger.info(f"Received event: {json.dumps(event, default=str)[:1000]}")
     metrics.add_metric(name="RequestsReceived", unit=MetricUnit.Count, value=1)
     
     # Handle Bedrock Agent invocation format
     if 'actionGroup' in event:
-        return _handle_bedrock_agent_request(event, context)
+        response = _handle_bedrock_agent_request(event, context)
+        duration_ms = int((time.time() - start_time) * 1000)
+        metrics.add_metric(name="ResponseTime", unit=MetricUnit.Milliseconds, value=duration_ms)
+        metrics.add_metric(name="CacheHits", unit=MetricUnit.Count, value=1 if event.get('cached') else 0)
+        metrics.add_metric(name="ConfidenceScore", unit=MetricUnit.Percent, value=float(event.get('confidence', 0)) * 100)
+        return response
     
     # Handle direct invocation (Step Functions, API, manual)
     try:
@@ -257,7 +263,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         metrics.add_metric(name="ValidationErrors", unit=MetricUnit.Count, value=1)
         raise
     merged_event = {**event, **validated.dict()}
-    return _handle_direct_request(merged_event, context)
+    response = _handle_direct_request(merged_event, context)
+    duration_ms = int((time.time() - start_time) * 1000)
+    metrics.add_metric(name="ResponseTime", unit=MetricUnit.Milliseconds, value=duration_ms)
+    metrics.add_metric(name="CacheHits", unit=MetricUnit.Count, value=1 if event.get('cached') else 0)
+    metrics.add_metric(name="ConfidenceScore", unit=MetricUnit.Percent, value=float(merged_event.get('confidence', 0) or 0) * 100)
+    return response
 
 
 def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
