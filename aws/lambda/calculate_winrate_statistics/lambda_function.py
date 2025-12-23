@@ -15,8 +15,17 @@ from statistics import mean, stdev
 import boto3
 from botocore.exceptions import ClientError
 
+from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools.metrics import MetricUnit
+from pydantic import BaseModel, ValidationError
+
 # Initialize AWS clients
 s3_client = boto3.client('s3')
+
+# Powertools
+logger = Logger()
+metrics = Metrics(namespace="TradingBot")
+tracer = Tracer()
 
 # Environment variables
 S3_BUCKET = os.environ.get('S3_BUCKET', 'trading-bot-data')
@@ -29,6 +38,14 @@ HIGH_CONFIDENCE_THRESHOLD = 0.70
 MEDIUM_CONFIDENCE_THRESHOLD = 0.55
 
 
+class WinrateRequest(BaseModel):
+    similar_trades: List[Dict[str, Any]] = []
+    current_context: Dict[str, Any] = {}
+
+
+@tracer.capture_lambda_handler
+@logger.inject_lambda_context
+@metrics.log_metrics
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Calculate win-rate and PnL statistics from similar trades.
@@ -36,14 +53,22 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     This function is invoked by Bedrock Agent as an action group.
     The event format from Bedrock Agent is different from direct invocation.
     """
-    print(f"[INFO] Received event: {json.dumps(event, default=str)[:1000]}")
+    logger.info(f"Received event: {json.dumps(event, default=str)[:1000]}")
+    metrics.add_metric(name="RequestsReceived", unit=MetricUnit.Count, value=1)
     
     # Handle Bedrock Agent invocation format
     if 'actionGroup' in event:
         return _handle_bedrock_agent_request(event, context)
     
     # Handle direct invocation (for testing)
-    return _handle_direct_request(event, context)
+    try:
+        validated = WinrateRequest(**event)
+    except ValidationError as exc:
+        logger.error(f"Input validation failed: {exc}")
+        metrics.add_metric(name="ValidationErrors", unit=MetricUnit.Count, value=1)
+        raise
+    merged_event = {**event, **validated.dict()}
+    return _handle_direct_request(merged_event, context)
 
 
 def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -55,7 +80,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
     # Convert parameters list to dict
     params = {p['name']: p['value'] for p in parameters} if parameters else {}
     
-    print(f"[INFO] Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    logger.info(f"Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    metrics.add_metric(name="BedrockRequests", unit=MetricUnit.Count, value=1)
     
     # Process the request
     try:
@@ -89,7 +115,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
         }
         
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
+        logger.error(f"Bedrock action error: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'messageVersion': '1.0',
             'response': {
@@ -176,7 +203,8 @@ def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         }
         
     except Exception as e:
-        print(f"[ERROR] Failed to calculate statistics: {str(e)}")
+        logger.error(f"Failed to calculate statistics: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'status': 'error',
             'decision': 'WAIT',

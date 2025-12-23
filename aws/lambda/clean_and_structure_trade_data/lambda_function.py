@@ -17,6 +17,10 @@ from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
+from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools.metrics import MetricUnit
+from pydantic import BaseModel, ValidationError
+
 # Import pyarrow for Parquet support
 try:
     import pyarrow as pa
@@ -27,6 +31,11 @@ except ImportError:
 
 # Initialize AWS clients
 s3_client = boto3.client('s3')
+
+# Powertools
+logger = Logger()
+metrics = Metrics(namespace="TradingBot")
+tracer = Tracer()
 
 # Environment variables
 S3_BUCKET = os.environ.get('S3_BUCKET', 'trading-bot-data')
@@ -75,20 +84,37 @@ FEATURE_SCHEMA = pa.schema([
 ])
 
 
+class TradeIngestionRequest(BaseModel):
+    source: str = "direct"
+    date: Optional[str] = None
+    s3_key: Optional[str] = None
+
+
+@tracer.capture_lambda_handler
+@logger.inject_lambda_context
+@metrics.log_metrics
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for cleaning and structuring trade data.
     
     This function is invoked by Bedrock Agent as an action group.
     """
-    print(f"[INFO] Received event: {json.dumps(event, default=str)[:1000]}")
+    logger.info(f"Received event: {json.dumps(event, default=str)[:1000]}")
+    metrics.add_metric(name="RequestsReceived", unit=MetricUnit.Count, value=1)
     
     # Handle Bedrock Agent invocation format
     if 'actionGroup' in event:
         return _handle_bedrock_agent_request(event, context)
     
     # Handle direct invocation (for testing)
-    return _handle_direct_request(event, context)
+    try:
+        validated = TradeIngestionRequest(**event)
+    except ValidationError as exc:
+        logger.error(f"Input validation failed: {exc}")
+        metrics.add_metric(name="ValidationErrors", unit=MetricUnit.Count, value=1)
+        raise
+    merged_event = {**event, **validated.dict()}
+    return _handle_direct_request(merged_event, context)
 
 
 def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -100,7 +126,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
     # Convert parameters list to dict
     params = {p['name']: p['value'] for p in parameters} if parameters else {}
     
-    print(f"[INFO] Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    logger.info(f"Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    metrics.add_metric(name="BedrockRequests", unit=MetricUnit.Count, value=1)
     
     try:
         source_prefix = params.get('source_prefix', 'raw/')
@@ -131,7 +158,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
         }
         
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
+        logger.error(f"Bedrock action error: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'messageVersion': '1.0',
             'response': {
@@ -159,7 +187,7 @@ def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         "date": "2024-01-15"  # Processing date
     }
     """
-    print(f"[INFO] Direct invocation: {json.dumps(event, default=str)[:500]}")
+    logger.info(f"Direct invocation: {json.dumps(event, default=str)[:500]}")
     
     try:
         # Validate input
@@ -235,7 +263,8 @@ def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         }
         
     except Exception as e:
-        print(f"[ERROR] Failed to process trade data: {str(e)}")
+        logger.error(f"Failed to process trade data: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'status': 'error',
             'message': str(e),
@@ -251,7 +280,8 @@ def _read_s3_json(s3_key: str) -> List[Dict]:
         content = response['Body'].read().decode('utf-8')
         return json.loads(content)
     except ClientError as e:
-        print(f"[ERROR] Failed to read S3 object {s3_key}: {e}")
+        logger.error(f"Failed to read S3 object {s3_key}: {e}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         raise
 
 
@@ -265,9 +295,10 @@ def _write_json_to_s3(data: Any, s3_key: str) -> None:
             Body=json_content.encode('utf-8'),
             ContentType='application/json'
         )
-        print(f"[INFO] Wrote JSON to s3://{S3_BUCKET}/{s3_key}")
+        logger.info(f"Wrote JSON to s3://{S3_BUCKET}/{s3_key}")
     except ClientError as e:
-        print(f"[ERROR] Failed to write S3 object {s3_key}: {e}")
+        logger.error(f"Failed to write S3 object {s3_key}: {e}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         raise
 
 
@@ -289,9 +320,10 @@ def _write_parquet_to_s3(trades: List[Dict], s3_key: str) -> None:
             Body=buffer.getvalue(),
             ContentType='application/octet-stream'
         )
-        print(f"[INFO] Wrote Parquet to s3://{S3_BUCKET}/{s3_key}")
+        logger.info(f"Wrote Parquet to s3://{S3_BUCKET}/{s3_key}")
     except Exception as e:
-        print(f"[ERROR] Failed to write Parquet: {e}")
+        logger.error(f"Failed to write Parquet: {e}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         raise
 
 

@@ -20,8 +20,17 @@ from typing import Any, Dict, List, Optional
 import boto3
 from botocore.exceptions import ClientError
 
+from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools.metrics import MetricUnit
+from pydantic import BaseModel, ValidationError
+
 # Initialize AWS clients
 s3_client = boto3.client('s3')
+
+# Powertools
+logger = Logger()
+metrics = Metrics(namespace="TradingBot")
+tracer = Tracer()
 
 # Environment variables
 S3_BUCKET = os.environ.get('S3_BUCKET', 'trading-bot-data')
@@ -36,20 +45,61 @@ MAX_DRAWDOWN_PCT = float(os.environ.get('MAX_DRAWDOWN_PCT', '5.0'))
 MAX_DAILY_TRADES = int(os.environ.get('MAX_DAILY_TRADES', '20'))
 
 
+class TradeDecision(BaseModel):
+    action: str
+    confidence: float
+    symbol: str = "ES"
+    proposed_size: int = 0
+
+
+class AccountMetrics(BaseModel):
+    current_pnl_today: float
+    account_balance: float
+    losing_streak: int = 0
+    trades_today: int = 0
+    current_position: int = 0
+    open_risk: float = 0
+
+
+class MarketConditions(BaseModel):
+    volatility: str
+    regime: str
+    atr: float
+    vix: float
+
+
+class TradeRequest(BaseModel):
+    trade_decision: TradeDecision
+    account_metrics: AccountMetrics
+    market_conditions: MarketConditions
+
+
+@tracer.capture_lambda_handler
+@logger.inject_lambda_context
+@metrics.log_metrics
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Evaluate trade risk and determine if trading is allowed.
     
     This function is invoked by Bedrock Agent as an action group.
     """
-    print(f"[INFO] Received event: {json.dumps(event, default=str)[:1000]}")
+    logger.info(f"Received event: {json.dumps(event, default=str)[:1000]}")
+    metrics.add_metric(name="RequestsReceived", unit=MetricUnit.Count, value=1)
     
     # Handle Bedrock Agent invocation format
     if 'actionGroup' in event:
         return _handle_bedrock_agent_request(event, context)
     
-    # Handle direct invocation (for testing)
-    return _handle_direct_request(event, context)
+    try:
+        request = TradeRequest(**event)
+    except ValidationError as exc:
+        logger.error(f"Input validation failed: {exc}")
+        metrics.add_metric(name="ValidationErrors", unit=MetricUnit.Count, value=1)
+        raise
+
+    # Handle direct invocation (for testing) with validated payload
+    merged_event = {**event, **request.dict()}
+    return _handle_direct_request(merged_event, context)
 
 
 def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -61,7 +111,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
     # Convert parameters list to dict
     params = {p['name']: p['value'] for p in parameters} if parameters else {}
     
-    print(f"[INFO] Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    logger.info(f"Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    metrics.add_metric(name="BedrockRequests", unit=MetricUnit.Count, value=1)
     
     try:
         # Extract parameters
@@ -106,7 +157,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
         }
         
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
+        logger.error(f"Bedrock action error: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'messageVersion': '1.0',
             'response': {
@@ -150,7 +202,7 @@ def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         }
     }
     """
-    print(f"[INFO] Direct invocation: {json.dumps(event, default=str)[:500]}")
+    logger.info(f"Direct invocation: {json.dumps(event, default=str)[:500]}")
     
     try:
         trade_decision = event.get('trade_decision', {})
@@ -273,7 +325,8 @@ def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         )
         
     except Exception as e:
-        print(f"[ERROR] Risk evaluation failed: {str(e)}")
+        logger.error(f"Risk evaluation failed: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return _create_response(
             allowed=False,
             multiplier=0,
@@ -326,7 +379,7 @@ def _save_risk_state(state: Dict) -> None:
             ContentType='application/json'
         )
     except ClientError as e:
-        print(f"[WARN] Failed to save risk state: {e}")
+        logger.warning(f"Failed to save risk state: {e}")
 
 
 def _default_risk_state() -> Dict:

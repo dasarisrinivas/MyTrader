@@ -17,9 +17,18 @@ from uuid import uuid4
 import boto3
 from botocore.exceptions import ClientError
 
+from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools.metrics import MetricUnit
+from pydantic import BaseModel, ValidationError
+
 # Initialize AWS clients
 s3_client = boto3.client('s3')
 cloudwatch_client = boto3.client('cloudwatch')
+
+# Powertools
+logger = Logger()
+metrics = Metrics(namespace="TradingBot")
+tracer = Tracer()
 
 # Environment variables
 S3_BUCKET = os.environ.get('S3_BUCKET', 'trading-bot-data')
@@ -31,6 +40,12 @@ METRIC_NAMESPACE = 'MyTrader/LearningAgent'
 MIN_PATTERN_OCCURRENCES = 3
 LOOKBACK_DAYS = 30
 CONFIDENCE_DECAY = 0.95  # How much old patterns decay in importance
+
+
+class LearningRequest(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    min_loss_threshold: Optional[float] = None
 
 
 class DailyLossSummaryBuilder:
@@ -86,7 +101,7 @@ def _log_event(event_type: str, payload: Dict[str, Any]) -> None:
         'timestamp': datetime.now(timezone.utc).isoformat(),
         **payload
     }
-    print(json.dumps(entry, default=str))
+    logger.info(json.dumps(entry, default=str))
 
 
 def _publish_metrics(metrics: List[Dict[str, Any]]) -> None:
@@ -116,7 +131,7 @@ def _publish_metrics(metrics: List[Dict[str, Any]]) -> None:
             MetricData=metric_payload
         )
     except ClientError as e:
-        print(f"[WARN] Failed to push CloudWatch metrics: {e}")
+        logger.warning(f"Failed to push CloudWatch metrics: {e}")
 
 
 def _resolve_target_date(value: Optional[str]) -> str:
@@ -203,7 +218,7 @@ def _persist_learning_outputs(
     )
     artifacts_written += 1
 
-    print(f"[INFO] Persisted learning artifacts to s3://{S3_BUCKET}/{learning_key} and {state_key}")
+    logger.info(f"Persisted learning artifacts to s3://{S3_BUCKET}/{learning_key} and {state_key}")
     return artifacts_written
 
 
@@ -218,20 +233,31 @@ def _is_losing_trade(trade: Dict[str, Any]) -> bool:
         return False
 
 
+@tracer.capture_lambda_handler
+@logger.inject_lambda_context
+@metrics.log_metrics
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Analyze losing trades and update strategy rules.
     
     This function is invoked by Bedrock Agent as an action group.
     """
-    print(f"[INFO] Received event: {json.dumps(event, default=str)[:1000]}")
+    logger.info(f"Received event: {json.dumps(event, default=str)[:1000]}")
+    metrics.add_metric(name="RequestsReceived", unit=MetricUnit.Count, value=1)
     
     # Handle Bedrock Agent invocation format
     if 'actionGroup' in event:
         return _handle_bedrock_agent_request(event, context)
     
     # Handle direct invocation (Step Functions, API, manual)
-    return _handle_direct_request(event, context)
+    try:
+        validated = LearningRequest(**event)
+    except ValidationError as exc:
+        logger.error(f"Input validation failed: {exc}")
+        metrics.add_metric(name="ValidationErrors", unit=MetricUnit.Count, value=1)
+        raise
+    merged_event = {**event, **validated.dict()}
+    return _handle_direct_request(merged_event, context)
 
 
 def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -243,7 +269,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
     # Convert parameters list to dict
     params = {p['name']: p['value'] for p in parameters} if parameters else {}
     
-    print(f"[INFO] Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    logger.info(f"Bedrock Agent call - Action: {action_group}, Function: {function_name}, Params: {params}")
+    metrics.add_metric(name="BedrockRequests", unit=MetricUnit.Count, value=1)
     
     try:
         start_date = params.get('start_date', (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d'))
@@ -280,7 +307,8 @@ def _handle_bedrock_agent_request(event: Dict[str, Any], context: Any) -> Dict[s
         }
         
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
+        logger.error(f"Learning Bedrock action error: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'messageVersion': '1.0',
             'response': {
@@ -428,7 +456,8 @@ def _handle_direct_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         ])
         _log_event('LEARNING_AGENT_END', {**run_metadata, 'status': 'FAILED', 'error': str(e),
                                           'duration_ms': duration_ms})
-        print(f"[ERROR] Learning analysis failed: {str(e)}")
+        logger.error(f"Learning analysis failed: {str(e)}")
+        metrics.add_metric(name="ProcessingErrors", unit=MetricUnit.Count, value=1)
         return {
             'status': 'error',
             'message': str(e),
@@ -468,7 +497,7 @@ def _fetch_losing_trades(date_range: Dict) -> List[Dict]:
                     
         except ClientError as e:
             if e.response['Error']['Code'] != 'NoSuchKey':
-                print(f"[WARN] Error reading trades for {date_str}: {e}")
+                logger.warning(f"Error reading trades for {date_str}: {e}")
         
         current_date += timedelta(days=1)
     
@@ -735,7 +764,7 @@ def _save_strategy_rules(rules: Dict) -> None:
         Body=json.dumps(rules, indent=2).encode('utf-8'),
         ContentType='application/json'
     )
-    print(f"[INFO] Saved updated strategy rules")
+    logger.info("Saved updated strategy rules")
 
 
 def _save_bad_patterns(patterns: List[Dict]) -> None:
@@ -746,7 +775,7 @@ def _save_bad_patterns(patterns: List[Dict]) -> None:
         Body=json.dumps(patterns, indent=2).encode('utf-8'),
         ContentType='application/json'
     )
-    print(f"[INFO] Saved {len(patterns)} bad patterns")
+    logger.info(f"Saved {len(patterns)} bad patterns")
 
 
 def _generate_rule_updates(

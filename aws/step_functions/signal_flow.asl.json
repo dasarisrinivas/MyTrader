@@ -1,7 +1,63 @@
 {
-  "Comment": "Signal Flow - Real-time trading decision workflow",
-  "StartAt": "InvokeDecisionEngine",
+  "Comment": "Enhanced Signal Flow with Parallel Processing",
+  "StartAt": "PreflightChecks",
   "States": {
+    "PreflightChecks": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "ValidateMarketHours",
+          "States": {
+            "ValidateMarketHours": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.market_snapshot.market_state",
+                  "StringEquals": "CLOSED",
+                  "Next": "MarketClosedError"
+                }
+              ],
+              "Default": "MarketOpen"
+            },
+            "MarketOpen": {
+              "Type": "Pass",
+              "End": true
+            },
+            "MarketClosedError": {
+              "Type": "Fail",
+              "Error": "MarketClosed",
+              "Cause": "Market state is CLOSED"
+            }
+          }
+        },
+        {
+          "StartAt": "CheckAccountHealth",
+          "States": {
+            "CheckAccountHealth": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.account_state.daily_pnl",
+                  "NumericLessThan": -1500,
+                  "Next": "DailyLimitReached"
+                }
+              ],
+              "Default": "AccountHealthy"
+            },
+            "AccountHealthy": {
+              "Type": "Pass",
+              "End": true
+            },
+            "DailyLimitReached": {
+              "Type": "Fail",
+              "Error": "DailyLimitExceeded",
+              "Cause": "Daily PnL limit breached"
+            }
+          }
+        }
+      ],
+      "Next": "InvokeDecisionEngine"
+    },
     "InvokeDecisionEngine": {
       "Type": "Task",
       "Resource": "arn:aws:states:::bedrock:invokeAgent",
@@ -13,9 +69,35 @@
       },
       "ResultPath": "$.decision_result",
       "Next": "ParseDecision",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Bedrock.ThrottlingException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 3.0
+        },
+        {
+          "ErrorEquals": [
+            "Bedrock.ValidationException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2
+        },
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3
+        }
+      ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "DecisionError",
           "ResultPath": "$.error"
         }
@@ -24,7 +106,7 @@
     "ParseDecision": {
       "Type": "Pass",
       "Parameters": {
-        "decision.$": "$.decision_result.completion",
+        "decision.$": "States.StringToJson($.decision_result.completion)",
         "market_snapshot.$": "$.market_snapshot",
         "account_state.$": "$.account_state",
         "agent_ids.$": "$.agent_ids",
@@ -36,7 +118,7 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.decision.action",
+          "Variable": "$.decision.decision",
           "StringEquals": "WAIT",
           "Next": "ReturnWaitDecision"
         }
@@ -64,9 +146,35 @@
       },
       "ResultPath": "$.risk_result",
       "Next": "ParseRiskResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Bedrock.ThrottlingException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 3.0
+        },
+        {
+          "ErrorEquals": [
+            "Bedrock.ValidationException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2
+        },
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3
+        }
+      ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "RiskError",
           "ResultPath": "$.error"
         }
@@ -75,11 +183,11 @@
     "ParseRiskResult": {
       "Type": "Pass",
       "Parameters": {
-        "approved.$": "$.risk_result.completion.approved",
-        "position_size.$": "$.risk_result.completion.position_size",
-        "risk_score.$": "$.risk_result.completion.risk_score",
+        "approved.$": "States.StringToJson($.risk_result.completion).approved",
+        "position_size.$": "States.StringToJson($.risk_result.completion).position_size",
+        "risk_score.$": "States.StringToJson($.risk_result.completion).risk_score",
         "decision.$": "$.decision",
-        "risk_warnings.$": "$.risk_result.completion.warnings"
+        "risk_warnings.$": "States.StringToJson($.risk_result.completion).warnings"
       },
       "Next": "CheckApproval"
     },
@@ -99,13 +207,13 @@
       "Parameters": {
         "status": "APPROVED",
         "approved": true,
-        "action.$": "$.decision.action",
+        "action.$": "$.decision.decision",
         "position_size.$": "$.position_size",
         "confidence.$": "$.decision.confidence",
         "stop_loss.$": "$.decision.stop_loss",
         "take_profit.$": "$.decision.take_profit",
         "risk_score.$": "$.risk_score",
-        "reason.$": "$.decision.reason",
+        "reason.$": "$.decision.reasoning",
         "warnings.$": "$.risk_warnings"
       },
       "End": true
@@ -115,7 +223,7 @@
       "Parameters": {
         "status": "REJECTED",
         "approved": false,
-        "action.$": "$.decision.action",
+        "action.$": "$.decision.decision",
         "position_size": 0,
         "reason.$": "$.risk_result.completion.reason",
         "risk_score.$": "$.risk_score",

@@ -199,6 +199,48 @@ Resources:
       SourceAccount: !Ref AWS::AccountId
 
   # ============================================
+  # CLOUDWATCH ALARMS FOR AGENTS
+  # ============================================
+  AgentAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-agent-alerts'
+      DisplayName: !Sub '${ProjectName}-${Environment}-AgentAlerts'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  Agent2LatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-Agent2-HighLatency'
+      MetricName: Duration
+      Namespace: AWS/Bedrock
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AgentAlertsTopic
+
+  Agent2ErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-Agent2-HighErrorRate'
+      MetricName: Errors
+      Namespace: AWS/Bedrock
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AgentAlertsTopic
+
+  # ============================================
   # CLOUDWATCH ALARMS FOR LEARNING AGENT
   # ============================================
   LearningAgentAlarmTopic:
@@ -312,3 +354,7 @@ Outputs:
   LearningAgentAlarmTopicArn:
     Description: Learning Agent alarm SNS topic ARN
     Value: !Ref LearningAgentAlarmTopic
+
+  AgentAlertsTopicArn:
+    Description: Agent alerts SNS topic ARN
+    Value: !Ref AgentAlertsTopic
