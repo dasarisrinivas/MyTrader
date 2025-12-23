@@ -53,7 +53,7 @@ from ..learning.trade_learning import (
     TradeLearningRecorder,
 )
 from ..optimization.optimizer import ParameterOptimizer
-from ..llm.rag_storage import RAGStorage, TradeRecord as RAGTradeRecord
+from ..llm.rag_storage import RAGStorage
 try:
     from ..llm.trade_logger import TradeLogger as DecisionMetricsLogger
 except ImportError:
@@ -369,9 +369,9 @@ class LiveTradingManager:
         except RuntimeError:
             loop = None
         if loop and loop.is_running():
-            loop.create_task(self._handle_execution_event(trade, fill))
+            loop.create_task(self.order_coordinator.handle_order_fill(trade, fill))
         else:
-            asyncio.run(self._handle_execution_event(trade, fill))
+            asyncio.run(self.order_coordinator.handle_order_fill(trade, fill))
 
     def _bootstrap_local_kb(self, outcomes_dir: str) -> None:
         """Seed the local KB with any historical trade outcomes on disk."""
@@ -448,53 +448,6 @@ class LiveTradingManager:
 
     def _query_local_knowledge_base(self, context: Dict[str, Any]) -> Dict[str, Any]:
         return self.context_manager.query_local_knowledge_base(context)
-
-    async def _handle_execution_event(self, trade, fill):
-        try:
-            if not self.rag_storage or not self.current_trade_id:
-                pass  # Continue to learning recorder if active
-            realized_pnl = 0.0
-            if hasattr(fill, 'commissionReport') and hasattr(fill.commissionReport, 'realizedPNL'):
-                if abs(fill.commissionReport.realizedPNL) > 0.001:
-                    realized_pnl = fill.commissionReport.realizedPNL
-            exit_time = datetime.now(timezone.utc)
-            if realized_pnl != 0 and self.rag_storage and self.current_trade_id:
-                hold_seconds = 0
-                if self.current_trade_entry_time:
-                    try:
-                        entry_time = datetime.fromisoformat(self.current_trade_entry_time.replace("Z", "+00:00"))
-                        if entry_time.tzinfo is None:
-                            entry_time = entry_time.replace(tzinfo=timezone.utc)
-                        hold_seconds = int((exit_time - entry_time).total_seconds())
-                    except Exception as e:
-                        logger.error(f"Error calculating hold time: {e}")
-                record = RAGTradeRecord(
-                    uuid=self.current_trade_id,
-                    timestamp_utc=self.current_trade_entry_time or now_cst().isoformat(),
-                    contract_month=self.settings.data.ibkr_symbol,
-                    entry_price=self.current_trade_entry_price or 0.0,
-                    entry_qty=0,
-                    exit_price=fill.execution.price,
-                    exit_qty=fill.execution.shares,
-                    pnl=realized_pnl,
-                    fees=fill.commissionReport.commission if hasattr(fill, 'commissionReport') else 0.0,
-                    hold_seconds=hold_seconds,
-                    decision_features=self.current_trade_features or {},
-                    decision_rationale=self.current_trade_rationale or {}
-                )
-                self.rag_storage.save_trade(record, self.current_trade_buckets)
-                logger.info(f"Updated RAG record {self.current_trade_id} with exit info")
-                self.current_trade_id = None
-                self.current_trade_entry_time = None
-                self.current_trade_entry_price = None
-            if realized_pnl != 0:
-                await self._finalize_trade(
-                    exit_price=fill.execution.price,
-                    exit_time=exit_time,
-                    realized_pnl=realized_pnl,
-                )
-        except Exception as e:
-            logger.error(f"Error in _handle_execution_event: {e}")
 
     async def _load_historical_context(self):
         """Load historical market context at bot startup.
