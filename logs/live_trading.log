@@ -60206,3 +60206,209 @@
 
 2025-12-23 08:54:55 CST | INFO     | mytrader.execution.live_trading_manager:stop:3169 - Trading session stopped
 
+2025-12-23 09:08:44 CST | INFO     | __main__:main:47 - 🚀 Starting MyTrader RAG-Enhanced Bot (LIVE MODE)
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.rag.local_vector_store:__init__:46 - Local vector store ready at %s
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:43 - Initializing trading components...
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.utils.telegram_notifier:__init__:44 - ✅ Telegram notifications enabled
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:63 - ✅ Telegram notifications initialized
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.monitoring.order_tracker:_init_database:156 - Order tracker database initialized: /Users/svss/Documents/code/MyTrader/data/orders.db
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.ib_executor:connect:454 - Connecting executor to IBKR 127.0.0.1:4002 (client_id=11, timeout=120s)
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.ib_executor:connect:473 - Connected to IBKR - using snapshot market data requests
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.ib_executor:_cancel_all_existing_orders:506 - ✅ No existing orders for MES - clean slate
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.ib_executor:_start_keepalive:2135 - Keepalive task started
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.trading_session_manager:force_order_reconciliation:249 - Forcing reconciliation of active orders with IBKR...
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.ib_executor:_reconcile_orders:597 - ✅ No active orders
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.trading_session_manager:force_order_reconciliation:251 - Order reconciliation complete.
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.cooldown_manager:load_persistent_cooldown_state:74 - ⏱️ Cooldown resume: last trade at %s
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:93 - ✅ RAG Storage initialized
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/MyTrader/data/llm_trades.db
+
+2025-12-23 09:08:44 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:100 - ✅ Decision metrics logger initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.s3_storage:__init__:134 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.rag_storage_manager:__init__:164 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.trade_logger:__init__:67 - TradeLogger initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.mistake_analyzer:__init__:146 - MistakeAnalyzer initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.s3_storage:__init__:134 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2025-12-23 09:08:45 CST | WARNING  | mytrader.rag.embedding_builder:_enable_fallback:124 - Using fallback embedding mode (384 dims) - sentence-transformers not available
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.embedding_builder:_load_index:567 - No existing index found in S3
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.embedding_builder:__init__:104 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.pipeline_integration:_initialize_local_rag_index:206 - Building local RAG index from 5 documents in rag_data
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.embedding_builder:build_index:332 - Building FAISS index with 5 documents
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.embedding_builder:build_index:355 - Built FAISS index with 5 vectors
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.hybrid.multi_factor_scorer:__init__:59 - MultiFactorScorer initialized with weights={'technical': 0.3, 'llm': 0.2, 'rag': 0.2, 'news': 0.1, 'macro': 0.1, 'risk': 0.1}
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.s3_storage:__init__:134 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2025-12-23 09:08:45 CST | WARNING  | mytrader.rag.embedding_builder:_enable_fallback:124 - Using fallback embedding mode (384 dims) - sentence-transformers not available
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.embedding_builder:_load_index:567 - No existing index found in S3
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.embedding_builder:__init__:104 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:218 - RuleEngine initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:558 - RAGRetriever initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:769 - LLMDecisionMaker initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:1164 - HybridRAGPipeline initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.data_ingestion:__init__:49 - RAGDataIngestionPipeline watching data
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.rag_daily_updater:__init__:47 - RAGDailyUpdater initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.rag.pipeline_integration:__init__:169 - HybridPipelineIntegration initialized
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:118 - 🔎 Hybrid RAG index ready (%s, %d docs)
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:125 - ✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.execution.live_trading_manager:_configure_aws_agents:406 - ℹ️  AWS Agents disabled: OpenSearch backend not permitted
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:505 - 📊 Loading historical market context...
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.execution.ib_executor:keepalive_loop:2094 - Starting connection keepalive task (checking every 30s)
+
+2025-12-23 09:08:45 CST | INFO     | mytrader.execution.ib_executor:get_qualified_contract:429 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
+
+2025-12-23 09:08:45 CST | WARNING  | mytrader.execution.live_trading_manager:_load_historical_context:530 - ⚠️ Historical data request failed: This event loop is already running
+
+2025-12-23 09:08:45 CST | ERROR    | mytrader.execution.live_trading_manager:_load_historical_context:593 - ❌ Failed to load historical context: This event loop is already running
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.live_trading_manager:_bootstrap_price_history:723 - 📚 Bootstrapped 51 historical 1-min bars for structural context
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:139 - ✅ Connected to IBKR
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:146 - ✅ Live trading manager initialized
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.components.trading_session_manager:start:161 - 🔄 Starting trading loop...
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6925.75
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 09:08:00 CST
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/MyTrader/data/llm_trades.db
+
+2025-12-23 09:08:46 CST | INFO     | mytrader.rag.trade_logger:_get_metrics_logger:362 - Metrics logger ready for structural persistence
+
+2025-12-23 09:08:47 CST | ERROR    | mytrader.rag.embedding_builder:_log_empty_index_if_needed:164 - FAISS index is empty - falling back to CPU similarity search
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-19/153007_53e3be8b.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-18/013010_02879f3e.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-16/020504_3d5d3415.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-15/172708_349b8dd1.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-12/094939_cfbffda2.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-08/190350_test_007.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-07/190350_test_006.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-06/190350_test_005.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-05/190350_test_004.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-04/190350_test_003.json
+
+2025-12-23 09:08:47 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-03/190350_test_002.json
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:293 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-02/190350_test_001.json
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=1071ms)
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.33
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.33, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.33, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.33
+
+2025-12-23 09:08:48 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 09:08:53 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:08:53 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6925.75
+
+2025-12-23 09:08:58 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:08:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6925.75
+
+2025-12-23 09:09:04 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 6
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6925.5
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 09:09:00 CST
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=193ms)
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.33
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.33, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.33, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.33
+
+2025-12-23 09:09:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 09:09:09 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 7
+
+2025-12-23 09:09:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:09:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:09:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6925.25
+
+2025-12-23 09:09:15 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 8
+
+2025-12-23 09:09:15 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:09:15 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:09:15 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6925.5
+

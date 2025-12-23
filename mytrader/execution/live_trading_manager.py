@@ -173,7 +173,7 @@ class LiveTradingManager:
         self,
         settings: Settings,
         simulation_mode: bool = False,
-        reset_state_on_start: bool | None = None,
+        reset_state_on_start: Optional[bool] = None,
     ):
         self.settings = settings
         self.simulation_mode = simulation_mode  # NEW: Dry run mode

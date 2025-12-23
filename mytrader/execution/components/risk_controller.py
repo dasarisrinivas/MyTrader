@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from ..utils.logger import logger
+from ...utils.logger import logger
 
 
 class RiskController:

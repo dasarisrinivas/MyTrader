@@ -3,7 +3,7 @@
 import time
 from typing import Any, Dict, Optional
 
-from ..utils.logger import logger
+from ...utils.logger import logger
 
 
 class ContextManager:
