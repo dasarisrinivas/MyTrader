@@ -416,6 +416,8 @@ Return your response as structured JSON."""
                 return None
             ttl = item.get('ttl')
             if ttl and int(ttl) < int(time.time()):
+                # Clean up expired items
+                table.delete_item(Key={"pk": cache_key})
                 return None
             payload = item.get('payload')
             return json.loads(payload) if payload else None

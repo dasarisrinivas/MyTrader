@@ -41,6 +41,10 @@ logs/*.pid
 logs/*.info
 logs/*.log
 logs/*.csv
+logs/*.json
+logs/*.trace
+aws/lambda/*/logs/
+bedrock_agent_*.log
 *.log
 
 # Data files (can be large)
