@@ -159,9 +159,9 @@ class TradeDecisionEngine:
 
         direction = "long" if action in ["BUY", "SCALP_BUY"] else "short"
         stop_loss, take_profit = m.risk.calculate_dynamic_stops(
-            entry_price=price,
-            current_atr=atr,
-            direction=direction,  # type: ignore[arg-type]
+            price,
+            atr,
+            direction,  # type: ignore[arg-type]
         )
         meta = {"atr_used": atr, "direction": direction}
         return StopLevels(stop_loss=stop_loss, take_profit=take_profit, meta=meta)
