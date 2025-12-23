@@ -1112,7 +1112,6 @@ TRADING GUIDANCE:
             self.status.unrealized_pnl = await self.executor.get_unrealized_pnl()
             self.tracker.update_equity(current_price, realized_pnl=0.0)
             self._update_status_from_tracker()
-            self._update_status_from_tracker()
             
             # Update trailing stops
             atr_val = float(features.iloc[-1].get("ATR_14", 0.0))
@@ -2096,15 +2095,15 @@ TRADING GUIDANCE:
                     self._update_status_from_tracker()
                 
                 # Log trade entry through hybrid pipeline
-                    if self.hybrid_pipeline:
-                        self.hybrid_pipeline.log_trade_entry(
-                            action=signal.action,
-                            entry_price=result.fill_price or current_price,
-                            quantity=qty,
-                            stop_loss=stop_loss,
-                            take_profit=take_profit,
-                            market_data=market_data,
-                            pipeline_result=pipeline_result,
+                if self.hybrid_pipeline:
+                    self.hybrid_pipeline.log_trade_entry(
+                        action=signal.action,
+                        entry_price=result.fill_price or current_price,
+                        quantity=qty,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        market_data=market_data,
+                        pipeline_result=pipeline_result,
                     )
                     logger.info("✅ Trade logged to Hybrid RAG system")
                 if result.fill_price:
