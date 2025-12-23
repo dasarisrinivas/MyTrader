@@ -8,6 +8,8 @@ processing their responses for the trading bot.
 import json
 import time
 import uuid
+import hashlib
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
@@ -75,6 +77,11 @@ class BedrockAgentClient:
         # Agent configuration
         self.agent_ids = agent_ids or {}
         self.agent_alias_ids = agent_alias_ids or {}
+
+        # Optional DynamoDB response cache
+        self.cache_table_name = os.environ.get('AGENT_CACHE_TABLE')
+        self.cache_ttl_seconds = int(os.environ.get('AGENT_CACHE_TTL_SECONDS', '900'))
+        self._dynamo = None
         
         # Session management
         self._sessions: Dict[str, str] = {}
@@ -89,6 +96,8 @@ class BedrockAgentClient:
                 'bedrock-agent-runtime',
                 region_name=self.region_name
             )
+            if self.cache_table_name:
+                self._dynamo = boto3.resource('dynamodb', region_name=self.region_name)
             logger.info(f"Initialized Bedrock Agent client in {self.region_name}")
         except Exception as e:
             logger.error(f"Failed to initialize Bedrock Agent client: {e}")
@@ -125,6 +134,16 @@ class BedrockAgentClient:
         
         # Enforce rate limiting
         self._enforce_rate_limit()
+
+        cache_key = None
+        if self._dynamo and self.cache_table_name:
+            cache_key = self._build_cache_key(agent_name, input_text)
+            cached_response = self._read_cache(cache_key)
+            if cached_response:
+                if not cached_response.get('session_id'):
+                    cached_response['session_id'] = session_id
+                cached_response['cached'] = True
+                return cached_response
         
         # Invoke with retry logic
         last_error = None
@@ -143,6 +162,10 @@ class BedrockAgentClient:
                 # Process streaming response
                 result = self._process_response(response, agent_name)
                 result['session_id'] = session_id
+                result['cached'] = False
+
+                if cache_key:
+                    self._write_cache(cache_key, result)
                 
                 return result
                 
@@ -377,6 +400,44 @@ Return your response as structured JSON."""
             'raw_response': completion,
             'session_id': response.get('session_id'),
         }
+
+    def _build_cache_key(self, agent_name: str, input_text: str) -> str:
+        digest = hashlib.sha256(input_text.encode('utf-8')).hexdigest()
+        return f"{agent_name}#{digest}"
+
+    def _read_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        if not self._dynamo or not self.cache_table_name:
+            return None
+        try:
+            table = self._dynamo.Table(self.cache_table_name)
+            response = table.get_item(Key={"pk": cache_key})
+            item = response.get('Item')
+            if not item:
+                return None
+            ttl = item.get('ttl')
+            if ttl and int(ttl) < int(time.time()):
+                return None
+            payload = item.get('payload')
+            return json.loads(payload) if payload else None
+        except Exception as exc:
+            logger.debug(f"Cache read failed for {cache_key}: {exc}")
+            return None
+
+    def _write_cache(self, cache_key: str, payload: Dict[str, Any]) -> None:
+        if not self._dynamo or not self.cache_table_name:
+            return
+        try:
+            table = self._dynamo.Table(self.cache_table_name)
+            ttl = int(time.time()) + self.cache_ttl_seconds
+            table.put_item(
+                Item={
+                    "pk": cache_key,
+                    "ttl": ttl,
+                    "payload": json.dumps(payload),
+                }
+            )
+        except Exception as exc:
+            logger.debug(f"Cache write failed for {cache_key}: {exc}")
     
     def _get_session(self, agent_name: str) -> str:
         """Get or create session ID for an agent."""

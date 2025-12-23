@@ -36,6 +36,10 @@ Resources:
         Type: VECTOR
         VectorKnowledgeBaseConfiguration:
           EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+          EmbeddingModelConfiguration:
+            BedrockEmbeddingModelConfiguration:
+              Dimensions: 1024
+              Normalize: true
       StorageConfiguration:
         Type: OPENSEARCH_SERVERLESS
         OpensearchServerlessConfiguration:
@@ -68,10 +72,24 @@ Resources:
             - 'structured/'
       VectorIngestionConfiguration:
         ChunkingConfiguration:
-          ChunkingStrategy: FIXED_SIZE
-          FixedSizeChunkingConfiguration:
-            MaxTokens: 512
-            OverlapPercentage: 20
+          ChunkingStrategy: HIERARCHICAL
+          HierarchicalChunkingConfiguration:
+            LevelConfigurations:
+              - MaxTokens: 8192
+              - MaxTokens: 2048
+              - MaxTokens: 512
+            OverlapTokens: 100
+        ParsingConfiguration:
+          ParsingStrategy: BEDROCK_FOUNDATION_MODEL
+          BedrockFoundationModelConfiguration:
+            ModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0'
+            ParsingPrompt: |
+              Extract structured trading data with the following schema:
+              - timestamp, symbol, action, price, quantity
+              - technical_indicators: {rsi, macd, atr, ema_20}
+              - market_context: {trend, volatility, pdh_delta, pdl_delta}
+              - outcome: WIN|LOSS
+              - pnl: float
 
   # ============================================
   # KB DATA SOURCE - KB DOCS
@@ -91,10 +109,24 @@ Resources:
             - 'kb/'
       VectorIngestionConfiguration:
         ChunkingConfiguration:
-          ChunkingStrategy: FIXED_SIZE
-          FixedSizeChunkingConfiguration:
-            MaxTokens: 512
-            OverlapPercentage: 20
+          ChunkingStrategy: HIERARCHICAL
+          HierarchicalChunkingConfiguration:
+            LevelConfigurations:
+              - MaxTokens: 8192
+              - MaxTokens: 2048
+              - MaxTokens: 512
+            OverlapTokens: 100
+        ParsingConfiguration:
+          ParsingStrategy: BEDROCK_FOUNDATION_MODEL
+          BedrockFoundationModelConfiguration:
+            ModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0'
+            ParsingPrompt: |
+              Extract structured trading data with the following schema:
+              - timestamp, symbol, action, price, quantity
+              - technical_indicators: {rsi, macd, atr, ema_20}
+              - market_context: {trend, volatility, pdh_delta, pdl_delta}
+              - outcome: WIN|LOSS
+              - pnl: float
 
   # ============================================
   # KB DATA SOURCE - STRATEGY
