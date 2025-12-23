@@ -1,8 +1,8 @@
 """Risk and structural context helpers."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -119,6 +119,85 @@ class RiskController:
         )
         return RiskResult(allowed=allowed)
 
+    def pre_trade_risk_checks(self) -> "RiskValidation":
+        """Evaluate high-level risk gates before trade placement."""
+        m = self.manager
+        reasons: List[str] = []
+        if not m.risk:
+            return RiskValidation(allowed=True, reasons=reasons, suggested_size=0)
+
+        stats = m.risk.get_statistics()
+        max_daily_loss = getattr(m.settings.trading, "max_daily_loss", float("inf"))
+        max_trades = getattr(m.settings.trading, "max_daily_trades", float("inf"))
+        heat_limit = getattr(m.settings.trading, "margin_limit_pct", 1.0) * 100
+
+        if stats.get("daily_loss", 0) >= max_daily_loss:
+            reasons.append("DAILY_LOSS_LIMIT")
+        if stats.get("daily_trade_count", 0) >= max_trades:
+            reasons.append("DAILY_TRADE_LIMIT")
+        if stats.get("portfolio_heat", 0) >= heat_limit:
+            reasons.append("PORTFOLIO_HEAT")
+
+        return RiskValidation(
+            allowed=len(reasons) == 0,
+            reasons=reasons,
+            suggested_size=self.position_size_calculation(),
+        )
+
+    def position_size_calculation(self) -> int:
+        """Return a conservative position size based on current stats."""
+        m = self.manager
+        if not m.risk:
+            return 0
+        stats = m.risk.get_statistics()
+        confidence_floor = max(0.5, getattr(m, "_min_confidence_for_trade", 0.6))
+        qty = m.risk.position_size(
+            m.settings.trading.initial_capital,
+            confidence_floor,
+            win_rate=stats.get("win_rate"),
+            avg_win=stats.get("avg_win"),
+            avg_loss=stats.get("avg_loss"),
+        )
+        return min(max(1, qty), m.settings.trading.max_position_size)
+
+    def stop_loss_optimization(self) -> float:
+        """Suggest a stop level using ATR offsets and instrument tick size."""
+        m = self.manager
+        price = (
+            m.status.current_price
+            or (m.price_history[-1]["close"] if m.price_history else 0.0)
+        )
+        action = m.status.last_signal or "BUY"
+        atr = 0.0
+        if m.current_trade_features:
+            atr = float(m.current_trade_features.get("atr", 0.0))
+        if atr <= 0 and m.price_history:
+            atr = float(m.price_history[-1].get("ATR_14", 0.0) or 0.0)
+        offsets = compute_protective_offsets(
+            atr_value=atr,
+            tick_size=m.settings.trading.tick_size,
+            scalper=False,
+            volatility="MED",
+        )
+        is_buy = action.upper() in ("BUY", "SCALP_BUY")
+        stop_price = price - offsets.stop_offset if is_buy else price + offsets.stop_offset
+        return stop_price
+
+    def exposure_monitoring(self) -> "ExposureReport":
+        """Report current portfolio heat against configured limits."""
+        m = self.manager
+        stats = m.risk.get_statistics() if m.risk else {}
+        heat = float(stats.get("portfolio_heat", 0.0) or 0.0)
+        limit_pct = getattr(m.settings.trading, "margin_limit_pct", 1.0) * 100
+        open_positions = 1 if getattr(m.status, "current_position", 0) else 0
+        within_limits = heat <= limit_pct
+        return ExposureReport(
+            portfolio_heat=heat,
+            limit=limit_pct,
+            within_limits=within_limits,
+            open_positions=open_positions,
+        )
+
     def calculate_stop_loss(
         self,
         entry_price: float,
@@ -172,3 +251,18 @@ class TradeRequest:
 class RiskResult:
     allowed: bool
     reason: Optional[str] = None
+
+
+@dataclass
+class RiskValidation:
+    allowed: bool
+    reasons: List[str] = field(default_factory=list)
+    suggested_size: int = 0
+
+
+@dataclass
+class ExposureReport:
+    portfolio_heat: float
+    limit: float
+    within_limits: bool
+    open_positions: int = 0

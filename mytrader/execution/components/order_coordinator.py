@@ -157,6 +157,63 @@ class OrderCoordinator:
         if self.manager._current_entry_cycle_id == payload.trade_cycle_id:
             self.manager._current_entry_cycle_id = None
 
+    async def handle_order_fill(self, trade, fill) -> None:
+        """Handle execution details to persist fills and outcomes."""
+        m = self.manager
+        try:
+            if not m.rag_storage or not m.current_trade_id:
+                pass
+
+            realized_pnl = 0.0
+            commission_report = getattr(fill, "commissionReport", None)
+            if commission_report and hasattr(commission_report, "realizedPNL"):
+                pnl_value = commission_report.realizedPNL
+                if pnl_value is not None and abs(pnl_value) > 0.001:
+                    realized_pnl = pnl_value
+
+            exit_time = datetime.now(timezone.utc)
+            if realized_pnl != 0 and m.rag_storage and m.current_trade_id:
+                hold_seconds = 0
+                if m.current_trade_entry_time:
+                    try:
+                        entry_time = datetime.fromisoformat(
+                            m.current_trade_entry_time.replace("Z", "+00:00")
+                        )
+                        if entry_time.tzinfo is None:
+                            entry_time = entry_time.replace(tzinfo=timezone.utc)
+                        hold_seconds = int((exit_time - entry_time).total_seconds())
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error(f"Error calculating hold time: {exc}")
+
+                record = RAGTradeRecord(
+                    uuid=m.current_trade_id,
+                    timestamp_utc=m.current_trade_entry_time or now_cst().isoformat(),
+                    contract_month=m.settings.data.ibkr_symbol,
+                    entry_price=m.current_trade_entry_price or 0.0,
+                    entry_qty=0,
+                    exit_price=fill.execution.price,
+                    exit_qty=fill.execution.shares,
+                    pnl=realized_pnl,
+                    fees=commission_report.commission if commission_report else 0.0,
+                    hold_seconds=hold_seconds,
+                    decision_features=m.current_trade_features or {},
+                    decision_rationale=m.current_trade_rationale or {},
+                )
+                m.rag_storage.save_trade(record, m.current_trade_buckets)
+                logger.info("Updated RAG record %s with exit info", m.current_trade_id)
+                m.current_trade_id = None
+                m.current_trade_entry_time = None
+                m.current_trade_entry_price = None
+
+            if realized_pnl != 0:
+                await m._finalize_trade(
+                    exit_price=fill.execution.price,
+                    exit_time=exit_time,
+                    realized_pnl=realized_pnl,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Error handling order fill: {exc}")
+
     async def execute_trade_with_risk_checks(self, signal, current_price: float, features):
         """Place an order with sizing, stops, and hard guardrails."""
         m = self.manager
