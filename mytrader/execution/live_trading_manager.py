@@ -466,33 +466,60 @@ class LiveTradingManager:
                 if not contract:
                     logger.warning("⚠️ Could not get contract for historical data")
                     return
-                
-                # Fetch last 5 days of daily bars
-                # ib_insync handles the async internally via its event loop
+
+                # Fetch last 5 days of daily bars using the active loop when available
+                daily_bars = None
                 try:
-                    daily_bars = self.executor.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='5 D',
-                        barSizeSetting='1 day',
-                        whatToShow='TRADES',
-                        useRTH=True,
-                        formatDate=1,
-                        timeout=10  # Add timeout
-                    )
+                    loop: Optional[asyncio.AbstractEventLoop] = None
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+
+                    async def _fetch(use_rth: bool):
+                        ib = self.executor.ib
+                        if loop and hasattr(ib, "reqHistoricalDataAsync"):
+                            return await ib.reqHistoricalDataAsync(
+                                contract,
+                                endDateTime='',
+                                durationStr='5 D',
+                                barSizeSetting='1 day',
+                                whatToShow='TRADES',
+                                useRTH=use_rth,
+                                formatDate=1,
+                                timeout=10,
+                            )
+                        if loop:
+                            return await loop.run_in_executor(
+                                None,
+                                lambda: ib.reqHistoricalData(
+                                    contract,
+                                    endDateTime='',
+                                    durationStr='5 D',
+                                    barSizeSetting='1 day',
+                                    whatToShow='TRADES',
+                                    useRTH=use_rth,
+                                    formatDate=1,
+                                    timeout=10,
+                                ),
+                            )
+                        return self.executor.ib.reqHistoricalData(
+                            contract,
+                            endDateTime='',
+                            durationStr='5 D',
+                            barSizeSetting='1 day',
+                            whatToShow='TRADES',
+                            useRTH=use_rth,
+                            formatDate=1,
+                            timeout=10,
+                        )
+
+                    daily_bars = await _fetch(use_rth=True)
+                    if not daily_bars:
+                        daily_bars = await _fetch(use_rth=False)
                 except Exception as hist_err:
                     logger.warning(f"⚠️ Historical data request failed: {hist_err}")
-                    # Try without RTH
-                    daily_bars = self.executor.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='5 D',
-                        barSizeSetting='1 day',
-                        whatToShow='TRADES',
-                        useRTH=False,
-                        formatDate=1,
-                        timeout=10
-                    )
+                    daily_bars = None
                 
                 if daily_bars and len(daily_bars) >= 2:
                     # Previous day's data (second to last bar)

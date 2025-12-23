@@ -226,6 +226,14 @@ class HybridConfig:
     """Configuration for Hybrid RAG + LLM Pipeline (3-layer decision system)."""
     # Master enable/disable
     enabled: bool = field(default_factory=lambda: os.environ.get("HYBRID_ENABLED", "True").lower() == "true")
+    # Level confirmation gate
+    level_confirmation_enabled: bool = True
+    level_confirm_proximity_pct: float = 0.30
+    level_confirm_buffer_atr_mult: float = 0.10
+    level_confirm_min_buffer_points: float = 0.0
+    level_confirm_max_wait_candles: int = 6
+    level_confirm_timeout_mode: str = "SOFT_PENALTY"  # or "DISABLE"
+    level_confirm_timeout_penalty: float = 0.12
     
     # D-Engine (Deterministic Rules) settings
     candidate_threshold: float = 0.55  # Minimum D-engine score to proceed to RAG

@@ -234,6 +234,7 @@ class RuleEngine:
         
         # Extract indicators
         price = market_data.get("close", market_data.get("price", 0))
+        close_price = market_data.get("close", price)
         ema_9 = market_data.get("ema_9", price)
         ema_20 = market_data.get("ema_20", price)
         ema_50 = market_data.get("ema_50", price)
@@ -246,6 +247,7 @@ class RuleEngine:
         
         result.indicators = {
             "price": price,
+            "close": close_price,
             "ema_9": ema_9,
             "ema_20": ema_20,
             "rsi": rsi,
@@ -1160,8 +1162,239 @@ class HybridRAGPipeline:
         self.skip_llm_on_low_score = config.get("skip_llm_on_low_score", True)
         self.min_score_for_llm = config.get("min_score_for_llm", 30)
         self.min_confidence_for_trade = config.get("min_confidence_for_trade", 40)
+        level_cfg = config.get("level_confirmation_settings", {})
+        self.level_confirmation_settings = {
+            "enabled": bool(
+                level_cfg.get(
+                    "level_confirmation_enabled",
+                    level_cfg.get("enabled", config.get("level_confirmation_enabled", True)),
+                )
+            ),
+            "proximity_pct": float(
+                level_cfg.get(
+                    "level_confirm_proximity_pct",
+                    level_cfg.get("proximity_pct", config.get("level_confirm_proximity_pct", 0.30)),
+                )
+                or 0.30
+            ),
+            "buffer_atr_mult": float(
+                level_cfg.get(
+                    "level_confirm_buffer_atr_mult",
+                    level_cfg.get("buffer_atr_mult", config.get("level_confirm_buffer_atr_mult", 0.10)),
+                )
+                or 0.10
+            ),
+            "min_buffer_points": float(
+                level_cfg.get(
+                    "level_confirm_min_buffer_points",
+                    level_cfg.get(
+                        "min_buffer_points",
+                        level_cfg.get("pdh_buffer", config.get("level_confirm_min_buffer_points", 0.0)),
+                    ),
+                )
+                or 0.0
+            ),
+            "max_wait_candles": int(
+                level_cfg.get(
+                    "level_confirm_max_wait_candles",
+                    level_cfg.get("max_wait_candles", config.get("level_confirm_max_wait_candles", 6)),
+                )
+                or 6
+            ),
+            "timeout_mode": str(
+                level_cfg.get(
+                    "level_confirm_timeout_mode",
+                    level_cfg.get("timeout_mode", config.get("level_confirm_timeout_mode", "SOFT_PENALTY")),
+                )
+                or "SOFT_PENALTY"
+            ),
+            "timeout_penalty": float(
+                level_cfg.get(
+                    "level_confirm_timeout_penalty",
+                    level_cfg.get("timeout_penalty", config.get("level_confirm_timeout_penalty", 0.12)),
+                )
+                or 0.0
+            ),
+        }
+        self._level_confirm_wait = {"BUY": 0, "SELL": 0}
         
         logger.info("HybridRAGPipeline initialized")
+
+    def _reset_level_confirm_wait(self, direction: Optional[str] = None) -> None:
+        """Reset wait counters for level confirmation."""
+        if direction:
+            if direction in self._level_confirm_wait:
+                self._level_confirm_wait[direction] = 0
+            return
+        for key in self._level_confirm_wait:
+            self._level_confirm_wait[key] = 0
+
+    def _action_direction(self, action: TradeAction) -> Optional[str]:
+        """Map trade action to BUY/SELL direction for gating."""
+        if action in (TradeAction.BUY, TradeAction.SCALP_BUY):
+            return "BUY"
+        if action in (TradeAction.SELL, TradeAction.SCALP_SELL):
+            return "SELL"
+        return None
+
+    def _apply_level_confirmation(
+        self,
+        final_action: TradeAction,
+        final_confidence: float,
+        final_reasoning: str,
+        indicators: Dict[str, Any],
+    ) -> Tuple[TradeAction, float, str, Optional[HoldReason], Optional[str]]:
+        """AUTO confirmation gate near PDH/PDL with timeout + soft penalty."""
+        cfg = getattr(self, "level_confirmation_settings", {})
+        if not cfg.get("enabled", True):
+            self._reset_level_confirm_wait()
+            return final_action, final_confidence, final_reasoning, None, None
+
+        direction = self._action_direction(final_action)
+        if not direction:
+            self._reset_level_confirm_wait()
+            return final_action, final_confidence, final_reasoning, None, None
+
+        pdh = indicators.get("pdh")
+        pdl = indicators.get("pdl")
+        atr = indicators.get("atr", 0.0) or 0.0
+        price = indicators.get("price")
+        close_price = indicators.get("close", price)
+        price_source = "close" if "close" in indicators else "price"
+        price_ref = close_price if close_price is not None else price
+        if price_ref is None or price_ref == 0:
+            self._reset_level_confirm_wait(direction)
+            return final_action, final_confidence, final_reasoning, None, None
+
+        buffer_points = max(
+            float(cfg.get("min_buffer_points", 0.0) or 0.0),
+            atr * float(cfg.get("buffer_atr_mult", 0.10) or 0.10),
+        )
+        proximity_pct = float(cfg.get("proximity_pct", 0.30) or 0.30)
+        max_wait_candles = max(1, int(cfg.get("max_wait_candles", 6) or 6))
+        timeout_mode = str(cfg.get("timeout_mode", "SOFT_PENALTY") or "SOFT_PENALTY").upper()
+        timeout_penalty = float(cfg.get("timeout_penalty", 0.12) or 0.0)
+
+        def _valid_level(level: Optional[float]) -> bool:
+            return level is not None and level > 0
+
+        def _is_near(level: Optional[float]) -> bool:
+            return _valid_level(level) and price_ref > 0 and abs(price_ref - float(level)) / price_ref * 100 <= proximity_pct
+
+        near_pdh = _is_near(pdh)
+        near_pdl = _is_near(pdl)
+
+        target_type = None
+        target_level = None
+        condition_met = True
+        if direction == "BUY":
+            if near_pdl:
+                target_type = "PDL_RECLAIM"
+                target_level = float(pdl or 0) + buffer_points
+                condition_met = price_ref > target_level
+            elif near_pdh:
+                target_type = "PDH_BREAK"
+                target_level = float(pdh or 0) + buffer_points
+                condition_met = price_ref > target_level
+        elif direction == "SELL":
+            if near_pdh:
+                target_type = "PDH_REJECT"
+                target_level = float(pdh or 0) - buffer_points
+                condition_met = price_ref < target_level
+            elif near_pdl:
+                target_type = "PDL_BREAK"
+                target_level = float(pdl or 0) - buffer_points
+                condition_met = price_ref < target_level
+
+        if not target_type or target_level is None:
+            # Not near a key level; no gating.
+            self._reset_level_confirm_wait(direction)
+            return final_action, final_confidence, final_reasoning, None, None
+
+        if condition_met:
+            self._reset_level_confirm_wait(direction)
+            return final_action, final_confidence, final_reasoning, None, None
+
+        wait_count = self._level_confirm_wait.get(direction, 0) + 1
+        self._level_confirm_wait[direction] = wait_count
+
+        if wait_count >= max_wait_candles:
+            # Timeout: allow trade with optional soft penalty instead of freezing.
+            self._level_confirm_wait[direction] = 0
+            if timeout_mode == "SOFT_PENALTY" and timeout_penalty > 0:
+                penalized_conf = max(0.0, final_confidence - timeout_penalty)
+                reason = (
+                    f"Level confirmation timeout ({direction}) on {target_type} "
+                    f"after {wait_count} candles: conf {final_confidence:.1f}% -> {penalized_conf:.1f}%"
+                )
+                logger.info(
+                    "⏱️ LEVEL_CONFIRMATION timeout target={} wait={}/{} price_src={} price={} buffer={} conf={}->{}",
+                    target_type,
+                    wait_count,
+                    max_wait_candles,
+                    price_source,
+                    price_ref,
+                    buffer_points,
+                    f"{final_confidence:.1f}%",
+                    f"{penalized_conf:.1f}%",
+                )
+                final_reasoning = f"{final_reasoning}; {reason}" if final_reasoning else reason
+                return final_action, penalized_conf, final_reasoning, None, reason
+
+            reason = (
+                f"Level confirmation timeout ({direction}) on {target_type} after {wait_count} candles"
+            )
+            logger.info(
+                "⏱️ LEVEL_CONFIRMATION timeout target={} wait={}/{} price_src={} price={} buffer={}",
+                target_type,
+                wait_count,
+                max_wait_candles,
+                price_source,
+                price_ref,
+                buffer_points,
+            )
+            final_reasoning = f"{final_reasoning}; {reason}" if final_reasoning else reason
+            return final_action, final_confidence, final_reasoning, None, reason
+
+        comparison = "above" if direction == "BUY" else "below"
+        confirmation_reason = (
+            f"waiting for {price_source} {comparison} {target_level:.2f} "
+            f"(buffer={buffer_points:.4f}, target={target_type}, wait={wait_count}/{max_wait_candles})"
+        )
+        final_reasoning = f"{final_reasoning}; {confirmation_reason}" if final_reasoning else confirmation_reason
+        hold_reason = HoldReason(
+            gate="hybrid_pipeline.rule_engine",
+            reason_code="LEVEL_CONFIRMATION",
+            reason_detail=confirmation_reason,
+            context={
+                "price": price,
+                "close": close_price,
+                "pdh": pdh,
+                "pdl": pdl,
+                "buffer_points": buffer_points,
+                "near_pdh": near_pdh,
+                "near_pdl": near_pdl,
+                "wait_count": wait_count,
+                "max_wait_candles": max_wait_candles,
+                "target_type": target_type,
+                "target_level": target_level,
+                "price_source": price_source,
+            },
+        )
+        logger.info(
+            "🚫 HOLD [LEVEL_CONFIRMATION] target={} price_src={} price={} pdh={} pdl={} buffer={} near_pdh={} near_pdl={} wait={}/{}",
+            target_type,
+            price_source,
+            price_ref,
+            pdh,
+            pdl,
+            buffer_points,
+            near_pdh,
+            near_pdl,
+            wait_count,
+            max_wait_candles,
+        )
+        return TradeAction.HOLD, 0.0, final_reasoning, hold_reason, confirmation_reason
     
     def process(self, market_data: Dict[str, Any]) -> HybridPipelineResult:
         """Process market data through all three layers.
@@ -1310,33 +1543,21 @@ class HybridRAGPipeline:
             stop_loss = atr * 1.5
             take_profit = atr * 2.0
 
-        # Require price confirmation relative to PDH/PDL before acting
-        pdh = rule_result.indicators.get("pdh")
-        pdl = rule_result.indicators.get("pdl")
-        confirmation_reason = ""
-        confirmation_triggered = False
-        if final_action == TradeAction.BUY and pdh is not None and price <= pdh:
-            final_action = TradeAction.HOLD
-            confirmation_reason = "waiting for close above PDH for confirmation"
-            confirmation_triggered = True
-        elif final_action == TradeAction.SELL and pdl is not None and price >= pdl:
-            final_action = TradeAction.HOLD
-            confirmation_reason = "waiting for close below PDL for confirmation"
-            confirmation_triggered = True
-
-        if confirmation_reason:
-            if final_reasoning:
-                final_reasoning = f"{final_reasoning}; {confirmation_reason}"
-            else:
-                final_reasoning = confirmation_reason
-        if confirmation_triggered:
-            final_confidence = 0
-            hold_reason = HoldReason(
-                gate="hybrid_pipeline.rule_engine",
-                reason_code="LEVEL_CONFIRMATION",
-                reason_detail=confirmation_reason,
-                context={"price": price, "pdh": pdh, "pdl": pdl},
+        if final_action in (TradeAction.BUY, TradeAction.SELL, TradeAction.SCALP_BUY, TradeAction.SCALP_SELL):
+            (
+                final_action,
+                final_confidence,
+                final_reasoning,
+                hold_reason_update,
+                _,
+            ) = self._apply_level_confirmation(
+                final_action=final_action,
+                final_confidence=final_confidence,
+                final_reasoning=final_reasoning,
+                indicators=rule_result.indicators,
             )
+            if hold_reason_update:
+                hold_reason = hold_reason_update
         
         result = HybridPipelineResult(
             final_action=final_action,

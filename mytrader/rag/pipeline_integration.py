@@ -117,6 +117,15 @@ class HybridPipelineIntegration:
                 },
                 "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 40),
             }
+            hybrid_config["level_confirmation_settings"] = {
+                "level_confirmation_enabled": getattr(settings.hybrid, "level_confirmation_enabled", True),
+                "level_confirm_proximity_pct": getattr(settings.hybrid, "level_confirm_proximity_pct", 0.30),
+                "level_confirm_buffer_atr_mult": getattr(settings.hybrid, "level_confirm_buffer_atr_mult", 0.10),
+                "level_confirm_min_buffer_points": getattr(settings.hybrid, "level_confirm_min_buffer_points", 0.0),
+                "level_confirm_max_wait_candles": getattr(settings.hybrid, "level_confirm_max_wait_candles", 6),
+                "level_confirm_timeout_mode": getattr(settings.hybrid, "level_confirm_timeout_mode", "SOFT_PENALTY"),
+                "level_confirm_timeout_penalty": getattr(settings.hybrid, "level_confirm_timeout_penalty", 0.12),
+            }
         
         rag_cfg = getattr(settings, 'rag', None)
         if rag_cfg:
