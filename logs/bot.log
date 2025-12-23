@@ -4044,3 +4044,1417 @@ Error 1102, reqId -1: Connectivity between IBKR and Trader Workstation has been 
 
 2025-12-23 09:56:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6942.75
 
+2025-12-23 09:56:15 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:15 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:15 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:15 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6943.0
+
+2025-12-23 09:56:20 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:20 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:20 CST | INFO     | mytrader.execution.ib_executor:get_qualified_contract:429 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
+
+2025-12-23 09:56:20 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:21 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6943.5
+
+2025-12-23 09:56:26 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:26 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:26 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:26 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 09:56:31 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:31 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:32 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 09:56:37 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:37 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:37 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:37 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 09:56:42 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:42 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:42 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:43 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.25
+
+2025-12-23 09:56:48 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:48 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:48 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:48 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.0
+
+2025-12-23 09:56:53 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:53 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:53 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:54 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6943.75
+
+2025-12-23 09:56:59 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:56:59 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:56:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:56:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.0
+
+2025-12-23 09:57:04 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:04 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.25
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 09:57:00 CST
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1190 - 🚫 HOLD [FILTER_BLOCK] gate=hybrid_pipeline.rule_engine detail=blocked filters filters=[]
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.32
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.32
+
+2025-12-23 09:57:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 09:57:10 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:11 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.0
+
+2025-12-23 09:57:16 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:16 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 09:57:21 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:21 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:21 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:22 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.0
+
+2025-12-23 09:57:27 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:27 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.5
+
+2025-12-23 09:57:32 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:32 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:32 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:33 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.5
+
+2025-12-23 09:57:38 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:38 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.5
+
+2025-12-23 09:57:43 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:43 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:43 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.5
+
+2025-12-23 09:57:49 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:49 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 09:57:54 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:57:54 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:57:54 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:57:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.25
+
+2025-12-23 09:58:00 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.0
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 09:58:00 CST
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1251 - 🚫 HOLD [RAG_REGIME_FILTER] gate=hybrid_pipeline.rag detail=Regime filter triggered: similar_trades=5 (min=0), weighted_win_rate=0.12 (min=0.15, mode=relaxed)
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.28
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.28, trend=RANGE, vol=MEDIUM)
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.28, trend=RANGE, vol=MEDIUM)
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.28
+
+2025-12-23 09:58:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 09:58:05 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.25
+
+2025-12-23 09:58:11 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:11 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:11 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 09:58:16 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:16 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:17 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 09:58:22 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:22 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:22 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:22 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 09:58:27 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:27 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:28 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 09:58:33 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:33 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:33 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:33 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:58:38 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:38 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:58:44 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:44 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:58:49 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:49 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:50 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 09:58:55 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:58:55 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:58:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:58:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:59:00 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 09:59:00 CST
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1190 - 🚫 HOLD [FILTER_BLOCK] gate=hybrid_pipeline.rule_engine detail=blocked filters filters=[]
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.32
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.32
+
+2025-12-23 09:59:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 09:59:06 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:59:11 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:11 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:12 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:59:17 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:17 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:17 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:17 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 09:59:22 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:22 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:22 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 09:59:28 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:28 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:28 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:28 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 09:59:33 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:33 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:33 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 09:59:39 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:39 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 09:59:44 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:44 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:45 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 09:59:50 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:50 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:50 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:50 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 09:59:55 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 09:59:55 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 09:59:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 09:59:56 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 10:00:01 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:01 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:01 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 10:00:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:00:00 CST
+
+2025-12-23 10:00:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=190ms)
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.37
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.37
+
+2025-12-23 10:00:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:00:07 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.5
+
+2025-12-23 10:00:12 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:12 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 10:00:18 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:18 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:18 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:18 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.5
+
+2025-12-23 10:00:23 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:23 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.25
+
+2025-12-23 10:00:29 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:29 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:29 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:29 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.25
+
+2025-12-23 10:00:34 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:34 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:35 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.0
+
+2025-12-23 10:00:40 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:40 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:40 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:40 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 10:00:45 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:45 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:45 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:00:51 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:51 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:51 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:51 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:00:56 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:00:56 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:00:56 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:00:57 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:01:02 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:01:00 CST
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1190 - 🚫 HOLD [FILTER_BLOCK] gate=hybrid_pipeline.rule_engine detail=blocked filters filters=[]
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.32
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.32
+
+2025-12-23 10:01:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:01:07 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:01:13 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:13 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:01:18 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:18 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:18 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:19 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:01:24 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:24 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:24 CST | INFO     | mytrader.execution.ib_executor:get_qualified_contract:429 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
+
+2025-12-23 10:01:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:01:29 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:29 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:29 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:30 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:01:35 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:35 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:35 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:35 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:01:40 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:40 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:40 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:01:46 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:46 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:01:51 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:51 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:51 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:01:57 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:01:57 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:01:57 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:01:57 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:02:02 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:02:00 CST
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1190 - 🚫 HOLD [FILTER_BLOCK] gate=hybrid_pipeline.rule_engine detail=blocked filters filters=[]
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.32
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.32
+
+2025-12-23 10:02:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:02:08 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:02:13 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:13 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:14 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.25
+
+2025-12-23 10:02:19 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:19 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:19 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:19 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.5
+
+2025-12-23 10:02:24 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:24 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:25 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.5
+
+2025-12-23 10:02:30 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:30 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:30 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.75
+
+2025-12-23 10:02:36 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:36 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:36 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:36 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:02:41 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:41 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:42 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:02:47 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:47 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:47 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:47 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:02:52 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:52 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:53 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:02:58 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:02:58 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:02:58 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:02:58 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:03:03 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:03 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:03:00 CST
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=194ms)
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.34
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.34, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.34, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.34
+
+2025-12-23 10:03:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:03:09 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.25
+
+2025-12-23 10:03:14 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:14 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:14 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:15 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:03:20 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:20 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:20 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:20 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.25
+
+2025-12-23 10:03:25 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:25 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:25 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:26 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.25
+
+2025-12-23 10:03:31 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:31 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:03:36 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:36 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:36 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:37 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:03:42 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:42 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:42 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:42 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:03:47 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:47 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:47 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:48 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:03:53 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:53 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:53 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:53 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:03:58 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:03:58 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:03:58 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:03:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:04:04 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:04 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:04 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:04:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:04:00 CST
+
+2025-12-23 10:04:04 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=191ms)
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.37
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.37
+
+2025-12-23 10:04:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:04:10 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:04:15 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:15 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:15 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:04:21 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:21 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:21 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:21 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:04:26 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:26 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:26 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:04:32 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:32 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:32 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:32 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:04:37 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:37 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:37 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:04:43 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:43 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:43 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:43 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:04:48 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:48 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:48 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:04:54 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:54 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:54 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:04:54 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:04:59 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:04:59 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:04:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:05:00 CST
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=203ms)
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.37
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.37
+
+2025-12-23 10:05:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:05:05 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:05:10 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:11 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:05:16 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:16 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:05:21 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:21 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:21 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:22 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:05:27 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:27 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:05:32 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:32 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:32 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:33 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:05:38 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:38 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:05:43 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:43 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:43 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:05:49 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:49 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:05:54 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:05:54 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:05:54 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:05:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:06:00 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:06:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:06:00 CST
+
+2025-12-23 10:06:00 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:06:01 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1251 - 🚫 HOLD [RAG_REGIME_FILTER] gate=hybrid_pipeline.rag detail=Regime filter triggered: similar_trades=5 (min=0), weighted_win_rate=0.12 (min=0.15, mode=relaxed)
+
+2025-12-23 10:06:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.24
+
+2025-12-23 10:06:01 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.24, trend=RANGE, vol=MEDIUM)
+
+2025-12-23 10:06:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.24, trend=RANGE, vol=MEDIUM)
+
+2025-12-23 10:06:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.24
+
+2025-12-23 10:06:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:06:06 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.25
+
+2025-12-23 10:06:11 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:11 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:12 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:06:17 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:17 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:17 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:17 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:06:22 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:22 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:22 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:06:28 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:28 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:28 CST | INFO     | mytrader.execution.ib_executor:get_qualified_contract:429 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
+
+2025-12-23 10:06:28 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:28 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:06:33 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:33 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:33 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.5
+
+2025-12-23 10:06:39 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:39 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:06:44 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:44 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:45 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:06:50 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:50 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:50 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:50 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.5
+
+2025-12-23 10:06:55 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:06:55 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:06:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:06:56 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:07:01 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:07:00 CST
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1190 - 🚫 HOLD [FILTER_BLOCK] gate=hybrid_pipeline.rule_engine detail=blocked filters filters=[]
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.32
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.32, trend=UPTREND, vol=MEDIUM)
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.32
+
+2025-12-23 10:07:01 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:07:06 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:07:12 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:12 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:12 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.75
+
+2025-12-23 10:07:17 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:17 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:17 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:18 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:07:23 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:23 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:07:28 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:28 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:28 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:29 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.25
+
+2025-12-23 10:07:34 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:34 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:07:39 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:39 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:40 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.25
+
+2025-12-23 10:07:45 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:45 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:45 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:45 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6947.0
+
+2025-12-23 10:07:50 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:50 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:50 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:51 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:07:56 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:07:56 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:07:56 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:07:56 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:08:01 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:01 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:01 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6946.0
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:08:00 CST
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1358 - 🚫 HOLD [LEVEL_CONFIRMATION] gate=hybrid_pipeline.rule_engine detail=waiting for close below PDL for confirmation
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1364 - Pipeline result: HOLD (conf=0%, time=202ms)
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.37
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.37, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.37
+
+2025-12-23 10:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:08:07 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:08:13 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:13 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:08:18 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:18 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:18 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:19 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:08:24 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:24 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.0
+
+2025-12-23 10:08:29 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:29 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:29 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:30 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6944.75
+
+2025-12-23 10:08:35 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:35 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:35 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:35 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:08:40 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:40 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:40 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:08:46 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:46 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:08:51 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:51 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:51 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:08:57 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:08:57 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:08:57 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:08:57 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:09:02 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:02 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:793 - 🕐 New candle close at 10:09:00 CST
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1190 - 🚫 HOLD [FILTER_BLOCK] gate=hybrid_pipeline.rule_engine detail=blocked filters filters=[]
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.32
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:579 - Hybrid Pipeline: HOLD (conf=0.32, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:844 - 🤖 Hybrid Pipeline: HOLD (conf=0.32, trend=DOWNTREND, vol=MEDIUM)
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.32
+
+2025-12-23 10:09:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1273 -   ↳ Signal is HOLD, skipping order placement
+
+2025-12-23 10:09:08 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 10:09:13 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:13 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:14 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.25
+
+2025-12-23 10:09:19 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:19 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:19 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:19 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.75
+
+2025-12-23 10:09:24 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:24 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:25 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:09:30 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:30 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:30 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:30 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.5
+
+2025-12-23 10:09:35 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:35 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:35 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:36 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.0
+
+2025-12-23 10:09:41 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:41 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.0
+
+2025-12-23 10:09:46 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:46 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:46 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+
+2025-12-23 10:09:47 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2058 - Got last price: 6945.0
+
+2025-12-23 10:09:52 CST | WARNING  | mytrader.execution.ib_executor:_record_metric:1509 - qualified_contract_calls per minute high: 11
+
+2025-12-23 10:09:52 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Rate limit warning
+
+2025-12-23 10:09:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2043 - Requesting market data for MESH6...
+

@@ -140,7 +140,8 @@ class BedrockAgentClient:
             cache_key = self._build_cache_key(agent_name, input_text)
             cached_response = self._read_cache(cache_key)
             if cached_response:
-                cached_response['session_id'] = session_id
+                if not cached_response.get('session_id'):
+                    cached_response['session_id'] = session_id
                 cached_response['cached'] = True
                 return cached_response
         

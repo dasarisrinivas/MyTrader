@@ -38,7 +38,7 @@ Resources:
           EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
           EmbeddingModelConfiguration:
             BedrockEmbeddingModelConfiguration:
-              Dimensions: 1536
+              Dimensions: 1024
               Normalize: true
       StorageConfiguration:
         Type: OPENSEARCH_SERVERLESS

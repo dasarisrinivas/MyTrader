@@ -8,7 +8,7 @@
       "embeddingModelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0",
       "embeddingModelConfiguration": {
         "bedrockEmbeddingModelConfiguration": {
-          "dimensions": 1536,
+          "dimensions": 1024,
           "normalize": true
         }
       }

@@ -37,10 +37,11 @@ env/
 .DS_Store
 
 # Logs
-#logs/*.log
 logs/*.pid
 logs/*.info
-#*.log
+logs/*.log
+logs/*.csv
+*.log
 
 # Data files (can be large)
 data/*.csv
