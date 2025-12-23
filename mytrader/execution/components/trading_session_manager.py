@@ -51,6 +51,7 @@ class TradingSessionManager:
             m.engine = StrategyEngine(
                 [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]
             )
+            m.signal_processor.engine = m.engine
 
             m.risk = RiskManager(m.settings.trading, position_sizing_method="kelly")
 
@@ -119,9 +120,10 @@ class TradingSessionManager:
                                 "🔎 Hybrid RAG index ready (%s, %d docs)",
                                 stats.get("engine", "cpu"),
                                 stats.get("documents", 0),
-                            )
+                        )
                         m._use_hybrid_pipeline = True
                         m.status.hybrid_pipeline_enabled = True
+                        m.signal_processor.hybrid_pipeline = m.hybrid_pipeline
                         logger.info("✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)")
                     else:
                         logger.info("ℹ️  Hybrid pipeline disabled in config")
