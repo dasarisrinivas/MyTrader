@@ -5,8 +5,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from ...learning.trade_learning import ExecutionMetrics, TradeLearningPayload
+from ...llm.rag_storage import TradeRecord as RAGTradeRecord
+from ...risk.trade_math import compute_risk_reward, expected_target_outcome
+from ...strategies.market_regime import detect_market_regime, get_regime_parameters
+from ...utils.structured_logging import log_structured_event
 from ...utils.logger import logger
 from ...utils.timezone_utils import now_cst
+from .risk_controller import TradeRequest
 
 
 class OrderCoordinator:
@@ -151,6 +156,231 @@ class OrderCoordinator:
         self.manager._cycle_context.pop(payload.trade_cycle_id, None)
         if self.manager._current_entry_cycle_id == payload.trade_cycle_id:
             self.manager._current_entry_cycle_id = None
+
+    async def execute_trade_with_risk_checks(self, signal, current_price: float, features):
+        """Place an order with sizing, stops, and hard guardrails."""
+        m = self.manager
+        try:
+            logger.info("🛠️ DEBUG: Entered execute_trade_with_risk_checks for %s", signal.action)
+
+            raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+            metadata = self.prepare_order_metadata(raw_metadata, current_price, "legacy")
+            qty = m.trade_decision_engine.calculate_position_size(signal, metadata)
+
+            if not m.risk.can_trade(qty):
+                await m._broadcast_error("Risk limits exceeded")
+                return
+
+            row = features.iloc[-1]
+            m.current_trade_features = {
+                "confidence": signal.confidence,
+                "atr": float(row.get("ATR_14", 0.0)),
+                "volatility": float(row.get("volatility_5m", 0.0)),
+                "rsi": float(row.get("RSI_14", 0.0)),
+                "macd": float(row.get("MACD", 0.0)),
+                "close": float(row["close"]),
+                "volume": int(row.get("volume", 0)),
+            }
+
+            atr = float(metadata.get("atr_value", 0.0))
+            if atr <= 0:
+                atr = float(row.get("ATR_14", 0.0))
+
+            regime, regime_conf = detect_market_regime(features)
+            regime_params = get_regime_parameters(regime)
+
+            logger.info("📊 Market Regime: %s (conf=%.2f) - Using dynamic stops", regime.value, regime_conf)
+
+            stop_loss, take_profit, risk_meta = m.risk_controller.calculate_stop_loss(
+                entry_price=current_price,
+                action=signal.action,
+                atr=atr,
+                regime_params={**regime_params, "volatility": regime.value},
+            )
+            metadata.update(risk_meta)
+
+            if atr > 0:
+                logger.info(
+                    "🎯 Dynamic Risk: ATR=%.2f, SL=%.2f, TP=%.2f",
+                    atr,
+                    abs(current_price - stop_loss),
+                    abs(take_profit - current_price),
+                )
+            else:
+                logger.info(
+                    "🎯 Dynamic Risk fallback: ATR=%.2f, SL=%.2f, TP=%.2f",
+                    atr,
+                    abs(current_price - stop_loss),
+                    abs(take_profit - current_price),
+                )
+
+            await m._broadcast_order_update(
+                {
+                    "status": "placing",
+                    "action": signal.action,
+                    "quantity": qty,
+                    "entry_price": current_price,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "regime": regime.value,
+                }
+            )
+
+            logger.info(
+                "📊 Order telemetry | qty=%d position=%d lock=%s entry=%.2f SL=%.2f TP=%.2f fallback=%s",
+                qty,
+                m.status.current_position,
+                m.executor.is_order_locked() if m.executor else False,
+                current_price,
+                stop_loss,
+                take_profit,
+                "yes" if metadata.get("atr_fallback_used") else "no",
+            )
+
+            trade_request = TradeRequest(
+                entry_price=current_price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                quantity=qty,
+                action=signal.action,
+            )
+            risk_result = m.risk_controller.validate_trade_risk(trade_request)
+            if not risk_result.allowed:
+                m._add_reason_code("RISK_BLOCKED_INVALID_PROTECTION")
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="risk.entry_blocked",
+                    message="Entry blocked by hard guardrails",
+                    payload={"trade_cycle_id": m._current_cycle_id},
+                )
+                return
+
+            if m.simulation_mode:
+                logger.warning(
+                    "🔶 SIMULATION: Would place %s order for %d contracts @ %.2f",
+                    signal.action,
+                    qty,
+                    current_price,
+                )
+                logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
+                m._record_last_trade_timestamp()
+                await m._broadcast_order_update(
+                    {
+                        "status": "SIMULATED",
+                        "action": signal.action,
+                        "quantity": qty,
+                        "fill_price": current_price,
+                        "filled_quantity": qty,
+                        "order_id": f"SIM-{datetime.now().strftime('%H%M%S')}",
+                    }
+                )
+                return
+
+            _, reward_points, rr_ratio = compute_risk_reward(
+                current_price,
+                stop_loss,
+                take_profit,
+                signal.action,
+            )
+            projected = expected_target_outcome(
+                current_price,
+                take_profit,
+                qty,
+                m.contract_spec,
+                m.trading_mode,
+                m._commission_per_side,
+            )
+            metadata["risk_reward"] = rr_ratio
+            metadata["expected_reward_points"] = reward_points
+            metadata["expected_gross"] = projected.gross_pnl
+            metadata["expected_net"] = projected.net_pnl
+
+            result = await m.executor.place_order(
+                action=signal.action,
+                quantity=qty,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                metadata=metadata,
+                rationale=m.current_trade_rationale,
+                features=m.current_trade_features,
+                market_regime=regime.value,
+                entry_price=current_price,
+            )
+
+            await m._broadcast_order_update(
+                {
+                    "status": result.status,
+                    "action": signal.action,
+                    "quantity": qty,
+                    "fill_price": result.fill_price,
+                    "filled_quantity": result.filled_quantity,
+                    "order_id": result.trade.order.orderId if result.trade else None,
+                }
+            )
+
+            if result.status not in {"Cancelled", "Inactive"}:
+                m._record_last_trade_timestamp()
+                logger.info("⏱️ Trade placed - cooldown activated for %ss", m._cooldown_seconds)
+
+                m.risk.register_trade()
+                if result.fill_price:
+                    m.tracker.record_trade(
+                        action=signal.action,
+                        price=result.fill_price,
+                        quantity=qty,
+                    )
+                    m._update_status_from_tracker()
+                    m._register_trade_entry(
+                        cycle_id=m._current_cycle_id,
+                        action=signal.action,
+                        quantity=qty,
+                        entry_price=result.fill_price,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        metadata=metadata,
+                    )
+
+                    if m.rag_storage:
+                        try:
+                            trade_uuid = str(uuid.uuid4())
+                            m.current_trade_id = trade_uuid
+                            entry_time = datetime.now(timezone.utc).isoformat()
+
+                            m.current_trade_entry_time = entry_time
+                            m.current_trade_entry_price = result.fill_price
+                            m.current_trade_features = {
+                                "confidence": signal.confidence,
+                                "atr": atr,
+                                "volatility": row.get("volatility_5m", 0.0),
+                            }
+
+                            record = RAGTradeRecord(
+                                uuid=trade_uuid,
+                                timestamp_utc=entry_time,
+                                contract_month=m.settings.data.ibkr_symbol,
+                                entry_price=result.fill_price,
+                                entry_qty=qty,
+                                exit_price=None,
+                                exit_qty=None,
+                                pnl=None,
+                                fees=0.0,
+                                hold_seconds=None,
+                                decision_features=m.current_trade_features,
+                                decision_rationale=m.current_trade_rationale or {},
+                            )
+
+                            m.rag_storage.save_trade(record, m.current_trade_buckets)
+                            logger.info("Saved trade entry to RAG: %s", trade_uuid)
+
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error(f"Failed to save trade to RAG: {exc}")
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"❌ CRITICAL: execute_trade_with_risk_checks failed with exception: {exc}")
+            import traceback
+
+            logger.error("Traceback: %s", traceback.format_exc())
+            await m._broadcast_error(f"Order placement failed: {exc}")
 
     def add_reason_code(self, code: str) -> None:
         if not code:

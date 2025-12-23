@@ -1,11 +1,13 @@
 """Risk and structural context helpers."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
 from ...utils.logger import logger
+from ...risk.atr_module import compute_protective_offsets
 
 
 class RiskController:
@@ -105,3 +107,68 @@ class RiskController:
         elif atr > 8:
             return "MED"
         return "LOW"
+
+    def validate_trade_risk(self, trade_request: "TradeRequest") -> "RiskResult":
+        """Validate proposed trade against guardrails."""
+        allowed = self.manager._validate_entry_guard(
+            trade_request.entry_price,
+            trade_request.stop_loss,
+            trade_request.take_profit,
+            trade_request.quantity,
+            trade_request.action,
+        )
+        return RiskResult(allowed=allowed)
+
+    def calculate_stop_loss(
+        self,
+        entry_price: float,
+        action: str,
+        atr: float,
+        regime_params: Dict[str, float],
+    ) -> Tuple[float, float, Dict[str, Any]]:
+        """Compute protective stop/target using ATR + regime params."""
+        metadata: Dict[str, Any] = {}
+        m = self.manager
+        atr_mult_sl = regime_params.get("atr_multiplier_sl", 2.0)
+        atr_mult_tp = regime_params.get("atr_multiplier_tp", 4.0)
+
+        if atr > 0:
+            stop_offset = max(atr * atr_mult_sl, m._min_stop_distance)
+            target_offset = max(
+                atr * atr_mult_tp,
+                stop_offset + m.settings.trading.tick_size,
+            )
+            metadata["atr_fallback_used"] = False
+        else:
+            offsets = compute_protective_offsets(
+                atr_value=atr,
+                tick_size=m.settings.trading.tick_size,
+                scalper=False,
+                volatility=regime_params.get("volatility", "MED"),
+            )
+            stop_offset = offsets.stop_offset
+            target_offset = offsets.target_offset
+            metadata["atr_fallback_used"] = True
+            logger.warning(
+                f"⚠️ ATR invalid, using fallback offsets SL={stop_offset:.2f}, TP={target_offset:.2f}"
+            )
+
+        is_buy = action.upper() in ("BUY", "SCALP_BUY")
+        stop_loss = entry_price - stop_offset if is_buy else entry_price + stop_offset
+        take_profit = entry_price + target_offset if is_buy else entry_price - target_offset
+        return stop_loss, take_profit, metadata
+
+
+@dataclass
+class TradeRequest:
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    quantity: int
+    action: str = "BUY"
+
+
+@dataclass
+class RiskResult:
+    allowed: bool
+    reason: Optional[str] = None
