@@ -15,7 +15,7 @@ import math
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Set, Tuple
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 import json
 import uuid
 from pathlib import Path
@@ -50,8 +50,6 @@ from ..execution.guards import (
     should_block_on_wait,
 )
 from ..learning.trade_learning import (
-    ExecutionMetrics,
-    TradeLearningPayload,
     TradeLearningRecorder,
 )
 from ..optimization.optimizer import ParameterOptimizer
@@ -66,6 +64,18 @@ from ..strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
 from ..strategies.market_regime import detect_market_regime, get_regime_parameters, MarketRegime
 from ..strategies.trading_filters import TradingFilters, calculate_enhanced_confidence, PriceLevels
 from ..hybrid.coordination import AgentBus
+from .components import (
+    CooldownManager,
+    StatusBroadcaster,
+    ContextManager,
+    OrderCoordinator,
+    RiskController,
+    TradingSessionManager,
+    MarketDataCoordinator,
+    SignalProcessor,
+    TradeDecisionEngine,
+    SystemHealthMonitor,
+)
 
 # NEW: Hybrid RAG+LLM Pipeline imports
 try:
@@ -249,6 +259,17 @@ class LiveTradingManager:
         context_dir = getattr(getattr(settings, 'data', None), 'external_context_dir', 'data/context')
         self._external_context_dir = Path(context_dir)
         self._context_refresh_mtimes: Dict[str, float] = {}
+        # Component helpers
+        self.cooldown_manager = CooldownManager(self)
+        self.status_broadcaster = StatusBroadcaster(self)
+        self.context_manager = ContextManager(self)
+        self.order_coordinator = OrderCoordinator(self)
+        self.risk_controller = RiskController(self)
+        self.trading_session_manager = TradingSessionManager(self)
+        self.market_data_coordinator = MarketDataCoordinator(self)
+        self.signal_processor = SignalProcessor(self)
+        self.trade_decision_engine = TradeDecisionEngine(self)
+        self.system_health_monitor = SystemHealthMonitor(self)
 
         learning_cfg = getattr(settings, "learning", None)
         if (
@@ -285,7 +306,7 @@ class LiveTradingManager:
             'trade_cooldown_minutes',
             self.DEFAULT_COOLDOWN_SECONDS // 60,
         )
-        sanitized_minutes = self._sanitize_cooldown_minutes(raw_cooldown_minutes)
+        sanitized_minutes = self.cooldown_manager.sanitize_cooldown_minutes(raw_cooldown_minutes)
         self.settings.trading.trade_cooldown_minutes = sanitized_minutes
         self._cooldown_seconds = sanitized_minutes * 60  # Convert minutes to seconds
         
@@ -308,31 +329,7 @@ class LiveTradingManager:
     
     def _sanitize_cooldown_minutes(self, raw_value: Any) -> int:
         """Clamp cooldown minutes to a safe range and emit warnings if needed."""
-        default_minutes = self.DEFAULT_COOLDOWN_SECONDS // 60
-        try:
-            minutes = int(raw_value)
-        except (TypeError, ValueError):
-            logger.warning(
-                "Invalid trade_cooldown_minutes=%r; defaulting to %d minutes",
-                raw_value,
-                default_minutes,
-            )
-            return default_minutes
-        clamped = max(self.MIN_COOLDOWN_MINUTES, min(self.MAX_COOLDOWN_MINUTES, minutes))
-        if clamped != minutes:
-            logger.warning(
-                "trade_cooldown_minutes=%d outside [%d, %d]; clamped to %d",
-                minutes,
-                self.MIN_COOLDOWN_MINUTES,
-                self.MAX_COOLDOWN_MINUTES,
-                clamped,
-            )
-        elif clamped >= self.COOLDOWN_WARNING_MINUTES:
-            logger.warning(
-                "trade_cooldown_minutes=%d is unusually high; verify this is intentional",
-                clamped,
-            )
-        return clamped
+        return self.cooldown_manager.sanitize_cooldown_minutes(raw_value)
     
     def _build_trading_filters(self) -> TradingFilters:
         """Instantiate TradingFilters using YAML configuration overrides."""
@@ -362,133 +359,7 @@ class LiveTradingManager:
     
     async def initialize(self):
         """Initialize trading components."""
-        try:
-            logger.info("Initializing trading components...")
-            
-            # Initialize other components first (non-IB)
-            self.tracker = LivePerformanceTracker(
-                initial_capital=self.settings.trading.initial_capital,
-                risk_free_rate=self.settings.backtest.risk_free_rate,
-                point_value=self.contract_spec.point_value,
-            )
-            
-            self.engine = StrategyEngine(
-                [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]
-            )
-            
-            self.risk = RiskManager(self.settings.trading, position_sizing_method="kelly")
-            
-            # Initialize Telegram notifier if configured
-            if hasattr(self.settings, 'telegram') and self.settings.telegram.enabled:
-                self.telegram = TelegramNotifier(
-                    bot_token=self.settings.telegram.bot_token,
-                    chat_id=self.settings.telegram.chat_id,
-                    enabled=True
-                )
-                logger.info("✅ Telegram notifications initialized")
-            else:
-                self.telegram = None
-                logger.info("ℹ️  Telegram notifications disabled")
-            
-            # Initialize IB connection directly (ib_insync is already async-friendly)
-            self.ib = IB()
-            self.executor = TradeExecutor(
-                self.ib,
-                self.settings.trading,
-                self.settings.data.ibkr_symbol,
-                self.settings.data.ibkr_exchange,
-                telegram_notifier=self.telegram,
-                trading_mode=self.trading_mode,
-                contract_spec=self.contract_spec,
-                commission_per_side=self._commission_per_side,
-            )
-            
-            # Connect to IB
-            await self.executor.connect(
-                self.settings.data.ibkr_host,
-                self.settings.data.ibkr_port,
-                client_id=11  # Use unique client_id to avoid conflicts with stale connections
-            )
-            # Force reconciliation of active orders after IB connection
-            await self.force_order_reconciliation()
-            self._load_persistent_cooldown_state()
-            if self._reset_state_on_start:
-                logger.warning("♻️  Reset-state flag detected - clearing cooldown/lock state at startup")
-                self._reset_state_on_start = False
-                self._apply_manual_state_reset()
-            # Initialize RAG Storage
-            try:
-                self.rag_storage = RAGStorage()
-                logger.info("✅ RAG Storage initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize RAG Storage: {e}")
-                # Continue without RAG if it fails, but log error
-
-            # Initialize decision metrics logger (for structural persistence)
-            if DecisionMetricsLogger:
-                try:
-                    self.metrics_logger = DecisionMetricsLogger()
-                    logger.info("✅ Decision metrics logger initialized")
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not initialize decision metrics logger: {e}")
-                    self.metrics_logger = None
-            else:
-                logger.info("ℹ️ Decision metrics logger unavailable (module not installed)")
-            
-            # NEW: Initialize Hybrid RAG+LLM Pipeline
-            if HYBRID_PIPELINE_AVAILABLE:
-                try:
-                    # Check if hybrid is enabled in config
-                    hybrid_enabled = getattr(self.settings, 'hybrid', None)
-                    if hybrid_enabled and getattr(hybrid_enabled, 'enabled', False):
-                        self.hybrid_pipeline = create_hybrid_integration(
-                            settings=self.settings,
-                            llm_client=None,  # Will use Bedrock if available
-                            context_bus=self.agent_bus,
-                        )
-                        if hasattr(self.hybrid_pipeline, "ensure_ready"):
-                            stats = self.hybrid_pipeline.ensure_ready(min_documents=5)
-                            logger.info(
-                                "🔎 Hybrid RAG index ready (%s, %d docs)",
-                                stats.get("engine", "cpu"),
-                                stats.get("documents", 0),
-                            )
-                        self._use_hybrid_pipeline = True
-                        self.status.hybrid_pipeline_enabled = True
-                        logger.info("✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)")
-                    else:
-                        logger.info("ℹ️  Hybrid pipeline disabled in config")
-                except Exception as e:
-                    logger.warning(f"⚠️  Failed to initialize Hybrid Pipeline: {e}")
-                    self._use_hybrid_pipeline = False
-            
-            # NEW: Configure AWS Bedrock Agents (lazy initialization)
-            self._configure_aws_agents()
-            
-            # === NEW: Load historical market context at startup ===
-            await self._load_historical_context()
-            await self._bootstrap_price_history(self.status.min_bars_needed)
-            
-            # Subscribe to execution events for RAG updates
-            if self.executor and self.executor.ib:
-                self.executor.ib.execDetailsEvent += self._on_execution_details
-            
-            logger.info("✅ Connected to IBKR")
-            
-            self.status.is_running = True
-            self.status.session_start = now_cst().isoformat()
-            self.status.message = "Initialized successfully"
-            
-            await self._broadcast_status()
-            
-            logger.info("✅ Live trading manager initialized")
-            return True
-            
-        except Exception as e:
-            self.status.message = f"Initialization failed: {str(e)}"
-            await self._broadcast_error(str(e))
-            logger.error(f"Failed to initialize: {e}")
-            return False
+        return await self.trading_session_manager.initialize()
     
     def _on_execution_details(self, trade, fill):
         """Handle execution details to track trade exits for RAG/learning."""
@@ -566,35 +437,16 @@ class LiveTradingManager:
         volatility: str,
         action: str,
     ) -> str:
-        return f"{action}:{trend}:{volatility}"
+        return self.context_manager.build_kb_cache_key(trend, volatility, action)
 
     def _get_cached_kb_result(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        cached = self._kb_cache.get(cache_key)
-        if not cached:
-            return None
-        expires_at, payload = cached
-        if expires_at < time.time():
-            self._kb_cache.pop(cache_key, None)
-            return None
-        return payload
+        return self.context_manager.get_cached_kb_result(cache_key)
 
     def _set_cached_kb_result(self, cache_key: str, payload: Dict[str, Any]) -> None:
-        expires = time.time() + max(5.0, float(self._kb_cache_ttl or 0))
-        self._kb_cache[cache_key] = (expires, payload)
-        if len(self._kb_cache) > self._kb_cache_limit:
-            # Remove oldest inserted entry
-            oldest_key = next(iter(self._kb_cache))
-            if oldest_key != cache_key:
-                self._kb_cache.pop(oldest_key, None)
+        self.context_manager.set_cached_kb_result(cache_key, payload)
 
     def _query_local_knowledge_base(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        if not self._local_kb:
-            return {}
-        try:
-            return self._local_kb.query(context)
-        except Exception as exc:
-            logger.debug(f"Local KB query failed: {exc}")
-            return {}
+        return self.context_manager.query_local_knowledge_base(context)
 
     async def _handle_execution_event(self, trade, fill):
         try:
@@ -874,81 +726,7 @@ TRADING GUIDANCE:
 
     async def start(self):
         """Start the live trading loop."""
-        if not await self.initialize():
-            return
-        
-        logger.info("🔄 Starting trading loop...")
-        self.running = True
-        self.stop_requested = False
-        
-        poll_interval = 5  # seconds
-        
-        try:
-            while self.running and not self.stop_requested:
-                try:
-                    # Get current price
-                    logger.debug("Fetching current price...")
-                    current_price = await self.executor.get_current_price()
-                    if not current_price:
-                        self.status.message = "Waiting for price data..."
-                        await self._broadcast_status()
-                        await asyncio.sleep(poll_interval)
-                        continue
-                    
-                    self.status.current_price = current_price
-                    
-                    # Add to price history
-                    price_bar = {
-                        'timestamp': now_cst(),
-                        'open': current_price,
-                        'high': current_price,
-                        'low': current_price,
-                        'close': current_price,
-                        'volume': 0
-                    }
-                    self.price_history.append(price_bar)
-                    
-                    # Keep only recent history
-                    if len(self.price_history) > 500:
-                        self.price_history = self.price_history[-500:]
-                    
-                    self.status.bars_collected = len(self.price_history)
-                    
-                    # Check if we have enough bars
-                    if len(self.price_history) < self.status.min_bars_needed:
-                        self.status.message = f"Collecting data: {len(self.price_history)}/{self.status.min_bars_needed} bars"
-                        logger.info(f"📊 Collecting data: {len(self.price_history)}/{self.status.min_bars_needed} bars")
-                        await self._broadcast_status()
-                        await asyncio.sleep(poll_interval)
-                        continue
-                    
-                    # On first cycle after warmup, verify position state
-                    if self.status.bars_collected == self.status.min_bars_needed and not hasattr(self, '_position_verified'):
-                        logger.info("🔍 Warmup complete. Verifying existing positions before trading...")
-                        existing_position = await self.executor.get_current_position()
-                        if existing_position and existing_position.quantity != 0:
-                            logger.warning(f"⚠️  EXISTING POSITION DETECTED: {existing_position.quantity} contracts @ {existing_position.avg_cost:.2f}")
-                            logger.warning(f"⚠️  Bot will manage this position. Use opposite signals to exit.")
-                        else:
-                            logger.info("✅ No existing positions. Ready to trade fresh.")
-                        self._position_verified = True
-                    
-                    # Process trading logic
-                    logger.debug("Processing trading cycle...")
-                    await self._process_trading_cycle(current_price)
-                    
-                    await asyncio.sleep(poll_interval)
-                    
-                except Exception as cycle_error:
-                    logger.error(f"Error in trading cycle: {cycle_error}")
-                    await self._broadcast_error(str(cycle_error))
-                    await asyncio.sleep(poll_interval)
-        
-        except Exception as e:
-            logger.error(f"Fatal error in trading loop: {e}")
-            await self._broadcast_error(str(e))
-        finally:
-            await self.stop()
+        return await self.trading_session_manager.start()
     
     async def _process_trading_cycle(self, current_price: float):
         """Process one trading cycle.
@@ -1384,7 +1162,7 @@ TRADING GUIDANCE:
 
     def _publish_feature_snapshot(self, features, current_price: float) -> None:
         """Publish most recent feature row to the agent bus for awareness."""
-        if not self.agent_bus or features.empty:
+        if features is None or features.empty:
             return
         try:
             latest = features.iloc[-1]
@@ -1393,116 +1171,23 @@ TRADING GUIDANCE:
         except Exception:
             latest = features.iloc[-1]
             timestamp = now_cst().isoformat()
-        payload = {
-            "timestamp": timestamp,
-            "price": float(latest.get("close", current_price)),
-            "rsi": float(latest.get("RSI_14", 50)),
-            "macd_hist": float(latest.get("MACDhist_12_26_9", 0)),
-            "atr": float(latest.get("ATR_14", 0)),
-            "volume_ratio": float(latest.get("volume_ratio", 1)),
-        }
-        self.agent_bus.publish("features", payload, producer="live_manager", ttl_seconds=120)
+        self.market_data_coordinator.publish_feature_snapshot(latest, current_price, timestamp)
 
     def _refresh_external_context(self) -> None:
         """Reload cached news/macro context if files changed."""
-        if not self.agent_bus:
-            return
-        directory = self._external_context_dir
-        if not directory.exists():
-            return
-        context_files = [
-            ("news", "news_sentiment.json", "news"),
-            ("macro", "macro_state.json", "macro"),
-        ]
-        for label, filename, channel in context_files:
-            path = directory / filename
-            if not path.exists():
-                continue
-            try:
-                mtime = path.stat().st_mtime
-                if self._context_refresh_mtimes.get(channel) == mtime:
-                    continue
-                data = json.loads(path.read_text())
-                data.setdefault("source", label)
-                data.setdefault("timestamp", now_cst().isoformat())
-                self.agent_bus.publish(channel, data, producer="context_cache", ttl_seconds=900)
-                self._context_refresh_mtimes[channel] = mtime
-            except Exception as context_error:
-                logger.debug(f"Context refresh failed for {path}: {context_error}")
+        self.market_data_coordinator.refresh_external_context()
 
     def _publish_account_context(self) -> None:
         """Share account/risk state with other agents."""
-        if not self.agent_bus or not self.tracker:
-            return
-        self._update_status_from_tracker()
-        current_equity = self.tracker.get_current_equity()
-        peak_equity = getattr(self.tracker, "peak_equity", current_equity)
-        drawdown_pct = 0.0
-        if peak_equity:
-            drawdown_pct = (current_equity - peak_equity) / peak_equity
-        payload = {
-            "equity": current_equity,
-            "daily_pnl": self.status.daily_pnl,
-            "active_drawdown_pct": drawdown_pct,
-            "portfolio_heat": getattr(self.risk, "portfolio_heat", 0.0) if self.risk else 0.0,
-            "timestamp": now_cst().isoformat(),
-        }
-        self.agent_bus.publish("account", payload, producer="risk_monitor", ttl_seconds=300)
+        self.market_data_coordinator.publish_account_context()
 
     def _compute_structural_metrics(self, features) -> Dict[str, float]:
         """Derive structural metrics from the full candle buffer."""
-        metrics: Dict[str, float] = {}
-        if features is None or features.empty:
-            return metrics
-        history = features.tail(min(len(features), 240)).copy()
-        if history.empty:
-            return metrics
-        closes = history["close"].astype(float)
-        highs = history["high"].astype(float)
-        lows = history["low"].astype(float)
-        idx = np.arange(len(closes))
-        if len(idx) >= 5:
-            slope = np.polyfit(idx, closes, 1)[0]
-            metrics["trend_strength"] = float(slope / max(closes.iloc[-1], 1e-6))
-            metrics["momentum_score"] = float(closes.pct_change(periods=5).dropna().sum())
-        atr_series = history["ATR_14"].dropna() if "ATR_14" in history.columns else None
-        if atr_series is not None and not atr_series.empty:
-            metrics["atr_latest"] = float(atr_series.iloc[-1])
-            metrics["volatility_rank"] = float(
-                min(1.0, max(0.0, atr_series.rank(pct=True).iloc[-1]))
-            )
-            metrics["atr_slope"] = float(atr_series.diff().rolling(5).mean().dropna().iloc[-1])
-        if "RSI_14" in history.columns:
-            metrics["rsi_latest"] = float(history["RSI_14"].dropna().iloc[-1])
-        price_range = highs.max() - lows.min()
-        if price_range > 0:
-            metrics["range_position"] = float((closes.iloc[-1] - lows.min()) / price_range)
-            metrics["range_width"] = float(price_range)
-        metrics["structure_samples"] = len(history)
-        metrics["historical_trend_strength"] = float(
-            closes.pct_change(periods=20).dropna().mean()
-        ) if len(closes) >= 20 else metrics.get("trend_strength", 0.0)
-        return metrics
+        return self.risk_controller.compute_structural_metrics(features)
 
     def _apply_structural_weighting(self, signal, metrics: Dict[str, float]) -> float:
         """Adjust signal confidence based on structural context."""
-        if not metrics or signal.action == "HOLD":
-            return 0.0
-        is_buy = signal.action in ["BUY", "SCALP_BUY"]
-        direction = 1 if is_buy else -1
-        trend_bias = metrics.get("trend_strength", 0.0) * direction
-        momentum_bias = metrics.get("momentum_score", 0.0) * direction
-        range_position = metrics.get("range_position", 0.5)
-        range_bias = (0.5 - range_position) * direction
-        volatility_bias = (metrics.get("volatility_rank", 0.5) - 0.5)
-        structure_score = (
-            trend_bias * 0.5
-            + momentum_bias * 0.3
-            + range_bias * 0.2
-            + volatility_bias * 0.1
-        )
-        structure_score = max(-0.18, min(0.18, structure_score))
-        return structure_score
+        return self.risk_controller.apply_structural_weighting(signal, metrics)
 
     async def _handle_hybrid_pipeline_failure(self, current_price: float, exc: Exception) -> None:
         """Force HOLD when hybrid pipeline raises unexpected exception."""
@@ -1532,34 +1217,11 @@ TRADING GUIDANCE:
         signal,
     ) -> None:
         """Persist blended metrics for downstream historical analysis."""
-        if not structural_metrics or not self.metrics_logger:
-            return
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "trend_strength": structural_metrics.get("trend_strength"),
-            "volatility_rank": structural_metrics.get("volatility_rank"),
-            "range_position": structural_metrics.get("range_position"),
-            "atr": structural_metrics.get("atr_latest"),
-            "rsi": structural_metrics.get("rsi_latest"),
-            "rag_weighted_win_rate": (rag_context.get("stats") or {}).get("win_rate", 0.0),
-            "rag_similar_trades": rag_context.get("similar_trades_count"),
-            "decision": signal.action,
-            "confidence": signal.confidence,
-            "historical_avg_trend": structural_metrics.get("historical_trend_strength"),
-        }
-        try:
-            self.metrics_logger.record_market_metrics(payload)
-        except Exception as exc:
-            logger.debug(f"Unable to persist structural snapshot: {exc}")
+        self.risk_controller.persist_structural_snapshot(structural_metrics, rag_context, signal)
 
     def _update_status_from_tracker(self) -> None:
         """Sync status fields from tracker metrics."""
-        if not self.tracker:
-            return
-        self.status.daily_pnl = getattr(self.tracker, "daily_pnl", self.status.daily_pnl)
-        tracker_unrealized = getattr(self.tracker, "unrealized_pnl", None)
-        if tracker_unrealized is not None:
-            self.status.unrealized_pnl = tracker_unrealized
+        self.status_broadcaster.update_status_from_tracker()
 
     async def _process_hybrid_signal(
         self,
@@ -2083,25 +1745,11 @@ TRADING GUIDANCE:
     
     def _get_trend_from_features(self, row) -> str:
         """Extract trend classification from feature row."""
-        ema_9 = float(row.get('EMA_9', row.get('ema_9', 0)))
-        ema_20 = float(row.get('EMA_20', row.get('ema_20', 0)))
-        close = float(row.get('close', 0))
-        
-        if ema_9 > ema_20 and close > ema_9:
-            return 'UPTREND'
-        elif ema_9 < ema_20 and close < ema_9:
-            return 'DOWNTREND'
-        return 'RANGE'
+        return self.risk_controller.get_trend_from_features(row)
     
     def _get_volatility_from_features(self, row) -> str:
         """Extract volatility classification from feature row."""
-        atr = float(row.get('ATR_14', row.get('atr', 0)))
-        
-        if atr > 15:
-            return 'HIGH'
-        elif atr > 8:
-            return 'MED'
-        return 'LOW'
+        return self.risk_controller.get_volatility_from_features(row)
     
     async def _broadcast_aws_agent_signal(self, decision: dict, current_price: float):
         """Broadcast AWS agent signal to WebSocket clients."""
@@ -2932,25 +2580,11 @@ TRADING GUIDANCE:
         strategy_name: str,
     ) -> Dict[str, Any]:
         """Attach trade-cycle context so downstream guardrails have consistent data."""
-        metadata = dict(base_metadata or {})
-        metadata.setdefault("trade_cycle_id", self._current_cycle_id)
-        candle_ts = self._last_candle_processed
-        if isinstance(candle_ts, datetime):
-            metadata.setdefault("bar_close_timestamp", candle_ts.isoformat())
-        else:
-            metadata.setdefault("bar_close_timestamp", now_cst().replace(second=0, microsecond=0).isoformat())
-        metadata.setdefault("signal_id", metadata.get("signal_id") or metadata.get("signal_type") or self._current_cycle_id)
-        metadata.setdefault("strategy_name", strategy_name)
-        metadata["entry_price"] = entry_price
-        metadata.setdefault("entry_price_bucket", self._bucket_entry_price(entry_price))
-        return metadata
+        return self.order_coordinator.prepare_order_metadata(base_metadata, entry_price, strategy_name)
 
     def _bucket_entry_price(self, price: float) -> float:
         """Quantize entry intent price to reduce idempotency noise."""
-        tick_size = max(getattr(self.settings.trading, "tick_size", 0.25), 1e-6)
-        bucket_ticks = max(1, getattr(self.settings.trading, "min_stop_distance_ticks", 4))
-        bucket_size = tick_size * bucket_ticks
-        return round(price / bucket_size) * bucket_size
+        return self.order_coordinator.bucket_entry_price(price)
 
     def _detect_trading_mode(self, settings: Settings) -> TradingMode:
         """Infer trading mode from CLI arguments and IBKR connectivity."""
@@ -2966,76 +2600,19 @@ TRADING GUIDANCE:
 
     def _record_last_trade_timestamp(self, timestamp: Optional[datetime] = None) -> None:
         """Persist the last trade time so cooldown survives restarts."""
-        ts = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        self._last_trade_time = ts
-        tracker = getattr(getattr(self.executor, "order_tracker", None), "record_last_trade_time", None)
-        if tracker:
-            try:
-                self.executor.order_tracker.record_last_trade_time(self.settings.data.ibkr_symbol, ts)
-            except Exception as exc:
-                logger.debug(f"Cooldown persistence skipped: {exc}")
+        self.cooldown_manager.record_last_trade_timestamp(timestamp)
 
     def _load_persistent_cooldown_state(self) -> None:
         """Restore last trade timestamp from order tracker at startup."""
-        tracker = getattr(getattr(self.executor, "order_tracker", None), "get_last_trade_time", None)
-        if not tracker:
-            return
-        try:
-            last_trade = self.executor.order_tracker.get_last_trade_time(self.settings.data.ibkr_symbol)
-        except Exception as exc:
-            logger.debug(f"Cooldown state restore skipped: {exc}")
-            return
-        validated = self._validate_persisted_trade_time(last_trade)
-        if validated:
-            self._last_trade_time = validated
-            logger.info(
-                "⏱️ Cooldown resume: last trade at %s",
-                format_cst(utc_to_cst(validated)),
-            )
-        else:
-            self._last_trade_time = None
+        self.cooldown_manager.load_persistent_cooldown_state()
 
     def _validate_persisted_trade_time(self, timestamp: Optional[datetime]) -> Optional[datetime]:
         """Reject persisted cooldown timestamps that are implausible."""
-        if not timestamp:
-            return None
-        now_utc = datetime.now(timezone.utc)
-        if timestamp > now_utc + timedelta(seconds=self.FUTURE_COOLDOWN_TOLERANCE_SECONDS):
-            logger.warning(
-                "Ignoring future last trade timestamp: %s",
-                format_cst(utc_to_cst(timestamp)),
-            )
-            return None
-        if now_utc - timestamp > self.PERSISTED_COOLDOWN_MAX_AGE:
-            logger.warning(
-                "Ignoring stale last trade timestamp from %s (> %s old)",
-                format_cst(utc_to_cst(timestamp)),
-                self.PERSISTED_COOLDOWN_MAX_AGE,
-            )
-            return None
-        return timestamp
+        return self.cooldown_manager.validate_persisted_trade_time(timestamp)
 
     def _apply_manual_state_reset(self) -> None:
         """Clear cooldown + lock state based on operator override."""
-        if not self.executor:
-            return
-        symbol = getattr(self.settings.data, "ibkr_symbol", "UNKNOWN")
-        tracker = getattr(self.executor, "order_tracker", None)
-        if tracker and hasattr(tracker, "reset_symbol_state"):
-            try:
-                tracker.reset_symbol_state(symbol)
-            except Exception as exc:
-                logger.warning("⚠️  Failed to clear persisted cooldown for %s: %s", symbol, exc)
-        self._last_trade_time = None
-        self.status.cooldown_remaining_seconds = 0
-        force_release = getattr(self.executor, "force_release_order_lock", None)
-        if callable(force_release):
-            force_release("manual reset")
-        else:
-            release = getattr(self.executor, "_release_order_lock", None)
-            if callable(release):
-                release("manual reset")
-        logger.warning("♻️  Manual override applied: cooldown cleared and order lock released")
+        self.cooldown_manager.apply_manual_state_reset()
 
     def _register_trade_entry(
         self,
@@ -3051,35 +2628,15 @@ TRADING GUIDANCE:
         
         CRITICAL: Stores entry trade_cycle_id so exit orders can correlate back to entry.
         """
-        metadata = metadata or {}
-        cycle_id = cycle_id or self._current_cycle_id or uuid.uuid4().hex[:12]
-        
-        # Store entry cycle ID for exit correlation
-        self._current_entry_cycle_id = cycle_id
-        
-        context = self._cycle_context.get(cycle_id, {})
-        is_long = action in ("BUY", "SCALP_BUY")
-        self._open_trade_context = {
-            "cycle_id": cycle_id,
-            "action": action,
-            "is_long": is_long,
-            "quantity": quantity,
-            "entry_price": entry_price,
-            "entry_time": now_cst().isoformat(),
-            "stop_loss": stop_loss,
-            "take_profit": take_profit,
-            "metadata": metadata,
-            "regime": context.get("regime"),
-            "volatility": context.get("volatility"),
-            "aws": context.get("aws"),
-            "signal_confidence": context.get("signal_confidence"),
-            "signal_type": context.get("signal_type"),
-            "features": self.current_trade_features or {},
-        }
-        reason_codes = context.get("reason_codes", set())
-        self._active_reason_codes = set(reason_codes)
-        
-        logger.info(f"📝 Registered trade entry: cycle_id={cycle_id}, action={action}, qty={quantity}, entry={entry_price:.2f}")
+        self.order_coordinator.register_trade_entry(
+            cycle_id,
+            action,
+            quantity,
+            entry_price,
+            stop_loss,
+            take_profit,
+            metadata,
+        )
 
     async def _finalize_trade(
         self,
@@ -3088,123 +2645,35 @@ TRADING GUIDANCE:
         realized_pnl: float,
     ) -> None:
         """Persist trade outcome + history snapshots."""
-        if not self._open_trade_context or not self.learning_recorder:
-            return
-        ctx = self._open_trade_context
-        direction = 1 if ctx.get("is_long") else -1
-        contract = getattr(self.settings.data, "ibkr_symbol", "ES")
-        payload = TradeLearningPayload(
-            trade_cycle_id=ctx["cycle_id"],
-            symbol=contract,
-            contract=contract,
-            quantity=ctx["quantity"],
-            side=ctx["action"],
-            entry_time=ctx["entry_time"],
-            entry_price=ctx["entry_price"],
-            exit_time=exit_time.isoformat(),
-            exit_price=exit_price,
-            stop_loss=ctx["stop_loss"],
-            take_profit=ctx["take_profit"],
-            signal_type=ctx.get("signal_type"),
-            signal_confidence=ctx.get("signal_confidence"),
-            regime=ctx.get("regime"),
-            volatility=ctx.get("volatility"),
-            advisory=ctx.get("aws"),
-            risk_parameters={
-                "distance_points": abs(ctx["entry_price"] - ctx["stop_loss"]),
-                "target_points": abs(ctx["take_profit"] - ctx["entry_price"]),
-            },
-            features=ctx.get("features") or {},
-            execution_metrics=ExecutionMetrics(),
-            reason_codes=sorted(self._active_reason_codes),
-            outcome="LOSS" if realized_pnl < 0 else "WIN" if realized_pnl > 0 else "BREAKEVEN",
-            pnl=realized_pnl,
-        )
-        self.learning_recorder.record_outcome(payload)
-        if self._local_kb:
-            try:
-                self._local_kb.record_trade(payload)
-            except Exception as exc:
-                logger.debug(f"Local KB record skipped: {exc}")
-        candles = self.price_history[-120:]
-        history_ctx = {
-            "regime": ctx.get("regime"),
-            "volatility": ctx.get("volatility"),
-            "symbol": contract,
-        }
-        if candles:
-            self.learning_recorder.record_history_snapshot(
-                payload.trade_cycle_id,
-                candles,
-                history_ctx,
-            )
-        self._open_trade_context = None
-        self._active_reason_codes.clear()
-        self._cycle_context.pop(payload.trade_cycle_id, None)
-        # Clear entry cycle ID when trade is finalized
-        if self._current_entry_cycle_id == payload.trade_cycle_id:
-            self._current_entry_cycle_id = None
+        await self.order_coordinator.finalize_trade(exit_price, exit_time, realized_pnl)
 
     def _add_reason_code(self, code: str) -> None:
-        if not code:
-            return
-        self._active_reason_codes.add(code)
-        cycle_ctx = self._cycle_context.get(self._current_cycle_id)
-        if cycle_ctx is not None:
-            if "reason_codes" not in cycle_ctx or not isinstance(cycle_ctx["reason_codes"], set):
-                cycle_ctx["reason_codes"] = set()
-            cycle_ctx["reason_codes"].add(code)
+        self.order_coordinator.add_reason_code(code)
     
     async def stop(self):
         """Stop the trading session."""
-        self.running = False
-        self.stop_requested = True
-        self.status.is_running = False
-        self.status.message = "Stopped"
-        
-        if self.ib and self.ib.isConnected():
-            self.ib.disconnect()
-        
-        await self._broadcast_status()
-        logger.info("Trading session stopped")
+        await self.trading_session_manager.stop()
     
     async def force_order_reconciliation(self):
         """Force reconciliation of active orders with IBKR."""
-        if self.executor:
-            logger.info("Forcing reconciliation of active orders with IBKR...")
-            await self.executor._reconcile_orders()
-            logger.info("Order reconciliation complete.")
+        await self.trading_session_manager.force_order_reconciliation()
     
     # Broadcasting methods
     async def _broadcast_status(self):
         """Broadcast status update."""
-        if self.on_status_update:
-            await self.on_status_update(asdict(self.status))
+        await self.status_broadcaster.broadcast_status()
     
     async def _broadcast_signal(self, signal, price: float):
         """Broadcast signal generated."""
-        if self.on_signal_generated:
-            await self.on_signal_generated({
-                "action": signal.action,
-                "confidence": signal.confidence,
-                "price": price,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "metadata": signal.metadata if isinstance(signal.metadata, dict) else {}
-            })
+        await self.status_broadcaster.broadcast_signal(signal, price)
     
     async def _broadcast_order_update(self, order_data: Dict):
         """Broadcast order update."""
-        if self.on_order_update:
-            order_data["timestamp"] = datetime.now(timezone.utc).isoformat()
-            await self.on_order_update(order_data)
+        await self.status_broadcaster.broadcast_order_update(order_data)
     
     async def _broadcast_error(self, error_msg: str):
         """Broadcast error."""
-        if self.on_error:
-            await self.on_error({
-                "error": error_msg,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+        await self.status_broadcaster.broadcast_error(error_msg)
     
     def get_performance_snapshot(self) -> Dict:
         """Get current performance snapshot."""
