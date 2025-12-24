@@ -80,6 +80,15 @@ class MultiFactorScorer:
             macro=self._extract_macro_score(macro_context),
             risk=self._extract_risk_score(risk_context),
         )
+        logger.debug(
+            "🔍 Factor inputs technical={:.2f} rag={:.2f} llm={:.2f} news={:.2f} macro={:.2f} risk={:.2f}",
+            scores.technical,
+            scores.rag,
+            scores.llm,
+            scores.news,
+            scores.macro,
+            scores.risk,
+        )
         structural_trend = market_metrics.get("trend_strength")
         if structural_trend:
             scores.technical = float(max(0.0, min(1.0, scores.technical + structural_trend)))
@@ -113,10 +122,22 @@ class MultiFactorScorer:
         if pipeline_conf > 1.0:
             pipeline_conf = pipeline_conf / 100.0
         pipeline_conf = max(0.0, min(1.0, pipeline_conf))
+        logger.debug(
+            "🎯 Confidence breakdown tech={:.2f} rag={:.2f} llm={:.2f} news={:.2f} macro={:.2f} risk={:.2f}",
+            scores.technical,
+            scores.rag,
+            scores.llm,
+            scores.news,
+            scores.macro,
+            scores.risk,
+        )
         # Blend in the pipeline's native confidence to avoid chronic HOLD bias
         final_confidence = 0.35 * pipeline_conf + 0.65 * final_confidence
         final_confidence = max(final_confidence, pipeline_conf * 0.55)
         final_confidence = max(0.0, min(1.0, final_confidence))
+        logger.debug("📊 Final confidence: {:.2f} (pipeline={:.2f})", final_confidence, pipeline_conf)
+        if final_confidence == 0:
+            logger.warning("⚠️ Zero confidence detected - investigating components...")
         action = self._action_value(pipeline_result.final_action)
 
         # Apply directional nudges from news/macro context

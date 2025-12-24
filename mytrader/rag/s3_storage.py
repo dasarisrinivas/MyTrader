@@ -961,6 +961,69 @@ Filters Passed: {', '.join(trade.get('filters_passed', []))}
 Exit: {trade.get('exit_reason', '')} after {trade.get('duration_minutes', 0):.1f} minutes"""
 
 
+class S3StorageWithCache(S3Storage):
+    """Extended storage with cached trade log retrieval."""
+
+    def __init__(
+        self,
+        bucket_name: str = DEFAULT_BUCKET,
+        prefix: str = DEFAULT_PREFIX,
+        region_name: Optional[str] = None,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
+    ):
+        super().__init__(
+            bucket_name=bucket_name,
+            prefix=prefix,
+            region_name=region_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+        )
+        self._trade_log_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_expiry: float = 600  # 10 minutes
+        self._last_cache_time: float = 0.0
+
+    def _fetch_trade_logs_from_s3(self, max_age_minutes: int = 30, limit: int = 50) -> Dict[str, Dict[str, Any]]:
+        """Fetch recent trade logs directly from S3."""
+        cutoff_ts = time.time() - max_age_minutes * 60
+        recent: Dict[str, Dict[str, Any]] = {}
+
+        trades = self.load_trades(limit=limit)
+        for trade in trades:
+            ts_raw = trade.get("timestamp") or trade.get("executed_at") or trade.get("created_at")
+            ts_val: Optional[float] = None
+            if isinstance(ts_raw, (int, float)):
+                ts_val = float(ts_raw)
+            elif isinstance(ts_raw, str):
+                try:
+                    ts_val = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    ts_val = None
+
+            if ts_val is None or ts_val >= cutoff_ts:
+                trade_id = str(trade.get("trade_id") or trade.get("id") or f"trade_{len(recent)}")
+                recent[trade_id] = trade
+
+        return recent
+
+    def get_recent_trade_logs(self, max_age_minutes: int = 30, max_results: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
+        """Return cached trade logs, refreshing from S3 every cache window."""
+        current_time = time.time()
+        if self._trade_log_cache and (current_time - self._last_cache_time) < self._cache_expiry:
+            logger.debug("🗃️ Using cached trade logs")
+            cached = self._trade_log_cache
+        else:
+            logger.info("📥 Refreshing trade log cache from S3...")
+            limit = max_results or 50
+            self._trade_log_cache = self._fetch_trade_logs_from_s3(max_age_minutes=max_age_minutes, limit=limit)
+            self._last_cache_time = current_time
+            cached = self._trade_log_cache
+
+        if max_results:
+            return dict(list(cached.items())[:max_results])
+        return cached
+
+
 # Singleton instance
 _s3_storage: Optional[S3Storage] = None
 
@@ -980,7 +1043,7 @@ def get_s3_storage(
     """
     global _s3_storage
     if _s3_storage is None:
-        _s3_storage = S3Storage(bucket_name=bucket_name, prefix=prefix)
+        _s3_storage = S3StorageWithCache(bucket_name=bucket_name, prefix=prefix)
     return _s3_storage
 
 

@@ -16,6 +16,7 @@ All data is stored in AWS S3:
 
 from mytrader.rag.s3_storage import (
     S3Storage,
+    S3StorageWithCache,
     S3StorageError,
     get_s3_storage,
     save_to_s3,
@@ -60,6 +61,7 @@ from mytrader.rag.pipeline_integration import (
 __all__ = [
     # S3 Storage
     "S3Storage",
+    "S3StorageWithCache",
     "S3StorageError",
     "get_s3_storage",
     "save_to_s3",

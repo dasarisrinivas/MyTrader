@@ -28,7 +28,7 @@ from dataclasses import dataclass, field, asdict
 from loguru import logger
 
 # Import S3 storage
-from .s3_storage import S3Storage, get_s3_storage, S3StorageError
+from .s3_storage import S3Storage, S3StorageWithCache, get_s3_storage, S3StorageError
 
 # Import CST utilities
 try:
@@ -160,7 +160,7 @@ class RAGStorageManager:
         
         # Initialize S3 storage
         try:
-            self.s3 = S3Storage(bucket_name=bucket_name, prefix=prefix)
+            self.s3 = S3StorageWithCache(bucket_name=bucket_name, prefix=prefix)
             logger.info(f"RAGStorageManager initialized with S3: s3://{bucket_name}/{prefix}")
         except S3StorageError as e:
             logger.error(f"Failed to initialize S3 storage: {e}")
@@ -254,6 +254,66 @@ class RAGStorageManager:
                 logger.warning(f"Failed to load trade {key}: {e}")
         
         return trades
+
+    def get_recent_trade_records(
+        self,
+        max_age_minutes: int = 30,
+        limit: int = 50,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        result_filter: Optional[str] = None,
+        action_filter: Optional[str] = None,
+    ) -> List[TradeRecord]:
+        """Fetch recent trades using the cached S3 wrapper when available."""
+        if not hasattr(self.s3, "get_recent_trade_logs"):
+            return self.load_trades(
+                start_date=start_date,
+                end_date=end_date,
+                result_filter=result_filter,
+                action_filter=action_filter,
+                limit=limit,
+            )
+
+        window_minutes = max_age_minutes
+        now_ts = datetime.now(timezone.utc)
+        if start_date and end_date:
+            window_minutes = max(
+                window_minutes,
+                int((end_date - start_date).total_seconds() / 60) + 5,
+            )
+        elif start_date:
+            window_minutes = max(
+                window_minutes,
+                int((now_ts - start_date).total_seconds() / 60) + 5,
+            )
+
+        raw_trades = self.s3.get_recent_trade_logs(
+            max_age_minutes=window_minutes,
+            max_results=max(limit * 2, limit + 10),
+        )
+
+        records: List[TradeRecord] = []
+        for trade_data in raw_trades.values():
+            try:
+                record = TradeRecord.from_dict(trade_data)
+            except Exception as e:
+                logger.debug(f"Skipping malformed trade log in cache: {e}")
+                continue
+
+            ts = _safe_parse_timestamp(record.timestamp)
+            if start_date and ts < start_date:
+                continue
+            if end_date and ts > end_date:
+                continue
+            if result_filter and record.result.upper() != result_filter.upper():
+                continue
+            if action_filter and record.action.upper() != action_filter.upper():
+                continue
+
+            records.append(record)
+
+        records.sort(key=lambda t: _safe_parse_timestamp(t.timestamp), reverse=True)
+        return records[:limit]
     
     def get_similar_trades(
         self,
@@ -513,7 +573,7 @@ class RAGStorageManager:
                     logger.warning(f"Failed to load dynamic doc {key}: {e}")
         
         # Load recent trades as documents
-        recent_trades = self.load_trades(limit=50)
+        recent_trades = self.get_recent_trade_records(limit=50)
         for trade in recent_trades:
             doc_id = f"trade:{trade.trade_id}"
             content = self._trade_to_document(trade)
