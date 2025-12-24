@@ -1737,19 +1737,56 @@ class TradeExecutor:
         entry_order = MarketOrder(action, quantity)
         entry_trade = self.ib.placeOrder(contract, entry_order)
         entry_id = getattr(entry_trade.order, "orderId", "NA")
+        self.active_orders[entry_id] = entry_trade
+        self.order_creation_times[entry_id] = datetime.utcnow()
+        self.order_tracker.record_order_placement(
+            order_id=entry_id,
+            parent_order_id=None,
+            symbol=self.symbol,
+            action=action,
+            quantity=quantity,
+            order_type="MKT",
+            trade_cycle_id=None,
+        )
         exit_action = "SELL" if action.upper().startswith("BUY") else "BUY"
 
         # Stop-market for protection
         stop_order = StopOrder(exit_action, quantity, stop_loss)
         stop_order.transmit = True
         stop_order.outsideRth = True
-        self.ib.placeOrder(contract, stop_order)
+        stop_trade = self.ib.placeOrder(contract, stop_order)
+        stop_id = getattr(stop_trade.order, "orderId", "NA")
+        self.active_orders[stop_id] = stop_trade
+        self.order_creation_times[stop_id] = datetime.utcnow()
+        self.order_tracker.record_order_placement(
+            order_id=stop_id,
+            parent_order_id=entry_id,
+            symbol=self.symbol,
+            action=exit_action,
+            quantity=quantity,
+            order_type="STP",
+            stop_price=stop_loss,
+            trade_cycle_id=None,
+        )
 
         # Take-profit as limit
         tp_order = LimitOrder(exit_action, quantity, take_profit)
         tp_order.transmit = True
         tp_order.outsideRth = True
-        self.ib.placeOrder(contract, tp_order)
+        tp_trade = self.ib.placeOrder(contract, tp_order)
+        tp_id = getattr(tp_trade.order, "orderId", "NA")
+        self.active_orders[tp_id] = tp_trade
+        self.order_creation_times[tp_id] = datetime.utcnow()
+        self.order_tracker.record_order_placement(
+            order_id=tp_id,
+            parent_order_id=entry_id,
+            symbol=self.symbol,
+            action=exit_action,
+            quantity=quantity,
+            order_type="LMT",
+            limit_price=take_profit,
+            trade_cycle_id=None,
+        )
 
         logger.info(
             "✅ Emergency market order placed (entry %s), protective stop=%s, target=%s",

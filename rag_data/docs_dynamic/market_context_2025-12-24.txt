@@ -3,24 +3,24 @@ DAILY MARKET CONTEXT - 2025-12-24
 Symbol: MES
 
 PREVIOUS DAY LEVELS:
-- Previous Day High (PDH): 6936.50
-- Previous Day Low (PDL): 6908.50
-- Previous Day Close: 6930.25
-- Previous Day Open: 6921.75
+- Previous Day High (PDH): 6963.75
+- Previous Day Low (PDL): 6918.75
+- Previous Day Close: 6961.00
+- Previous Day Open: 6919.25
 
 TODAY'S LEVELS (so far):
-- Today's High: 6963.75
-- Today's Low: 6918.75
-- Today's Open: 6919.25
+- Today's High: 6966.5
+- Today's Low: 6957.0
+- Today's Open: 6959.0
 
 WEEKLY RANGE:
-- Weekly High: 6963.75
-- Weekly Low: 6775.50
+- Weekly High: 6966.50
+- Weekly Low: 6811.75
 
 KEY LEVELS TO WATCH:
-1. Support: PDL at 6908.50
-2. Resistance: PDH at 6936.50
-3. Pivot: Previous close at 6930.25
+1. Support: PDL at 6918.75
+2. Resistance: PDH at 6963.75
+3. Pivot: Previous close at 6961.00
 
 TRADING GUIDANCE:
 - If price > PDH: Bullish breakout, favor LONG positions
