@@ -115,6 +115,9 @@ class S3Storage:
         self._key_sync_interval: float = 300  # 5 minutes
         # Cache TTL for trade data (in seconds)
         self._cache_ttl: float = 3600  # 1 hour
+        # Cache stats
+        self._total_requests: int = 0
+        self._cache_hits: int = 0
         
         # Initialize S3 client
         try:
@@ -255,6 +258,19 @@ class S3Storage:
             "etag": etag,
             "cached_at": time.time(),
         }
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache performance statistics."""
+        total_requests = getattr(self, "_total_requests", 0)
+        cache_hits = getattr(self, "_cache_hits", 0)
+        return {
+            "cache_hit_rate": cache_hits / total_requests if total_requests > 0 else 0,
+            "cached_keys": len(self._cache),
+            "cache_size_mb": sum(len(str(item.get("data", ""))) for item in self._cache.values()) / 1024 / 1024,
+            "oldest_cache_entry": min((item.get("cached_at", 0) for item in self._cache.values()), default=None),
+            "total_requests": total_requests,
+            "cache_hits": cache_hits,
+        }
     
     def read_from_s3(
         self,
@@ -273,11 +289,13 @@ class S3Storage:
             File contents (dict/list if JSON, str otherwise) or None if not found
         """
         full_key = self._make_key(key) if not key.startswith(self.prefix) else key
+        self._total_requests += 1
         
         # Check cache first
         if use_cache:
             cached_data = self._get_from_cache(full_key)
             if cached_data is not None:
+                self._cache_hits += 1
                 logger.debug(f"Cache HIT: {full_key}")
                 return cached_data
         

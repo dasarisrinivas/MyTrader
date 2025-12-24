@@ -137,7 +137,17 @@ class MultiFactorScorer:
         final_confidence = max(0.0, min(1.0, final_confidence))
         logger.debug("📊 Final confidence: {:.2f} (pipeline={:.2f})", final_confidence, pipeline_conf)
         if final_confidence == 0:
-            logger.warning("⚠️ Zero confidence detected - investigating components...")
+            logger.error("🚨 ZERO CONFIDENCE DETECTED - COMPONENT BREAKDOWN:")
+            logger.error("   Technical score: {:.3f}", scores.technical)
+            logger.error("   LLM score: {:.3f}", scores.llm)
+            logger.error("   RAG score: {:.3f}", scores.rag)
+            logger.error("   News score: {:.3f}", scores.news)
+            logger.error("   Macro score: {:.3f}", scores.macro)
+            logger.error("   Risk score: {:.3f}", scores.risk)
+            logger.error("   Pipeline conf: {:.3f}", pipeline_conf)
+            logger.error("   Weights: {}", self.weights)
+            final_confidence = max(0.15, final_confidence)
+            logger.warning("🔧 Applied confidence floor: {:.3f}", final_confidence)
         action = self._action_value(pipeline_result.final_action)
 
         # Apply directional nudges from news/macro context
