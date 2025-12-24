@@ -539,7 +539,8 @@ class RuleEngine:
         
         # Determine final signal - use scalp threshold in low-vol/range
         normal_threshold = self.config.get("signal_threshold", 40)
-        normal_threshold = max(1, int(normal_threshold * (1 + time_adjustments.get("min_confidence_adjustment", 0.0))))
+        threshold_adjustment = 1 + time_adjustments.get("min_confidence_adjustment", 0.0)
+        normal_threshold = max(1, int(normal_threshold * threshold_adjustment))
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold
         
         # Log score details for debugging
