@@ -1717,14 +1717,14 @@ TRADING GUIDANCE:
     def _validate_bracket_prices(self, action: str, entry_price: float, stop_loss: float, take_profit: float) -> bool:
         """Validate that bracket order prices are logically correct."""
         act = action.upper()
-        if act == "BUY":
+        if act in ("BUY", "SCALP_BUY"):
             if stop_loss >= entry_price:
                 logger.error("❌ BUY order: Stop-loss %.4f must be below entry %.4f", stop_loss, entry_price)
                 return False
             if take_profit <= entry_price:
                 logger.error("❌ BUY order: Take-profit %.4f must be above entry %.4f", take_profit, entry_price)
                 return False
-        elif act == "SELL":
+        elif act in ("SELL", "SCALP_SELL"):
             if stop_loss <= entry_price:
                 logger.error("❌ SELL order: Stop-loss %.4f must be above entry %.4f", stop_loss, entry_price)
                 return False
