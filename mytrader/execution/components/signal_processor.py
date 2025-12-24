@@ -29,6 +29,48 @@ class SignalGenerationResult:
     run_legacy_after_hybrid: bool = False
 
 
+class EmergencySignalGenerator:
+    """Force a directional signal after too many consecutive HOLDs."""
+
+    def __init__(self, max_consecutive_holds: int = 10):
+        self.consecutive_holds = 0
+        self.max_consecutive_holds = max_consecutive_holds
+
+    def apply(self, signal: Any, market_context: Dict[str, Any]) -> Any:
+        action = getattr(signal, "action", None)
+        if action == "HOLD":
+            self.consecutive_holds += 1
+        else:
+            self.consecutive_holds = 0
+
+        if self.consecutive_holds >= self.max_consecutive_holds:
+            trend = market_context.get("trend", "UNKNOWN")
+            logger.warning("🚨 Emergency mode: %s consecutive HOLDs (trend=%s)", self.consecutive_holds, trend)
+
+            new_action: Optional[str] = None
+            if trend in ["DOWNTREND", "WEAK_DOWN", "MICRO_DOWN"]:
+                new_action = "SELL"
+            elif trend in ["UPTREND", "WEAK_UP", "MICRO_UP"]:
+                new_action = "BUY"
+
+            if new_action:
+                signal.action = new_action
+                signal.confidence = max(getattr(signal, "confidence", 0.0), 0.25)
+                metadata = getattr(signal, "metadata", {})
+                metadata = metadata if isinstance(metadata, dict) else {}
+                metadata.update(
+                    {
+                        "emergency_mode": True,
+                        "emergency_reason": f"{self.consecutive_holds} consecutive HOLDs",
+                        "emergency_trend": trend,
+                    }
+                )
+                signal.metadata = metadata
+                self.consecutive_holds = 0  # reset after firing
+
+        return signal
+
+
 class SignalProcessor:
     """Executes strategy and feature processing."""
 
@@ -43,6 +85,7 @@ class SignalProcessor:
         self.manager = manager
         # Hybrid pipeline can be injected later; default to manager's instance
         self.hybrid_pipeline = getattr(manager, "hybrid_pipeline", None)
+        self._emergency_generator = EmergencySignalGenerator()
 
     async def generate_trading_signal(
         self,
@@ -81,6 +124,10 @@ class SignalProcessor:
                         "metadata": hybrid_signal.metadata,
                     },
                 )
+
+                # Emergency mode: force a directional signal after too many HOLDs
+                market_ctx = self._build_market_context_from_pipeline(pipeline_result)
+                hybrid_signal = self._emergency_generator.apply(hybrid_signal, market_ctx)
 
                 # Store pipeline result for trade logging
                 m._current_pipeline_result = pipeline_result
@@ -150,6 +197,10 @@ class SignalProcessor:
                 f"{m._min_confidence_for_trade:.3f}, converting to HOLD"
             )
             signal.action = "HOLD"
+
+        # Emergency mode for legacy path
+        market_ctx = self._build_market_context_from_features(features)
+        signal = self._emergency_generator.apply(signal, market_ctx)
 
         m.status.last_signal = signal.action
         m.status.signal_confidence = signal.confidence
@@ -489,3 +540,26 @@ class SignalProcessor:
         )
         signal.confidence = enhanced_conf
         return signal, filters_passed, filters_applied
+
+    def _build_market_context_from_pipeline(self, pipeline_result: Any) -> Dict[str, Any]:
+        if not pipeline_result:
+            return {}
+        return {
+            "trend": getattr(pipeline_result.rule_engine, "market_trend", None),
+            "volatility": getattr(pipeline_result.rule_engine, "volatility_regime", None),
+        }
+
+    def _build_market_context_from_features(self, features) -> Dict[str, Any]:
+        context: Dict[str, Any] = {}
+        try:
+            if hasattr(features, "iloc") and len(features) > 0:
+                last = features.iloc[-1]
+                context["trend"] = (
+                    last.get("trend")
+                    or last.get("market_trend")
+                    or last.get("regime")
+                )
+                context["volatility"] = last.get("volatility_regime") or last.get("volatility")
+        except Exception:
+            pass
+        return context

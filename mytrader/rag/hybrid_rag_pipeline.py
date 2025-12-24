@@ -539,7 +539,8 @@ class RuleEngine:
         
         # Determine final signal - use scalp threshold in low-vol/range
         normal_threshold = self.config.get("signal_threshold", 40)
-        normal_threshold = max(1, int(normal_threshold * (1 + time_adjustments.get("min_confidence_adjustment", 0.0))))
+        threshold_adjustment = 1 + time_adjustments.get("min_confidence_adjustment", 0.0)
+        normal_threshold = max(1, int(normal_threshold * threshold_adjustment))
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold
         
         # Log score details for debugging
@@ -566,7 +567,11 @@ class RuleEngine:
     
     def record_trade(self) -> None:
         """Record that a trade was executed (for cooldown tracking)."""
-        self.rule_engine.record_trade()
+        try:
+            self.last_trade_time = now_cst()
+        except Exception:
+            # Defensive: avoid crashing on timestamp failures
+            self.last_trade_time = datetime.now(timezone.utc)
 
 
 class RAGRetriever:
@@ -834,8 +839,17 @@ class LLMDecisionMaker:
         
         if self.llm_client and should_call:
             try:
-                response = self._call_llm(prompt, len(prompt))
-                decision = self._parse_response(response)
+                features_summary = {
+                    "trend": rule_result.market_trend,
+                    "rsi": rule_result.indicators.get("rsi", market_data.get("rsi", 50)),
+                    "volatility": rule_result.volatility_regime,
+                    "score": rule_result.score,
+                }
+                decision = self._generate_llm_signal(
+                    prompt=prompt,
+                    features_summary=features_summary,
+                    rag_context=rag_result,
+                )
                 self._store_cached_response(cache_key, decision)
                 self._last_call_candle = market_data.get("candle_timestamp")
                 self._last_call_time = time.time()
@@ -849,6 +863,78 @@ class LLMDecisionMaker:
         
         # Fallback to rule-based decision if LLM unavailable or skipped
         return self._fallback_decision(rule_result, rag_result)
+    
+    def _generate_llm_signal(
+        self,
+        prompt: str,
+        features_summary: Dict[str, Any],
+        rag_context: Any,
+    ) -> LLMDecisionResult:
+        """Call LLM and enforce directional bias when it responds HOLD."""
+        try:
+            llm_response = self._call_llm(prompt, len(prompt))
+            decision = self._parse_response(llm_response)
+            
+            if decision.action == TradeAction.HOLD:
+                trend = features_summary.get("trend", "UNKNOWN")
+                rsi = features_summary.get("rsi", 50)
+                
+                if trend == "DOWNTREND" and rsi > 60:
+                    logger.info("🔄 Converting DOWNTREND HOLD to SELL signal")
+                    decision.action = TradeAction.SELL
+                    decision.confidence = max(decision.confidence, 25.0)
+                    decision.reasoning = decision.reasoning or ""
+                    decision.reasoning += f" | Downtrend with RSI {rsi}, converted from HOLD"
+                elif trend == "UPTREND" and rsi < 40:
+                    logger.info("🔄 Converting UPTREND HOLD to BUY signal")
+                    decision.action = TradeAction.BUY
+                    decision.confidence = max(decision.confidence, 25.0)
+                    decision.reasoning = decision.reasoning or ""
+                    decision.reasoning += f" | Uptrend with RSI {rsi}, converted from HOLD"
+            
+            return decision
+        
+        except Exception as e:
+            logger.error(f"❌ LLM signal generation failed: {e}")
+            return self._generate_fallback_technical_signal(features_summary)
+    
+    def _generate_fallback_technical_signal(self, features: Dict[str, Any]) -> LLMDecisionResult:
+        """Generate a simple technical signal as fallback."""
+        trend = features.get("trend", "UNKNOWN")
+        rsi = features.get("rsi", 50)
+        
+        if trend == "DOWNTREND" and rsi > 65:
+            return LLMDecisionResult(
+                action=TradeAction.SELL,
+                confidence=30.0,
+                reasoning="Technical fallback: Downtrend + overbought RSI",
+            )
+        if trend == "UPTREND" and rsi < 35:
+            return LLMDecisionResult(
+                action=TradeAction.BUY,
+                confidence=30.0,
+                reasoning="Technical fallback: Uptrend + oversold RSI",
+            )
+        return LLMDecisionResult(
+            action=TradeAction.HOLD,
+            confidence=10.0,
+            reasoning="Technical fallback: No clear setup",
+        )
+
+    def _maybe_relax_no_signal(self, rule_result: RuleEngineResult) -> Optional[TradeAction]:
+        """Allow weak directional signals in trending, active markets instead of hard HOLD."""
+        if rule_result.filters_blocked or rule_result.signal != TradeAction.HOLD:
+            return None
+        
+        trend = rule_result.market_trend
+        volatility = rule_result.volatility_regime
+        
+        if trend in ["UPTREND", "MICRO_UP", "WEAK_UP"] and volatility in ["MEDIUM", "HIGH"]:
+            return TradeAction.SCALP_BUY
+        if trend in ["DOWNTREND", "MICRO_DOWN", "WEAK_DOWN"] and volatility in ["MEDIUM", "HIGH"]:
+            return TradeAction.SCALP_SELL
+        
+        return None
     
     def _build_prompt(
         self,
@@ -1311,6 +1397,17 @@ class HybridRAGPipeline:
                 price_ref,
             )
 
+        # Debug current level context to understand gating behavior
+        self.debug_level_confirmation(price_ref, pdh, pdl)
+
+        # EMERGENCY OVERRIDE: if price is already above/at PDL, skip reclaim wait
+        if _valid_level(pdl):
+            override_hit, override_reason = self._emergency_level_override(price_ref, pdl, pdh)
+            if override_hit:
+                self._reset_level_confirm_wait(direction)
+                final_reasoning = f"{final_reasoning}; {override_reason}" if final_reasoning else override_reason
+                return final_action, final_confidence, final_reasoning, None, override_reason
+
         buffer_points = max(
             float(cfg.get("min_buffer_points", 0.50) or 0.50),
             atr * float(cfg.get("buffer_atr_mult", 0.10) or 0.10),
@@ -1355,6 +1452,17 @@ class HybridRAGPipeline:
                 target_level = float(pdl or 0) - buffer_points
                 condition_met = price_ref < target_level
 
+        # CRITICAL FIX: make PDL reclaim less sticky when price is effectively above
+        if target_type == "PDL_RECLAIM" and _valid_level(pdl):
+            if abs(price_ref - float(pdl)) <= 1.0 and price_ref >= float(pdl) - 0.5:
+                logger.info("✅ PDL reclaim achieved: price=%s, pdl=%s", price_ref, pdl)
+                self._reset_level_confirm_wait(direction)
+                success_reason = "PDL_RECLAIM_SUCCESS"
+                final_reasoning = f"{final_reasoning}; {success_reason}" if final_reasoning else success_reason
+                return final_action, final_confidence, final_reasoning, None, success_reason
+            # Allow more time before timing out when hugging PDL
+            max_wait_candles = max(max_wait_candles, 10)
+
         if not target_type or target_level is None:
             # Not near a key level; no gating.
             self._reset_level_confirm_wait(direction)
@@ -1364,7 +1472,23 @@ class HybridRAGPipeline:
             self._reset_level_confirm_wait(direction)
             return final_action, final_confidence, final_reasoning, None, None
 
-        wait_count = self._level_confirm_wait.get(direction, 0) + 1
+        pre_wait = self._level_confirm_wait.get(direction, 0)
+        logger.info(
+            "🔍 Level Confirmation State:\n"
+            "   Current Price: %s\n"
+            "   PDL: %s\n"
+            "   Price - PDL: %+0.2f\n"
+            "   Wait Count: %s/%s\n"
+            "   Should Pass: %s",
+            price_ref,
+            pdl,
+            (price_ref - float(pdl)) if _valid_level(pdl) else float("nan"),
+            pre_wait,
+            max_wait_candles,
+            (price_ref >= float(pdl)) if _valid_level(pdl) else False,
+        )
+
+        wait_count = pre_wait + 1
         self._level_confirm_wait[direction] = wait_count
 
         if wait_count >= max_wait_candles:
@@ -1633,46 +1757,53 @@ class HybridRAGPipeline:
 
         # Early exit if blocked or no actionable signal
         if not rule_result.should_proceed:
-            reason_code = "FILTER_BLOCK" if rule_result.filters_blocked else "NO_SIGNAL"
-            reason_detail = (
-                f"blocked filters: {', '.join(rule_result.filters_blocked)}"
-                if rule_result.filters_blocked
-                else f"no actionable signal ({rule_result.signal.value})"
-            )
-            hold_reason = HoldReason(
-                gate="hybrid_pipeline.rule_engine",
-                reason_code=reason_code,
-                reason_detail=reason_detail,
-                context={
-                    "filters_blocked": rule_result.filters_blocked,
-                    "signal": rule_result.signal.value,
-                    "score": rule_result.score,
-                    "filters_passed": rule_result.filters_passed,
-                    "filters_warned": rule_result.filters_warned,
-                },
-            )
-            logger.info(
-                "🚫 HOLD [{}] gate={} detail={} filters={}",
-                hold_reason.reason_code,
-                hold_reason.gate,
-                hold_reason.reason_detail,
-                rule_result.filters_blocked,
-            )
-            reasoning = (
-                f"Blocked by filters: {', '.join(rule_result.filters_blocked)}"
-                if rule_result.filters_blocked
-                else f"No actionable signal ({rule_result.signal.value}, score={rule_result.score:.1f})"
-            )
-            return HybridPipelineResult(
-                final_action=rule_result.signal,
-                final_confidence=0,
-                final_reasoning=reasoning,
-                rule_engine=rule_result,
-                rag_retrieval=RAGRetrievalResult(),
-                hold_reason=hold_reason,
-                timestamp=now_cst().isoformat(),
-                processing_time_ms=(time.time() - start_time) * 1000,
-            )
+            relaxed_action = self._maybe_relax_no_signal(rule_result)
+            if relaxed_action:
+                logger.info("🔓 Relaxing NO_SIGNAL gate for trending market (%s -> %s)", rule_result.signal.value, relaxed_action.value)
+                rule_result.signal = relaxed_action
+                rule_result.score = max(rule_result.score, 10)
+                rule_result.filters_warned.append("NO_SIGNAL_RELAXED")
+            else:
+                reason_code = "FILTER_BLOCK" if rule_result.filters_blocked else "NO_SIGNAL"
+                reason_detail = (
+                    f"blocked filters: {', '.join(rule_result.filters_blocked)}"
+                    if rule_result.filters_blocked
+                    else f"no actionable signal ({rule_result.signal.value})"
+                )
+                hold_reason = HoldReason(
+                    gate="hybrid_pipeline.rule_engine",
+                    reason_code=reason_code,
+                    reason_detail=reason_detail,
+                    context={
+                        "filters_blocked": rule_result.filters_blocked,
+                        "signal": rule_result.signal.value,
+                        "score": rule_result.score,
+                        "filters_passed": rule_result.filters_passed,
+                        "filters_warned": rule_result.filters_warned,
+                    },
+                )
+                logger.info(
+                    "🚫 HOLD [{}] gate={} detail={} filters={}",
+                    hold_reason.reason_code,
+                    hold_reason.gate,
+                    hold_reason.reason_detail,
+                    rule_result.filters_blocked,
+                )
+                reasoning = (
+                    f"Blocked by filters: {', '.join(rule_result.filters_blocked)}"
+                    if rule_result.filters_blocked
+                    else f"No actionable signal ({rule_result.signal.value}, score={rule_result.score:.1f})"
+                )
+                return HybridPipelineResult(
+                    final_action=rule_result.signal,
+                    final_confidence=0,
+                    final_reasoning=reasoning,
+                    rule_engine=rule_result,
+                    rag_retrieval=RAGRetrievalResult(),
+                    hold_reason=hold_reason,
+                    timestamp=now_cst().isoformat(),
+                    processing_time_ms=(time.time() - start_time) * 1000,
+                )
 
         # Layer 2: RAG Retrieval (only on signal)
         rag_result = self.rag_retriever.retrieve(rule_result, market_data)
@@ -1803,13 +1934,63 @@ class HybridRAGPipeline:
                 result.hold_reason.reason_code,
                 result.hold_reason.gate,
                 result.hold_reason.reason_detail,
-            )
+        )
         logger.info(
             f"Pipeline result: {result.final_action.value} "
             f"(conf={result.final_confidence:.0f}%, time={result.processing_time_ms:.0f}ms)"
         )
-
+        
         return result
+
+    def debug_level_confirmation(self, current_price: float, pdh: Optional[float], pdl: Optional[float]) -> None:
+        """Debug the level confirmation logic for visibility when gating trades."""
+        try:
+            pdh_val = float(pdh) if pdh is not None else None
+            pdl_val = float(pdl) if pdl is not None else None
+            logger.info("🔍 Level Confirmation Debug:")
+            logger.info("   Current Price: %s", current_price)
+            logger.info("   PDH: %s (diff: %+0.2f)", pdh_val, (current_price - pdh_val) if pdh_val else float("nan"))
+            logger.info("   PDL: %s (diff: %+0.2f)", pdl_val, (current_price - pdl_val) if pdl_val else float("nan"))
+            logger.info("   Above PDL: %s", pdl_val is not None and current_price > pdl_val)
+            logger.info("   Below PDH: %s", pdh_val is not None and current_price < pdh_val)
+            if pdh_val is not None and pdl_val is not None:
+                logger.info("   Range Size: %0.2f", pdh_val - pdl_val)
+        except Exception:
+            # Avoid breaking pipeline due to debug logging issues
+            logger.debug("Level confirmation debug logging failed", exc_info=True)
+
+    def _emergency_pdl_override(self, current_price: float, pdl: float) -> Tuple[bool, str]:
+        """Emergency override for PDL reclaim situations when price is already above PDL."""
+        try:
+            if current_price is not None and pdl is not None and current_price >= pdl:
+                logger.warning("🚨 Emergency PDL override: price=%s >= pdl=%s", current_price, pdl)
+                return True, "EMERGENCY_PDL_OVERRIDE"
+        except Exception:
+            pass
+        return False, "No emergency override needed"
+
+    def _emergency_level_override(
+        self,
+        current_price: float,
+        pdl: Optional[float],
+        pdh: Optional[float],
+    ) -> Tuple[bool, str]:
+        """Emergency override for obvious level confirmations."""
+        try:
+            if current_price is not None and pdl is not None:
+                if current_price >= pdl:
+                    logger.warning("🚨 EMERGENCY LEVEL OVERRIDE: price=%s >= pdl=%s", current_price, pdl)
+                    return True, "EMERGENCY_ABOVE_PDL"
+                if abs(current_price - pdl) <= 0.25:
+                    logger.warning(
+                        "🚨 EMERGENCY LEVEL OVERRIDE: price=%s very close to pdl=%s",
+                        current_price,
+                        pdl,
+                    )
+                    return True, "EMERGENCY_AT_PDL"
+        except Exception:
+            pass
+        return False, "No emergency override"
 
     def record_trade(self) -> None:
         """Record that a trade was made (for cooldown tracking)."""
