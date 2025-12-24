@@ -1491,6 +1491,7 @@ TRADING GUIDANCE:
                     tick_size=self.settings.trading.tick_size,
                     scalper=is_scalp,
                     volatility=self.status.hybrid_volatility_regime,
+                    current_price=current_price,
                 )
                 stop_offset = offsets.stop_offset
                 target_offset = offsets.target_offset
@@ -1520,8 +1521,36 @@ TRADING GUIDANCE:
                 )
                 target_offset = min_guard_offset
     
-            stop_loss = current_price - stop_offset if direction > 0 else current_price + stop_offset
-            take_profit = current_price + target_offset if direction > 0 else current_price - target_offset
+            entry_price = current_price
+            stop_loss = entry_price - stop_offset if direction > 0 else entry_price + stop_offset
+            take_profit = entry_price + target_offset if direction > 0 else entry_price - target_offset
+
+            # Enhanced debug of protective offsets
+            atr_value = row.get("ATR_14", None)
+            logger.info(
+                "🔍 Stop-Loss Calculation Debug:\n"
+                "   Action: %s\n"
+                "   Current Price: %.2f\n"
+                "   Entry Price: %.2f\n"
+                "   ATR Value: %s\n"
+                "   Stop Offset: %.2f\n"
+                "   Target Offset: %.2f\n"
+                "   Stop-Loss: %.2f (%s entry)\n"
+                "   Take-Profit: %.2f (%s entry)\n"
+                "   Fallback Used: %s (%s)",
+                signal.action,
+                current_price,
+                entry_price,
+                f"{atr_value:.4f}" if atr_value is not None else "N/A",
+                stop_offset,
+                target_offset,
+                stop_loss,
+                "above" if direction < 0 else "below",
+                take_profit,
+                "below" if direction < 0 else "above",
+                "yes" if fallback_used else "no",
+                offsets.reason if fallback_used else "ok",
+            )
             
             # Build metadata from hybrid pipeline
             base_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
@@ -1685,6 +1714,26 @@ TRADING GUIDANCE:
             features,
         )
 
+    def _validate_bracket_prices(self, action: str, entry_price: float, stop_loss: float, take_profit: float) -> bool:
+        """Validate that bracket order prices are logically correct."""
+        act = action.upper()
+        if act == "BUY":
+            if stop_loss >= entry_price:
+                logger.error("❌ BUY order: Stop-loss %.4f must be below entry %.4f", stop_loss, entry_price)
+                return False
+            if take_profit <= entry_price:
+                logger.error("❌ BUY order: Take-profit %.4f must be above entry %.4f", take_profit, entry_price)
+                return False
+        elif act == "SELL":
+            if stop_loss <= entry_price:
+                logger.error("❌ SELL order: Stop-loss %.4f must be above entry %.4f", stop_loss, entry_price)
+                return False
+            if take_profit >= entry_price:
+                logger.error("❌ SELL order: Take-profit %.4f must be below entry %.4f", take_profit, entry_price)
+                return False
+        logger.debug("✅ Bracket prices validated: %s @ %.4f, SL=%.4f, TP=%.4f", action, entry_price, stop_loss, take_profit)
+        return True
+
     def _validate_entry_guard(
         self,
         entry_price: float,
@@ -1702,6 +1751,23 @@ TRADING GUIDANCE:
         - Minimum distance in ticks (configurable, default 4 ticks)
         - Dollar risk must not exceed max_loss_per_trade
         """
+        # Quick bracket direction sanity check
+        if not self._validate_bracket_prices(action, entry_price, stop_loss, take_profit):
+            self._add_reason_code("INVALID_BRACKET_DIRECTION")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.invalid_levels",
+                message="Bracket direction invalid",
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "action": action,
+                    "entry": entry_price,
+                    "stop": stop_loss,
+                    "target": take_profit,
+                },
+            )
+            return False
+
         # Check 1: Must have both stop and target
         if stop_loss is None or take_profit is None:
             logger.warning("⚠️ Protective levels missing - rejecting trade")

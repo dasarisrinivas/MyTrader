@@ -67,6 +67,7 @@ def calculate_protection(
             tick_size=tick_size,
             scalper=action_upper in SCALP_ACTIONS,
             volatility=volatility,
+            current_price=entry_price,
         )
         stop_offset = offsets.stop_offset
         target_offset = offsets.target_offset
@@ -91,4 +92,3 @@ def calculate_protection(
 
 
 __all__ = ["calculate_protection", "ProtectionComputation"]
-
