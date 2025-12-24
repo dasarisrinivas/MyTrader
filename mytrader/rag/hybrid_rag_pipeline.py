@@ -1475,14 +1475,15 @@ class HybridRAGPipeline:
             for token in {combined_regime, regime, trend, volatility}
             if token
         }
-        # Add base tokens to catch generic allowed values like TRENDING/RANGING
-        for token in list(normalized_regime_tokens):
-            if "TREND" in token:
-                normalized_regime_tokens.add("TRENDING")
-            if "RANGE" in token:
-                normalized_regime_tokens.add("RANGING")
-            if "VOL" in token:
-                normalized_regime_tokens.add("VOLATILE")
+        if cfg.get("expand_generic_regimes", True):
+            # Add base tokens to catch generic allowed values like TRENDING/RANGING
+            for token in list(normalized_regime_tokens):
+                if "TREND" in token:
+                    normalized_regime_tokens.add("TRENDING")
+                if "RANGE" in token:
+                    normalized_regime_tokens.add("RANGING")
+                if "VOL" in token:
+                    normalized_regime_tokens.add("VOLATILE")
 
         allowed_regimes_cfg = cfg.get(
             "allowed_regimes",
@@ -1513,6 +1514,7 @@ class HybridRAGPipeline:
             relax_reason = f"Futures regime allowed ({combined_regime or trend or volatility})"
 
         if relax_reason:
+            # Apply futures-mode relaxation adjustments (overrides initial strictness)
             strictness = "low"
             hard_block_when_below = False
             min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
@@ -1521,16 +1523,17 @@ class HybridRAGPipeline:
             effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
             use_relaxed_threshold = True
 
-        if strictness == "medium":
-            hard_block_when_below = False
-            base_min_win_rate = max(0.05, base_min_win_rate * 0.9)
-            effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
-            min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
-        elif strictness == "low":
-            hard_block_when_below = False
-            base_min_win_rate = max(0.05, base_min_win_rate * 0.85)
-            effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
-            min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
+        if not relax_reason:
+            if strictness == "medium":
+                hard_block_when_below = False
+                base_min_win_rate = max(0.05, base_min_win_rate * 0.9)
+                effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
+                min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
+            elif strictness == "low":
+                hard_block_when_below = False
+                base_min_win_rate = max(0.05, base_min_win_rate * 0.85)
+                effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
+                min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
 
         wins = sum(1 for t in rag_result.similar_trades if str(t.get("result", "")).upper() == "WIN")
         n = int(rag_result.similar_trade_count or 0)
