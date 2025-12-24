@@ -226,6 +226,28 @@ class RuleEngine:
         self.last_trade_time: Optional[datetime] = None
         
         logger.info("RuleEngine initialized")
+
+    def _get_time_based_adjustments(self, current_time: datetime) -> Dict[str, float]:
+        """Get adjustments based on time of day (CST)."""
+        hour = current_time.hour
+        
+        # Evening session (6 PM - 11 PM CST) - futures are active
+        if 18 <= hour <= 23:
+            return {
+                "min_confidence_adjustment": -0.05,  # Lower threshold
+                "atr_min_adjustment": -0.05,        # Allow lower volatility
+                "volume_requirement": 0.8,          # Relax volume requirements
+                "range_requirement": 0.7,           # Allow tighter ranges
+            }
+        # Pre-market (3 AM - 8 AM CST)
+        if 3 <= hour <= 8:
+            return {
+                "min_confidence_adjustment": 0.05,   # Higher threshold (news risk)
+                "atr_min_adjustment": 0.0,
+                "volume_requirement": 1.2,
+                "range_requirement": 1.1,
+            }
+        return {}
     
     def evaluate(self, market_data: Dict[str, Any]) -> RuleEngineResult:
         """Evaluate market data against rules.
@@ -311,7 +333,10 @@ class RuleEngine:
         # ===== HARD FILTERS (blockers) =====
         
         # ATR filter - RELAXED for low-vol days
+        current_time = now_cst()
+        time_adjustments = self._get_time_based_adjustments(current_time)
         atr_min_threshold = self.atr_min if result.volatility_regime != "LOW" else 0.05
+        atr_min_threshold = max(0.0, atr_min_threshold + time_adjustments.get("atr_min_adjustment", 0.0))
         if atr < atr_min_threshold:
             result.filters_warned.append(f"VERY_LOW_ATR ({atr:.2f})")  # Warn but don't block
         elif atr > self.atr_max:
@@ -328,7 +353,6 @@ class RuleEngine:
             result.filters_passed.append("COOLDOWN_OK")
         
         # Time filter (avoid first/last 15 min of session) - CST hours
-        current_time = now_cst()
         hour = current_time.hour
         minute = current_time.minute
         
@@ -490,12 +514,13 @@ class RuleEngine:
             score_details.append("NO_PDH_PDL")
         
         # Volume component
-        if volume_ratio > 1.5:
+        volume_boost_threshold = 1.5 * float(time_adjustments.get("volume_requirement", 1.0))
+        if volume_ratio > volume_boost_threshold:
             # High volume increases conviction
             buy_score *= 1.1
             sell_score *= 1.1
             result.filters_passed.append("HIGH_VOLUME")
-            score_details.append(f"HIGH_VOL(x1.1)")
+            score_details.append(f"HIGH_VOL(x1.1 thr={volume_boost_threshold:.2f})")
         
         # ===== DAILY BIAS ADJUSTMENT =====
         # Penalize signals that go against the daily bias, boost signals that align
@@ -514,6 +539,7 @@ class RuleEngine:
         
         # Determine final signal - use scalp threshold in low-vol/range
         normal_threshold = self.config.get("signal_threshold", 40)
+        normal_threshold = max(1, int(normal_threshold * (1 + time_adjustments.get("min_confidence_adjustment", 0.0))))
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold
         
         # Log score details for debugging
@@ -1227,6 +1253,9 @@ class HybridRAGPipeline:
             ),
         }
         self._level_confirm_wait = {"BUY": 0, "SELL": 0}
+        # Circuit breaker for consecutive blocks
+        self._consecutive_blocks = 0
+        self._max_consecutive_blocks = int(config.get("max_consecutive_blocks", 5))
         
         logger.info("HybridRAGPipeline initialized")
 
@@ -1590,6 +1619,17 @@ class HybridRAGPipeline:
         # Layer 1: Rule Engine (always runs)
         rule_result = self.rule_engine.evaluate(market_data)
         logger.debug(f"Layer 1 - Rule Engine: {rule_result.signal.value} ({rule_result.score:.1f})")
+
+        # Circuit breaker for consecutive rule blocks
+        if rule_result.filters_blocked:
+            self._consecutive_blocks += 1
+            if self._consecutive_blocks >= self._max_consecutive_blocks:
+                logger.warning("🔧 Circuit breaker: %s consecutive blocks, relaxing rules", self._consecutive_blocks)
+                rule_result.filters_warned.extend(["CIRCUIT_BREAKER_ACTIVATED"])
+                rule_result.filters_blocked = []
+                self._consecutive_blocks = 0
+        else:
+            self._consecutive_blocks = 0
 
         # Early exit if blocked or no actionable signal
         if not rule_result.should_proceed:
@@ -2460,6 +2500,9 @@ class HybridRAGPipeline:
             ),
         }
         self._level_confirm_wait = {"BUY": 0, "SELL": 0}
+        # Circuit breaker for consecutive blocks
+        self._consecutive_blocks = 0
+        self._max_consecutive_blocks = int(config.get("max_consecutive_blocks", 5))
         
         logger.info("HybridRAGPipeline initialized")
 
@@ -2664,7 +2707,18 @@ class HybridRAGPipeline:
         # Layer 1: Rule Engine (always runs)
         rule_result = self.rule_engine.evaluate(market_data)
         logger.debug(f"Layer 1 - Rule Engine: {rule_result.signal.value} ({rule_result.score:.1f})")
-        
+
+        # Circuit breaker for consecutive rule blocks
+        if rule_result.filters_blocked:
+            self._consecutive_blocks += 1
+            if self._consecutive_blocks >= self._max_consecutive_blocks:
+                logger.warning("🔧 Circuit breaker: %s consecutive blocks, relaxing rules", self._consecutive_blocks)
+                rule_result.filters_warned.extend(["CIRCUIT_BREAKER_ACTIVATED"])
+                rule_result.filters_blocked = []
+                self._consecutive_blocks = 0
+        else:
+            self._consecutive_blocks = 0
+
         # Early exit if blocked or no actionable signal
         if not rule_result.should_proceed:
             reason_code = "FILTER_BLOCK" if rule_result.filters_blocked else "NO_SIGNAL"
