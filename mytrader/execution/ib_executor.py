@@ -28,6 +28,8 @@ from ..utils.structured_logging import log_structured_event
 from ..utils.telegram_notifier import TelegramNotifier
 from .order_builder import format_bracket_snapshot, validate_bracket_prices
 
+PROTECTIVE_ORDER_TIMEOUT = 45.0  # Extended to accommodate slow bracket confirmations
+
 if TYPE_CHECKING:
     from .reconcile import ReconcileManager, ReconcileLock
     from ..data.live_data_manager import LiveDataManager
@@ -179,6 +181,23 @@ class TradeExecutor:
         # Initialize PositionManager
         from .position_manager import PositionManager
         self.position_manager = PositionManager(ib, config, symbol)
+
+    def check_ib_health(self) -> str:
+        """Verify IB connection quality before trading."""
+        if not self.ib:
+            logger.warning("⚠️ IB client not initialized; treating connection as slow")
+            return "slow"
+        try:
+            start = time.monotonic()
+            self.ib.waitOnUpdate(timeout=2)
+            latency_ms = (time.monotonic() - start) * 1000
+            if latency_ms > 1000:
+                logger.warning("🐌 High IB latency detected (%.0f ms), using extended timeouts", latency_ms)
+                return "slow"
+            return "normal"
+        except Exception as exc:
+            logger.warning(f"⚠️ IB health check failed: {exc}")
+            return "slow"
 
     # =========================================================================
     # NEW: Reconciliation Integration Methods
@@ -1450,9 +1469,19 @@ class TradeExecutor:
                 logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")
 
             await self._await_order_submission(parent_trade, label="parent")
-            confirmation_ok = await self._confirm_protective_orders(parent_trade, placed_child_trades)
+            confirmation_ok = await self._confirm_protective_orders_with_retry(parent_trade, placed_child_trades)
             if not confirmation_ok:
                 message = "Protective orders not confirmed"
+                # Emergency fallback: place market order with standalone protective orders
+                try:
+                    await self._place_emergency_order(
+                        action=action,
+                        quantity=quantity,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                    )
+                except Exception as emergency_exc:
+                    logger.error(f"❌ Emergency market order fallback failed: {emergency_exc}")
                 self._handle_protective_confirmation_failure(parent_trade, placed_child_trades, message)
                 return OrderResult(
                     trade=parent_trade,
@@ -1646,7 +1675,7 @@ class TradeExecutor:
         self,
         parent_trade: Trade,
         child_trades: List[Trade],
-        timeout: float = 8.0,
+        timeout: float = PROTECTIVE_ORDER_TIMEOUT,
         poll_interval: float = 0.5,
     ) -> bool:
         """Ensure parent and children advance beyond PendingSubmit shortly after placement."""
@@ -1671,6 +1700,100 @@ class TradeExecutor:
             children=child_ids,
         )
         return False
+
+    async def _confirm_protective_orders_with_retry(
+        self,
+        parent_trade: Trade,
+        child_trades: List[Trade],
+        max_retries: int = 2,
+    ) -> bool:
+        """Retry protective order confirmation before declaring failure."""
+        for attempt in range(max_retries + 1):
+            success = await self._confirm_protective_orders(parent_trade, child_trades)
+            if success:
+                return True
+            if attempt < max_retries:
+                logger.warning(
+                    "⚠️ Protective order confirmation failed (attempt %s/%s); retrying...",
+                    attempt + 1,
+                    max_retries + 1,
+                )
+                await asyncio.sleep(5)
+        return False
+
+    async def _place_emergency_order(
+        self,
+        action: str,
+        quantity: int,
+        stop_loss: float,
+        take_profit: float,
+    ) -> None:
+        """Place a market order with standalone protective orders when bracket submission fails."""
+        logger.warning("🚨 Placing emergency market order due to bracket order failure")
+        contract = await self.get_qualified_contract()
+        if not contract:
+            logger.error("❌ Emergency fallback aborted: no qualified contract")
+            return
+        entry_order = MarketOrder(action, quantity)
+        entry_trade = self.ib.placeOrder(contract, entry_order)
+        entry_id = getattr(entry_trade.order, "orderId", "NA")
+        self.active_orders[entry_id] = entry_trade
+        self.order_creation_times[entry_id] = datetime.utcnow()
+        self.order_tracker.record_order_placement(
+            order_id=entry_id,
+            parent_order_id=None,
+            symbol=self.symbol,
+            action=action,
+            quantity=quantity,
+            order_type="MKT",
+            trade_cycle_id=None,
+        )
+        exit_action = "SELL" if action.upper().startswith("BUY") else "BUY"
+
+        # Stop-market for protection
+        stop_order = StopOrder(exit_action, quantity, stop_loss)
+        stop_order.transmit = True
+        stop_order.outsideRth = True
+        stop_trade = self.ib.placeOrder(contract, stop_order)
+        stop_id = getattr(stop_trade.order, "orderId", "NA")
+        self.active_orders[stop_id] = stop_trade
+        self.order_creation_times[stop_id] = datetime.utcnow()
+        self.order_tracker.record_order_placement(
+            order_id=stop_id,
+            parent_order_id=entry_id,
+            symbol=self.symbol,
+            action=exit_action,
+            quantity=quantity,
+            order_type="STP",
+            stop_price=stop_loss,
+            trade_cycle_id=None,
+        )
+
+        # Take-profit as limit
+        tp_order = LimitOrder(exit_action, quantity, take_profit)
+        tp_order.transmit = True
+        tp_order.outsideRth = True
+        tp_trade = self.ib.placeOrder(contract, tp_order)
+        tp_id = getattr(tp_trade.order, "orderId", "NA")
+        self.active_orders[tp_id] = tp_trade
+        self.order_creation_times[tp_id] = datetime.utcnow()
+        self.order_tracker.record_order_placement(
+            order_id=tp_id,
+            parent_order_id=entry_id,
+            symbol=self.symbol,
+            action=exit_action,
+            quantity=quantity,
+            order_type="LMT",
+            limit_price=take_profit,
+            trade_cycle_id=None,
+        )
+
+        logger.info(
+            "✅ Emergency market order placed (entry %s), protective stop=%s, target=%s",
+            entry_id,
+            f"{stop_loss:.2f}",
+            f"{take_profit:.2f}",
+        )
 
     def _handle_protective_confirmation_failure(
         self,
@@ -2041,16 +2164,8 @@ class TradeExecutor:
                 logger.error("❌ Cannot place emergency stop - no contract available")
                 return
             
-            # Place stop limit order (more reliable than stop market)
-            tick_size = self.config.tick_size
-            offset_ticks = 4  # Allow 1 point slippage
-            
-            if entry_action == "BUY":  # Long position, stop below
-                limit_price = expected_stop_loss - (offset_ticks * tick_size)
-            else:  # Short position, stop above
-                limit_price = expected_stop_loss + (offset_ticks * tick_size)
-            
-            sl_order = StopLimitOrder(stop_action, quantity, expected_stop_loss, limit_price)
+            # Place stop market order (simpler and faster to acknowledge)
+            sl_order = StopOrder(stop_action, quantity, expected_stop_loss)
             sl_order.transmit = True
             sl_order.outsideRth = True
             
@@ -2067,15 +2182,15 @@ class TradeExecutor:
                 symbol=self.symbol,
                 action=stop_action,
                 quantity=quantity,
-                order_type="STOP_LIMIT",
+                order_type="STP",
                 stop_price=expected_stop_loss,
-                limit_price=limit_price,
+                limit_price=None,
                 trade_cycle_id=trade_cycle_id,
             )
             
             logger.info(
                 f"✅ EMERGENCY STOP placed: order {stop_order_id} "
-                f"({stop_action} {quantity} @ stop={expected_stop_loss:.2f}, limit={limit_price:.2f})"
+                f"({stop_action} {quantity} @ stop={expected_stop_loss:.2f})"
             )
             
             # Send alert
