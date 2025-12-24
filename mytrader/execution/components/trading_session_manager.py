@@ -116,11 +116,9 @@ class TradingSessionManager:
                         )
                         if hasattr(m.hybrid_pipeline, "ensure_ready"):
                             stats = m.hybrid_pipeline.ensure_ready(min_documents=5)
-                            logger.info(
-                                "🔎 Hybrid RAG index ready (%s, %d docs)",
-                                stats.get("engine", "cpu"),
-                                stats.get("documents", 0),
-                        )
+                            engine = stats.get("engine", "cpu")
+                            doc_count = stats.get("documents", 0)
+                            logger.info(f"🔎 Hybrid RAG index ready ({engine}, {doc_count} docs)")
                         m._use_hybrid_pipeline = True
                         m.status.hybrid_pipeline_enabled = True
                         m.signal_processor.hybrid_pipeline = m.hybrid_pipeline

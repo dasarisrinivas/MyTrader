@@ -117,6 +117,15 @@ class HybridPipelineIntegration:
                 },
                 "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 40),
             }
+            hybrid_config["level_confirmation_settings"] = {
+                "level_confirmation_enabled": getattr(settings.hybrid, "level_confirmation_enabled", True),
+                "level_confirm_proximity_pct": getattr(settings.hybrid, "level_confirm_proximity_pct", 0.15),
+                "level_confirm_buffer_atr_mult": getattr(settings.hybrid, "level_confirm_buffer_atr_mult", 0.10),
+                "level_confirm_min_buffer_points": getattr(settings.hybrid, "level_confirm_min_buffer_points", 0.50),
+                "level_confirm_max_wait_candles": getattr(settings.hybrid, "level_confirm_max_wait_candles", 3),
+                "level_confirm_timeout_mode": getattr(settings.hybrid, "level_confirm_timeout_mode", "SOFT_PENALTY"),
+                "level_confirm_timeout_penalty": getattr(settings.hybrid, "level_confirm_timeout_penalty", 0.12),
+            }
         
         rag_cfg = getattr(settings, 'rag', None)
         if rag_cfg:
@@ -132,6 +141,25 @@ class HybridPipelineIntegration:
                 "min_similar_trades_for_full_threshold",
                 0,
             )
+            hybrid_config["rag_regime_filter"] = {
+                "enabled": getattr(rag_cfg, "enabled", True),
+                "min_win_rate": getattr(rag_cfg, "min_win_rate", getattr(rag_cfg, "min_weighted_win_rate", 0.15)),
+                "mode": getattr(rag_cfg, "regime_mode", "relaxed"),
+                "min_sample_for_hard_block": getattr(rag_cfg, "min_sample_for_hard_block", 30),
+                "soft_penalty_when_below": getattr(rag_cfg, "soft_penalty_when_below", 0.10),
+                "hard_block_when_below": getattr(rag_cfg, "hard_block_when_below", False),
+                "min_similar_trades": getattr(rag_cfg, "min_similar_trades", 2),
+                "min_weighted_win_rate_soft_floor": getattr(
+                    rag_cfg,
+                    "min_weighted_win_rate_soft_floor",
+                    getattr(rag_cfg, "min_weighted_win_rate", 0.45),
+                ),
+                "min_similar_trades_for_full_threshold": getattr(
+                    rag_cfg,
+                    "min_similar_trades_for_full_threshold",
+                    0,
+                ),
+            }
         
         # Initialize components
         self.storage = get_rag_storage()
@@ -158,10 +186,14 @@ class HybridPipelineIntegration:
         self.pipeline = create_hybrid_pipeline(
             config=hybrid_config,
             llm_client=llm_client,
+            embedding_builder=self.embedding_builder,
+            storage_manager=self.storage,
         )
+        if self.pipeline and self.embedding_builder:
+            self.pipeline.rag_retriever.embedding_builder = self.embedding_builder
         
         # Initialize daily updater
-        self.daily_updater = create_daily_updater(storage=self.storage)
+        self.daily_updater = create_daily_updater(storage=self.storage, embedding_builder=self.embedding_builder)
         
         # Track current trade for logging
         self._current_trade_id: Optional[str] = None
@@ -205,7 +237,7 @@ class HybridPipelineIntegration:
         if documents:
             logger.info(f"Building local RAG index from {len(documents)} documents in {self.rag_data_path}")
             try:
-                self.embedding_builder.build_index(documents, save=False)
+                self.embedding_builder.build_index(documents, save=True)
             except Exception as e:
                 logger.warning(f"Failed to build local RAG index: {e}")
         else:
@@ -431,6 +463,9 @@ class HybridPipelineIntegration:
         
         # Process through pipeline
         result = self.pipeline.process(market_data)
+        if result is None:
+            logger.error("Hybrid pipeline returned no result; forcing HOLD")
+            return HybridSignal("HOLD", 0.0), None
 
         news_context = self._get_context("news", 600)
         macro_context = self._get_context("macro", 900)
@@ -464,13 +499,8 @@ class HybridPipelineIntegration:
             and (raw_stop <= 0 or raw_target <= 0)
         ):
             logger.warning(
-                "Hybrid pipeline produced non-positive protective levels "
-                "(action=%s stop=%.4f target=%.4f entry=%.2f atr=%.4f)",
-                action_value,
-                raw_stop,
-                raw_target,
-                entry_price,
-                atr_value,
+                f"Hybrid pipeline produced non-positive protective levels "
+                f"(action={action_value} stop={raw_stop:.4f} target={raw_target:.4f} entry={entry_price:.2f} atr={atr_value:.4f})"
             )
 
         if action_value in TRADE_ACTIONS:
@@ -487,10 +517,7 @@ class HybridPipelineIntegration:
             take_points = protection.target_offset
             if protection.source == "fallback_atr":
                 logger.warning(
-                    "⚠️ Protective fallback used (action=%s reason=%s atr=%.4f)",
-                    action_value,
-                    protection.fallback_reason or "fallback",
-                    atr_value,
+                    f"⚠️ Protective fallback used (action={action_value} reason={protection.fallback_reason or 'fallback'} atr={atr_value:.4f})"
                 )
         else:
             stop_points = max(0.0, raw_stop)
@@ -527,9 +554,24 @@ class HybridPipelineIntegration:
                 }
             )
         
+        if result.hold_reason:
+            metadata["hold_reason"] = {
+                "gate": result.hold_reason.gate,
+                "reason_code": result.hold_reason.reason_code,
+                "reason_detail": result.hold_reason.reason_detail,
+                "context": result.hold_reason.context,
+            }
+
+        pipeline_conf = result.final_confidence
+        if pipeline_conf > 1:
+            pipeline_conf = pipeline_conf / 100.0
+        pipeline_conf = max(0.0, min(1.0, pipeline_conf))
+        metadata["pipeline_final_confidence"] = result.final_confidence
+        metadata["decision_confidence"] = decision.confidence
+        
         signal = HybridSignal(
             action=decision.action if result.final_action != TradeAction.BLOCKED else "HOLD",
-            confidence=decision.confidence,
+            confidence=pipeline_conf,
             metadata=metadata,
         )
 
@@ -566,6 +608,8 @@ class HybridPipelineIntegration:
                 "factor_scores": decision.scores.to_dict(),
                 "news_bias": (news_context or {}).get("bias"),
                 "macro_bias": (macro_context or {}).get("regime_bias"),
+                "hold_reason": metadata.get("hold_reason"),
+                "pipeline_confidence": result.final_confidence,
             },
         )
         
@@ -626,9 +670,7 @@ class HybridPipelineIntegration:
             message=message,
             payload=payload,
         )
-        logger.info(
-            "🛡️ Protection snapshot | %s fallback=%s", message, "yes" if fallback_used else "no"
-        )
+        logger.info(f"🛡️ Protection snapshot | {message} fallback={'yes' if fallback_used else 'no'}")
     
     async def process(
         self,

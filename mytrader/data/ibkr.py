@@ -40,6 +40,8 @@ class IBKRCollector(DataCollector):
         self.base_delay = base_delay
         self.ib = IB()
         self.connection_attempts = 0
+        self._qualified_contract: Contract | None = None
+        self._qualified_contract_ts: float | None = None
 
     async def _connect(self) -> None:
         """Connect to IBKR with exponential backoff retry logic."""
@@ -129,6 +131,8 @@ class IBKRCollector(DataCollector):
     
     async def _qualified_contract(self) -> Contract:
         """Get IB-qualified contract (resolves to actual tradeable contract)."""
+        if self._qualified_contract:
+            return self._qualified_contract
         contract = self._contract()
         qualified = await self.ib.qualifyContractsAsync(contract)
         if not qualified:
@@ -143,8 +147,10 @@ class IBKRCollector(DataCollector):
             # Get the front month (first contract in the list)
             front_month = details[0].contract
             logger.info("Using front month contract: %s", front_month)
+            self._qualified_contract = front_month
             return front_month
-        return qualified[0]
+        self._qualified_contract = qualified[0]
+        return self._qualified_contract
 
     async def collect(self) -> pd.DataFrame:
         """Collect historical data with automatic reconnection on failure."""

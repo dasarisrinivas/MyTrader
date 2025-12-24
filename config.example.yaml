@@ -161,9 +161,14 @@ rag:
   local_store_path: "rag_data/local_kb/local_kb.sqlite"
   kb_cache_ttl_seconds: 120
   min_similar_trades: 0
+  min_win_rate: 0.15
   min_similar_trades_for_full_threshold: 0  # Only enforce strict win-rate once we have this many matches
   min_weighted_win_rate: 0.3
   min_weighted_win_rate_soft_floor: 0.3  # Set <min_weighted_win_rate> to enable relaxed mode when data is thin
+  min_sample_for_hard_block: 30
+  soft_penalty_when_below: 0.1
+  hard_block_when_below: false
+  regime_mode: "relaxed"
 
 # Telegram Notifications Configuration
 telegram:

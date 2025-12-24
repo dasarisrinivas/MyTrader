@@ -459,11 +459,15 @@ News Impact: {summary['news_impact']}
         return mistakes if mistakes else ["No clear patterns in losses"]
 
 
-def create_daily_updater(storage: Optional[RAGStorageManager] = None) -> RAGDailyUpdater:
+def create_daily_updater(
+    storage: Optional[RAGStorageManager] = None,
+    embedding_builder: Optional[Any] = None,
+) -> RAGDailyUpdater:
     """Factory function to create a RAGDailyUpdater."""
     storage = storage or get_rag_storage()
     ingestion_pipeline = RAGDataIngestionPipeline(storage=storage)
     return RAGDailyUpdater(
         storage=storage,
+        embedding_builder=embedding_builder,
         ingestion_pipeline=ingestion_pipeline,
     )

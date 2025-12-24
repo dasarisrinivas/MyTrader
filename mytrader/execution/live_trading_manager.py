@@ -466,33 +466,60 @@ class LiveTradingManager:
                 if not contract:
                     logger.warning("⚠️ Could not get contract for historical data")
                     return
-                
-                # Fetch last 5 days of daily bars
-                # ib_insync handles the async internally via its event loop
+
+                # Fetch last 5 days of daily bars using the active loop when available
+                daily_bars = None
                 try:
-                    daily_bars = self.executor.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='5 D',
-                        barSizeSetting='1 day',
-                        whatToShow='TRADES',
-                        useRTH=True,
-                        formatDate=1,
-                        timeout=10  # Add timeout
-                    )
+                    loop: Optional[asyncio.AbstractEventLoop] = None
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+
+                    async def _fetch(use_rth: bool):
+                        ib = self.executor.ib
+                        if loop and hasattr(ib, "reqHistoricalDataAsync"):
+                            return await ib.reqHistoricalDataAsync(
+                                contract,
+                                endDateTime='',
+                                durationStr='5 D',
+                                barSizeSetting='1 day',
+                                whatToShow='TRADES',
+                                useRTH=use_rth,
+                                formatDate=1,
+                                timeout=10,
+                            )
+                        if loop:
+                            return await loop.run_in_executor(
+                                None,
+                                lambda: ib.reqHistoricalData(
+                                    contract,
+                                    endDateTime='',
+                                    durationStr='5 D',
+                                    barSizeSetting='1 day',
+                                    whatToShow='TRADES',
+                                    useRTH=use_rth,
+                                    formatDate=1,
+                                    timeout=10,
+                                ),
+                            )
+                        return self.executor.ib.reqHistoricalData(
+                            contract,
+                            endDateTime='',
+                            durationStr='5 D',
+                            barSizeSetting='1 day',
+                            whatToShow='TRADES',
+                            useRTH=use_rth,
+                            formatDate=1,
+                            timeout=10,
+                        )
+
+                    daily_bars = await _fetch(use_rth=True)
+                    if not daily_bars:
+                        daily_bars = await _fetch(use_rth=False)
                 except Exception as hist_err:
                     logger.warning(f"⚠️ Historical data request failed: {hist_err}")
-                    # Try without RTH
-                    daily_bars = self.executor.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='5 D',
-                        barSizeSetting='1 day',
-                        whatToShow='TRADES',
-                        useRTH=False,
-                        formatDate=1,
-                        timeout=10
-                    )
+                    daily_bars = None
                 
                 if daily_bars and len(daily_bars) >= 2:
                     # Previous day's data (second to last bar)
@@ -834,10 +861,10 @@ TRADING GUIDANCE:
                     
                     logger.info(f"  📊 AWS Decision: {aws_result.get('decision')} (conf={aws_result.get('confidence', 0):.2%})")
                     logger.info(
-                        "  🛡️ AWS Risk: allowed=%s, flags=%s, size_multiplier=%.2f",
-                        aws_result.get('allowed_to_trade'),
-                        aws_result.get('risk_flags', []),
-                        aws_result.get('size_multiplier', 0.0) or 0.0,
+                        "  🛡️ AWS Risk: allowed={allowed}, flags={flags}, size_multiplier={multiplier:.2f}",
+                        allowed=aws_result.get('allowed_to_trade'),
+                        flags=aws_result.get('risk_flags', []),
+                        multiplier=aws_result.get('size_multiplier', 0.0) or 0.0,
                     )
                     cycle_ctx["aws"] = aws_result
                     log_structured_event(
@@ -1530,14 +1557,14 @@ TRADING GUIDANCE:
             })
             
             logger.info(
-                "📊 Order telemetry | qty=%d position=%d lock=%s entry=%.2f SL=%.2f TP=%.2f fallback=%s",
-                qty,
-                self.status.current_position,
-                self.executor.is_order_locked() if self.executor else False,
-                current_price,
-                stop_loss,
-                take_profit,
-                "yes" if fallback_used else "no",
+                "📊 Order telemetry | qty={qty} position={position} lock={locked} entry={entry:.2f} SL={sl:.2f} TP={tp:.2f} fallback={fallback}",
+                qty=qty,
+                position=self.status.current_position,
+                locked=self.executor.is_order_locked() if self.executor else False,
+                entry=current_price,
+                sl=stop_loss,
+                tp=take_profit,
+                fallback="yes" if fallback_used else "no",
             )
 
             # HARD GUARDRAIL: Always validate entry guard (not just when feature flag is on)

@@ -79,6 +79,8 @@ class TradeExecutor:
     - LiveDataManager for event-driven market data
     - Safety features: DRY_RUN, SAFE_MODE, reconcile_lock
     """
+    _global_contract_cache: Dict[str, Contract] = {}
+    _global_contract_cache_times: Dict[str, float] = {}
     
     def __init__(
         self, 
@@ -126,12 +128,15 @@ class TradeExecutor:
         self._last_contract_refresh: Optional[float] = None
         self._contract_call_timestamps: deque[float] = deque()
         self._price_snapshot_timestamps: deque[float] = deque()
-        self._contract_cache_ttl = getattr(config, "contract_cache_ttl_seconds", 300)
-        self._price_snapshot_min_interval = getattr(config, "price_snapshot_min_interval_seconds", 5)
+        raw_contract_ttl = getattr(config, "contract_cache_ttl_seconds", None)
+        self._contract_cache_ttl = max(raw_contract_ttl, 300) if raw_contract_ttl else None
+        configured_snapshot_interval = getattr(config, "price_snapshot_min_interval_seconds", 10)
+        self._price_snapshot_min_interval = max(configured_snapshot_interval or 0, 5)
         self._contract_warning_threshold = getattr(config, "contract_call_warning_threshold", 5)
         self._snapshot_warning_threshold = getattr(config, "snapshot_call_warning_threshold", 30)
         self._last_price_snapshot: Optional[float] = None
         self._last_price_value: Optional[float] = None
+        self._protection_cache: Dict[int, Dict[str, Any]] = {}
         
         # Store stop loss / take profit for each order (for Telegram notifications)
         self.order_targets: Dict[int, Dict[str, float]] = {}  # {order_id: {'stop_loss': float, 'take_profit': float}}
@@ -391,15 +396,30 @@ class TradeExecutor:
     
     async def get_qualified_contract(self) -> Contract | None:
         """Get the fully qualified front month contract."""
-        self._record_metric(self._contract_call_timestamps, "qualified_contract_calls", self._contract_warning_threshold)
+        now = time.time()
+        cache_key = f"{self.symbol}:{self.exchange}:{self.currency}"
+        cached_global = self._global_contract_cache.get(cache_key)
+        cached_global_ts = self._global_contract_cache_times.get(cache_key, now)
+        ttl = self._contract_cache_ttl
+
+        if (
+            cached_global
+            and (ttl is None or now - cached_global_ts < ttl)
+        ):
+            self._qualified_contract = cached_global
+            self._last_contract_refresh = cached_global_ts
+            logger.debug("Using global cached contract {}", cached_global.localSymbol)
+            return cached_global
+
         if (
             self._qualified_contract
             and self._last_contract_refresh
-            and time.time() - self._last_contract_refresh < self._contract_cache_ttl
+            and (ttl is None or now - self._last_contract_refresh < ttl)
         ):
-            logger.debug("Using cached contract %s", self._qualified_contract.localSymbol)
+            logger.debug("Using cached contract {}", self._qualified_contract.localSymbol)
             return self._qualified_contract
         try:
+            self._record_metric(self._contract_call_timestamps, "qualified_contract_calls", self._contract_warning_threshold)
             # Check connection health before making API call
             if not self.ib.isConnected():
                 logger.warning("IB connection lost, attempting to reconnect...")
@@ -435,7 +455,10 @@ class TradeExecutor:
             
             # Cache it
             self._qualified_contract = front_month
-            self._last_contract_refresh = time.time()
+            refreshed_at = time.time()
+            self._last_contract_refresh = refreshed_at
+            self._global_contract_cache[cache_key] = front_month
+            self._global_contract_cache_times[cache_key] = refreshed_at
             return front_month
         except Exception as e:
             logger.error(f"Failed to get qualified contract: {e}")
@@ -877,13 +900,13 @@ class TradeExecutor:
             self.realized_pnl_net += realized_pnl
             self.realized_pnl = self.realized_pnl_net
             logger.info(
-                "💰 Realized PnL gross=%.2f net=%.2f (points=%.2f, commission=%.2f, totals gross=%.2f net=%.2f)",
-                gross_pnl,
-                realized_pnl,
-                close_result.points,
-                round_trip_commission,
-                self.realized_pnl_gross,
-                self.realized_pnl_net,
+                "💰 Realized PnL gross={gross:.2f} net={net:.2f} (points={points:.2f}, commission={commission:.2f}, totals gross={gross_total:.2f} net={net_total:.2f})",
+                gross=gross_pnl,
+                net=realized_pnl,
+                points=close_result.points,
+                commission=round_trip_commission,
+                gross_total=self.realized_pnl_gross,
+                net_total=self.realized_pnl_net,
             )
         else:
             logger.debug("Position updated without closure; tracking unrealized PnL only.")
@@ -917,11 +940,11 @@ class TradeExecutor:
         parent_meta = self.order_metadata.get(parent_id) if parent_id is not None else None
         metadata_source = parent_meta or order_meta
         is_exit_order = order_meta.get("exit_order", False)
-        targets = self.order_targets.get(order_id, {})
-        if not targets and parent_id in self.order_targets:
-            targets = self.order_targets.get(parent_id, {})
-        expected_stop_loss = targets.get('stop_loss')
-        expected_take_profit = targets.get('take_profit')
+        expected_stop_loss, expected_take_profit, protection_note = self._resolve_protection_metadata(
+            order_id,
+            parent_id,
+            metadata_source,
+        )
         
         if not is_exit_order and (expected_stop_loss is not None or expected_take_profit is not None):
             # This is an entry order that should have bracket protection
@@ -1011,7 +1034,8 @@ class TradeExecutor:
                     points=points_msg,
                     risk_reward=metadata_source.get("risk_reward"),
                     stop_loss=expected_stop_loss,
-                    take_profit=expected_take_profit
+                    take_profit=expected_take_profit,
+                    protection_note=protection_note,
                 )
                 logger.info(f"📱 Telegram alert queued successfully")
             except Exception as e:
@@ -1346,6 +1370,11 @@ class TradeExecutor:
                 'stop_loss': stop_loss,
                 'take_profit': take_profit
             }
+            self._protection_cache[parent_id] = {
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "entry_price": current_price,
+            }
             
             # Get current price for entry tracking
             current_price = limit_price if limit_price else None
@@ -1498,6 +1527,59 @@ class TradeExecutor:
             if take_profit >= entry_price:
                 return f"SELL take-profit {take_profit:.2f} must be below entry {entry_price:.2f}"
         return None
+
+    def _resolve_protection_metadata(
+        self,
+        order_id: int,
+        parent_id: Optional[int],
+        metadata_source: Optional[Dict[str, Any]],
+    ) -> tuple[Optional[float], Optional[float], Optional[str]]:
+        """Gather stop/take levels from live caches, metadata, or tracker."""
+        stop_loss = None
+        take_profit = None
+        notes: list[str] = []
+        search_ids = [oid for oid in (order_id, parent_id) if oid is not None]
+
+        if metadata_source:
+            stop_loss = metadata_source.get("stop_loss")
+            take_profit = metadata_source.get("take_profit")
+
+        for oid in search_ids:
+            targets = self.order_targets.get(oid, {})
+            if targets:
+                stop_loss = stop_loss if stop_loss is not None else targets.get("stop_loss")
+                take_profit = take_profit if take_profit is not None else targets.get("take_profit")
+                notes.append(f"protection from order_targets (order_id={oid})")
+                break
+
+        for oid in search_ids:
+            cached = self._protection_cache.get(oid, {})
+            if cached:
+                if stop_loss is None:
+                    stop_loss = cached.get("stop_loss")
+                if take_profit is None:
+                    take_profit = cached.get("take_profit")
+                notes.append(f"protection from cache (order_id={oid})")
+                break
+
+        for oid in search_ids:
+            snap = self.order_tracker.get_order_protection(oid)
+            if snap:
+                if stop_loss is None:
+                    stop_loss = snap.get("stop_loss")
+                if take_profit is None:
+                    take_profit = snap.get("take_profit")
+                if snap.get("order_id") or snap.get("parent_order_id"):
+                    notes.append(
+                        f"protection from tracker (order_id={snap.get('order_id')}, parent_id={snap.get('parent_order_id')})"
+                    )
+                break
+
+        if stop_loss is None and take_profit is None:
+            notes.append(f"protection missing (order_id={order_id}, parent_id={parent_id})")
+
+        note_text = "; ".join(notes) if notes else None
+        return stop_loss, take_profit, note_text
     
     def _record_metric(self, timestamps: deque, label: str, threshold: int) -> None:
         """Track call counts per minute and emit warnings when thresholds exceeded."""
@@ -1584,9 +1666,9 @@ class TradeExecutor:
                 return True
             await asyncio.sleep(poll_interval)
         logger.error(
-            "⚠️ Protective orders not confirmed for parent %s (children=%s)",
-            parent_id,
-            child_ids,
+            "⚠️ Protective orders not confirmed for parent {parent} (children={children})",
+            parent=parent_id,
+            children=child_ids,
         )
         return False
 
@@ -1604,7 +1686,7 @@ class TradeExecutor:
             "child_order_ids": [getattr(child.order, "orderId", None) for child in child_trades],
             "symbol": self.symbol,
         }
-        logger.error("❌ %s (incident=%s)", message, incident_id)
+        logger.error("❌ {message} (incident={incident})", message=message, incident=incident_id)
         log_structured_event(
             agent="ib_executor",
             event_type="protective_orders_not_confirmed",
@@ -1616,7 +1698,11 @@ class TradeExecutor:
             try:
                 self.ib.cancelOrder(trade.order)
             except Exception as cancel_error:
-                logger.error("Failed to cancel order %s: %s", getattr(trade.order, "orderId", "NA"), cancel_error)
+                logger.error(
+                    "Failed to cancel order {order_id}: {error}",
+                    order_id=getattr(trade.order, "orderId", "NA"),
+                    error=cancel_error,
+                )
             self.active_orders.pop(getattr(trade.order, "orderId", None), None)
         parent_id = getattr(parent_trade.order, "orderId", None)
         if parent_id in self.order_targets:
@@ -1637,20 +1723,20 @@ class TradeExecutor:
         """Cancel a trade/order object and clean up tracking structures."""
         if trade_ref is None:
             if warn_if_missing:
-                logger.warning("Cancel requested for missing trade (%s)", reason)
+                logger.warning("Cancel requested for missing trade ({reason})", reason=reason)
             return False
         order = trade_ref.order if hasattr(trade_ref, "order") else trade_ref
         if order is None:
             if warn_if_missing:
-                logger.warning("Cancel requested but no order handle available (%s)", reason)
+                logger.warning("Cancel requested but no order handle available ({reason})", reason=reason)
             return False
         order_id = getattr(order, "orderId", None)
         try:
             self.ib.cancelOrder(order)
-            logger.info("✅ Cancelled order %s (%s)", order_id, reason)
+            logger.info("✅ Cancelled order {order_id} ({reason})", order_id=order_id, reason=reason)
             success = True
         except Exception as exc:
-            logger.error("Failed to cancel order %s (%s): %s", order_id, reason, exc)
+            logger.error("Failed to cancel order {order_id} ({reason}): {error}", order_id=order_id, reason=reason, error=exc)
             success = False
         if order_id in self.active_orders:
             self.active_orders.pop(order_id, None)
@@ -1662,7 +1748,7 @@ class TradeExecutor:
             try:
                 self.order_tracker.update_order_status(order_id, "Cancelled", message=reason)
             except Exception as tracker_error:
-                logger.debug("Order tracker update failed for %s: %s", order_id, tracker_error)
+                logger.debug("Order tracker update failed for {order_id}: {error}", order_id=order_id, error=tracker_error)
         return success
 
     async def cancel_order(self, order_id: int) -> bool:
@@ -1730,12 +1816,14 @@ class TradeExecutor:
             pending_submit_trades = [t for t in symbol_trades if t.orderStatus.status == 'PendingSubmit']
             
             logger.info(
-                "🔍 Sync: %d active orders (%d PendingSubmit, lock=%s)",
-                len(submitted_trades),
-                len(pending_submit_trades),
-                f"{self._order_lock_reason} {self._order_lock_age_seconds():.0f}s"
-                if self._order_locked
-                else "idle",
+                "🔍 Sync: {active} active orders ({pending} PendingSubmit, lock={lock_state})",
+                active=len(submitted_trades),
+                pending=len(pending_submit_trades),
+                lock_state=(
+                    f"{self._order_lock_reason} {self._order_lock_age_seconds():.0f}s"
+                    if self._order_locked
+                    else "idle"
+                ),
             )
             
             order_snapshots: List[str] = []
@@ -1756,11 +1844,11 @@ class TradeExecutor:
                         and status in {'PendingSubmit', 'Submitted'}
                     ):
                         logger.warning(
-                            "⚠️  Order %s stuck in %s for %.1fs (threshold=%ss) – canceling",
-                            order_id,
-                            status,
-                            age_seconds,
-                            stuck_threshold,
+                            "⚠️  Order {order_id} stuck in {status} for {age:.1f}s (threshold={threshold}s) – canceling",
+                            order_id=order_id,
+                            status=status,
+                            age=age_seconds,
+                            threshold=stuck_threshold,
                         )
                         self._cancel_trade(trade, "pending_status_watchdog")
                         if self._order_locked:
@@ -1768,10 +1856,10 @@ class TradeExecutor:
                         continue
                     synced_orders[order_id] = trade
                 else:
-                    logger.debug("Skipping order %s with status: %s", order_id, status)
+                    logger.debug("Skipping order {order_id} with status: {status}", order_id=order_id, status=status)
             
             if order_snapshots:
-                logger.info("   Active order detail: %s", "; ".join(order_snapshots))
+                logger.info("   Active order detail: {}", "; ".join(order_snapshots))
             
             # ALWAYS update to match IB's state (this fixes the sync issue)
             old_count = len(self.active_orders)
@@ -2009,14 +2097,30 @@ class TradeExecutor:
     async def get_current_price(self) -> float | None:
         """Get current market price for the contract."""
         import asyncio
-        self._record_metric(self._price_snapshot_timestamps, "snapshot_price_requests", self._snapshot_warning_threshold)
         now = time.time()
+        if self._live_data_manager:
+            tick = self._live_data_manager.get_latest_tick(self.symbol)
+            if tick and tick.last:
+                tick_ts = tick.timestamp.timestamp() if hasattr(tick, "timestamp") else now
+                if now - tick_ts < max(self._price_snapshot_min_interval, 5):
+                    self._last_price_value = float(tick.last)
+                    self._last_price_snapshot = tick_ts
+                    logger.debug("Using LiveDataManager tick %.2f (age=%.1fs)", self._last_price_value, now - tick_ts)
+                    return self._last_price_value
+            quote = self._live_data_manager.get_latest_quote(self.symbol)
+            if quote and quote.mid:
+                quote_ts = quote.timestamp.timestamp() if hasattr(quote, "timestamp") else now
+                if now - quote_ts < max(self._price_snapshot_min_interval, 5):
+                    self._last_price_value = float(quote.mid)
+                    self._last_price_snapshot = quote_ts
+                    logger.debug("Using LiveDataManager quote mid %.2f (age=%.1fs)", self._last_price_value, now - quote_ts)
+                    return self._last_price_value
         if (
             self._last_price_value is not None
             and self._last_price_snapshot
             and now - self._last_price_snapshot < self._price_snapshot_min_interval
         ):
-            logger.debug("Using cached price snapshot %.2f", self._last_price_value)
+            logger.debug("Using cached price snapshot {:.2f}", self._last_price_value)
             return self._last_price_value
         try:
             # Check connection health before making API call
@@ -2040,6 +2144,7 @@ class TradeExecutor:
                 logger.warning("Could not get qualified contract")
                 return None
             
+            self._record_metric(self._price_snapshot_timestamps, "snapshot_price_requests", self._snapshot_warning_threshold)
             logger.info(f"Requesting market data for {front_month.localSymbol}...")
             
             # Request market data snapshot - snapshot=True auto-cancels after first update
