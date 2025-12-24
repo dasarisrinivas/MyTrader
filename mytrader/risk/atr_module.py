@@ -28,6 +28,7 @@ def compute_protective_offsets(
     tick_size: float,
     scalper: bool = False,
     volatility: Optional[str] = None,
+    current_price: Optional[float] = None,
 ) -> ATRProtectiveOffsets:
     """
     Convert ATR to protective offsets while guaranteeing non-zero results.
@@ -41,14 +42,26 @@ def compute_protective_offsets(
     fallback_used = False
 
     atr_input = atr_value or 0.0
-    atr_threshold = tick_size * 0.25
+    # Dynamic threshold: tighten for higher-priced instruments
+    atr_threshold = tick_size * 0.5
+    if current_price and current_price > 1000:
+        atr_threshold = current_price * 0.0005  # 0.05% of price
 
     if atr_input <= atr_threshold:
         fallback_used = True
         fallback_reason = "ATR unavailable" if atr_input == 0 else "ATR below threshold"
-        stop_offset = min_distance
-        reward_mult = 1.25 if scalper else 2.0
-        target_offset = min_distance * reward_mult
+        if current_price:
+            # Percentage-based fallback for futures/indices
+            if current_price > 5000:
+                stop_offset = max(min_distance, current_price * 0.0004)   # 0.04%
+                target_offset = max(min_distance * 2, current_price * 0.0008)  # 0.08%
+            else:
+                stop_offset = min_distance * 1.5
+                target_offset = min_distance * 3.0
+        else:
+            stop_offset = min_distance
+            reward_mult = 1.25 if scalper else 2.0
+            target_offset = min_distance * reward_mult
     else:
         stop_mult = 0.75 if scalper else 1.5
         target_mult = 1.0 if scalper else 2.0

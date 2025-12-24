@@ -178,6 +178,7 @@ class RiskController:
             tick_size=m.settings.trading.tick_size,
             scalper=False,
             volatility="MED",
+            current_price=price,
         )
         is_buy = action.upper() in ("BUY", "SCALP_BUY")
         stop_price = price - offsets.stop_offset if is_buy else price + offsets.stop_offset
@@ -224,6 +225,7 @@ class RiskController:
                 tick_size=m.settings.trading.tick_size,
                 scalper=False,
                 volatility=regime_params.get("volatility", "MED"),
+                current_price=entry_price,
             )
             stop_offset = offsets.stop_offset
             target_offset = offsets.target_offset
