@@ -1000,7 +1000,7 @@ class S3StorageWithCache(S3Storage):
                 except Exception:
                     ts_val = None
 
-            if ts_val is None or ts_val >= cutoff_ts:
+            if ts_val and ts_val >= cutoff_ts:
                 trade_id = str(trade.get("trade_id") or trade.get("id") or f"trade_{len(recent)}")
                 recent[trade_id] = trade
 
