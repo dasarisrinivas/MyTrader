@@ -461,11 +461,15 @@ class HybridPipelineIntegration:
             historical_metrics=historical_summary,
         )
         
-        # Process through pipeline
-        result = self.pipeline.process(market_data)
-        if result is None:
-            logger.error("Hybrid pipeline returned no result; forcing HOLD")
-            return HybridSignal("HOLD", 0.0), None
+        # Process through pipeline with fallbacks
+        try:
+            result = self.pipeline.process(market_data)
+            if result is None:
+                logger.warning("Hybrid pipeline returned None, generating fallback signal")
+                return self._generate_fallback_signal(market_data, features)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Hybrid pipeline error: {exc}")
+            return self._generate_fallback_signal(market_data, features)
 
         news_context = self._get_context("news", 600)
         macro_context = self._get_context("macro", 900)
@@ -628,6 +632,121 @@ class HybridPipelineIntegration:
         )
 
         return signal, result
+
+    def _generate_fallback_signal(
+        self,
+        market_data: Dict[str, Any],
+        features: Any,
+    ) -> Tuple[HybridSignal, Optional[HybridPipelineResult]]:
+        """Generate a simple fallback signal when the pipeline fails or returns None."""
+        def _feature_value(key: str, default: float = 0.0) -> Any:
+            # Support both dict-like and DataFrame-like inputs
+            if hasattr(features, "get"):
+                try:
+                    return features.get(key, default)
+                except Exception:
+                    pass
+            try:
+                if hasattr(features, "iloc") and len(features) > 0:
+                    return features.iloc[-1].get(key, default)
+            except Exception:
+                pass
+            return default
+
+        trend = _feature_value("trend", "UNKNOWN") or _feature_value("market_trend", "UNKNOWN")
+        current_price = market_data.get("close", market_data.get("price", 0))
+        pdl = _feature_value("pdl", 0)
+        pdh = _feature_value("pdh", 0)
+
+        # Enhanced logic: use level position for directional bias
+        if pdh and pdl and current_price:
+            range_size = pdh - pdl
+            price_position = (current_price - pdl) / range_size if range_size > 0 else 0.5
+            if current_price > pdh:
+                signal = "BUY"
+                confidence = 0.25
+                rationale = "Fallback: Above PDH"
+            elif current_price > pdl:
+                if price_position > 0.7:  # Near top of range
+                    signal = "SELL"
+                    confidence = 0.25
+                    rationale = f"Fallback: Near range top ({price_position:.1%})"
+                else:  # Middle-upper range
+                    signal = "BUY"
+                    confidence = 0.20
+                    rationale = "Fallback: Above PDL, upward bias"
+            elif current_price < pdl:
+                signal = "SELL"
+                confidence = 0.25
+                rationale = "Fallback: Below PDL, downward bias"
+            else:
+                signal = "HOLD"
+                confidence = 0.15
+                rationale = "Fallback: At PDL, waiting"
+        elif trend == "RANGE" and pdh and pdl:
+            range_decision = self._handle_range_bound_market(current_price, pdh, pdl, features)
+            signal = range_decision["signal"]
+            confidence = range_decision["confidence"]
+            rationale = range_decision["rationale"]
+        elif trend == "UPTREND":
+            signal = "BUY"
+            confidence = 0.20
+            rationale = "Fallback: Uptrend bias"
+        elif trend == "DOWNTREND":
+            signal = "SELL"
+            confidence = 0.20
+            rationale = "Fallback: Downtrend bias"
+        else:
+            signal = "HOLD"
+            confidence = 0.15  # Do not zero out fallback holds
+            rationale = "Fallback: No clear setup"
+
+        logger.warning(f"🚧 Enhanced fallback signal: {signal} ({confidence:.2f}) reason={rationale}")
+
+        return HybridSignal(
+            action=signal,
+            confidence=confidence,
+            metadata={
+                "source": "fallback",
+                "rationale": rationale,
+                "market_data": market_data,
+            },
+        ), None
+
+    def _handle_range_bound_market(
+        self,
+        current_price: float,
+        pdh: float,
+        pdl: float,
+        features: Any,
+    ) -> Dict[str, Any]:
+        """Handle range-bound market conditions."""
+        range_size = pdh - pdl if pdh is not None and pdl is not None else 0
+        if range_size <= 0:
+            return {
+                "signal": "HOLD",
+                "confidence": 0.20,
+                "rationale": "Range trading: invalid range, holding",
+            }
+        upper_threshold = pdh - (range_size * 0.1)  # 90% of range
+        lower_threshold = pdl + (range_size * 0.1)  # 10% of range
+        if current_price >= upper_threshold:
+            return {
+                "signal": "SELL",
+                "confidence": 0.30,
+                "rationale": f"Range trading: near resistance at {pdh}",
+            }
+        if current_price <= lower_threshold:
+            return {
+                "signal": "BUY",
+                "confidence": 0.30,
+                "rationale": f"Range trading: near support at {pdl}",
+            }
+        return {
+            "signal": "HOLD",
+            "confidence": 0.20,
+            "rationale": "Range trading: mid-range, waiting for boundaries",
+        }
 
     def _log_protection_snapshot(
         self,

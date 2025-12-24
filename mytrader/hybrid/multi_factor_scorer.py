@@ -136,19 +136,27 @@ class MultiFactorScorer:
         final_confidence = max(final_confidence, pipeline_conf * 0.55)
         final_confidence = max(0.0, min(1.0, final_confidence))
         logger.debug("📊 Final confidence: {:.2f} (pipeline={:.2f})", final_confidence, pipeline_conf)
+        action_value = self._action_value(pipeline_result.final_action)
+
+        # Ensure a small floor for directional signals so they are not zeroed out
+        if action_value in ["BUY", "SELL"] and final_confidence < 0.15:
+            logger.warning(f"🔧 Confidence too low ({final_confidence:.3f}), applying floor")
+            final_confidence = 0.15
+
         if final_confidence == 0:
-            logger.error("🚨 ZERO CONFIDENCE DETECTED - COMPONENT BREAKDOWN:")
-            logger.error("   Technical score: {:.3f}", scores.technical)
-            logger.error("   LLM score: {:.3f}", scores.llm)
-            logger.error("   RAG score: {:.3f}", scores.rag)
-            logger.error("   News score: {:.3f}", scores.news)
-            logger.error("   Macro score: {:.3f}", scores.macro)
-            logger.error("   Risk score: {:.3f}", scores.risk)
-            logger.error("   Pipeline conf: {:.3f}", pipeline_conf)
-            logger.error("   Weights: {}", self.weights)
-            final_confidence = max(0.15, final_confidence)
-            logger.warning("🔧 Applied confidence floor: {:.3f}", final_confidence)
-        action = self._action_value(pipeline_result.final_action)
+            logger.error("🚨 ZERO CONFIDENCE - COMPONENT BREAKDOWN:")
+            logger.error(f"   Pipeline signal: {action_value}")
+            logger.error(f"   Pipeline confidence: {pipeline_result.final_confidence}")
+            logger.error(f"   Technical score: {scores.technical:.3f}")
+            logger.error(f"   LLM score: {scores.llm:.3f}")
+            logger.error(f"   RAG score: {scores.rag:.3f}")
+            logger.error(f"   Final weights: {self.weights}")
+            # Emergency confidence assignment to avoid a stuck zero
+            if action_value in ["BUY", "SELL"]:
+                final_confidence = 0.20
+                logger.warning(f"🆘 Emergency confidence floor applied: {final_confidence}")
+
+        action = action_value
 
         # Apply directional nudges from news/macro context
         action, final_confidence = self._apply_bias_adjustments(
