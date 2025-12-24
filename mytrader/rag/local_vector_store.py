@@ -43,7 +43,7 @@ class LocalVectorStore:
             "CREATE INDEX IF NOT EXISTS idx_documents_updated_at ON documents(updated_at)"
         )
         self.conn.commit()
-        logger.info("Local vector store ready at %s", self.path)
+        logger.info(f"Local vector store ready at {self.path}")
 
     # ------------------------------------------------------------------ utils
     def _embed_text(self, text: str) -> np.ndarray:
@@ -156,4 +156,3 @@ class LocalVectorStore:
             self.conn.close()
         except Exception:
             pass
-

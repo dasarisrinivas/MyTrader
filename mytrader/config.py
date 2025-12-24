@@ -191,6 +191,7 @@ class RAGConfig:
     local_store_path: str = "rag_data/local_kb/local_kb.sqlite"
     kb_cache_ttl_seconds: int = 120
     min_similar_trades: int = field(default_factory=lambda: int(os.environ.get("MIN_SIMILAR_TRADES", "2")))
+    min_win_rate: float = field(default_factory=lambda: float(os.environ.get("MIN_WIN_RATE", "0.15")))
     min_weighted_win_rate: float = field(default_factory=lambda: float(os.environ.get("MIN_WEIGHTED_WIN_RATE", "0.45")))
     min_weighted_win_rate_soft_floor: float = field(
         default_factory=lambda: float(
@@ -203,6 +204,16 @@ class RAGConfig:
     min_similar_trades_for_full_threshold: int = field(
         default_factory=lambda: int(os.environ.get("MIN_SIMILAR_TRADES_FOR_FULL_THRESHOLD", "0"))
     )
+    min_sample_for_hard_block: int = field(
+        default_factory=lambda: int(os.environ.get("RAG_MIN_SAMPLE_FOR_HARD_BLOCK", "30"))
+    )
+    soft_penalty_when_below: float = field(
+        default_factory=lambda: float(os.environ.get("RAG_SOFT_PENALTY_WHEN_BELOW", "0.10"))
+    )
+    hard_block_when_below: bool = field(
+        default_factory=lambda: os.environ.get("RAG_HARD_BLOCK_WHEN_BELOW", "False").lower() in {"1", "true", "yes"}
+    )
+    regime_mode: str = field(default_factory=lambda: os.environ.get("RAG_REGIME_MODE", "relaxed"))
 
     def __post_init__(self) -> None:
         self.backend = (self.backend or "off").lower()

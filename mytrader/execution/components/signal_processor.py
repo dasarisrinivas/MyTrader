@@ -286,7 +286,7 @@ class SignalProcessor:
             logger.debug("⏳ Waiting for next candle close (current minute already processed)")
             return
         m._last_candle_processed = current_candle_start
-        logger.info("🕐 New candle close at %s CST", current_candle_start.strftime("%H:%M:%S"))
+        logger.info("🕐 New candle close at {} CST", current_candle_start.strftime("%H:%M:%S"))
 
         cycle_id = uuid.uuid4().hex[:12]
         m._current_cycle_id = cycle_id

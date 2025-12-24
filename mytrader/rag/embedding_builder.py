@@ -75,6 +75,9 @@ class EmbeddingBuilder:
         except S3StorageError as e:
             logger.warning(f"S3 storage unavailable ({e}) - operating in local-only mode")
             self.s3 = None
+        except Exception as e:  # pragma: no cover - safety net for offline/dev runs
+            logger.warning(f"S3 storage unavailable ({e}) - operating in local-only mode")
+            self.s3 = None
         
         self.model_name = model_name
         self.use_bedrock = use_bedrock
@@ -97,10 +100,12 @@ class EmbeddingBuilder:
         self.doc_texts: List[str] = []
         self._local_embeddings: Optional[np.ndarray] = None
         self._logged_empty_index = False
+        self.index_ready: bool = False
         
         # Try to load existing index from S3
         self._load_index()
-        
+        self.index_ready = self.has_index() or bool(self.doc_texts)
+
         logger.info(f"EmbeddingBuilder initialized with S3 (dim={self.embedding_dim}, backend={'bedrock' if use_bedrock else 'local'})")
     
     def _init_sentence_transformer(self) -> None:
@@ -126,7 +131,11 @@ class EmbeddingBuilder:
 
     def has_index(self) -> bool:
         """Return True if FAISS index has vectors."""
-        return self.index is not None and getattr(self.index, "ntotal", 0) > 0
+        if self.index is not None and getattr(self.index, "ntotal", 0) > 0:
+            return True
+        if self._local_embeddings is not None and self._local_embeddings.size > 0:
+            return True
+        return False
 
     def _normalize_vectors(self, vectors: np.ndarray) -> np.ndarray:
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
@@ -344,6 +353,7 @@ class EmbeddingBuilder:
         embeddings = embeddings.astype(np.float32)
         self._store_local_embeddings(embeddings, replace=True)
         self._logged_empty_index = False
+        self.index_ready = True
         
         if FAISS_AVAILABLE:
             # Create FAISS index - using L2 distance
@@ -409,6 +419,7 @@ class EmbeddingBuilder:
         self.doc_ids.extend(new_ids)
         self.doc_texts.extend(new_texts)
         self.doc_metadata.extend(new_metadata)
+        self.index_ready = True
         
         logger.info(f"Added {len(new_docs)} documents to index (total: {self.index.ntotal})")
         
@@ -584,6 +595,7 @@ class EmbeddingBuilder:
             self.doc_metadata = metadata["doc_metadata"]
             self._local_embeddings = None
             self._logged_empty_index = False
+            self.index_ready = self.has_index()
             
             logger.info(f"Loaded FAISS index from S3 with {self.index.ntotal} vectors")
             return True

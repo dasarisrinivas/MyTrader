@@ -516,6 +516,31 @@ class OrderTracker:
                 ts = ts.replace(tzinfo=timezone.utc)
             return ts
 
+    def get_order_protection(self, order_id: int) -> Optional[Dict[str, Optional[float]]]:
+        """Return persisted protection levels for an order or its parent if available."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT order_id, parent_order_id, entry_price, stop_loss, take_profit
+                FROM orders
+                WHERE order_id = ? OR parent_order_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (order_id, order_id),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "order_id": row["order_id"],
+                "parent_order_id": row["parent_order_id"],
+                "entry_price": row["entry_price"],
+                "stop_loss": row["stop_loss"],
+                "take_profit": row["take_profit"],
+            }
+
     def reset_symbol_state(self, symbol: str) -> None:
         """Remove persisted cooldown/lock state for a symbol."""
         with sqlite3.connect(self.db_path) as conn:

@@ -160,6 +160,7 @@ class TelegramNotifier:
         gross_pnl: Optional[float] = None,
         net_pnl: Optional[float] = None,
         risk_reward: Optional[float] = None,
+        protection_note: Optional[str] = None,
     ) -> str:
         """
         Format a trade execution alert message.
@@ -252,6 +253,12 @@ class TelegramNotifier:
                 lines.append(f"🛡️ Stop Loss: ${stop_loss:.2f}")
             if take_profit is not None:
                 lines.append(f"🎯 Take Profit: ${take_profit:.2f}")
+            if protection_note:
+                lines.append(f"ℹ️ {protection_note}")
+        elif protection_note:
+            lines.append("")
+            lines.append("<b>Risk Management:</b>")
+            lines.append(f"⚠️ {protection_note}")
         
         return "\n".join(lines)
     

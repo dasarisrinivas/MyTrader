@@ -25,9 +25,19 @@ def load_settings(path: str | Path | None = None) -> Settings:
     # Allow environment overrides for critical runtime thresholds
     env_overrides = [
         ("rag", "min_similar_trades", "MIN_SIMILAR_TRADES", int),
+        ("rag", "min_win_rate", "MIN_WIN_RATE", float),
         ("rag", "min_weighted_win_rate", "MIN_WEIGHTED_WIN_RATE", float),
         ("rag", "min_weighted_win_rate_soft_floor", "MIN_WEIGHTED_WIN_RATE_SOFT_FLOOR", float),
         ("rag", "min_similar_trades_for_full_threshold", "MIN_SIMILAR_TRADES_FOR_FULL_THRESHOLD", int),
+        ("rag", "min_sample_for_hard_block", "RAG_MIN_SAMPLE_FOR_HARD_BLOCK", int),
+        ("rag", "soft_penalty_when_below", "RAG_SOFT_PENALTY_WHEN_BELOW", float),
+        (
+            "rag",
+            "hard_block_when_below",
+            "RAG_HARD_BLOCK_WHEN_BELOW",
+            lambda val: str(val).lower() in {"1", "true", "yes"},
+        ),
+        ("rag", "regime_mode", "RAG_REGIME_MODE", str),
         ("trading", "confidence_threshold", "CONFIDENCE_THRESHOLD", float),
     ]
     for section, key, env_name, caster in env_overrides:

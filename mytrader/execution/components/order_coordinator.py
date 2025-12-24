@@ -88,11 +88,7 @@ class OrderCoordinator:
         self.manager._active_reason_codes = set(reason_codes)
 
         logger.info(
-            "📝 Registered trade entry: cycle_id=%s, action=%s, qty=%s, entry=%.2f",
-            cycle_id,
-            action,
-            quantity,
-            entry_price,
+            f"📝 Registered trade entry: cycle_id={cycle_id}, action={action}, qty={quantity}, entry={entry_price:.2f}"
         )
 
     async def finalize_trade(
