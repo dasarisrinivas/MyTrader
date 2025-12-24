@@ -1419,6 +1419,7 @@ class HybridRAGPipeline:
     def _evaluate_regime_filter(
         self,
         rag_result: RAGRetrievalResult,
+        market_data: Dict[str, Any],
     ) -> Tuple[bool, float, str, Dict[str, Any]]:
         """Evaluate the RAG regime filter and return gating decisions.
         
@@ -1430,7 +1431,7 @@ class HybridRAGPipeline:
         if not enabled:
             return False, 0.0, "", {}
 
-        mode = str(cfg.get("mode", "relaxed") or "relaxed").lower()
+        strictness = str(cfg.get("strictness", cfg.get("mode", "relaxed")) or "relaxed").lower()
         min_sample_for_hard_block = int(cfg.get("min_sample_for_hard_block", 30) or 0)
         soft_penalty = float(cfg.get("soft_penalty_when_below", 0.10) or 0.0)
         hard_block_when_below = bool(cfg.get("hard_block_when_below", False))
@@ -1458,11 +1459,78 @@ class HybridRAGPipeline:
             0,
         )
         use_relaxed_threshold = (
-            mode != "strict"
+            strictness != "strict"
             and rag_result.similar_trade_count < full_threshold_trades
             and soft_floor < base_min_win_rate
         )
         effective_min_win_rate = soft_floor if use_relaxed_threshold else base_min_win_rate
+
+        # Futures-friendly relaxation using market regime context
+        trend = str(market_data.get("trend") or market_data.get("market_trend") or "").upper()
+        volatility = str(market_data.get("volatility") or market_data.get("volatility_regime") or "").upper()
+        regime = str(market_data.get("regime") or market_data.get("market_regime") or "").upper()
+        combined_regime = regime or (f"{trend}_{volatility}" if trend and volatility else trend or volatility)
+        normalized_regime_tokens = {
+            token
+            for token in {combined_regime, regime, trend, volatility}
+            if token
+        }
+        # Add base tokens to catch generic allowed values like TRENDING/RANGING
+        for token in list(normalized_regime_tokens):
+            if "TREND" in token:
+                normalized_regime_tokens.add("TRENDING")
+            if "RANGE" in token:
+                normalized_regime_tokens.add("RANGING")
+            if "VOL" in token:
+                normalized_regime_tokens.add("VOLATILE")
+
+        allowed_regimes_cfg = cfg.get(
+            "allowed_regimes",
+            [
+                "TRENDING_UP",
+                "TRENDING_DOWN",
+                "RANGING_HIGH_VOL",
+                "RANGING_LOW_VOL",
+                "BREAKOUT_PENDING",
+                "REVERSAL_SETUP",
+                "TRENDING",
+                "RANGING",
+                "VOLATILE",
+                "QUIET",
+                "UNCERTAIN",
+            ],
+        )
+        allowed_regimes = {r.upper() for r in allowed_regimes_cfg}
+        evening_relaxed = bool(cfg.get("evening_relaxed", False))
+        current_hour = datetime.now().hour
+        asset_class = str(market_data.get("asset_class") or market_data.get("instrument_type") or "").upper()
+        futures_mode = bool(cfg.get("futures_mode", True) or "FUT" in asset_class)
+
+        relax_reason = ""
+        if futures_mode and evening_relaxed and 17 <= current_hour <= 23:
+            relax_reason = "Evening session - regime requirements relaxed"
+        elif futures_mode and normalized_regime_tokens.intersection(allowed_regimes):
+            relax_reason = f"Futures regime allowed ({combined_regime or trend or volatility})"
+
+        if relax_reason:
+            strictness = "low"
+            hard_block_when_below = False
+            min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
+            base_min_win_rate = max(0.05, base_min_win_rate * 0.8)
+            soft_penalty = soft_penalty * 0.5
+            effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
+            use_relaxed_threshold = True
+
+        if strictness == "medium":
+            hard_block_when_below = False
+            base_min_win_rate = max(0.05, base_min_win_rate * 0.9)
+            effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
+            min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
+        elif strictness == "low":
+            hard_block_when_below = False
+            base_min_win_rate = max(0.05, base_min_win_rate * 0.85)
+            effective_min_win_rate = min(effective_min_win_rate, base_min_win_rate)
+            min_similar_trades_cfg = max(0, min_similar_trades_cfg - 1)
 
         wins = sum(1 for t in rag_result.similar_trades if str(t.get("result", "")).upper() == "WIN")
         n = int(rag_result.similar_trade_count or 0)
@@ -1481,6 +1549,8 @@ class HybridRAGPipeline:
             f"smoothed_win_rate={smoothed_win_rate:.2f} (min={effective_min_win_rate:.2f}, "
             f"mode={'relaxed' if use_relaxed_threshold else 'strict'})"
         )
+        if relax_reason:
+            reason = f"{relax_reason}; {reason}"
         if soft_penalty > 0 and below_threshold:
             penalty_pct = soft_penalty * 100 if soft_penalty <= 1 else soft_penalty
             reason = f"{reason}; applying regime penalty {penalty_pct:.1f}pts"
@@ -1494,10 +1564,15 @@ class HybridRAGPipeline:
             "min_similar_trades": min_similar_trades_cfg,
             "full_threshold_trades": full_threshold_trades,
             "threshold_mode": "relaxed" if use_relaxed_threshold else "strict",
-            "mode": mode,
+            "mode": strictness,
             "penalty": soft_penalty,
             "hard_block": hard_block,
             "min_sample_for_hard_block": min_sample_for_hard_block,
+            "regime": combined_regime,
+            "trend": trend,
+            "volatility": volatility,
+            "relax_reason": relax_reason,
+            "allowed_regimes": sorted(allowed_regimes),
         }
         return hard_block, soft_penalty if below_threshold else 0.0, reason, context
 
@@ -1561,7 +1636,9 @@ class HybridRAGPipeline:
         logger.debug(f"Layer 2 - RAG: {rag_result.similar_trade_count} similar trades, {len(rag_result.documents)} docs")
 
         # Regime filter using RAG context before invoking the LLM
-        hard_block, regime_penalty, regime_reason, regime_context = self._evaluate_regime_filter(rag_result)
+        hard_block, regime_penalty, regime_reason, regime_context = self._evaluate_regime_filter(
+            rag_result, market_data
+        )
         if hard_block:
             hold_reason = HoldReason(
                 gate="hybrid_pipeline.rag",

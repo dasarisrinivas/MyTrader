@@ -94,10 +94,12 @@ class RAGDailyUpdater:
             start_of_day = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
             end_of_day = start_of_day + timedelta(days=1)
             
-            losing_trades = self.storage.load_trades(
+            losing_trades = self.storage.get_recent_trade_records(
                 start_date=start_of_day,
                 end_date=end_of_day,
                 result_filter="LOSS",
+                limit=200,
+                max_age_minutes=24 * 60,
             )
             
             for trade in losing_trades:
