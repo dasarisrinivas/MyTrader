@@ -1525,32 +1525,22 @@ TRADING GUIDANCE:
             stop_loss = entry_price - stop_offset if direction > 0 else entry_price + stop_offset
             take_profit = entry_price + target_offset if direction > 0 else entry_price - target_offset
 
-            # Enhanced debug of protective offsets
+            # Enhanced debug of protective offsets (explicit formatting to avoid placeholder bleed)
             atr_value = row.get("ATR_14", None)
-            logger.info(
+            atr_str = f"{atr_value:.4f}" if atr_value is not None else "N/A"
+            debug_msg = (
                 "🔍 Stop-Loss Calculation Debug:\n"
-                "   Action: %s\n"
-                "   Current Price: %.2f\n"
-                "   Entry Price: %.2f\n"
-                "   ATR Value: %s\n"
-                "   Stop Offset: %.2f\n"
-                "   Target Offset: %.2f\n"
-                "   Stop-Loss: %.2f (%s entry)\n"
-                "   Take-Profit: %.2f (%s entry)\n"
-                "   Fallback Used: %s (%s)",
-                signal.action,
-                current_price,
-                entry_price,
-                f"{atr_value:.4f}" if atr_value is not None else "N/A",
-                stop_offset,
-                target_offset,
-                stop_loss,
-                "above" if direction < 0 else "below",
-                take_profit,
-                "below" if direction < 0 else "above",
-                "yes" if fallback_used else "no",
-                offsets.reason if fallback_used else "ok",
+                f"   Action: {signal.action}\n"
+                f"   Current Price: {current_price:.2f}\n"
+                f"   Entry Price: {entry_price:.2f}\n"
+                f"   ATR Value: {atr_str}\n"
+                f"   Stop Offset: {stop_offset:.2f}\n"
+                f"   Target Offset: {target_offset:.2f}\n"
+                f"   Stop-Loss: {stop_loss:.2f} ({'above' if direction < 0 else 'below'} entry)\n"
+                f"   Take-Profit: {take_profit:.2f} ({'below' if direction < 0 else 'above'} entry)\n"
+                f"   Fallback Used: {'yes' if fallback_used else 'no'} ({offsets.reason if fallback_used else 'ok'})"
             )
+            logger.info(debug_msg)
             
             # Build metadata from hybrid pipeline
             base_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
