@@ -73,6 +73,12 @@ class TradingConfig:
     trade_cooldown_minutes: int = 5
     order_lock_timeout_seconds: int = 300
     pending_order_timeout_seconds: int = 180
+    enable_ib_api_debug_log: bool = field(
+        default_factory=lambda: os.environ.get("IB_API_DEBUG_LOG", "False").lower() in {"1", "true", "yes"}
+    )
+    ib_api_log_path: str = field(
+        default_factory=lambda: os.environ.get("IB_API_LOG_PATH", "logs/ib_api_wire.log")
+    )
     reset_state_on_start: bool = False
 
     def get_validated_cooldown(self, min_val: int = 1, max_val: int = 60) -> int:

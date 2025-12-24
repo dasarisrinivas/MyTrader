@@ -12,7 +12,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, TYPE_CHECKING, Any
 
-from ib_insync import Contract, Future, IB, LimitOrder, MarketOrder, Order, StopOrder, StopLimitOrder, Trade
+from ib_insync import (
+    Contract,
+    Future,
+    IB,
+    LimitOrder,
+    MarketOrder,
+    Order,
+    StopOrder,
+    StopLimitOrder,
+    Trade,
+    util,
+)
 
 from ..config import TradingConfig
 from ..risk.trade_math import (
@@ -118,6 +129,7 @@ class TradeExecutor:
                 getattr(config, "commission_per_contract", None),
             )
         )
+        self._api_wire_logging_enabled = False
         self.realized_pnl_gross = 0.0
         self.realized_pnl_net = 0.0
         self.realized_pnl = 0.0  # Backwards compatibility alias (net PnL)
@@ -500,6 +512,15 @@ class TradeExecutor:
             client_id=client_id,
             timeout=timeout,
         )
+        # Optional wire-level API logging for debugging submission issues
+        if getattr(self.config, "enable_ib_api_debug_log", False) and not self._api_wire_logging_enabled:
+            log_path = Path(getattr(self.config, "ib_api_log_path", "logs/ib_api_wire.log"))
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            util.logToFile(str(log_path))
+            # setDebug makes ib_insync emit raw IB messages to the logger configured above
+            self.ib.setDebug(True)
+            self._api_wire_logging_enabled = True
+            logger.info("📜 IB API wire logging enabled at {path}", path=str(log_path))
         try:
             await self.ib.connectAsync(host, port, clientId=client_id, timeout=timeout)
         except TimeoutError:
