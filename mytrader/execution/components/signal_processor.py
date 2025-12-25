@@ -101,7 +101,17 @@ class SignalProcessor:
         if m._use_hybrid_pipeline and (self.hybrid_pipeline or m.hybrid_pipeline):
             pipeline = self.hybrid_pipeline or m.hybrid_pipeline
             try:
-                hybrid_signal, pipeline_result = await pipeline.process(features, current_price)
+                position_for_pipeline = None
+                if m.executor:
+                    try:
+                        position_for_pipeline = await m.executor.get_current_position()
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"Unable to fetch position for hybrid pipeline: {exc}")
+                hybrid_signal, pipeline_result = await pipeline.process(
+                    features,
+                    current_price,
+                    position_for_pipeline,
+                )
 
                 # Update status with hybrid pipeline info
                 if pipeline_result:
@@ -420,6 +430,7 @@ class SignalProcessor:
 
             atr_val = float(features.iloc[-1].get("ATR_14", 0.0))
             await m.executor.update_trailing_stops(current_price, atr_val)
+            await m._log_position_status(current_position, current_price)
 
         await m._broadcast_status()
 

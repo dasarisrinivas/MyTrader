@@ -1191,8 +1191,9 @@ class TradeExecutor:
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Trading not allowed - reconciliation pending or safe mode active")
         
         # NEW: Check for duplicate submission (idempotency)
+        allow_duplicate_exit = bool(metadata.get("exit_order") and metadata.get("allow_duplicate_exit"))
         submission_sig = self.generate_submission_signature(action, quantity, metadata)
-        if self.is_duplicate_submission(submission_sig):
+        if not allow_duplicate_exit and self.is_duplicate_submission(submission_sig):
             logger.warning(f"Duplicate order submission blocked: {action} {quantity} @ {limit_price}")
             self._log_reconcile_event("duplicate_submission_blocked", {
                 "action": action, "quantity": quantity, "limit_price": limit_price,
@@ -1410,16 +1411,17 @@ class TradeExecutor:
                 'stop_loss': stop_loss,
                 'take_profit': take_profit
             }
+            
+            # Normalize entry price for downstream tracking before caching
+            current_price = limit_price if limit_price is not None else None
+            if metadata and 'entry_price' in metadata:
+                current_price = metadata['entry_price']
+            
             self._protection_cache[parent_id] = {
                 "stop_loss": stop_loss,
                 "take_profit": take_profit,
                 "entry_price": current_price,
             }
-            
-            # Get current price for entry tracking
-            current_price = limit_price if limit_price else None
-            if metadata and 'entry_price' in metadata:
-                current_price = metadata['entry_price']
             
             # Record order placement in tracker
             import json

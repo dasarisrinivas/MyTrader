@@ -274,12 +274,14 @@ class HybridPipelineIntegration:
         features,
         current_price: float,
         historical_metrics: Optional[Dict[str, Any]] = None,
+        current_position: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Convert pandas features DataFrame to market data dict.
         
         Args:
             features: Features DataFrame with indicators
             current_price: Current price
+            current_position: Optional position info (object with quantity/avg_cost)
             
         Returns:
             Market data dictionary for pipeline
@@ -332,6 +334,9 @@ class HybridPipelineIntegration:
             "timeframe": self._timeframe,
             "candle_timestamp": candle_ts,
         }
+        if current_position:
+            market_data["current_position_qty"] = getattr(current_position, "quantity", 0) or 0
+            market_data["current_position_avg_cost"] = getattr(current_position, "avg_cost", current_price) or current_price
         recent = features.tail(50)
         recent_bars: List[Dict[str, float]] = []
         for idx, bar in recent.iterrows():
@@ -439,12 +444,14 @@ class HybridPipelineIntegration:
         self,
         features,
         current_price: float,
+        current_position: Optional[Any] = None,
     ) -> Tuple[HybridSignal, HybridPipelineResult]:
         """Process features through the hybrid pipeline (synchronous).
         
         Args:
             features: Features DataFrame
             current_price: Current price
+            current_position: Optional existing position
             
         Returns:
             Tuple of (HybridSignal, HybridPipelineResult)
@@ -459,6 +466,7 @@ class HybridPipelineIntegration:
             features,
             current_price,
             historical_metrics=historical_summary,
+            current_position=current_position,
         )
         
         # Process through pipeline with fallbacks
@@ -795,12 +803,14 @@ class HybridPipelineIntegration:
         self,
         features,
         current_price: float,
+        current_position: Optional[Any] = None,
     ) -> Tuple[HybridSignal, HybridPipelineResult]:
         """Process features through the hybrid pipeline (async wrapper).
         
         Args:
             features: Features DataFrame
             current_price: Current price
+            current_position: Optional existing position
             
         Returns:
             Tuple of (HybridSignal, HybridPipelineResult)
@@ -812,6 +822,7 @@ class HybridPipelineIntegration:
             self.process_sync,
             features,
             current_price,
+            current_position,
         )
 
     def _merge_structural_bias(

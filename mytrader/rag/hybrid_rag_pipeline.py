@@ -1361,6 +1361,18 @@ class HybridRAGPipeline:
         if action in (TradeAction.SELL, TradeAction.SCALP_SELL):
             return "SELL"
         return None
+    
+    def _is_exit_context(self, rule_result: RuleEngineResult, market_data: Dict[str, Any]) -> bool:
+        """Return True when the signal would close an existing position."""
+        qty = int(market_data.get("current_position_qty") or 0)
+        if qty == 0:
+            return False
+        direction = self._action_direction(rule_result.signal)
+        if qty > 0 and direction == "SELL":
+            return True
+        if qty < 0 and direction == "BUY":
+            return True
+        return False
 
     def _apply_level_confirmation(
         self,
@@ -2888,6 +2900,7 @@ class HybridRAGPipeline:
         # Layer 1: Rule Engine (always runs)
         rule_result = self.rule_engine.evaluate(market_data)
         logger.debug(f"Layer 1 - Rule Engine: {rule_result.signal.value} ({rule_result.score:.1f})")
+        exit_context = self._is_exit_context(rule_result, market_data)
 
         # Circuit breaker for consecutive rule blocks
         if rule_result.filters_blocked:
@@ -2948,60 +2961,68 @@ class HybridRAGPipeline:
         logger.debug(f"Layer 2 - RAG: {rag_result.similar_trade_count} similar trades, {len(rag_result.documents)} docs")
 
         # Regime filter using RAG context before invoking the LLM
-        min_similar_trades = self.config.get("min_similar_trades", 2)
-        min_weighted_win_rate = self.config.get("min_weighted_win_rate", 0.45)
-        soft_floor = min(
-            min_weighted_win_rate,
-            self.config.get("min_weighted_win_rate_soft_floor", min_weighted_win_rate),
-        )
-        full_threshold_trades = max(
-            min_similar_trades,
-            self.config.get("min_similar_trades_for_full_threshold", 0),
-        )
-        use_relaxed_threshold = (
-            rag_result.similar_trade_count < full_threshold_trades
-            and soft_floor < min_weighted_win_rate
-        )
-        effective_min_win_rate = soft_floor if use_relaxed_threshold else min_weighted_win_rate
-        threshold_mode = "relaxed" if use_relaxed_threshold else "strict"
-        if (
-            rag_result.similar_trade_count < min_similar_trades
-            or rag_result.weighted_win_rate < effective_min_win_rate
-        ):
-            reasoning = (
-                "Regime filter triggered: "
-                f"similar_trades={rag_result.similar_trade_count} (min={min_similar_trades}), "
-                f"weighted_win_rate={rag_result.weighted_win_rate:.2f} "
-                f"(min={effective_min_win_rate:.2f}, mode={threshold_mode})"
-            )
-            hold_reason = HoldReason(
-                gate="hybrid_pipeline.rag",
-                reason_code="RAG_REGIME_FILTER",
-                reason_detail=reasoning,
-                context={
-                    "similar_trades": rag_result.similar_trade_count,
-                    "weighted_win_rate": rag_result.weighted_win_rate,
-                    "effective_min_weighted_win_rate": effective_min_win_rate,
-                    "threshold_mode": threshold_mode,
-                    "full_threshold_trades": full_threshold_trades,
-                },
-            )
+        if exit_context:
             logger.info(
-                "🚫 HOLD [{}] gate={} detail={}",
-                hold_reason.reason_code,
-                hold_reason.gate,
-                hold_reason.reason_detail,
+                "🔄 Position exit context detected (qty=%s, signal=%s); bypassing RAG regime filter",
+                market_data.get("current_position_qty", 0),
+                rule_result.signal.value,
             )
-            return HybridPipelineResult(
-                final_action=TradeAction.HOLD,
-                final_confidence=0,
-                final_reasoning=reasoning,
-                rule_engine=rule_result,
-                rag_retrieval=rag_result,
-                hold_reason=hold_reason,
-                timestamp=now_cst().isoformat(),
-                processing_time_ms=(time.time() - start_time) * 1000,
+            threshold_mode = "exit_bypass"
+        else:
+            min_similar_trades = self.config.get("min_similar_trades", 2)
+            min_weighted_win_rate = self.config.get("min_weighted_win_rate", 0.45)
+            soft_floor = min(
+                min_weighted_win_rate,
+                self.config.get("min_weighted_win_rate_soft_floor", min_weighted_win_rate),
             )
+            full_threshold_trades = max(
+                min_similar_trades,
+                self.config.get("min_similar_trades_for_full_threshold", 0),
+            )
+            use_relaxed_threshold = (
+                rag_result.similar_trade_count < full_threshold_trades
+                and soft_floor < min_weighted_win_rate
+            )
+            effective_min_win_rate = soft_floor if use_relaxed_threshold else min_weighted_win_rate
+            threshold_mode = "relaxed" if use_relaxed_threshold else "strict"
+            if (
+                rag_result.similar_trade_count < min_similar_trades
+                or rag_result.weighted_win_rate < effective_min_win_rate
+            ):
+                reasoning = (
+                    "Regime filter triggered: "
+                    f"similar_trades={rag_result.similar_trade_count} (min={min_similar_trades}), "
+                    f"weighted_win_rate={rag_result.weighted_win_rate:.2f} "
+                    f"(min={effective_min_win_rate:.2f}, mode={threshold_mode})"
+                )
+                hold_reason = HoldReason(
+                    gate="hybrid_pipeline.rag",
+                    reason_code="RAG_REGIME_FILTER",
+                    reason_detail=reasoning,
+                    context={
+                        "similar_trades": rag_result.similar_trade_count,
+                        "weighted_win_rate": rag_result.weighted_win_rate,
+                        "effective_min_weighted_win_rate": effective_min_win_rate,
+                        "threshold_mode": threshold_mode,
+                        "full_threshold_trades": full_threshold_trades,
+                    },
+                )
+                logger.info(
+                    "🚫 HOLD [{}] gate={} detail={}",
+                    hold_reason.reason_code,
+                    hold_reason.gate,
+                    hold_reason.reason_detail,
+                )
+                return HybridPipelineResult(
+                    final_action=TradeAction.HOLD,
+                    final_confidence=0,
+                    final_reasoning=reasoning,
+                    rule_engine=rule_result,
+                    rag_retrieval=rag_result,
+                    hold_reason=hold_reason,
+                    timestamp=now_cst().isoformat(),
+                    processing_time_ms=(time.time() - start_time) * 1000,
+                )
         
         # Layer 3: LLM Decision (only on signal with sufficient score)
         llm_result = None

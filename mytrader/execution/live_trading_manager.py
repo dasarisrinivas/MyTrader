@@ -710,8 +710,190 @@ TRADING GUIDANCE:
         return await self.trading_session_manager.start()
     
     async def _process_trading_cycle(self, current_price: float):
-        """Delegate trading cycle to SignalProcessor."""
+        """Check for exit conditions before normal trading flow."""
+        exit_handled = await self._check_position_exit_signals(current_price)
+        if exit_handled:
+            return
         return await self.signal_processor.process_trading_cycle(current_price)
+
+    async def _check_position_exit_signals(self, current_price: Optional[float]) -> bool:
+        """Check if existing position should be closed."""
+        if not self.executor:
+            return False
+        
+        position = await self.executor.get_current_position()
+        if not position or position.quantity == 0:
+            return False
+        
+        price = current_price
+        if price is None:
+            try:
+                price = await self.executor.get_current_price()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"⚠️ Could not fetch price for exit check: {exc}")
+                return False
+        if price is None:
+            logger.debug("No price available for exit checks; skipping exit evaluation")
+            return False
+        
+        is_short = position.quantity < 0
+        exit_signal = (
+            self._generate_exit_signal_for_short(price, position)
+            if is_short
+            else self._generate_exit_signal_for_long(price, position)
+        )
+        if exit_signal:
+            qty = abs(position.quantity)
+            direction = "SHORT" if is_short else "LONG"
+            logger.info(f"🔄 Exit signal for {direction} position: {exit_signal}")
+            await self._place_exit_order("BUY" if is_short else "SELL", qty, price)
+            return True
+        
+        return False
+
+    def _generate_exit_signal_for_short(self, current_price: float, position) -> Optional[Dict[str, float]]:
+        """Generate exit signals for short positions."""
+        entry_price = float(getattr(position, "avg_cost", current_price) or current_price)
+        
+        profit_points = entry_price - current_price
+        if profit_points >= 20:
+            return {"reason": "PROFIT_TARGET", "profit_points": profit_points}
+        
+        loss_points = current_price - entry_price
+        if loss_points >= 10:
+            return {"reason": "STOP_LOSS", "loss_points": loss_points}
+        
+        age_hours = self._get_position_age_hours(position)
+        if age_hours is not None and age_hours >= 4:
+            return {"reason": "TIME_EXIT", "hours_held": age_hours}
+        
+        return None
+
+    def _generate_exit_signal_for_long(self, current_price: float, position) -> Optional[Dict[str, float]]:
+        """Generate exit signals for long positions."""
+        entry_price = float(getattr(position, "avg_cost", current_price) or current_price)
+        
+        profit_points = current_price - entry_price
+        if profit_points >= 20:
+            return {"reason": "PROFIT_TARGET", "profit_points": profit_points}
+        
+        loss_points = entry_price - current_price
+        if loss_points >= 10:
+            return {"reason": "STOP_LOSS", "loss_points": loss_points}
+        
+        age_hours = self._get_position_age_hours(position)
+        if age_hours is not None and age_hours >= 4:
+            return {"reason": "TIME_EXIT", "hours_held": age_hours}
+        
+        return None
+
+    def _get_position_age_hours(self, position) -> Optional[float]:
+        """Return position age (hours) if timestamp is available."""
+        ts = getattr(position, "timestamp", None)
+        if not ts:
+            return None
+        try:
+            now = datetime.utcnow() if ts.tzinfo is None else datetime.now(tz=ts.tzinfo)
+            return max(0.0, (now - ts).total_seconds() / 3600.0)
+        except Exception:
+            return None
+    
+    async def _log_position_status(self, position=None, current_price: Optional[float] = None) -> None:
+        """Log current position, P&L, and duration for dashboard visibility."""
+        if not self.executor:
+            return
+        pos = position
+        if pos is None:
+            pos = await self.executor.get_current_position()
+        if not pos or pos.quantity == 0:
+            return
+        
+        price = current_price
+        if price is None:
+            try:
+                price = await self.executor.get_current_price()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Unable to fetch price for position dashboard: {exc}")
+                return
+        if price is None:
+            return
+        
+        # Prefer position avg_cost; fallback to known entry from logs
+        entry_price = float(getattr(pos, "avg_cost", 0.0) or 0.0)
+        if entry_price <= 0:
+            entry_price = 34914.38 / 5  # From logs: convert entry cost to price
+        
+        multiplier = getattr(self.contract_spec, "point_value", 5) or 5
+        unrealized_pnl = (price - entry_price) * pos.quantity * multiplier
+        duration_hours = self._get_position_age_hours(pos)
+        duration_str = "unknown"
+        if duration_hours is not None:
+            hours = int(duration_hours)
+            minutes = int((duration_hours - hours) * 60)
+            duration_str = f"{hours}h {minutes}m"
+        
+        logger.info("📊 Position Status:")
+        logger.info(f"   Quantity: {pos.quantity}")
+        logger.info(f"   Entry Price: {entry_price:.2f}")
+        logger.info(f"   Current Price: {price:.2f}")
+        logger.info(f"   Unrealized P&L: ${unrealized_pnl:.2f}")
+        logger.info(f"   Duration: {duration_str}")
+
+    async def emergency_close_position(self, reason: str = "EMERGENCY_CLOSE") -> Optional[Any]:
+        """Force close any existing position immediately (manual override)."""
+        if not self.executor:
+            logger.warning("⚠️ Emergency close requested but executor unavailable")
+            return None
+        
+        position = await self.executor.get_current_position()
+        if not position or position.quantity == 0:
+            logger.info("ℹ️ Emergency close requested but no open position")
+            return None
+        
+        action = "SELL" if position.quantity > 0 else "BUY"
+        quantity = abs(position.quantity)
+        
+        price = None
+        try:
+            price = await self.executor.get_current_price()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"⚠️ Emergency close: could not fetch price, using avg cost. Error: {exc}")
+        if price is None:
+            price = getattr(position, "avg_cost", None) or 0.0
+        
+        logger.warning(f"🚨 Emergency position close: {action} {quantity} @ ~{price:.2f}")
+        try:
+            order_id = await self.executor.place_order(
+                action=action,
+                quantity=quantity,
+                limit_price=price,
+                stop_loss=None,
+                take_profit=None,
+                reduce_only=True,
+                entry_price=price,
+                metadata={
+                    "emergency_close": True,
+                    "reason": reason,
+                    "original_position": position.quantity,
+                    "trade_cycle_id": getattr(self, "_current_cycle_id", None),
+                },
+            )
+            self._record_last_trade_timestamp()
+            await self._broadcast_order_update(
+                {
+                    "type": "EXIT",
+                    "action": action,
+                    "quantity": quantity,
+                    "price": price,
+                    "order_id": order_id,
+                    "emergency": True,
+                }
+            )
+            return order_id
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"❌ Emergency close failed: {exc}")
+            await self._broadcast_error(f"Emergency close failed: {exc}")
+            return None
 
     def _publish_feature_snapshot(self, features, current_price: float) -> None:
         """Publish most recent feature row to the agent bus for awareness."""
@@ -1008,13 +1190,20 @@ TRADING GUIDANCE:
         logger.info(f"  ↳ Placing HYBRID order: {signal.action}")
         await self._place_hybrid_order(signal, pipeline_result, current_price, features)
     
-    async def _place_exit_order(self, action: str, quantity: int, current_price: float):
+    async def _place_exit_order(self, action: str, quantity: int, exit_price: Optional[float] = None):
         """Place a market order to exit existing position.
         
         SAFETY: Always uses reduce_only=True to prevent accidental position opening.
         If exit order would open a new position, it is blocked.
         """
-        logger.info(f"🚪 Placing EXIT order request: {action} {quantity} contracts @ ~{current_price:.2f}")
+        price = exit_price
+        if price is None:
+            try:
+                price = await self.executor.get_current_price()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"⚠️ Exit order: could not fetch price, using 0. Error: {exc}")
+                price = 0.0
+        logger.info(f"🚪 Placing EXIT order request: {action} {quantity} contracts @ ~{float(price):.2f}")
         current_position = await self.executor.get_current_position() if self.executor else None
         if not current_position or current_position.quantity == 0:
             logger.warning("⚠️ Exit requested but no open position - skipping")
@@ -1056,14 +1245,15 @@ TRADING GUIDANCE:
             order_id = await self.executor.place_order(
                 action=exit_action,  # BUY to close SHORT, SELL to close LONG
                 quantity=exit_qty,
-                limit_price=current_price,
+                limit_price=price,
                 stop_loss=None,  # No stops for exit orders
                 take_profit=None,
                 reduce_only=True,  # HARD REQUIREMENT: Always reduce_only for exits
-                entry_price=current_price,
+                entry_price=price,
                 metadata={
                     "trade_cycle_id": entry_cycle_id,  # Use entry cycle ID, not current
                     "exit_order": True,
+                    "allow_duplicate_exit": True,
                     "original_position": current_position.quantity,
                 },
             )
@@ -1075,7 +1265,7 @@ TRADING GUIDANCE:
                 "type": "EXIT",
                 "action": exit_action,
                 "quantity": exit_qty,
-                "price": current_price,
+                "price": price,
                 "order_id": order_id
             })
             
