@@ -216,7 +216,7 @@ class TradingSessionManager:
                         m._position_verified = True
 
                     logger.debug("Processing trading cycle...")
-                    await m.signal_processor.process_trading_cycle(current_price)
+                    await m._process_trading_cycle(current_price)
 
                     await asyncio.sleep(poll_interval)
 
