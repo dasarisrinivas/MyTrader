@@ -40,6 +40,8 @@ except ImportError:
         return datetime.now(CST)
     def today_cst():
         return datetime.now(CST).strftime("%Y-%m-%d")
+    def format_cst(dt):
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class TradeAction(Enum):
@@ -1374,6 +1376,75 @@ class HybridRAGPipeline:
 
         return None
 
+    def _get_dynamic_win_rate_threshold(self, similar_trades: List[Dict[str, Any]]) -> float:
+        """Dynamically relax regime threshold for rough periods or off-peak trading."""
+        base_threshold = 0.15
+        now = datetime.now()
+
+        if len(similar_trades) >= 5:
+            recent_window = similar_trades[-10:]
+            recent_losses = sum(1 for trade in recent_window if (trade or {}).get("pnl", 0) < 0)
+            if recent_losses >= 8:
+                logger.warning("🆘 Emergency mode: multiple recent losses, lowering regime threshold")
+                return 0.05
+
+        if now.weekday() >= 5:  # Weekend relaxation
+            return base_threshold * 0.8
+        if 18 <= now.hour <= 23:  # Evening session relaxation
+            return base_threshold * 0.9
+
+        return base_threshold
+
+    def _generate_forced_exit_signal(
+        self,
+        current_position: int,
+        market_data: Dict[str, Any],
+    ) -> HybridPipelineResult:
+        """Generate emergency exit signal that bypasses all filters."""
+        current_price = market_data.get("close", market_data.get("price", 0))
+
+        if current_position < 0:
+            action = TradeAction.BUY
+            reasoning = f"Emergency exit: Closing SHORT position of {current_position}"
+        elif current_position > 0:
+            action = TradeAction.SELL
+            reasoning = f"Emergency exit: Closing LONG position of {current_position}"
+        else:
+            return self._create_hold_result(None, HoldReason.no_signal())
+
+        rule_result = RuleEngineResult(
+            signal=action,
+            score=50.0,
+            filters_passed=["EMERGENCY_EXIT"],
+            market_trend=str(market_data.get("trend", "UNKNOWN")),
+            volatility_regime=str(market_data.get("volatility", "MEDIUM")),
+        )
+
+        llm_result = LLMDecisionResult(
+            action=action,
+            confidence=60.0,
+            reasoning=reasoning,
+            suggested_stop_loss=0.0,
+            suggested_take_profit=0.0,
+        )
+
+        logger.warning(f"🚨 Emergency position exit signal: {action}")
+
+        return HybridPipelineResult(
+            final_action=action,
+            final_confidence=60.0,
+            final_reasoning=reasoning,
+            rule_engine=rule_result,
+            rag_retrieval=RAGRetrievalResult(),
+            llm_decision=llm_result,
+            entry_price=current_price,
+            stop_loss=0.0,
+            take_profit=0.0,
+            position_size=abs(current_position),
+            timestamp=format_cst(now_cst()),
+            processing_time_ms=0.0,
+        )
+
     def _apply_level_confirmation(
         self,
         final_action: TradeAction,
@@ -1586,12 +1657,25 @@ class HybridRAGPipeline:
         self,
         rag_result: RAGRetrievalResult,
         market_data: Dict[str, Any],
+        rule_result: Optional[RuleEngineResult] = None,
     ) -> Tuple[bool, float, str, Dict[str, Any]]:
         """Evaluate the RAG regime filter and return gating decisions.
         
         Returns:
             (hard_block, penalty, reason, context)
         """
+        # BYPASS: allow exits regardless of regime stats
+        position_qty = int(market_data.get("current_position_qty", 0) or 0)
+        if rule_result and position_qty != 0:
+            action = rule_result.signal
+            if (position_qty > 0 and action == TradeAction.SELL) or (
+                position_qty < 0 and action == TradeAction.BUY
+            ):
+                return False, 0.0, "Position exit bypass - regime filter skipped", {
+                    "position_qty": position_qty,
+                    "action": action.value,
+                }
+
         cfg = self.config.get("rag_regime_filter", {})
         enabled = cfg.get("enabled", True)
         if not enabled:
@@ -1603,7 +1687,9 @@ class HybridRAGPipeline:
         hard_block_when_below = bool(cfg.get("hard_block_when_below", False))
         min_similar_trades_cfg = int(cfg.get("min_similar_trades", self.config.get("min_similar_trades", 2)) or 0)
 
-        base_min_win_rate = float(cfg.get("min_win_rate", self.config.get("min_weighted_win_rate", 0.15)) or 0.15)
+        config_min_win_rate = float(cfg.get("min_win_rate", self.config.get("min_weighted_win_rate", 0.15)) or 0.15)
+        dynamic_min = self._get_dynamic_win_rate_threshold(rag_result.similar_trades)
+        base_min_win_rate = min(config_min_win_rate, dynamic_min)
         soft_floor = min(
             base_min_win_rate,
             float(
@@ -1745,13 +1831,28 @@ class HybridRAGPipeline:
         }
         return hard_block, soft_penalty if below_threshold else 0.0, reason, context
 
-    def process(self, market_data: Dict[str, Any]) -> HybridPipelineResult:
-        """Process market data through all three layers."""
+    def process(
+        self,
+        market_data: Dict[str, Any],
+        current_position: Optional[Any] = None,
+        features: Optional[Dict[str, Any]] = None,
+    ) -> HybridPipelineResult:
+        """Process market data through all three layers (position-aware)."""
         start_time = time.time()
         hold_reason: Optional[HoldReason] = None
         regime_penalty = 0.0
         regime_reason = ""
         regime_context: Dict[str, Any] = {}
+
+        if current_position is not None:
+            market_data.setdefault(
+                "current_position_qty",
+                getattr(current_position, "quantity", 0) if current_position else 0,
+            )
+            market_data.setdefault(
+                "current_position_avg_cost",
+                getattr(current_position, "avg_cost", market_data.get("price")) if current_position else market_data.get("price"),
+            )
 
         # Layer 1: Rule Engine (always runs)
         rule_result = self.rule_engine.evaluate(market_data)
@@ -1824,7 +1925,7 @@ class HybridRAGPipeline:
 
         # Regime filter using RAG context before invoking the LLM
         hard_block, regime_penalty, regime_reason, regime_context = self._evaluate_regime_filter(
-            rag_result, market_data
+            rag_result, market_data, rule_result
         )
         if hard_block:
             hold_reason = HoldReason(

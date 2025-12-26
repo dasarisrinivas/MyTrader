@@ -107,6 +107,8 @@ class SignalProcessor:
                         position_for_pipeline = await m.executor.get_current_position()
                     except Exception as exc:  # noqa: BLE001
                         logger.debug(f"Unable to fetch position for hybrid pipeline: {exc}")
+                if hasattr(pipeline, "set_current_position"):
+                    pipeline.set_current_position(position_for_pipeline)
                 hybrid_signal, pipeline_result = await pipeline.process(
                     features,
                     current_price,
