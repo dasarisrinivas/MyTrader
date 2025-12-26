@@ -824,7 +824,8 @@ TRADING GUIDANCE:
         max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_exit", None)
         max_hold_hours = getattr(max_hold_hours, "max_hold_time_hours", None) if max_hold_hours else None
         if max_hold_hours is None:
-            max_hold_hours = getattr(getattr(self.settings.trading, "position_management", None), "force_exits_after_hours", None)
+            max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_management", None)
+            max_hold_hours = getattr(max_hold_hours, "force_exits_after_hours", None) if max_hold_hours else None
         entry_ts = getattr(position, "timestamp", None)
         if entry_ts and max_hold_hours:
             try:
