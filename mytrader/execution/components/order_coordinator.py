@@ -1,5 +1,6 @@
 """Order tracking, metadata, and trade lifecycle helpers."""
 
+import contextlib
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -11,6 +12,7 @@ from ...strategies.market_regime import detect_market_regime, get_regime_paramet
 from ...utils.structured_logging import log_structured_event
 from ...utils.logger import logger
 from ...utils.timezone_utils import now_cst
+from ...utils.timezone_utils import is_market_hours_cst
 from .risk_controller import TradeRequest
 
 
@@ -236,7 +238,7 @@ class OrderCoordinator:
         action: str,
         metadata: Dict[str, Any],
         allow_existing_position: bool = False,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, Optional[str]]:
         """
         Enforce idempotency, cooldown spacing, and single-position rules before submitting an entry.
         """
@@ -246,31 +248,55 @@ class OrderCoordinator:
 
         if signal_key in self._recent_signal_keys:
             logger.warning("Duplicate submission blocked for key=%s", signal_key)
-            return False, "DUPLICATE_SIGNAL"
+            return False, "DUPLICATE_SIGNAL", signal_key
+
+        # Reserve the key immediately to close race window
+        self._recent_signal_keys[signal_key] = now
 
         # Enforce minimum spacing between orders
         cooldown_seconds = getattr(self.manager, "_cooldown_seconds", 0) or 0
-        last_trade = getattr(self.manager, "_last_trade_time", None)
+        lock = getattr(self.manager, "_trade_time_lock", None)
+        with lock if lock else contextlib.nullcontext():
+            last_trade = getattr(self.manager, "_last_trade_time", None)
         if cooldown_seconds and last_trade:
             elapsed = (now - last_trade).total_seconds()
             remaining = cooldown_seconds - elapsed
             if remaining > 0:
                 logger.info("Cooldown active (%.1fs remaining) - blocking entry", remaining)
-                return False, "COOLDOWN_ACTIVE"
+                self._recent_signal_keys.pop(signal_key, None)
+                return False, "COOLDOWN_ACTIVE", signal_key
+
+        enforce_market_hours = getattr(
+            getattr(self.manager, "settings", None),
+            "trading",
+            None,
+        )
+        enforce_market_hours = getattr(enforce_market_hours, "enforce_market_hours", True)
+        if enforce_market_hours and not is_market_hours_cst():
+            logger.info("Market closed per hours check - blocking entry")
+            self._recent_signal_keys.pop(signal_key, None)
+            return False, "MARKET_CLOSED", signal_key
 
         if not allow_existing_position and getattr(self.manager, "executor", None):
             try:
                 position = await self.manager.executor.get_current_position()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Position lookup failed; blocking entry: %s", exc)
-                return False, "POSITION_UNKNOWN"
+                self._recent_signal_keys.pop(signal_key, None)
+                return False, "POSITION_UNKNOWN", signal_key
             if position and getattr(position, "quantity", 0) != 0:
                 logger.info("Open position detected (%s); blocking new entry", position.quantity)
-                return False, "POSITION_OPEN"
+                self._recent_signal_keys.pop(signal_key, None)
+                return False, "POSITION_OPEN", signal_key
 
-        self._recent_signal_keys[signal_key] = now
         metadata.setdefault("dedupe_key", signal_key)
-        return True, "OK"
+        return True, "OK", signal_key
+
+    def record_signal_key(self, signal_key: Optional[str]) -> None:
+        """Record or refresh a signal key after downstream validations succeed."""
+        if not signal_key:
+            return
+        self._recent_signal_keys[signal_key] = datetime.now(timezone.utc)
 
     async def execute_trade_with_risk_checks(self, signal, current_price: float, features):
         """Place an order with sizing, stops, and hard guardrails."""
@@ -280,7 +306,10 @@ class OrderCoordinator:
 
             raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
             metadata = self.prepare_order_metadata(raw_metadata, current_price, "legacy")
-            allowed, reason = await self.enforce_entry_gates(signal.action, metadata)
+            allowed, reason, signal_key = await self.enforce_entry_gates(
+                signal.action,
+                metadata,
+            )
             if not allowed:
                 m._add_reason_code(reason)
                 log_structured_event(
@@ -375,31 +404,32 @@ class OrderCoordinator:
                 log_structured_event(
                     agent="live_manager",
                     event_type="risk.entry_blocked",
-                    message="Entry blocked by hard guardrails",
-                    payload={"trade_cycle_id": m._current_cycle_id},
-                )
-                return
+                message="Entry blocked by hard guardrails",
+                payload={"trade_cycle_id": m._current_cycle_id},
+            )
+            return
 
-            if m.simulation_mode:
-                logger.warning(
-                    "🔶 SIMULATION: Would place %s order for %d contracts @ %.2f",
-                    signal.action,
-                    qty,
-                    current_price,
-                )
-                logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
-                m._record_last_trade_timestamp()
-                await m._broadcast_order_update(
-                    {
-                        "status": "SIMULATED",
-                        "action": signal.action,
-                        "quantity": qty,
-                        "fill_price": current_price,
-                        "filled_quantity": qty,
-                        "order_id": f"SIM-{datetime.now().strftime('%H%M%S')}",
-                    }
-                )
-                return
+        if m.simulation_mode:
+            logger.warning(
+                "🔶 SIMULATION: Would place %s order for %d contracts @ %.2f",
+                signal.action,
+                qty,
+                current_price,
+            )
+            logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
+            m._record_last_trade_timestamp()
+            self.record_signal_key(signal_key)
+            await m._broadcast_order_update(
+                {
+                    "status": "SIMULATED",
+                    "action": signal.action,
+                    "quantity": qty,
+                    "fill_price": current_price,
+                    "filled_quantity": qty,
+                    "order_id": f"SIM-{datetime.now().strftime('%H%M%S')}",
+                }
+            )
+            return
 
             _, reward_points, rr_ratio = compute_risk_reward(
                 current_price,
@@ -419,6 +449,17 @@ class OrderCoordinator:
             metadata["expected_reward_points"] = reward_points
             metadata["expected_gross"] = projected.gross_pnl
             metadata["expected_net"] = projected.net_pnl
+
+            # Final TOCTOU check: ensure position still flat before submitting entry
+            try:
+                current_pos = await m.executor.get_current_position()
+                if current_pos and getattr(current_pos, "quantity", 0) != 0:
+                    logger.info("Position changed before submit (qty=%s); skipping entry", current_pos.quantity)
+                    self.record_signal_key(None)
+                    return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Position recheck failed; skipping entry to be safe: %s", exc)
+                return
 
             result = await m.executor.place_order(
                 action=signal.action,
@@ -444,6 +485,7 @@ class OrderCoordinator:
             )
 
             if result.status not in {"Cancelled", "Inactive"}:
+                self.record_signal_key(signal_key)
                 m._record_last_trade_timestamp()
                 logger.info("⏱️ Trade placed - cooldown activated for %ss", m._cooldown_seconds)
 

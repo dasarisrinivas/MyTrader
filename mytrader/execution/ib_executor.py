@@ -411,9 +411,14 @@ class TradeExecutor:
 
     def _build_signal_submission_key(self, action: str, metadata: Dict[str, Any]) -> str:
         """Build coarse idempotency key: symbol + bar timestamp + action."""
-        ts = metadata.get("bar_close_timestamp") or metadata.get("timestamp")
+        ts = (
+            metadata.get("bar_close_timestamp")
+            or metadata.get("timestamp")
+            or metadata.get("signal_id")
+            or metadata.get("trade_cycle_id")
+        )
         if not ts:
-            ts = datetime.now(timezone.utc).replace(second=0, microsecond=0).isoformat()
+            ts = datetime.now(timezone.utc).isoformat()
         return f"{self.symbol}|{action.upper()}|{ts}"
 
     def _is_duplicate_signal_key(self, key: str) -> bool:
@@ -1166,6 +1171,10 @@ class TradeExecutor:
             logger.info(f"📝 Converted action {original_action} -> {action} for IB API")
 
         metadata = dict(metadata or {})
+        allow_naked_override = bool(
+            getattr(self.config, "allow_naked_orders", False)
+            and metadata.get("allow_naked_order") is True
+        )
         entry_price_hint = entry_price
         if entry_price_hint is None:
             entry_price_hint = metadata.get("entry_price")
@@ -1191,8 +1200,8 @@ class TradeExecutor:
         # Coarse idempotency gate: same action + bar timestamp + symbol
         is_exit = bool(metadata.get("exit_order") or reduce_only)
         signal_key = self._build_signal_submission_key(action, metadata)
-        if not is_exit and self._is_duplicate_signal_key(signal_key):
-            logger.warning("Duplicate signal submission blocked: %s", signal_key)
+        if self._is_duplicate_signal_key(signal_key):
+            logger.warning("Duplicate signal submission blocked: %s (exit=%s)", signal_key, is_exit)
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(
@@ -1200,6 +1209,8 @@ class TradeExecutor:
                 status="Cancelled",
                 message="Duplicate signal submission blocked",
             )
+        # Record immediately to close any race window before further checks
+        self._record_signal_key(signal_key)
         metadata.setdefault("dedupe_key", signal_key)
         
         guard_entry_price = entry_price_hint if entry_price_hint is not None else limit_price if limit_price is not None else metadata.get("entry_price")
@@ -1209,6 +1220,9 @@ class TradeExecutor:
             stop_loss=stop_loss,
             take_profit=take_profit,
             reduce_only=reduce_only,
+            quantity=quantity,
+            metadata=metadata,
+            allow_naked_override=allow_naked_override,
         )
         if guard_reason:
             incident_id = uuid4().hex[:10]
@@ -1238,9 +1252,6 @@ class TradeExecutor:
                 message=message,
             )
 
-        if not is_exit:
-            self._record_signal_key(signal_key)
-        
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
             if self.is_safe_mode():
@@ -1625,10 +1636,29 @@ class TradeExecutor:
         stop_loss: Optional[float],
         take_profit: Optional[float],
         reduce_only: bool,
+        quantity: int,
+        metadata: Optional[Dict[str, Any]],
+        allow_naked_override: bool = False,
     ) -> Optional[str]:
         """Ensure every non-reduce order ships with sane protective levels."""
-        if reduce_only or getattr(self.config, "allow_naked_orders", False):
+        if reduce_only:
             return None
+        if getattr(self.config, "allow_naked_orders", False):
+            if allow_naked_override:
+                max_size = getattr(self.config, "max_position_size", quantity)
+                if quantity > max_size:
+                    return "naked order exceeds max position size"
+                if not metadata or not metadata.get("naked_order_reason"):
+                    return "naked order requires explicit reason"
+                if entry_price is None or entry_price <= 0:
+                    return "naked order missing valid entry price"
+                logger.warning(
+                    "⚠️ Naked order allowed explicitly (reason=%s, qty=%s)",
+                    metadata.get("naked_order_reason"),
+                    quantity,
+                )
+                return None
+            return "naked orders not explicitly approved"
         if stop_loss is None or stop_loss <= 0:
             return "missing or non-positive stop-loss"
         if take_profit is None or take_profit <= 0:

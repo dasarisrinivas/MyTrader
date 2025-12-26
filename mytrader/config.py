@@ -121,6 +121,10 @@ class TradingConfig:
         default_factory=lambda: os.environ.get("ALLOW_NAKED_ORDERS", "False").lower()
         in {"1", "true", "yes"}
     )
+    enforce_market_hours: bool = field(
+        default_factory=lambda: os.environ.get("ENFORCE_MARKET_HOURS", "True").lower()
+        in {"1", "true", "yes"}
+    )
     
     # Optional entry filter tuning
     entry_filters: EntryFilterConfig = field(default_factory=EntryFilterConfig)
