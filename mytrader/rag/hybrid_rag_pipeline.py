@@ -1419,7 +1419,8 @@ class HybridRAGPipeline:
         self.debug_level_confirmation(price_ref, pdh, pdl)
 
         # EMERGENCY OVERRIDE: if price is already essentially at PDH/PDL, skip reclaim wait
-        if _valid_level(pdl) or _valid_level(pdh):
+        # Trigger when at least one level is available; override handler checks each independently.
+        if any(_valid_level(level) for level in (pdl, pdh)):
             override_hit, override_reason = self._emergency_level_override(price_ref, pdl, pdh)
             if override_hit:
                 self._reset_level_confirm_wait(direction)
@@ -1974,7 +1975,8 @@ class HybridRAGPipeline:
     def _emergency_pdl_override(self, current_price: float, pdl: float) -> Tuple[bool, str]:
         """Emergency override for PDL reclaim situations when price is already above PDL."""
         try:
-            if current_price is not None and pdl is not None and abs(current_price - pdl) <= 0.25:
+            proximity = self._emergency_proximity_threshold(pdl)
+            if current_price is not None and pdl is not None and abs(current_price - pdl) <= proximity:
                 logger.warning("🚨 Emergency PDL override: price=%s near pdl=%s", current_price, pdl)
                 return True, "EMERGENCY_NEAR_PDL"
         except Exception:
@@ -1992,7 +1994,8 @@ class HybridRAGPipeline:
             for level, label in ((pdl, "PDL"), (pdh, "PDH")):
                 if current_price is None or level is None:
                     continue
-                if abs(current_price - level) <= 0.25:
+                proximity = self._emergency_proximity_threshold(level)
+                if abs(current_price - level) <= proximity:
                     logger.warning(
                         "🚨 EMERGENCY LEVEL OVERRIDE: price=%s very close to %s=%s",
                         current_price,
@@ -2003,6 +2006,13 @@ class HybridRAGPipeline:
         except Exception:
             pass
         return False, "No emergency override"
+
+    def _emergency_proximity_threshold(self, level: float) -> float:
+        """Scale emergency proximity by instrument price; keep a sensible floor."""
+        try:
+            return max(0.25, abs(float(level)) * 0.0005)  # ~0.05% of price with 0.25pt floor
+        except Exception:
+            return 0.25
 
     def record_trade(self) -> None:
         """Record that a trade was made (for cooldown tracking)."""

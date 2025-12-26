@@ -738,7 +738,11 @@ class TradeExecutor:
                             multiplier = float(getattr(contract, "multiplier", 1.0) or 1.0)
                         except Exception:
                             multiplier = 1.0
-                        price = raw_avg_cost / multiplier if multiplier else raw_avg_cost
+                        if multiplier and multiplier != 0:
+                            price = raw_avg_cost / multiplier
+                        else:
+                            logger.warning("Multiplier missing/zero for %s; using raw avg_cost", self.symbol)
+                            price = raw_avg_cost
                         market_value = float(qty * price * multiplier)
                     else:
                         market_value = float(qty * price)

@@ -763,10 +763,21 @@ TRADING GUIDANCE:
         if current_price <= 0:
             return entry_price
         ratio = entry_price / current_price
-        for multiplier in (5, 10, 50, 100):
+        configured_trading = getattr(getattr(self, "settings", None), "trading", None)
+        custom_multipliers = getattr(configured_trading, "notional_multipliers", None) if configured_trading else None
+        multipliers = tuple(custom_multipliers) if custom_multipliers else (5, 10, 20, 25, 50, 100, 200)
+        for multiplier in multipliers:
             if abs(ratio - multiplier) <= 0.25:
                 return entry_price / multiplier
         return entry_price
+
+    def _get_max_exit_price_gap(self, current_price: float) -> float:
+        """Return configurable/relative gap threshold for exit sanity checks."""
+        configured_trading = getattr(getattr(self, "settings", None), "trading", None)
+        custom_gap = getattr(configured_trading, "max_exit_price_gap", None) if configured_trading else None
+        if custom_gap is not None:
+            return float(custom_gap)
+        return max(1000.0, abs(current_price) * 0.10)
 
     def _generate_exit_signal_for_short(self, current_price: float, position) -> Optional[Dict[str, float]]:
         """Generate exit signals for short positions."""
@@ -780,7 +791,7 @@ TRADING GUIDANCE:
                 current=current_price,
             )
         entry_price = normalized_entry
-        if abs(entry_price - current_price) > 1000:
+        if abs(entry_price - current_price) > self._get_max_exit_price_gap(current_price):
             logger.warning(
                 "Skipping exit checks: entry/current price gap too large (entry={entry}, current={current})",
                 entry=entry_price,
@@ -814,7 +825,7 @@ TRADING GUIDANCE:
                 current=current_price,
             )
         entry_price = normalized_entry
-        if abs(entry_price - current_price) > 1000:
+        if abs(entry_price - current_price) > self._get_max_exit_price_gap(current_price):
             logger.warning(
                 "Skipping exit checks: entry/current price gap too large (entry={entry}, current={current})",
                 entry=entry_price,
