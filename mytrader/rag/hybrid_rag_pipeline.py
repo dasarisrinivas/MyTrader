@@ -1382,7 +1382,7 @@ class HybridRAGPipeline:
         now = datetime.now()
 
         if len(similar_trades) >= 5:
-            recent_window = similar_trades[-10:]
+            recent_window = similar_trades[-10:] if len(similar_trades) >= 10 else similar_trades
             recent_losses = sum(1 for trade in recent_window if (trade or {}).get("pnl", 0) < 0)
             if recent_losses >= 8:
                 logger.warning("🆘 Emergency mode: multiple recent losses, lowering regime threshold")
