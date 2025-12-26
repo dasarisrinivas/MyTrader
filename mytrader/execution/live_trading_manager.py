@@ -20,6 +20,7 @@ import json
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+import threading
 
 import numpy as np
 
@@ -256,6 +257,7 @@ class LiveTradingManager:
         self.price_history: List[Dict] = []
         self.running = False
         self.stop_requested = False
+        self._trade_time_lock = threading.Lock()
         self.agent_bus = AgentBus(default_ttl_seconds=240)
         context_dir = getattr(getattr(settings, 'data', None), 'external_context_dir', 'data/context')
         self._external_context_dir = Path(context_dir)
@@ -1600,6 +1602,21 @@ TRADING GUIDANCE:
         )
         
         try:
+            metadata = self._prepare_order_metadata(
+                {"strategy_name": "aws_agents", "signal_source": "aws_agents"},
+                current_price,
+                "aws_agents",
+            )
+
+            allowed, reason, signal_key = await self.order_coordinator.enforce_entry_gates(
+                action,
+                metadata,
+            )
+            if not allowed:
+                logger.info("AWS agent entry blocked by gate: %s", reason)
+                self._add_reason_code(reason)
+                return
+
             if self.simulation_mode:
                 # Simulation mode - just log, don't place real order
                 logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
@@ -1621,13 +1638,17 @@ TRADING GUIDANCE:
                     payload={"trade_cycle_id": self._current_cycle_id},
                 )
                 return
+            self.order_coordinator.record_signal_key(signal_key)
             
             # Place the order
-            metadata = self._prepare_order_metadata(
-                {"strategy_name": "aws_agents", "signal_source": "aws_agents"},
-                current_price,
-                "aws_agents",
-            )
+            try:
+                current_pos = await self.executor.get_current_position()
+                if current_pos and getattr(current_pos, "quantity", 0) != 0:
+                    logger.info("Position changed before AWS submit (qty=%s); skipping entry", current_pos.quantity)
+                    return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Position recheck failed; skipping AWS entry: %s", exc)
+                return
             order_id = await self.executor.place_order(
                 action=action,
                 quantity=quantity,
@@ -1800,6 +1821,15 @@ TRADING GUIDANCE:
             metadata["market_trend"] = self.status.hybrid_market_trend
             metadata["volatility_regime"] = self.status.hybrid_volatility_regime
             metadata["atr_fallback_used"] = fallback_used
+
+            allowed, reason, signal_key = await self.order_coordinator.enforce_entry_gates(
+                signal.action,
+                metadata,
+            )
+            if not allowed:
+                logger.info("Hybrid entry blocked by gate: %s", reason)
+                self._add_reason_code(reason)
+                return
             
             # Prepare market data for trade logging
             market_data = {
@@ -1854,6 +1884,7 @@ TRADING GUIDANCE:
                 logger.warning(f"🔶 SIMULATION: Would place HYBRID {signal.action} order for {qty} contracts @ {current_price:.2f}")
                 logger.warning(f"   SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
                 self._record_last_trade_timestamp()
+                self.order_coordinator.record_signal_key(signal_key)
                 
                 # Log simulated trade entry
                 if self.hybrid_pipeline:
@@ -1877,6 +1908,14 @@ TRADING GUIDANCE:
                 return
             
             # Place real order
+            try:
+                current_pos = await self.executor.get_current_position()
+                if current_pos and getattr(current_pos, "quantity", 0) != 0:
+                    logger.info("Position changed before HYBRID submit (qty=%s); skipping entry", current_pos.quantity)
+                    return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Position recheck failed; skipping HYBRID entry: %s", exc)
+                return
             result = await self.executor.place_order(
                 action=signal.action,
                 quantity=qty,
@@ -1901,6 +1940,7 @@ TRADING GUIDANCE:
             })
             
             if result.status not in {"Cancelled", "Inactive"}:
+                self.order_coordinator.record_signal_key(signal_key)
                 # Update cooldown
                 self._record_last_trade_timestamp()
                 if self.hybrid_pipeline:

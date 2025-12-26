@@ -50,7 +50,12 @@ class CooldownManager:
     def record_last_trade_timestamp(self, timestamp: Optional[datetime] = None) -> None:
         manager = self.manager
         ts = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        manager._last_trade_time = ts
+        lock = getattr(manager, "_trade_time_lock", None)
+        if lock:
+            with lock:
+                manager._last_trade_time = ts
+        else:
+            manager._last_trade_time = ts
         tracker = getattr(getattr(manager.executor, "order_tracker", None), "record_last_trade_time", None)
         if tracker:
             try:
