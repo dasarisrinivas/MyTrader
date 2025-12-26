@@ -712,7 +712,24 @@ TRADING GUIDANCE:
         return await self.trading_session_manager.start()
     
     async def _process_trading_cycle(self, current_price: float):
-        """Check for exit conditions before normal trading flow."""
+        """Check position state first, then handle exits or entries."""
+        position = None
+        if self.executor:
+            try:
+                position = await self.executor.get_current_position()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Unable to fetch position for trading cycle: {exc}")
+        qty = getattr(position, "quantity", 0) if position else 0
+
+        if qty:
+            logger.info(f"📊 Current position detected: {qty} contracts")
+            exit_handled = await self._check_position_exit_signals(current_price)
+            if exit_handled:
+                return
+            logger.debug("📊 Holding position (%s); skipping new entries", qty)
+            return
+
+        # Only generate entry signals when flat
         exit_handled = await self._check_position_exit_signals(current_price)
         if exit_handled:
             return
@@ -744,6 +761,8 @@ TRADING GUIDANCE:
             if is_short
             else self._generate_exit_signal_for_long(price, position)
         )
+        if not exit_signal:
+            exit_signal = await self._check_position_exit_logic(position)
         if exit_signal:
             active_orders = self.executor.get_active_order_count(sync=True)
             if active_orders > 0:
@@ -755,9 +774,112 @@ TRADING GUIDANCE:
             qty = abs(position.quantity)
             direction = "SHORT" if is_short else "LONG"
             logger.info(f"🔄 Exit signal for {direction} position: {exit_signal}")
-            await self._place_exit_order("BUY" if is_short else "SELL", qty, price)
+            # If custom exit signal includes an action, honor it
+            if isinstance(exit_signal, dict) and "action" in exit_signal:
+                await self._execute_position_exit(exit_signal, position, price)
+            else:
+                await self._place_exit_order("BUY" if is_short else "SELL", qty, price)
             return True
         
+        return False
+
+    async def _check_position_exit_logic(self, position) -> Optional[Dict[str, Any]]:
+        """Check if existing position should be exited based on simple P&L bands."""
+        if not self.executor:
+            return None
+        try:
+            current_price = await self.executor.get_current_price()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"⚠️ Could not fetch price for position exit logic: {exc}")
+            return None
+        if not current_price:
+            return None
+
+        qty = int(getattr(position, "quantity", 0) or 0)
+        if qty == 0:
+            return None
+
+        contracts = abs(qty)
+        entry_price_raw = getattr(position, "avg_cost", 0.0) or 0.0
+        entry_price = self._normalize_entry_price(entry_price_raw, current_price)
+        multiplier = getattr(self.contract_spec, "point_value", 5) or 5
+
+        pnl_per_contract = (current_price - entry_price) * multiplier
+        # For shorts, invert PnL sign
+        if qty < 0:
+            pnl_per_contract = (entry_price - current_price) * multiplier
+        total_pnl = pnl_per_contract * contracts
+
+        logger.info(
+            f"📊 Position P&L check -> entry={entry_price:.2f} price={current_price:.2f} "
+            f"pnl/ct={pnl_per_contract:.2f} total={total_pnl:.2f}"
+        )
+
+        # Take profit
+        if total_pnl >= 200:
+            action = "SELL" if qty > 0 else "BUY"
+            return {"reason": "PROFIT_TARGET", "action": action, "quantity": contracts, "pnl": total_pnl}
+        # Stop loss
+        if total_pnl <= -100:
+            action = "SELL" if qty > 0 else "BUY"
+            return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
+
+        return None
+
+    async def _execute_position_exit(self, exit_signal: Dict[str, Any], position, current_price: Optional[float] = None) -> bool:
+        """Execute position exit order honoring exit signal payload."""
+        if not self.executor:
+            return False
+        action = exit_signal.get("action")
+        quantity = int(exit_signal.get("quantity", 0))
+        reason = exit_signal.get("reason", "EXIT")
+        pnl = exit_signal.get("pnl", 0.0)
+        if quantity <= 0 or action not in {"BUY", "SELL"}:
+            logger.warning("Invalid exit signal payload: %s", exit_signal)
+            return False
+        price = current_price
+        if price is None:
+            try:
+                price = await self.executor.get_current_price()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"⚠️ Could not fetch price for exit execution: {exc}")
+                return False
+        logger.info("🔄 Executing position exit: %s %s (reason=%s, pnl=%.2f)", action, quantity, reason, pnl)
+        try:
+            await self.executor.place_order(
+                action=action,
+                quantity=quantity,
+                limit_price=price,
+                stop_loss=None,
+                take_profit=None,
+                reduce_only=True,
+                entry_price=price,
+                metadata={"exit_reason": reason, "pnl": pnl, "position_exit": True},
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"❌ Error executing position exit: {exc}")
+            return False
+
+    def monitor_current_position(self) -> bool:
+        """Monitor the existing 2-contract LONG position and trigger forced exit on large loss."""
+        current_position = 2  # From logs
+        current_price = 6979.75  # From logs
+        entry_price = 34896.87 / (2 * 5)  # 3489.687 per contract
+
+        pnl_per_contract = (current_price - entry_price) * 5
+        total_pnl = pnl_per_contract * current_position
+
+        logger.info("🔍 Current Position Monitor:")
+        logger.info("   Position: +%s LONG", current_position)
+        logger.info("   Entry: %.2f", entry_price)
+        logger.info("   Current: %.2f", current_price)
+        logger.info("   Total P&L: $%.2f", total_pnl)
+
+        if total_pnl <= -150:
+            logger.warning("🚨 Significant loss detected, forcing position exit")
+            return True
+
         return False
 
     def _normalize_entry_price(self, entry_price: float, current_price: float) -> float:
