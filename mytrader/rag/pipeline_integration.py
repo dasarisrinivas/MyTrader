@@ -90,6 +90,7 @@ class HybridPipelineIntegration:
         self.settings = settings
         self.enabled = enabled
         self.context_bus = context_bus
+        self._current_position = None
         data_cfg = getattr(settings, "data", None)
         self._symbol = getattr(data_cfg, "ibkr_symbol", "ES")
         self._timeframe = getattr(data_cfg, "tradingview_interval", "1m")
@@ -439,6 +440,10 @@ class HybridPipelineIntegration:
             return None
         message = self.context_bus.get_fresh(channel, ttl_seconds)
         return message.payload if message else None
+
+    def set_current_position(self, position: Optional[Any]) -> None:
+        """Inject current position for downstream process calls."""
+        self._current_position = position
     
     def process_sync(
         self,
@@ -471,7 +476,11 @@ class HybridPipelineIntegration:
         
         # Process through pipeline with fallbacks
         try:
-            result = self.pipeline.process(market_data)
+            result = self.pipeline.process(
+                market_data,
+                current_position=current_position,
+                features=features.to_dict() if hasattr(features, "to_dict") else None,
+            )
             if result is None:
                 logger.warning("Hybrid pipeline returned None, generating fallback signal")
                 return self._generate_fallback_signal(market_data, features)
@@ -818,12 +827,13 @@ class HybridPipelineIntegration:
         """
         # Run in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
+        position_arg = current_position if current_position is not None else self._current_position
         return await loop.run_in_executor(
             None,
             self.process_sync,
             features,
             current_price,
-            current_position,
+            position_arg,
         )
 
     def _merge_structural_bias(
