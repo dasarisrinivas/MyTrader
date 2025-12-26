@@ -812,6 +812,33 @@ TRADING GUIDANCE:
             f"pnl/ct={pnl_per_contract:.2f} total={total_pnl:.2f}"
         )
 
+        # Trend-based exit: if trend flips against position
+        trend = getattr(self.status, "hybrid_market_trend", "") or getattr(self.status, "last_trend", "")
+        trend = str(trend).upper()
+        if qty > 0 and trend == "DOWNTREND":
+            return {"reason": "TREND_CHANGE", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
+        if qty < 0 and trend == "UPTREND":
+            return {"reason": "TREND_CHANGE", "action": "BUY", "quantity": contracts, "pnl": total_pnl}
+
+        # Time-based exit check
+        max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_exit", None)
+        max_hold_hours = getattr(max_hold_hours, "max_hold_time_hours", None) if max_hold_hours else None
+        if max_hold_hours is None:
+            max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_management", None)
+            max_hold_hours = getattr(max_hold_hours, "force_exits_after_hours", None) if max_hold_hours else None
+        entry_ts = getattr(position, "timestamp", None)
+        if entry_ts and max_hold_hours:
+            try:
+                duration = datetime.now(timezone.utc) - (
+                    entry_ts if entry_ts.tzinfo else entry_ts.replace(tzinfo=timezone.utc)
+                )
+                if duration.total_seconds() >= max_hold_hours * 3600:
+                    action = "SELL" if qty > 0 else "BUY"
+                    logger.warning("⏳ Time-based exit triggered (hold %.2f hrs >= %.2f hrs)", duration.total_seconds() / 3600, max_hold_hours)
+                    return {"reason": "TIME_EXIT", "action": action, "quantity": contracts, "pnl": total_pnl}
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Time-based exit check skipped: {exc}")
+
         # Take profit
         if total_pnl >= 200:
             action = "SELL" if qty > 0 else "BUY"
