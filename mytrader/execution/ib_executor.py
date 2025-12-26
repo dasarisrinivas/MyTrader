@@ -177,6 +177,8 @@ class TradeExecutor:
         # NEW: Idempotency tracking for order submissions
         self._submission_signatures: Dict[str, datetime] = {}
         self._signature_ttl_seconds: int = getattr(config, "idempotency_signature_ttl_seconds", 900)
+        self._signal_submission_keys: Dict[str, datetime] = {}
+        self._signal_ttl_seconds: int = getattr(config, "idempotency_signature_ttl_seconds", 900)
         
         # NEW: Initial state tracking (orders found on IB at startup)
         self._initial_state_order_ids: set = set()
@@ -406,6 +408,30 @@ class TradeExecutor:
         ]
         for sig in old_sigs:
             del self._submission_signatures[sig]
+
+    def _build_signal_submission_key(self, action: str, metadata: Dict[str, Any]) -> str:
+        """Build coarse idempotency key: symbol + bar timestamp + action."""
+        ts = metadata.get("bar_close_timestamp") or metadata.get("timestamp")
+        if not ts:
+            ts = datetime.now(timezone.utc).replace(second=0, microsecond=0).isoformat()
+        return f"{self.symbol}|{action.upper()}|{ts}"
+
+    def _is_duplicate_signal_key(self, key: str) -> bool:
+        now = datetime.now(timezone.utc)
+        ts = self._signal_submission_keys.get(key)
+        if ts and (now - ts).total_seconds() < self._signal_ttl_seconds:
+            return True
+        return False
+
+    def _record_signal_key(self, key: str) -> None:
+        now = datetime.now(timezone.utc)
+        self._signal_submission_keys[key] = now
+        stale = [
+            k for k, ts in self._signal_submission_keys.items()
+            if (now - ts).total_seconds() > self._signal_ttl_seconds
+        ]
+        for k in stale:
+            self._signal_submission_keys.pop(k, None)
     
     def _log_reconcile_event(self, event_type: str, data: dict, level: str = "INFO") -> None:
         """Log event to reconcile.log for audit trail."""
@@ -1162,6 +1188,20 @@ class TradeExecutor:
             quantity = min(quantity, abs(current_position.quantity))
             metadata["reduce_only"] = True
 
+        # Coarse idempotency gate: same action + bar timestamp + symbol
+        is_exit = bool(metadata.get("exit_order") or reduce_only)
+        signal_key = self._build_signal_submission_key(action, metadata)
+        if not is_exit and self._is_duplicate_signal_key(signal_key):
+            logger.warning("Duplicate signal submission blocked: %s", signal_key)
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(
+                trade=dummy_trade,
+                status="Cancelled",
+                message="Duplicate signal submission blocked",
+            )
+        metadata.setdefault("dedupe_key", signal_key)
+        
         guard_entry_price = entry_price_hint if entry_price_hint is not None else limit_price if limit_price is not None else metadata.get("entry_price")
         guard_reason = self._validate_protective_invariants(
             action=action,
@@ -1197,6 +1237,9 @@ class TradeExecutor:
                 status="Cancelled",
                 message=message,
             )
+
+        if not is_exit:
+            self._record_signal_key(signal_key)
         
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
@@ -1584,7 +1627,7 @@ class TradeExecutor:
         reduce_only: bool,
     ) -> Optional[str]:
         """Ensure every non-reduce order ships with sane protective levels."""
-        if reduce_only:
+        if reduce_only or getattr(self.config, "allow_naked_orders", False):
             return None
         if stop_loss is None or stop_loss <= 0:
             return "missing or non-positive stop-loss"

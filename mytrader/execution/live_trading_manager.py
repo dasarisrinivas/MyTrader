@@ -1600,6 +1600,18 @@ TRADING GUIDANCE:
         )
         
         try:
+            metadata = self._prepare_order_metadata(
+                {"strategy_name": "aws_agents", "signal_source": "aws_agents"},
+                current_price,
+                "aws_agents",
+            )
+
+            allowed, reason = await self.order_coordinator.enforce_entry_gates(action, metadata)
+            if not allowed:
+                logger.info("AWS agent entry blocked by gate: %s", reason)
+                self._add_reason_code(reason)
+                return
+
             if self.simulation_mode:
                 # Simulation mode - just log, don't place real order
                 logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
@@ -1623,11 +1635,6 @@ TRADING GUIDANCE:
                 return
             
             # Place the order
-            metadata = self._prepare_order_metadata(
-                {"strategy_name": "aws_agents", "signal_source": "aws_agents"},
-                current_price,
-                "aws_agents",
-            )
             order_id = await self.executor.place_order(
                 action=action,
                 quantity=quantity,
@@ -1800,6 +1807,12 @@ TRADING GUIDANCE:
             metadata["market_trend"] = self.status.hybrid_market_trend
             metadata["volatility_regime"] = self.status.hybrid_volatility_regime
             metadata["atr_fallback_used"] = fallback_used
+
+            allowed, reason = await self.order_coordinator.enforce_entry_gates(signal.action, metadata)
+            if not allowed:
+                logger.info("Hybrid entry blocked by gate: %s", reason)
+                self._add_reason_code(reason)
+                return
             
             # Prepare market data for trade logging
             market_data = {

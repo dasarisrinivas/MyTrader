@@ -19,6 +19,10 @@ class OrderCoordinator:
 
     def __init__(self, manager: "LiveTradingManager"):  # noqa: F821 (forward reference)
         self.manager = manager
+        self._recent_signal_keys: Dict[str, datetime] = {}
+        trading_cfg = getattr(getattr(manager, "settings", None), "trading", None)
+        ttl = getattr(trading_cfg, "decision_min_interval_seconds", 300) if trading_cfg else 300
+        self._signal_ttl_seconds: int = max(300, int(ttl))
 
     def prepare_order_metadata(
         self,
@@ -210,6 +214,64 @@ class OrderCoordinator:
         except Exception as exc:  # noqa: BLE001
             logger.error(f"Error handling order fill: {exc}")
 
+    def _build_signal_key(self, action: str, metadata: Dict[str, Any]) -> str:
+        """Create a coarse idempotency key for the candle/signal."""
+        ts = metadata.get("bar_close_timestamp") or metadata.get("timestamp")
+        if not ts:
+            ts = now_cst().replace(second=0, microsecond=0).isoformat()
+        symbol = getattr(getattr(self.manager, "settings", None), "data", None)
+        symbol = getattr(symbol, "ibkr_symbol", "UNKNOWN")
+        return f"{symbol}|{action.upper()}|{ts}"
+
+    def _prune_signal_keys(self, now: datetime) -> None:
+        stale = [
+            key for key, ts in self._recent_signal_keys.items()
+            if (now - ts).total_seconds() > self._signal_ttl_seconds
+        ]
+        for key in stale:
+            self._recent_signal_keys.pop(key, None)
+
+    async def enforce_entry_gates(
+        self,
+        action: str,
+        metadata: Dict[str, Any],
+        allow_existing_position: bool = False,
+    ) -> tuple[bool, str]:
+        """
+        Enforce idempotency, cooldown spacing, and single-position rules before submitting an entry.
+        """
+        now = datetime.now(timezone.utc)
+        self._prune_signal_keys(now)
+        signal_key = self._build_signal_key(action, metadata)
+
+        if signal_key in self._recent_signal_keys:
+            logger.warning("Duplicate submission blocked for key=%s", signal_key)
+            return False, "DUPLICATE_SIGNAL"
+
+        # Enforce minimum spacing between orders
+        cooldown_seconds = getattr(self.manager, "_cooldown_seconds", 0) or 0
+        last_trade = getattr(self.manager, "_last_trade_time", None)
+        if cooldown_seconds and last_trade:
+            elapsed = (now - last_trade).total_seconds()
+            remaining = cooldown_seconds - elapsed
+            if remaining > 0:
+                logger.info("Cooldown active (%.1fs remaining) - blocking entry", remaining)
+                return False, "COOLDOWN_ACTIVE"
+
+        if not allow_existing_position and getattr(self.manager, "executor", None):
+            try:
+                position = await self.manager.executor.get_current_position()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Position lookup failed; blocking entry: %s", exc)
+                return False, "POSITION_UNKNOWN"
+            if position and getattr(position, "quantity", 0) != 0:
+                logger.info("Open position detected (%s); blocking new entry", position.quantity)
+                return False, "POSITION_OPEN"
+
+        self._recent_signal_keys[signal_key] = now
+        metadata.setdefault("dedupe_key", signal_key)
+        return True, "OK"
+
     async def execute_trade_with_risk_checks(self, signal, current_price: float, features):
         """Place an order with sizing, stops, and hard guardrails."""
         m = self.manager
@@ -218,6 +280,16 @@ class OrderCoordinator:
 
             raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
             metadata = self.prepare_order_metadata(raw_metadata, current_price, "legacy")
+            allowed, reason = await self.enforce_entry_gates(signal.action, metadata)
+            if not allowed:
+                m._add_reason_code(reason)
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="risk.entry_blocked",
+                    message=f"Entry blocked by submission gate: {reason}",
+                    payload={"trade_cycle_id": m._current_cycle_id},
+                )
+                return
             qty = m.trade_decision_engine.calculate_position_size(signal, metadata)
 
             if not m.risk.can_trade(qty):

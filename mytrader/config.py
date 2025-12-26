@@ -117,6 +117,10 @@ class TradingConfig:
     decision_min_interval_seconds: int = field(default_factory=lambda: int(os.environ.get("DECISION_MIN_INTERVAL_SECONDS", "30")))
     order_retry_limit: int = field(default_factory=lambda: int(os.environ.get("ORDER_RETRY_LIMIT", "3")))
     contract_month_offset: int = field(default_factory=lambda: int(os.environ.get("CONTRACT_MONTH_OFFSET", "0")))
+    allow_naked_orders: bool = field(
+        default_factory=lambda: os.environ.get("ALLOW_NAKED_ORDERS", "False").lower()
+        in {"1", "true", "yes"}
+    )
     
     # Optional entry filter tuning
     entry_filters: EntryFilterConfig = field(default_factory=EntryFilterConfig)
