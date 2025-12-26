@@ -729,10 +729,7 @@ TRADING GUIDANCE:
             logger.debug("📊 Holding position (%s); skipping new entries", qty)
             return
 
-        # Only generate entry signals when flat
-        exit_handled = await self._check_position_exit_signals(current_price)
-        if exit_handled:
-            return
+        # Entry signals only - flat position
         return await self.signal_processor.process_trading_cycle(current_price)
 
     async def _check_position_exit_signals(self, current_price: Optional[float]) -> bool:

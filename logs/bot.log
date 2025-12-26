@@ -400,3 +400,591 @@
 
 2025-12-26 10:52:54 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.00 pnl/ct=-16.87 total=-33.74
 
+2025-12-26 10:52:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:52:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.25
+
+2025-12-26 10:52:59 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:52:59 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:52:59 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:52:59 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.25 pnl/ct=-15.62 total=-31.24
+
+2025-12-26 10:53:04 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:04 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:04 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:04 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.25 pnl/ct=-15.62 total=-31.24
+
+2025-12-26 10:53:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:53:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.5
+
+2025-12-26 10:53:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.50 pnl/ct=-14.37 total=-28.74
+
+2025-12-26 10:53:15 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:15 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:15 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:15 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.50 pnl/ct=-14.37 total=-28.74
+
+2025-12-26 10:53:20 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:53:20 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.5
+
+2025-12-26 10:53:20 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:20 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:20 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:20 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.50 pnl/ct=-14.37 total=-28.74
+
+2025-12-26 10:53:25 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:25 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:25 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:25 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.50 pnl/ct=-14.37 total=-28.74
+
+2025-12-26 10:53:30 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:53:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:53:31 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:31 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:31 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:31 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:53:36 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:36 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:36 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:36 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:53:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:53:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:53:41 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:41 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:41 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:41 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:53:46 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:46 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:46 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:46 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:53:51 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:53:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:53:52 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:52 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:52 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:52 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:53:57 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:57 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:53:57 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:53:57 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:54:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:54:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:54:02 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:02 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:02 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:02 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:54:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:54:12 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:54:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.5
+
+2025-12-26 10:54:13 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:13 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:13 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:13 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.50 pnl/ct=-9.37 total=-18.74
+
+2025-12-26 10:54:18 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:18 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:18 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:18 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.50 pnl/ct=-9.37 total=-18.74
+
+2025-12-26 10:54:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:54:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.5
+
+2025-12-26 10:54:23 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:23 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:23 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:23 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.50 pnl/ct=-9.37 total=-18.74
+
+2025-12-26 10:54:28 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:28 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:28 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:28 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.50 pnl/ct=-9.37 total=-18.74
+
+2025-12-26 10:54:33 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:33 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:33 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:33 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.50 pnl/ct=-9.37 total=-18.74
+
+2025-12-26 10:54:38 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:54:39 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.25
+
+2025-12-26 10:54:39 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:39 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:39 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:39 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:54:44 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:44 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:44 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:44 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:54:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:54:49 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.0
+
+2025-12-26 10:54:49 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:49 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:49 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:49 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:54:54 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:54 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:54:54 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:54:54 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:54:59 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:55:00 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.25
+
+2025-12-26 10:55:00 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:00 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:00 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:55:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:05 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:55:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:55:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.0
+
+2025-12-26 10:55:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:55:15 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:15 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:15 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:15 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:55:20 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:55:21 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.0
+
+2025-12-26 10:55:21 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:21 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:21 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:21 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:55:26 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:26 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:26 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:26 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:55:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:55:31 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.75
+
+2025-12-26 10:55:31 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:31 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:31 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:31 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.75 pnl/ct=-8.12 total=-16.24
+
+2025-12-26 10:55:36 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:36 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:36 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:36 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.75 pnl/ct=-8.12 total=-16.24
+
+2025-12-26 10:55:41 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:55:42 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.75
+
+2025-12-26 10:55:42 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:42 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:42 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:42 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.75 pnl/ct=-8.12 total=-16.24
+
+2025-12-26 10:55:47 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:47 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:47 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:47 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.75 pnl/ct=-8.12 total=-16.24
+
+2025-12-26 10:55:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:55:52 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:55:52 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:52 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:52 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:52 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:55:57 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:57 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:55:57 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:55:57 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:56:02 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:56:03 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.25
+
+2025-12-26 10:56:03 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:03 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:03 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.25 pnl/ct=-15.62 total=-31.24
+
+2025-12-26 10:56:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.25 pnl/ct=-15.62 total=-31.24
+
+2025-12-26 10:56:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:56:13 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:56:13 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:13 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:13 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:13 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:56:18 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:18 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:18 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:18 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:56:23 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:56:24 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.0
+
+2025-12-26 10:56:24 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:24 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:24 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:24 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:56:29 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:29 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:29 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:29 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:56:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:56:34 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.25
+
+2025-12-26 10:56:34 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:34 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:34 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:34 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:56:39 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:39 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:39 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:39 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:56:44 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:56:45 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:56:45 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:45 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:45 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:45 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:56:50 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:50 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:50 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:50 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:56:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:56:55 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:56:55 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:55 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:56:55 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:56:55 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:00 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:00 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:00 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:00 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:57:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:57:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:11 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:11 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:11 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:11 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:57:16 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.5
+
+2025-12-26 10:57:16 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:16 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:16 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:16 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.50 pnl/ct=-14.37 total=-28.74
+
+2025-12-26 10:57:21 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:21 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:21 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:21 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.50 pnl/ct=-14.37 total=-28.74
+
+2025-12-26 10:57:26 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:57:27 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:57:27 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:27 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:27 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:27 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:32 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:32 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:32 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:32 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:37 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:57:37 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6976.75
+
+2025-12-26 10:57:37 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:37 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:37 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:37 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:42 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:42 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:42 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:42 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6976.75 pnl/ct=-13.12 total=-26.24
+
+2025-12-26 10:57:47 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:57:48 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.25
+
+2025-12-26 10:57:48 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:48 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:48 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:48 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:57:53 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:53 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:53 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:53 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.25 pnl/ct=-10.62 total=-21.24
+
+2025-12-26 10:57:58 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2384 - Requesting market data for MESH6...
+
+2025-12-26 10:57:58 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2399 - Got last price: 6977.0
+
+2025-12-26 10:57:58 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:58 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:57:58 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:57:58 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
+2025-12-26 10:58:03 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:58:03 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:725 - 📊 Current position detected: 2 contracts
+
+2025-12-26 10:58:03 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:788 - Reconciled position: MES qty=2 secType=FUT price=6979.37 multiplier=5.0 total_cost=34896.87
+
+2025-12-26 10:58:03 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:813 - 📊 Position P&L check -> entry=6979.37 price=6977.00 pnl/ct=-11.87 total=-23.74
+
