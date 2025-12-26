@@ -404,32 +404,32 @@ class OrderCoordinator:
                 log_structured_event(
                     agent="live_manager",
                     event_type="risk.entry_blocked",
-                message="Entry blocked by hard guardrails",
-                payload={"trade_cycle_id": m._current_cycle_id},
-            )
-            return
+                    message="Entry blocked by hard guardrails",
+                    payload={"trade_cycle_id": m._current_cycle_id},
+                )
+                return
 
-        if m.simulation_mode:
-            logger.warning(
-                "🔶 SIMULATION: Would place %s order for %d contracts @ %.2f",
-                signal.action,
-                qty,
-                current_price,
-            )
-            logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
-            m._record_last_trade_timestamp()
-            self.record_signal_key(signal_key)
-            await m._broadcast_order_update(
-                {
-                    "status": "SIMULATED",
-                    "action": signal.action,
-                    "quantity": qty,
-                    "fill_price": current_price,
-                    "filled_quantity": qty,
-                    "order_id": f"SIM-{datetime.now().strftime('%H%M%S')}",
-                }
-            )
-            return
+            if m.simulation_mode:
+                logger.warning(
+                    "🔶 SIMULATION: Would place %s order for %d contracts @ %.2f",
+                    signal.action,
+                    qty,
+                    current_price,
+                )
+                logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
+                m._record_last_trade_timestamp()
+                self.record_signal_key(signal_key)
+                await m._broadcast_order_update(
+                    {
+                        "status": "SIMULATED",
+                        "action": signal.action,
+                        "quantity": qty,
+                        "fill_price": current_price,
+                        "filled_quantity": qty,
+                        "order_id": f"SIM-{datetime.now().strftime('%H%M%S')}",
+                    }
+                )
+                return
 
             _, reward_points, rr_ratio = compute_risk_reward(
                 current_price,
