@@ -709,7 +709,8 @@ class HybridPipelineIntegration:
             confidence = 0.15  # Do not zero out fallback holds
             rationale = "Fallback: No clear setup"
 
-        logger.warning(f"🚧 Enhanced fallback signal: {signal} ({confidence:.2f}) reason={rationale}")
+        # Downgrade to info to avoid noisy warnings when fallback logic chooses HOLD
+        logger.info(f"🚧 Enhanced fallback signal: {signal} ({confidence:.2f}) reason={rationale}")
 
         return HybridSignal(
             action=signal,

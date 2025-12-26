@@ -743,6 +743,13 @@ TRADING GUIDANCE:
             else self._generate_exit_signal_for_long(price, position)
         )
         if exit_signal:
+            active_orders = self.executor.get_active_order_count(sync=True)
+            if active_orders > 0:
+                logger.info(
+                    "Exit signal detected but {active} active orders are still open; skipping duplicate exit",
+                    active=active_orders,
+                )
+                return True
             qty = abs(position.quantity)
             direction = "SHORT" if is_short else "LONG"
             logger.info(f"🔄 Exit signal for {direction} position: {exit_signal}")
@@ -751,9 +758,46 @@ TRADING GUIDANCE:
         
         return False
 
+    def _normalize_entry_price(self, entry_price: float, current_price: float) -> float:
+        """Normalize notional entry costs (e.g., futures multiplier embedded)."""
+        if current_price <= 0:
+            return entry_price
+        ratio = entry_price / current_price
+        configured_trading = getattr(getattr(self, "settings", None), "trading", None)
+        custom_multipliers = getattr(configured_trading, "notional_multipliers", None) if configured_trading else None
+        multipliers = tuple(custom_multipliers) if custom_multipliers else (5, 10, 20, 25, 50, 100, 200)
+        for multiplier in multipliers:
+            if abs(ratio - multiplier) <= 0.25:
+                return entry_price / multiplier
+        return entry_price
+
+    def _get_max_exit_price_gap(self, current_price: float) -> float:
+        """Return configurable/relative gap threshold for exit sanity checks."""
+        configured_trading = getattr(getattr(self, "settings", None), "trading", None)
+        custom_gap = getattr(configured_trading, "max_exit_price_gap", None) if configured_trading else None
+        if custom_gap is not None:
+            return float(custom_gap)
+        return max(1000.0, abs(current_price) * 0.10)
+
     def _generate_exit_signal_for_short(self, current_price: float, position) -> Optional[Dict[str, float]]:
         """Generate exit signals for short positions."""
         entry_price = float(getattr(position, "avg_cost", current_price) or current_price)
+        normalized_entry = self._normalize_entry_price(entry_price, current_price)
+        if normalized_entry != entry_price:
+            logger.debug(
+                "Normalized entry price from notional value: raw={raw} normalized={normalized} current={current}",
+                raw=entry_price,
+                normalized=normalized_entry,
+                current=current_price,
+            )
+        entry_price = normalized_entry
+        if abs(entry_price - current_price) > self._get_max_exit_price_gap(current_price):
+            logger.warning(
+                "Skipping exit checks: entry/current price gap too large (entry={entry}, current={current})",
+                entry=entry_price,
+                current=current_price,
+            )
+            return None
         
         profit_points = entry_price - current_price
         if profit_points >= 20:
@@ -772,6 +816,22 @@ TRADING GUIDANCE:
     def _generate_exit_signal_for_long(self, current_price: float, position) -> Optional[Dict[str, float]]:
         """Generate exit signals for long positions."""
         entry_price = float(getattr(position, "avg_cost", current_price) or current_price)
+        normalized_entry = self._normalize_entry_price(entry_price, current_price)
+        if normalized_entry != entry_price:
+            logger.debug(
+                "Normalized entry price from notional value: raw={raw} normalized={normalized} current={current}",
+                raw=entry_price,
+                normalized=normalized_entry,
+                current=current_price,
+            )
+        entry_price = normalized_entry
+        if abs(entry_price - current_price) > self._get_max_exit_price_gap(current_price):
+            logger.warning(
+                "Skipping exit checks: entry/current price gap too large (entry={entry}, current={current})",
+                entry=entry_price,
+                current=current_price,
+            )
+            return None
         
         profit_points = current_price - entry_price
         if profit_points >= 20:

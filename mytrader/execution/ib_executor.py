@@ -727,17 +727,42 @@ class TradeExecutor:
             positions = self.ib.positions()
             for position in positions:
                 if position.contract.symbol == self.symbol:
-                    # IBKR avgCost is total cost, divide by quantity to get per-contract price
-                    per_contract_cost = float(position.avgCost) / abs(position.position) if position.position != 0 else 0.0
+                    contract = position.contract
+                    sec_type = getattr(contract, "secType", "").upper()
+                    qty = int(position.position)
+                    raw_avg_cost = float(position.avgCost)
+                    multiplier = 1.0
+                    price = raw_avg_cost
+                    if sec_type == "FUT":
+                        try:
+                            multiplier = float(getattr(contract, "multiplier", 1.0) or 1.0)
+                        except Exception:
+                            multiplier = 1.0
+                        if multiplier and multiplier != 0:
+                            price = raw_avg_cost / multiplier
+                        else:
+                            logger.warning("Multiplier missing/zero for %s; using raw avg_cost", self.symbol)
+                            price = raw_avg_cost
+                        market_value = float(qty * price * multiplier)
+                    else:
+                        market_value = float(qty * price)
                     self.positions[self.symbol] = PositionInfo(
                         symbol=self.symbol,
-                        quantity=int(position.position),
-                        avg_cost=per_contract_cost,
-                        market_value=float(position.position * per_contract_cost),
+                        quantity=qty,
+                        avg_cost=price,
+                        market_value=market_value,
                         unrealized_pnl=float(position.unrealizedPNL) if hasattr(position, 'unrealizedPNL') else 0.0,
                         realized_pnl=0.0
                     )
-                    logger.info(f"Reconciled position: {self.symbol} qty={position.position} avg_cost={per_contract_cost:.2f} (total_cost={position.avgCost:.2f})")
+                    logger.info(
+                        "Reconciled position: {symbol} qty={qty} secType={sec_type} price={price:.2f} multiplier={mult} total_cost={total_cost:.2f}",
+                        symbol=self.symbol,
+                        qty=qty,
+                        sec_type=sec_type or "UNKNOWN",
+                        price=price,
+                        mult=multiplier,
+                        total_cost=raw_avg_cost,
+                    )
         except Exception as e:
             logger.error("Failed to reconcile positions: {}", e)
 
@@ -1704,7 +1729,7 @@ class TradeExecutor:
         """Ensure parent and children advance beyond PendingSubmit shortly after placement."""
         if not child_trades:
             return True
-        required_statuses = {"PreSubmitted", "Submitted", "Filled"}
+        required_statuses = {"PreSubmitted", "Submitted", "Filled", "Inactive"}
         start = time.monotonic()
         parent_id = getattr(parent_trade.order, "orderId", "NA")
         child_ids = [getattr(child.order, "orderId", "NA") for child in child_trades]
