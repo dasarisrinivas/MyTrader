@@ -14,6 +14,7 @@ class RSIPullbackConfig:
 
     rsi_period: int = 14
     ema_period: int = 50
+    atr_period: int = 14
     rsi_long_pullback_low: float = 30.0
     rsi_long_pullback_reentry: float = 40.0
     rsi_short_pullback_high: float = 70.0
@@ -90,6 +91,7 @@ class RSITrendPullbackFilter:
         self.config = cfg
         self.rsi_col = f"RSI_{cfg.rsi_period}"
         self.ema_col = f"EMA_{cfg.ema_period}"
+        self.atr_col = f"ATR_{cfg.atr_period}"
 
     def evaluate(self, features: pd.DataFrame, now: Optional[datetime] = None) -> RSITrendPullbackResult:
         """Evaluate latest candle context and return pullback decision."""
@@ -102,7 +104,7 @@ class RSITrendPullbackFilter:
         prev = features.iloc[-2]
         close = float(latest.get("close", 0.0))
         ema_trend = float(latest.get(self.ema_col, close))
-        atr = float(latest.get("ATR_14", 0.0))
+        atr = float(latest.get(self.atr_col, latest.get("ATR_14", 0.0)))
         rsi = float(latest.get(self.rsi_col, 50.0))
         prev_rsi = float(prev.get(self.rsi_col, rsi))
 

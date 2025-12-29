@@ -1275,8 +1275,7 @@ class TradeExecutor:
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Not connected to IB")
         
-        # At this point, gates passed; record the signal key
-        self._record_signal_key(signal_key)
+        # At this point, gates passed; record the signal key only after we know submission will proceed
         
         # Check if we have too many active orders (IB limit is 15 per side)
         open_trades = self.ib.openTrades()
@@ -1299,6 +1298,8 @@ class TradeExecutor:
         
         # NEW: Record submission signature for idempotency
         self.record_submission(submission_sig, action, quantity, metadata)
+        # Now that we reached submission, remember the signal to suppress duplicates
+        self._record_signal_key(signal_key)
         
         # Log order attempt for audit trail
         self._log_reconcile_event("order_placed", {

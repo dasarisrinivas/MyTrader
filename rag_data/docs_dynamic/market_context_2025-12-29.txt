@@ -10,7 +10,7 @@ PREVIOUS DAY LEVELS:
 
 TODAY'S LEVELS (so far):
 - Today's High: 6967.75
-- Today's Low: 6947.5
+- Today's Low: 6936.25
 - Today's Open: 6951.25
 
 WEEKLY RANGE:

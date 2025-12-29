@@ -106,6 +106,7 @@ class DeterministicEngine:
         "atr_min_threshold": 0.5,
         "atr_max_threshold": 50.0,
         "atr_weight": 0.15,
+        "atr_period": 14,
         
         # Volume
         "volume_weight": 0.10,
@@ -167,6 +168,7 @@ class DeterministicEngine:
                 "atr_multiplier_tp": self.config["atr_multiplier_tp"],
                 "atr_min_threshold": self.config["atr_min_threshold"],
                 "atr_max_threshold": self.config["atr_max_threshold"],
+                "atr_period": self.config.get("atr_period", 14),
                 "enable_session_adjustments": self.config["enable_session_aware_rsi"],
                 "overnight_rsi_buffer": self.config["overnight_rsi_buffer"],
                 "overnight_tp_multiplier": self.config["overnight_tp_multiplier"],
@@ -265,12 +267,21 @@ class DeterministicEngine:
         reasons = []
         
         # Calculate individual indicator scores
+        # Precompute session + RSI pullback filter before scoring
+        session_label = session_from_time(
+            candle_time,
+            self.config["session_rth_start"],
+            self.config["session_rth_end"],
+        )
+        rsi_pullback = None
+        if self.config.get("enable_rsi_filter", True):
+            rsi_pullback = self._rsi_filter.evaluate(features, now=candle_time)
+            reasons.extend(rsi_pullback.reasons)
+
         scores = {}
         
-        # 1. RSI Score
+        # 1. RSI Score (pullback-aware when enabled, vanilla otherwise)
         rsi = latest.get(f"RSI_{self.config['rsi_period']}", latest.get("RSI_14", 50.0))
-        rsi_score = self._calculate_rsi_score(rsi)
-        scores["rsi"] = rsi_score
         
         # 2. MACD Score
         macd = latest.get("MACD", 0.0)
@@ -284,15 +295,11 @@ class DeterministicEngine:
         ema_slow = latest.get(f"EMA_{self.config['ema_slow']}", latest.get("EMA_20", None))
         ema_score, trend_direction, ema_diff_pct = self._calculate_ema_score(ema_fast, ema_slow)
         scores["ema"] = ema_score
-        session_label = session_from_time(
-            candle_time,
-            self.config["session_rth_start"],
-            self.config["session_rth_end"],
+        scores["rsi"] = (
+            self._calculate_rsi_pullback_score(rsi_pullback)
+            if rsi_pullback
+            else self._calculate_rsi_score(rsi)
         )
-        rsi_pullback = None
-        if self.config.get("enable_rsi_filter", True):
-            rsi_pullback = self._rsi_filter.evaluate(features, now=candle_time)
-            reasons.extend(rsi_pullback.reasons)
         
         # 4. ATR / Volatility Score
         atr = latest.get("ATR_14", 0.0)
@@ -307,9 +314,6 @@ class DeterministicEngine:
         avg_volume = features["volume"].rolling(20).mean().iloc[-1] if "volume" in features.columns else 0
         volume_score = self._calculate_volume_score(volume, avg_volume)
         scores["volume"] = volume_score
-        
-        if rsi_pullback:
-            scores["rsi"] = self._calculate_rsi_pullback_score(rsi_pullback)
         
         # Calculate weighted technical score
         technical_score = (

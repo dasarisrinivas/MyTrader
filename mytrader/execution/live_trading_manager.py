@@ -844,16 +844,8 @@ TRADING GUIDANCE:
             closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-20:] if isinstance(bar, dict)]
             if len(closes) >= 5:
                 slope = np.polyfit(np.arange(len(closes)), closes, 1)[0]
-                if slope < 0:
-                    trend = "DOWNTREND"
-                elif slope > 0:
-                    trend = "UPTREND"
-                logger.info(f"Trend-based exit fallback from price slope: {trend or 'UNKNOWN'} (slope={slope:.5f})")
-                # If fallback detects a downtrend against a long, exit immediately
-                if qty > 0 and trend == "DOWNTREND":
-                    return {"reason": "TREND_CHANGE", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
-                if qty < 0 and trend == "UPTREND":
-                    return {"reason": "TREND_CHANGE", "action": "BUY", "quantity": contracts, "pnl": total_pnl}
+                fallback_trend = "DOWNTREND" if slope < 0 else "UPTREND" if slope > 0 else ""
+                logger.info(f"Trend-based exit fallback from price slope: {fallback_trend or 'UNKNOWN'} (slope={slope:.5f})")
         if qty > 0 and trend == "DOWNTREND":
             return {"reason": "TREND_CHANGE", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
         if qty < 0 and trend == "UPTREND":
@@ -889,9 +881,13 @@ TRADING GUIDANCE:
         if tp_dollars is not None and total_pnl >= tp_dollars:
             action = "SELL" if qty > 0 else "BUY"
             return {"reason": "PROFIT_TARGET", "action": action, "quantity": contracts, "pnl": total_pnl}
-        if sl_dollars is not None and total_pnl <= -abs(sl_dollars):
-            action = "SELL" if qty > 0 else "BUY"
-            return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
+        if sl_dollars is not None:
+            sl_threshold = abs(sl_dollars)
+            if sl_dollars < 0:
+                logger.warning("STOP_LOSS dollars configured negative; using absolute value %.2f", sl_threshold)
+            if sl_threshold > 0 and total_pnl <= -sl_threshold:
+                action = "SELL" if qty > 0 else "BUY"
+                return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
 
         return None
 
