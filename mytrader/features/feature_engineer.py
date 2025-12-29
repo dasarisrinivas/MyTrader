@@ -4,6 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .indicators import rsi_series
+
 try:
     import pandas_ta as ta
     HAS_PANDAS_TA = True
@@ -16,16 +18,8 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
 
 
 def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
-    avg_loss = avg_loss.replace(0, np.nan)
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    rsi = rsi.replace([np.inf, -np.inf], np.nan).astype(float).fillna(50.0)
-    return rsi
+    """Backward-compatible wrapper for RSI calculation."""
+    return rsi_series(series, period=period)
 
 
 def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
@@ -76,7 +70,11 @@ def _stochastic(high: pd.Series, low: pd.Series, close: pd.Series, period: int =
 
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Add comprehensive technical indicators to price data."""
+    """Add comprehensive technical indicators to price data.
+    
+    Expects an OHLCV candle DataFrame (typically 1m/5m/15m) and returns
+    an enriched frame used throughout the strategy/decision pipeline.
+    """
     enriched = df.copy()
     close = enriched["close"]
     high = enriched["high"]
@@ -252,4 +250,3 @@ def engineer_features(price_df: pd.DataFrame, sentiment_df: pd.DataFrame | None 
     base.dropna(how='all', inplace=True)
     
     return base
-

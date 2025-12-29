@@ -16,6 +16,36 @@ class RiskController:
     def __init__(self, manager: "LiveTradingManager"):  # noqa: F821 (forward reference)
         self.manager = manager
 
+    @staticmethod
+    def _normalize_trend(label: str) -> str:
+        txt = str(label or "").upper()
+        if "UP" in txt:
+            return "UPTREND"
+        if "DOWN" in txt:
+            return "DOWNTREND"
+        return "RANGE"
+
+    @staticmethod
+    def _normalize_volatility(label: str) -> str:
+        txt = str(label or "").upper()
+        if txt.startswith("MED"):
+            return "MEDIUM"
+        if "HIGH" in txt:
+            return "HIGH"
+        if "LOW" in txt:
+            return "LOW"
+        return "MEDIUM"
+
+    @staticmethod
+    def _get_feature(row: Any, keys: List[str], default: float = 0.0) -> float:
+        for key in keys:
+            if key in row:
+                try:
+                    return float(row.get(key))
+                except Exception:
+                    continue
+        return float(default)
+
     def compute_structural_metrics(self, features) -> Dict[str, float]:
         metrics: Dict[str, float] = {}
         if features is None or features.empty:
@@ -91,22 +121,22 @@ class RiskController:
             logger.debug(f"Unable to persist structural snapshot: {exc}")
 
     def get_trend_from_features(self, row) -> str:
-        ema_9 = float(row.get("EMA_9", row.get("ema_9", 0)))
-        ema_20 = float(row.get("EMA_20", row.get("ema_20", 0)))
-        close = float(row.get("close", 0))
+        ema_9 = self._get_feature(row, ["EMA_9", "ema_9"])
+        ema_20 = self._get_feature(row, ["EMA_20", "ema_20"])
+        close = self._get_feature(row, ["close"])
         if ema_9 > ema_20 and close > ema_9:
-            return "UPTREND"
+            return self._normalize_trend("UPTREND")
         elif ema_9 < ema_20 and close < ema_9:
-            return "DOWNTREND"
-        return "RANGE"
+            return self._normalize_trend("DOWNTREND")
+        return self._normalize_trend("RANGE")
 
     def get_volatility_from_features(self, row) -> str:
-        atr = float(row.get("ATR_14", row.get("atr", 0)))
+        atr = self._get_feature(row, ["ATR_14", "atr"], 0.0)
         if atr > 15:
-            return "HIGH"
-        elif atr > 8:
-            return "MED"
-        return "LOW"
+            return self._normalize_volatility("HIGH")
+        if atr > 8:
+            return self._normalize_volatility("MED")
+        return self._normalize_volatility("LOW")
 
     def validate_trade_risk(self, trade_request: "TradeRequest") -> "RiskResult":
         """Validate proposed trade against guardrails."""

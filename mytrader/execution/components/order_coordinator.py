@@ -206,6 +206,7 @@ class OrderCoordinator:
                 m.current_trade_id = None
                 m.current_trade_entry_time = None
                 m.current_trade_entry_price = None
+                m._record_last_trade_timestamp()
 
             if realized_pnl != 0:
                 await m._finalize_trade(
@@ -306,10 +307,7 @@ class OrderCoordinator:
 
             raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
             metadata = self.prepare_order_metadata(raw_metadata, current_price, "legacy")
-            allowed, reason, signal_key = await self.enforce_entry_gates(
-                signal.action,
-                metadata,
-            )
+            allowed, reason, signal_key = await self.enforce_entry_gates(signal.action, metadata)
             if not allowed:
                 m._add_reason_code(reason)
                 log_structured_event(
@@ -417,7 +415,7 @@ class OrderCoordinator:
                     current_price,
                 )
                 logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
-                m._record_last_trade_timestamp()
+                m._record_submission_timestamp()
                 self.record_signal_key(signal_key)
                 await m._broadcast_order_update(
                     {
@@ -486,8 +484,12 @@ class OrderCoordinator:
 
             if result.status not in {"Cancelled", "Inactive"}:
                 self.record_signal_key(signal_key)
-                m._record_last_trade_timestamp()
-                logger.info("⏱️ Trade placed - cooldown activated for %ss", m._cooldown_seconds)
+                if result.fill_price or result.filled_quantity:
+                    m._record_last_trade_timestamp()
+                    logger.info("⏱️ Trade fill - cooldown activated")
+                else:
+                    m._record_submission_timestamp()
+                    logger.info("⏱️ Submission recorded (no fill yet)")
 
                 m.risk.register_trade()
                 if result.fill_price:
