@@ -125,6 +125,10 @@ class TradingConfig:
         default_factory=lambda: os.environ.get("ENFORCE_MARKET_HOURS", "True").lower()
         in {"1", "true", "yes"}
     )
+    cancel_orders_on_startup: bool = field(
+        default_factory=lambda: os.environ.get("CANCEL_ORDERS_ON_STARTUP", "False").lower()
+        in {"1", "true", "yes"}
+    )
     
     # Optional entry filter tuning
     entry_filters: EntryFilterConfig = field(default_factory=EntryFilterConfig)

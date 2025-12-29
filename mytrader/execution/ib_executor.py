@@ -570,8 +570,11 @@ class TradeExecutor:
         self.ib.orderStatusEvent += self._on_order_status
         self.ib.execDetailsEvent += self._on_execution
         
-        # Cancel all existing orders on startup to avoid "too many orders" error
-        await self._cancel_all_existing_orders()
+        # Optional cleanup of existing orders; skip if disabled to preserve protective orders
+        if getattr(self.config, "cancel_orders_on_startup", False):
+            await self._cancel_all_existing_orders()
+        else:
+            logger.info("Skipping startup order cancel per config (cancel_orders_on_startup=False)")
         
         # Request initial positions
         await self._reconcile_positions()
@@ -1199,6 +1202,8 @@ class TradeExecutor:
 
         # Coarse idempotency gate: same action + bar timestamp + symbol
         is_exit = bool(metadata.get("exit_order") or reduce_only)
+        # Ensure we always have a bar_close_timestamp for stable signatures
+        metadata.setdefault("bar_close_timestamp", metadata.get("bar_close_timestamp") or metadata.get("timestamp") or datetime.now(timezone.utc).isoformat())
         signal_key = self._build_signal_submission_key(action, metadata)
         if self._is_duplicate_signal_key(signal_key):
             logger.warning("Duplicate signal submission blocked: %s (exit=%s)", signal_key, is_exit)
@@ -1209,48 +1214,9 @@ class TradeExecutor:
                 status="Cancelled",
                 message="Duplicate signal submission blocked",
             )
-        # Record immediately to close any race window before further checks
-        self._record_signal_key(signal_key)
         metadata.setdefault("dedupe_key", signal_key)
         
         guard_entry_price = entry_price_hint if entry_price_hint is not None else limit_price if limit_price is not None else metadata.get("entry_price")
-        guard_reason = self._validate_protective_invariants(
-            action=action,
-            entry_price=guard_entry_price,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            reduce_only=reduce_only,
-            quantity=quantity,
-            metadata=metadata,
-            allow_naked_override=allow_naked_override,
-        )
-        if guard_reason:
-            incident_id = uuid4().hex[:10]
-            message = f"Protective guard blocked order: {guard_reason} (incident={incident_id})"
-            logger.error(message)
-            log_structured_event(
-                agent="ib_executor",
-                event_type="risk.order_blocked",
-                message=message,
-                payload={
-                    "incident_id": incident_id,
-                    "reason": guard_reason,
-                    "action": action,
-                    "quantity": quantity,
-                    "entry_price": guard_entry_price,
-                    "stop_loss": stop_loss,
-                    "take_profit": take_profit,
-                    "reduce_only": reduce_only,
-                    "trade_cycle_id": metadata.get("trade_cycle_id"),
-                },
-            )
-            from ib_insync import Trade as IBTrade
-            dummy_trade = IBTrade()
-            return OrderResult(
-                trade=dummy_trade,
-                status="Cancelled",
-                message=message,
-            )
 
         # NEW: Check if trading is allowed (reconciliation complete, not in safe mode)
         if not self.can_trade():
@@ -1309,13 +1275,17 @@ class TradeExecutor:
             dummy_trade = IBTrade()
             return OrderResult(trade=dummy_trade, status="Cancelled", message="Not connected to IB")
         
+        # At this point, gates passed; record the signal key only after we know submission will proceed
+        
         # Check if we have too many active orders (IB limit is 15 per side)
         open_trades = self.ib.openTrades()
-        active_count = sum(1 for t in open_trades if t.contract.symbol == self.symbol and t.orderStatus.status in ('PreSubmitted', 'Submitted'))
+        active_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
+        active_count = sum(1 for t in active_trades if t.orderStatus.status in ('PreSubmitted', 'Submitted'))
         if active_count >= 12:
-            logger.warning(f"Skipping trade; too many active orders ({active_count}) - canceling old orders first...")
-            await self._cancel_all_existing_orders()
-            await asyncio.sleep(2)
+            logger.warning(f"Active orders high ({active_count}); skipping new entry")
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(trade=dummy_trade, status="Cancelled", message="Too many active orders")
         
         # Get the qualified front month contract
         contract = await self.get_qualified_contract()
@@ -1328,6 +1298,8 @@ class TradeExecutor:
         
         # NEW: Record submission signature for idempotency
         self.record_submission(submission_sig, action, quantity, metadata)
+        # Now that we reached submission, remember the signal to suppress duplicates
+        self._record_signal_key(signal_key)
         
         # Log order attempt for audit trail
         self._log_reconcile_event("order_placed", {
@@ -1350,25 +1322,69 @@ class TradeExecutor:
             quantity = abs(decision.allowed_contracts)
         logger.info(f"✅ PositionManager approved: {quantity} contracts (Reason: {decision.reason})")
 
+        # Resolve entry reference price and build parent order
+        entry_source = entry_price_hint if entry_price_hint is not None else limit_price
         order: Order
         if limit_price is not None:
+            entry_ref = limit_price
             order = LimitOrder(action, quantity, limit_price)
         else:
-            # PROFESSIONAL ENTRY: Use LIMIT orders with reasonable buffer
-            # Get current price and add buffer to ensure fill without excessive slippage
-            current_price = await self.get_current_price()
-            if current_price is None:
+            # Use caller hint if provided to avoid stale fetch
+            if entry_source is None:
+                entry_source = await self.get_current_price()
+            if entry_source is None:
                 logger.error("Cannot get current price for limit order")
                 from ib_insync import Trade as IBTrade
                 dummy_trade = IBTrade()
                 return OrderResult(trade=dummy_trade, status="Cancelled", message="No current price")
-            
-            # Use aggressive buffer for faster fills (4 ticks = 1 point for ES)
-            # This ensures fill quickly while still using LIMIT orders
-            tick_buffer = 1.00  # 4 ticks for ES = $50 buffer for faster fills
-            limit_price = current_price + tick_buffer if action == "BUY" else current_price - tick_buffer
+            tick_buffer = float(getattr(self.config, "entry_limit_tick_buffer", 1.00) or 1.00)
+            limit_price = entry_source + tick_buffer if action == "BUY" else entry_source - tick_buffer
+            entry_ref = limit_price
             order = LimitOrder(action, quantity, limit_price)
-            logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market: {current_price:.2f}, buffer: {tick_buffer})")
+            logger.info(f"📊 Using LIMIT order @ {limit_price:.2f} (market_hint: {entry_source:.2f}, buffer: {tick_buffer})")
+
+        # Prefer the strategy-provided entry hint for protective validation; otherwise fall back to the order reference
+        if entry_price_hint is not None:
+            guard_entry_price = entry_price_hint
+        elif 'entry_ref' in locals():
+            guard_entry_price = entry_ref
+        guard_reason = self._validate_protective_invariants(
+            action=action,
+            entry_price=guard_entry_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            reduce_only=reduce_only,
+            quantity=quantity,
+            metadata=metadata,
+            allow_naked_override=allow_naked_override,
+        )
+        if guard_reason:
+            incident_id = uuid4().hex[:10]
+            message = f"Protective guard blocked order: {guard_reason} (incident={incident_id})"
+            logger.error(message)
+            log_structured_event(
+                agent="ib_executor",
+                event_type="risk.order_blocked",
+                message=message,
+                payload={
+                    "incident_id": incident_id,
+                    "reason": guard_reason,
+                    "action": action,
+                    "quantity": quantity,
+                    "entry_price": guard_entry_price,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "reduce_only": reduce_only,
+                    "trade_cycle_id": metadata.get("trade_cycle_id"),
+                },
+            )
+            from ib_insync import Trade as IBTrade
+            dummy_trade = IBTrade()
+            return OrderResult(
+                trade=dummy_trade,
+                status="Cancelled",
+                message=message,
+            )
 
         # Allow trading outside regular trading hours (ES futures are nearly 24hr)
         order.outsideRth = True
@@ -1376,10 +1392,16 @@ class TradeExecutor:
         # Add metadata to order reference for tracking
         if metadata:
             order.orderRef = f"MyTrader_{metadata.get('signal_source', 'manual')}"
-        
-        entry_price_estimate = guard_entry_price
-        if entry_price_estimate is None:
-            entry_price_estimate = limit_price if limit_price is not None else metadata.get("entry_price")
+        # Use the strategy's intended entry for downstream validation when available
+        entry_price_estimate = (
+            entry_price_hint
+            if entry_price_hint is not None
+            else entry_ref
+            if 'entry_ref' in locals()
+            else limit_price
+            or guard_entry_price
+        )
+        metadata["entry_price"] = entry_price_estimate
         bracket_children: list[Order] = []
         placed_child_trades: list[Trade] = []
         if stop_loss is not None or take_profit is not None:
@@ -1467,6 +1489,38 @@ class TradeExecutor:
                 locked=self._order_locked,
                 snapshot=snapshot,
             )
+            # Ensure protective orders persist unless strategy dictates otherwise
+            for child in bracket_children:
+                child.tif = "GTC"
+            # Final sanity: ensure protective orders are not marketable in the wrong direction
+            min_ticks = max(1, getattr(self.config, "min_stop_distance_ticks", 4))
+            min_offset = self.config.tick_size * min_ticks
+            if action.upper() == "BUY":
+                if take_profit is not None and take_profit <= entry_price_estimate:
+                    logger.error("❌ BUY TP %s at/below entry %s - aborting", take_profit, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="TP below entry")
+                if take_profit is not None and take_profit < entry_price_estimate + min_offset:
+                    logger.error("❌ BUY TP %s too close to entry %s - aborting", take_profit, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="TP too close")
+                if stop_loss is not None and stop_loss >= entry_price_estimate:
+                    logger.error("❌ BUY SL %s above entry %s - aborting", stop_loss, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="SL above entry")
+                if stop_loss is not None and stop_loss > entry_price_estimate - min_offset:
+                    logger.error("❌ BUY SL %s too close to entry %s - aborting", stop_loss, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="SL too close")
+            else:
+                if take_profit is not None and take_profit >= entry_price_estimate:
+                    logger.error("❌ SELL TP %s at/above entry %s - aborting", take_profit, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="TP above entry")
+                if take_profit is not None and take_profit > entry_price_estimate - min_offset:
+                    logger.error("❌ SELL TP %s too close to entry %s - aborting", take_profit, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="TP too close")
+                if stop_loss is not None and stop_loss <= entry_price_estimate:
+                    logger.error("❌ SELL SL %s below entry %s - aborting", stop_loss, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="SL below entry")
+                if stop_loss is not None and stop_loss < entry_price_estimate + min_offset:
+                    logger.error("❌ SELL SL %s too close to entry %s - aborting", stop_loss, entry_price_estimate)
+                    return OrderResult(trade=parent_trade, status="Cancelled", message="SL too close")
 
         # Place parent order
         lock_engaged = False
@@ -1492,14 +1546,12 @@ class TradeExecutor:
             }
             
             # Normalize entry price for downstream tracking before caching
-            current_price = limit_price if limit_price is not None else None
-            if metadata and 'entry_price' in metadata:
-                current_price = metadata['entry_price']
-            
+            entry_price_ref = entry_price_estimate if entry_price_estimate is not None else limit_price
+
             self._protection_cache[parent_id] = {
                 "stop_loss": stop_loss,
                 "take_profit": take_profit,
-                "entry_price": current_price,
+                "entry_price": limit_price if limit_price is not None else entry_price_ref,
             }
             
             # Record order placement in tracker
@@ -1514,7 +1566,7 @@ class TradeExecutor:
                 quantity=quantity,
                 order_type="LIMIT" if limit_price else "MARKET",
                 limit_price=limit_price,
-                entry_price=current_price,
+                entry_price=limit_price if limit_price is not None else entry_price_ref,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 confidence=metadata.get('confidence') if metadata else None,
@@ -1574,17 +1626,15 @@ class TradeExecutor:
             confirmation_ok = await self._confirm_protective_orders_with_retry(parent_trade, placed_child_trades)
             if not confirmation_ok:
                 message = "Protective orders not confirmed"
-                # Emergency fallback: place market order with standalone protective orders
-                try:
-                    await self._place_emergency_order(
-                        action=action,
-                        quantity=quantity,
-                        stop_loss=stop_loss,
-                        take_profit=take_profit,
-                    )
-                except Exception as emergency_exc:
-                    logger.error(f"❌ Emergency market order fallback failed: {emergency_exc}")
                 self._handle_protective_confirmation_failure(parent_trade, placed_child_trades, message)
+                # Reconcile and ensure existing position has protection instead of double-entering
+                await self._reconcile_positions()
+                position = await self.get_current_position()
+                if position and position.quantity != 0:
+                    try:
+                        await self._place_standalone_protection(position.quantity, stop_loss, take_profit)
+                    except Exception as protection_exc:  # noqa: BLE001
+                        logger.error(f"❌ Failed to place standalone protection after confirmation failure: {protection_exc}")
                 return OrderResult(
                     trade=parent_trade,
                     status="Cancelled",
@@ -1916,6 +1966,70 @@ class TradeExecutor:
             f"{take_profit:.2f}",
         )
 
+    async def _place_standalone_protection(
+        self,
+        position_qty: int,
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+    ) -> None:
+        """Place protective orders only for an existing position."""
+        if position_qty == 0 or (stop_loss is None and take_profit is None):
+            return
+        contract = await self.get_qualified_contract()
+        if not contract:
+            logger.error("❌ Cannot place protection: no qualified contract")
+            return
+        action = "SELL" if position_qty > 0 else "BUY"
+        qty = abs(position_qty)
+        parent_id: Optional[int] = None
+
+        if take_profit is not None:
+            tp_order = LimitOrder(action, qty, take_profit)
+            tp_order.transmit = True
+            tp_order.outsideRth = True
+            tp_trade = self.ib.placeOrder(contract, tp_order)
+            tp_id = getattr(tp_trade.order, "orderId", None)
+            self.active_orders[tp_id] = tp_trade
+            self.order_creation_times[tp_id] = datetime.utcnow()
+            self.order_tracker.record_order_placement(
+                order_id=tp_id,
+                parent_order_id=parent_id,
+                symbol=self.symbol,
+                action=action,
+                quantity=qty,
+                order_type="LMT",
+                limit_price=take_profit,
+                trade_cycle_id=None,
+            )
+            logger.info(f"✅ Placed standalone take-profit {tp_id} at {take_profit:.2f}")
+            parent_id = parent_id or tp_id
+
+        if stop_loss is not None:
+            stop_order = StopLimitOrder(
+                action,
+                qty,
+                stop_loss,
+                stop_loss - self.config.tick_size * 4 if action == "SELL" else stop_loss + self.config.tick_size * 4,
+            )
+            stop_order.transmit = True
+            stop_order.outsideRth = True
+            sl_trade = self.ib.placeOrder(contract, stop_order)
+            sl_id = getattr(sl_trade.order, "orderId", None)
+            self.active_orders[sl_id] = sl_trade
+            self.order_creation_times[sl_id] = datetime.utcnow()
+            self.order_tracker.record_order_placement(
+                order_id=sl_id,
+                parent_order_id=parent_id,
+                symbol=self.symbol,
+                action=action,
+                quantity=qty,
+                order_type="STOP_LIMIT",
+                stop_price=stop_loss,
+                limit_price=stop_order.lmtPrice,
+                trade_cycle_id=None,
+            )
+            logger.info(f"✅ Placed standalone stop-loss {sl_id} at {stop_loss:.2f}")
+
     def _handle_protective_confirmation_failure(
         self,
         parent_trade: Trade,
@@ -2054,6 +2168,7 @@ class TradeExecutor:
             current_time = datetime.utcnow()
             pending_statuses = {'PreSubmitted', 'Submitted', 'PendingSubmit'}
             stuck_threshold = max(30, self._pending_order_timeout_seconds)
+            entry_timeout = max(60, getattr(self.config, "pending_entry_timeout_seconds", stuck_threshold))
             
             symbol_trades = [t for t in open_trades if t.contract.symbol == self.symbol]
             submitted_trades = [t for t in symbol_trades if t.orderStatus.status in pending_statuses]
@@ -2082,22 +2197,34 @@ class TradeExecutor:
                 )
                 
                 if status in pending_statuses:
-                    if (
-                        age_seconds is not None
-                        and age_seconds > stuck_threshold
-                        and status in {'PendingSubmit', 'Submitted'}
-                    ):
-                        logger.warning(
-                            "⚠️  Order {order_id} stuck in {status} for {age:.1f}s (threshold={threshold}s) – canceling",
-                            order_id=order_id,
-                            status=status,
-                            age=age_seconds,
-                            threshold=stuck_threshold,
-                        )
-                        self._cancel_trade(trade, "pending_status_watchdog")
-                        if self._order_locked:
-                            self._release_order_lock("stuck order canceled during sync")
-                        continue
+                    if age_seconds is not None:
+                        if status == 'PendingSubmit' and age_seconds > stuck_threshold:
+                            logger.warning(
+                                "⚠️  Order {order_id} stuck in PendingSubmit for {age:.1f}s (threshold={threshold}s) – canceling",
+                                order_id=order_id,
+                                age=age_seconds,
+                                threshold=stuck_threshold,
+                            )
+                            self._cancel_trade(trade, "pending_status_watchdog")
+                            if self._order_locked:
+                                self._release_order_lock("stuck order canceled during sync")
+                            continue
+                        if (
+                            status == 'Submitted'
+                            and getattr(trade.order, "parentId", 0) in (0, None)
+                            and float(trade.orderStatus.filled or 0) == 0
+                            and age_seconds > entry_timeout
+                        ):
+                            logger.warning(
+                                "⚠️  Entry order {order_id} stuck Submitted for {age:.1f}s (threshold={threshold}s) – canceling",
+                                order_id=order_id,
+                                age=age_seconds,
+                                threshold=entry_timeout,
+                            )
+                            self._cancel_trade(trade, "entry_submitted_watchdog")
+                            if self._order_locked:
+                                self._release_order_lock("stuck entry canceled during sync")
+                            continue
                     synced_orders[order_id] = trade
                 else:
                     logger.debug("Skipping order {order_id} with status: {status}", order_id=order_id, status=status)

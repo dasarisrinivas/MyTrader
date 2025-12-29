@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 
 from ..utils.logger import logger
+from .rsi_trend_filter import RSIPullbackConfig, RSITrendPullbackFilter, session_from_time
 
 
 @dataclass
@@ -90,6 +91,7 @@ class DeterministicEngine:
         "rsi_oversold": 30.0,
         "rsi_overbought": 70.0,
         "rsi_weight": 0.25,
+        "rsi_period": 14,
         
         # MACD settings
         "macd_weight": 0.25,
@@ -98,11 +100,13 @@ class DeterministicEngine:
         "ema_fast": 9,
         "ema_slow": 20,
         "ema_weight": 0.25,
+        "ema_trend_period": 50,
         
         # Volatility (ATR)
         "atr_min_threshold": 0.5,
         "atr_max_threshold": 50.0,
         "atr_weight": 0.15,
+        "atr_period": 14,
         
         # Volume
         "volume_weight": 0.10,
@@ -116,6 +120,22 @@ class DeterministicEngine:
         # Risk parameters
         "atr_stop_mult": 2.0,
         "atr_target_mult": 3.0,
+
+        # Trend-aware RSI pullback filter
+        "enable_rsi_filter": True,
+        "enable_session_aware_rsi": True,
+        "rsi_long_pullback_low": 30.0,
+        "rsi_long_pullback_reentry": 40.0,
+        "rsi_short_pullback_high": 70.0,
+        "rsi_short_pullback_reentry": 60.0,
+        "ema_no_trade_band_pct": 0.0005,
+        "atr_multiplier_sl": 1.2,
+        "atr_multiplier_tp": 1.0,
+        "overnight_rsi_buffer": 5.0,
+        "overnight_tp_multiplier": 0.85,
+        "overnight_sl_multiplier": 0.9,
+        "session_rth_start": "08:30",
+        "session_rth_end": "15:15",
     }
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -134,6 +154,29 @@ class DeterministicEngine:
         
         # State tracking
         self._last_candle_processed: Optional[datetime] = None
+
+        self._rsi_filter = RSITrendPullbackFilter(
+            {
+                "rsi_period": self.config["rsi_period"],
+                "ema_period": self.config["ema_trend_period"],
+                "rsi_long_pullback_low": self.config["rsi_long_pullback_low"],
+                "rsi_long_pullback_reentry": self.config["rsi_long_pullback_reentry"],
+                "rsi_short_pullback_high": self.config["rsi_short_pullback_high"],
+                "rsi_short_pullback_reentry": self.config["rsi_short_pullback_reentry"],
+                "ema_no_trade_band_pct": self.config["ema_no_trade_band_pct"],
+                "atr_multiplier_sl": self.config["atr_multiplier_sl"],
+                "atr_multiplier_tp": self.config["atr_multiplier_tp"],
+                "atr_min_threshold": self.config["atr_min_threshold"],
+                "atr_max_threshold": self.config["atr_max_threshold"],
+                "atr_period": self.config.get("atr_period", 14),
+                "enable_session_adjustments": self.config["enable_session_aware_rsi"],
+                "overnight_rsi_buffer": self.config["overnight_rsi_buffer"],
+                "overnight_tp_multiplier": self.config["overnight_tp_multiplier"],
+                "overnight_sl_multiplier": self.config["overnight_sl_multiplier"],
+                "session_rth_start": self.config["session_rth_start"],
+                "session_rth_end": self.config["session_rth_end"],
+            }
+        )
         
         logger.info(f"DeterministicEngine initialized with config: {self.config}")
     
@@ -187,6 +230,8 @@ class DeterministicEngine:
         """Evaluate market data and produce a trading signal.
         
         This method should ONLY be called at candle close.
+        Expects `features` to be a candle DataFrame with engineered indicators
+        (RSI/EMA/ATR, etc.) on the bot's primary decision timeframe.
         
         Args:
             features: DataFrame with OHLCV and indicators
@@ -222,12 +267,21 @@ class DeterministicEngine:
         reasons = []
         
         # Calculate individual indicator scores
+        # Precompute session + RSI pullback filter before scoring
+        session_label = session_from_time(
+            candle_time,
+            self.config["session_rth_start"],
+            self.config["session_rth_end"],
+        )
+        rsi_pullback = None
+        if self.config.get("enable_rsi_filter", True):
+            rsi_pullback = self._rsi_filter.evaluate(features, now=candle_time)
+            reasons.extend(rsi_pullback.reasons)
+
         scores = {}
         
-        # 1. RSI Score
-        rsi = latest.get("RSI_14", 50.0)
-        rsi_score = self._calculate_rsi_score(rsi)
-        scores["rsi"] = rsi_score
+        # 1. RSI Score (pullback-aware when enabled, vanilla otherwise)
+        rsi = latest.get(f"RSI_{self.config['rsi_period']}", latest.get("RSI_14", 50.0))
         
         # 2. MACD Score
         macd = latest.get("MACD", 0.0)
@@ -241,6 +295,11 @@ class DeterministicEngine:
         ema_slow = latest.get(f"EMA_{self.config['ema_slow']}", latest.get("EMA_20", None))
         ema_score, trend_direction, ema_diff_pct = self._calculate_ema_score(ema_fast, ema_slow)
         scores["ema"] = ema_score
+        scores["rsi"] = (
+            self._calculate_rsi_pullback_score(rsi_pullback)
+            if rsi_pullback
+            else self._calculate_rsi_score(rsi)
+        )
         
         # 4. ATR / Volatility Score
         atr = latest.get("ATR_14", 0.0)
@@ -274,6 +333,18 @@ class DeterministicEngine:
             proposed_action = "HOLD"
             reasons.append("Mixed signals - no clear direction")
         
+        # RSI pullback gating (filter/confirmation only)
+        if rsi_pullback:
+            if proposed_action == "BUY" and not rsi_pullback.allow_long:
+                proposed_action = "HOLD"
+                reasons.append("RSI pullback filter blocked long entry")
+            elif proposed_action == "SELL" and not rsi_pullback.allow_short:
+                proposed_action = "HOLD"
+                reasons.append("RSI pullback filter blocked short entry")
+            elif rsi_pullback.pullback_reentry:
+                technical_score = min(1.0, technical_score + 0.05)
+                reasons.append("RSI pullback confirmation boosted score")
+
         # Check if this is a candidate for H-engine
         is_candidate = (
             technical_score >= self.config["candidate_threshold"] and
@@ -284,13 +355,19 @@ class DeterministicEngine:
         # Calculate stop loss and take profit
         stop_loss = 0.0
         take_profit = 0.0
+        stop_mult = self.config["atr_stop_mult"]
+        target_mult = self.config["atr_target_mult"]
+        if rsi_pullback:
+            stop_mult = rsi_pullback.stop_loss_mult or stop_mult
+            target_mult = rsi_pullback.take_profit_mult or target_mult
+
         if atr > 0 and proposed_action != "HOLD":
             if proposed_action == "BUY":
-                stop_loss = current_price - (atr * self.config["atr_stop_mult"])
-                take_profit = current_price + (atr * self.config["atr_target_mult"])
+                stop_loss = current_price - (atr * stop_mult)
+                take_profit = current_price + (atr * target_mult)
             else:  # SELL
-                stop_loss = current_price + (atr * self.config["atr_stop_mult"])
-                take_profit = current_price - (atr * self.config["atr_target_mult"])
+                stop_loss = current_price + (atr * stop_mult)
+                take_profit = current_price - (atr * target_mult)
         
         # Check level proximity
         near_pdh, near_pdl = self._check_level_proximity(current_price, atr)
@@ -299,7 +376,13 @@ class DeterministicEngine:
         # Build reasons list
         if is_candidate:
             reasons.append(f"Candidate signal: {proposed_action} (score={technical_score:.3f})")
-        reasons.append(f"RSI={rsi:.1f}, MACD_hist={macd_hist:.4f}, EMA_diff={ema_diff_pct:.2f}%")
+        reasons.append(
+            f"RSI={rsi:.1f}, MACD_hist={macd_hist:.4f}, EMA_diff={ema_diff_pct:.2f}%, session={session_label}"
+        )
+        if rsi_pullback:
+            reasons.append(
+                f"RSI pullback trend={rsi_pullback.trend} allow_long={rsi_pullback.allow_long} allow_short={rsi_pullback.allow_short}"
+            )
         
         return DEngineSignal(
             action=proposed_action,
@@ -326,6 +409,8 @@ class DeterministicEngine:
                 "atr": atr,
                 "ema_fast": ema_fast,
                 "ema_slow": ema_slow,
+                "session": session_label,
+                "rsi_pullback": rsi_pullback.to_metadata() if rsi_pullback else None,
             }
         )
     
@@ -343,6 +428,18 @@ class DeterministicEngine:
         else:
             # Neutral zone
             return 0.3
+
+    def _calculate_rsi_pullback_score(self, pullback) -> float:
+        """Score RSI using pullback/trend awareness instead of reversal trades."""
+        if pullback is None:
+            return 0.3
+        if pullback.in_no_trade_band or not pullback.atr_ok:
+            return 0.2
+        if pullback.pullback_reentry:
+            return 0.9
+        if pullback.pullback_detected:
+            return 0.6
+        return 0.4
     
     def _calculate_macd_score(self, macd: float, signal: float, hist: float) -> tuple[float, int]:
         """Calculate MACD contribution and direction.

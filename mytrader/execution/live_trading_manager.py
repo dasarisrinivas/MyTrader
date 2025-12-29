@@ -131,9 +131,20 @@ class TradingStatus:
     # Order lock telemetry
     pending_order: bool = False
     order_lock_reason: str = ""
+    # Feature cache
+    last_atr: float = 0.0
 
 
 class LiveTradingManager:
+    """Manages live trading session with WebSocket broadcasting.
+    
+    ENHANCED with:
+    - Trade cooldown period (configurable, default 5 minutes)
+    - Candle close validation (wait for candle to close before entry)
+    - Higher-timeframe levels (PDH/PDL, WH/WL, PWH/PWL)
+    - Trend confirmation filters
+    - Simulation mode for testing without real orders
+    """
     def reset_state(self):
         """Manual override: reset last trade time and release order lock."""
         if self.executor:
@@ -150,26 +161,17 @@ class LiveTradingManager:
                 self.executor.order_tracker.reset_symbol_state(self.settings.data.ibkr_symbol)
         except Exception as e:
             logger.error(f"Failed to reset last trade time: {e}")
-    """Manages live trading session with WebSocket broadcasting.
     
-    ENHANCED with:
-    - Trade cooldown period (configurable, default 5 minutes)
-    - Candle close validation (wait for candle to close before entry)
-    - Higher-timeframe levels (PDH/PDL, WH/WL, PWH/PWL)
-    - Trend confirmation filters
-    - Simulation mode for testing without real orders
-    """
-    
-    # === CONFIGURATION CONSTANTS ===
-    DEFAULT_COOLDOWN_SECONDS = 300  # 5 minutes between trades
-    MIN_CONFIDENCE_THRESHOLD = 0.60  # Minimum confidence to place trade
-    POLL_INTERVAL_SECONDS = 5  # How often to poll price (when NOT waiting for candle)
-    CANDLE_PERIOD_SECONDS = 60  # 1-minute candles - only evaluate at candle close
-    MIN_COOLDOWN_MINUTES = 1
-    MAX_COOLDOWN_MINUTES = 60
-    COOLDOWN_WARNING_MINUTES = 30
-    PERSISTED_COOLDOWN_MAX_AGE = timedelta(days=7)
-    FUTURE_COOLDOWN_TOLERANCE_SECONDS = 120
+    # === CONFIGURATION CONSTANTS (sourced from config/cooldown manager defaults) ===
+    DEFAULT_COOLDOWN_SECONDS = CooldownManager.DEFAULT_COOLDOWN_SECONDS
+    MIN_CONFIDENCE_THRESHOLD = 0.60  # Fallback; overwritten by settings.trading.min_confidence_for_trade
+    POLL_INTERVAL_SECONDS = 5  # Fallback; overridden by settings.trading.poll_interval_seconds if present
+    CANDLE_PERIOD_SECONDS = 60
+    MIN_COOLDOWN_MINUTES = CooldownManager.MIN_COOLDOWN_MINUTES
+    MAX_COOLDOWN_MINUTES = CooldownManager.MAX_COOLDOWN_MINUTES
+    COOLDOWN_WARNING_MINUTES = CooldownManager.COOLDOWN_WARNING_MINUTES
+    PERSISTED_COOLDOWN_MAX_AGE = CooldownManager.PERSISTED_COOLDOWN_MAX_AGE
+    FUTURE_COOLDOWN_TOLERANCE_SECONDS = CooldownManager.FUTURE_COOLDOWN_TOLERANCE_SECONDS
     
     def __init__(
         self,
@@ -258,6 +260,11 @@ class LiveTradingManager:
         self.running = False
         self.stop_requested = False
         self._trade_time_lock = threading.Lock()
+        self._last_submission_time: Optional[datetime] = None
+        self._submission_backoff_seconds: int = max(
+            5,
+            getattr(getattr(settings, "trading", None), "decision_min_interval_seconds", 30),
+        )
         self.agent_bus = AgentBus(default_ttl_seconds=240)
         context_dir = getattr(getattr(settings, 'data', None), 'external_context_dir', 'data/context')
         self._external_context_dir = Path(context_dir)
@@ -713,6 +720,10 @@ TRADING GUIDANCE:
     
     async def _process_trading_cycle(self, current_price: float):
         """Check position state first, then handle exits or entries."""
+        # New cycle id for correlation/logging
+        self._current_cycle_id = uuid.uuid4().hex[:12]
+        self._cycle_context[self._current_cycle_id] = {}
+
         position = None
         if self.executor:
             try:
@@ -730,6 +741,8 @@ TRADING GUIDANCE:
             return
 
         # Entry signals only - flat position
+        if self._should_block_new_entry():
+            return
         return await self.signal_processor.process_trading_cycle(current_price)
 
     async def _check_position_exit_signals(self, current_price: Optional[float]) -> bool:
@@ -758,6 +771,15 @@ TRADING GUIDANCE:
             if is_short
             else self._generate_exit_signal_for_long(price, position)
         )
+        # Update trailing stops while holding
+        try:
+            atr_val = float(getattr(self.status, "last_atr", 0.0) or 0.0)
+            if atr_val == 0.0 and self.price_history:
+                latest_bar = self.price_history[-1]
+                atr_val = float(latest_bar.get("ATR_14", latest_bar.get("atr", 0.0)) or 0.0)
+            await self.executor.update_trailing_stops(price, atr_val)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Trailing stop update skipped: {exc}")
         if not exit_signal:
             exit_signal = await self._check_position_exit_logic(position)
         if exit_signal:
@@ -815,6 +837,15 @@ TRADING GUIDANCE:
         # Trend-based exit: if trend flips against position
         trend = getattr(self.status, "hybrid_market_trend", "") or getattr(self.status, "last_trend", "")
         trend = str(trend).upper()
+        if trend:
+            logger.info(f"Trend-based exit check: current trend={trend} qty={qty}")
+        else:
+            logger.info("Trend-based exit check: no trend available (hybrid_market_trend/last_trend missing)")
+            closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-20:] if isinstance(bar, dict)]
+            if len(closes) >= 5:
+                slope = np.polyfit(np.arange(len(closes)), closes, 1)[0]
+                fallback_trend = "DOWNTREND" if slope < 0 else "UPTREND" if slope > 0 else ""
+                logger.info(f"Trend-based exit fallback from price slope: {fallback_trend or 'UNKNOWN'} (slope={slope:.5f})")
         if qty > 0 and trend == "DOWNTREND":
             return {"reason": "TREND_CHANGE", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
         if qty < 0 and trend == "UPTREND":
@@ -839,14 +870,24 @@ TRADING GUIDANCE:
             except Exception as exc:  # noqa: BLE001
                 logger.debug(f"Time-based exit check skipped: {exc}")
 
-        # Take profit
-        if total_pnl >= 200:
+        # Dollar-based exits from config
+        exit_cfg = getattr(getattr(self.settings, "trading", None), "position_exit", None)
+        tp_dollars = getattr(exit_cfg, "profit_target_dollars", None) if exit_cfg else None
+        sl_dollars = getattr(exit_cfg, "stop_loss_dollars", None) if exit_cfg else None
+        # Fallback to legacy thresholds if not configured
+        tp_dollars = tp_dollars if tp_dollars is not None else 200
+        sl_dollars = sl_dollars if sl_dollars is not None else 100
+
+        if tp_dollars is not None and total_pnl >= tp_dollars:
             action = "SELL" if qty > 0 else "BUY"
             return {"reason": "PROFIT_TARGET", "action": action, "quantity": contracts, "pnl": total_pnl}
-        # Stop loss
-        if total_pnl <= -100:
-            action = "SELL" if qty > 0 else "BUY"
-            return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
+        if sl_dollars is not None:
+            sl_threshold = abs(sl_dollars)
+            if sl_dollars < 0:
+                logger.warning("STOP_LOSS dollars configured negative; using absolute value %.2f", sl_threshold)
+            if sl_threshold > 0 and total_pnl <= -sl_threshold:
+                action = "SELL" if qty > 0 else "BUY"
+                return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
 
         return None
 
@@ -884,6 +925,46 @@ TRADING GUIDANCE:
         except Exception as exc:  # noqa: BLE001
             logger.error(f"❌ Error executing position exit: {exc}")
             return False
+
+    def _should_block_new_entry(self) -> bool:
+        """Pre-entry gate: block if lock, active orders, or cooldown in effect."""
+        # Order lock
+        if self.executor and self.executor.is_order_locked():
+            logger.info("Entry blocked: order lock active (%s)", self.executor.get_order_lock_reason())
+            return True
+
+        # Active orders
+        if self.executor:
+            try:
+                active = self.executor.get_active_order_count(sync=True)
+                if active > 0:
+                    logger.info("Entry blocked: %s active orders pending", active)
+                    return True
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Active order check skipped: {exc}")
+
+        # Recent submission backoff
+        if self._last_submission_time:
+            elapsed = (datetime.now(timezone.utc) - self._last_submission_time).total_seconds()
+            if elapsed < self._submission_backoff_seconds:
+                logger.info(
+                    "Entry blocked: submission backoff %.1fs remaining",
+                    self._submission_backoff_seconds - elapsed,
+                )
+                return True
+
+        # Cooldown
+        if self._cooldown_seconds:
+            last_trade = getattr(self, "_last_trade_time", None)
+            if last_trade:
+                now = datetime.now(timezone.utc)
+                elapsed = (now - last_trade).total_seconds()
+                remaining = self._cooldown_seconds - elapsed
+                if remaining > 0:
+                    logger.info("Entry blocked: cooldown %.1fs remaining", remaining)
+                    return True
+
+        return False
 
     def monitor_current_position(self) -> bool:
         """Monitor the existing 2-contract LONG position and trigger forced exit on large loss."""
@@ -1189,23 +1270,24 @@ TRADING GUIDANCE:
         # Update status
         self.status.last_signal = signal.action
         self.status.signal_confidence = signal.confidence
+        try:
+            row = features.iloc[-1]
+            self.status.last_atr = float(row.get("ATR_14", row.get("atr", 0.0)))
+        except Exception:
+            self.status.last_atr = 0.0
         
         # Broadcast signal
         await self._broadcast_signal(signal, current_price)
         
-        # Get current position
+        # Get current position snapshot
         current_position = await self.executor.get_current_position()
         self.status.current_position = current_position.quantity if current_position else 0
         self.status.active_orders = self.executor.get_active_order_count()
-        
         if current_position:
             self.status.unrealized_pnl = await self.executor.get_unrealized_pnl()
             self.tracker.update_equity(current_price, realized_pnl=0.0)
-            
-            # Update trailing stops
             atr_val = float(features.iloc[-1].get("ATR_14", 0.0))
             await self.executor.update_trailing_stops(current_price, atr_val)
-        
         await self._broadcast_status()
         
         # Check if pipeline blocked the trade
@@ -1219,6 +1301,7 @@ TRADING GUIDANCE:
         # === AWS AGENTS: Consult Decision Agent and Risk Agent for BUY/SELL signals ===
         aws_approved = True  # Default to approved if AWS agents disabled
         aws_adjustment = 0.0
+        cycle_ctx = self._cycle_context.setdefault(self._current_cycle_id, {})
         
         if self._aws_agents_allowed:
             if not self._ensure_aws_agent_invoker():
@@ -1362,6 +1445,14 @@ TRADING GUIDANCE:
                 except Exception as e:
                     logger.warning(f"  ⚠️ AWS Agent consultation failed: {e} - proceeding with original signal")
         
+        # Refresh position/active orders after potential AWS latency
+        current_position = await self.executor.get_current_position()
+        self.status.current_position = current_position.quantity if current_position else 0
+        try:
+            self.status.active_orders = self.executor.get_active_order_count(sync=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Active order count skipped after AWS consult: {exc}")
+
         # If AWS agents rejected the trade, convert to HOLD
         if not aws_approved:
             logger.info(f"  🛑 Trade blocked by AWS Risk Agent - converting to HOLD")
@@ -1600,6 +1691,7 @@ TRADING GUIDANCE:
         """
         # Build market snapshot from features
         row = features.iloc[-1]
+        self.status.last_atr = float(row.get("ATR_14", row.get("atr", 0.0)))
         
         snapshot = self.aws_snapshot_builder.build(
             price=current_price,
@@ -1627,9 +1719,13 @@ TRADING GUIDANCE:
         
         # Invoke AWS Agents for decision
         logger.info("🤖 Invoking AWS Bedrock Agents...")
-        decision = self.aws_agent_invoker.get_trading_decision(
-            market_snapshot=snapshot,
-            account_metrics=account_metrics,
+        loop = asyncio.get_event_loop()
+        decision = await loop.run_in_executor(
+            None,
+            lambda: self.aws_agent_invoker.get_trading_decision(
+                market_snapshot=snapshot,
+                account_metrics=account_metrics,
+            ),
         )
         
         # Update status
@@ -1766,7 +1862,7 @@ TRADING GUIDANCE:
             if self.simulation_mode:
                 # Simulation mode - just log, don't place real order
                 logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
-                self._record_last_trade_timestamp()
+                self._record_submission_timestamp()
                 return
             
             if not self._validate_entry_guard(
@@ -1795,7 +1891,7 @@ TRADING GUIDANCE:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Position recheck failed; skipping AWS entry: %s", exc)
                 return
-            order_id = await self.executor.place_order(
+            result = await self.executor.place_order(
                 action=action,
                 quantity=quantity,
                 limit_price=current_price,
@@ -1804,6 +1900,7 @@ TRADING GUIDANCE:
                 entry_price=current_price,
                 metadata=metadata,
             )
+            order_id = result.trade.order.orderId if result and result.trade else None
             
             logger.info(f"✅ AWS Agent order placed: ID={order_id}")
             
@@ -1817,8 +1914,11 @@ TRADING GUIDANCE:
                 'decision': decision,
             }
             
-            # Update counters
-            self._record_last_trade_timestamp()
+            # Update counters (submission recorded; cooldown on fill)
+            if result and (result.fill_price or result.filled_quantity):
+                self._record_last_trade_timestamp()
+            else:
+                self._record_submission_timestamp()
             self._trades_today = getattr(self, '_trades_today', 0) + 1
             
             # Broadcast order update
@@ -2029,7 +2129,7 @@ TRADING GUIDANCE:
             if self.simulation_mode:
                 logger.warning(f"🔶 SIMULATION: Would place HYBRID {signal.action} order for {qty} contracts @ {current_price:.2f}")
                 logger.warning(f"   SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
-                self._record_last_trade_timestamp()
+                self._record_submission_timestamp()
                 self.order_coordinator.record_signal_key(signal_key)
                 
                 # Log simulated trade entry
@@ -2087,11 +2187,14 @@ TRADING GUIDANCE:
             
             if result.status not in {"Cancelled", "Inactive"}:
                 self.order_coordinator.record_signal_key(signal_key)
-                # Update cooldown
-                self._record_last_trade_timestamp()
-                if self.hybrid_pipeline:
-                    self.hybrid_pipeline.record_trade_for_cooldown()
-                logger.info(f"⏱️ HYBRID trade placed - cooldown activated")
+                if result.fill_price or result.filled_quantity:
+                    self._record_last_trade_timestamp()
+                    if self.hybrid_pipeline:
+                        self.hybrid_pipeline.record_trade_for_cooldown()
+                    logger.info("⏱️ HYBRID trade fill - cooldown activated")
+                else:
+                    self._record_submission_timestamp()
+                    logger.info("⏱️ HYBRID submission recorded (no fill yet)")
                 
                 self.risk.register_trade()
                 
@@ -2408,6 +2511,11 @@ TRADING GUIDANCE:
     def _record_last_trade_timestamp(self, timestamp: Optional[datetime] = None) -> None:
         """Persist the last trade time so cooldown survives restarts."""
         self.cooldown_manager.record_last_trade_timestamp(timestamp)
+
+    def _record_submission_timestamp(self) -> None:
+        """Track last submission to prevent rapid resubmits before fill."""
+        with self._trade_time_lock:
+            self._last_submission_time = datetime.now(timezone.utc)
 
     def _load_persistent_cooldown_state(self) -> None:
         """Restore last trade timestamp from order tracker at startup."""

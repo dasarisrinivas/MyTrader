@@ -170,6 +170,24 @@ rag:
   hard_block_when_below: false
   regime_mode: "relaxed"
 
+# Hybrid deterministic engine (RSI pullback filter settings)
+hybrid:
+  d_engine:
+    enable_rsi_filter: true
+    enable_session_aware_rsi: true
+    rsi_period: 14
+    ema_trend_period: 50
+    rsi_long_pullback_low: 30
+    rsi_long_pullback_reentry: 40
+    rsi_short_pullback_high: 70
+    rsi_short_pullback_reentry: 60
+    ema_no_trade_band_pct: 0.0005
+    atr_multiplier_sl: 1.2
+    atr_multiplier_tp: 1.0
+    overnight_rsi_buffer: 5.0
+    overnight_tp_multiplier: 0.85
+    overnight_sl_multiplier: 0.9
+
 # Telegram Notifications Configuration
 telegram:
   # Enable/disable Telegram notifications
