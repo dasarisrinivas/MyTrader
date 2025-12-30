@@ -1,6 +1,7 @@
 """Order tracking, metadata, and trade lifecycle helpers."""
 
 import contextlib
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -343,13 +344,27 @@ class OrderCoordinator:
 
             logger.info("📊 Market Regime: %s (conf=%.2f) - Using dynamic stops", regime.value, regime_conf)
 
-            stop_loss, take_profit, risk_meta = m.risk_controller.calculate_stop_loss(
-                entry_price=current_price,
-                action=signal.action,
-                atr=atr,
-                regime_params={**regime_params, "volatility": regime.value},
-            )
+            stop_loss_hint = metadata.get("stop_loss")
+            take_profit_hint = metadata.get("take_profit")
+            risk_meta: Dict[str, Any] = {}
+            if stop_loss_hint is not None and take_profit_hint is not None:
+                stop_loss = float(stop_loss_hint)
+                take_profit = float(take_profit_hint)
+                metadata.setdefault("atr_fallback_used", False)
+            else:
+                stop_loss, take_profit, risk_meta = m.risk_controller.calculate_stop_loss(
+                    entry_price=current_price,
+                    action=signal.action,
+                    atr=atr,
+                    regime_params={**regime_params, "volatility": regime.value},
+                )
             metadata.update(risk_meta)
+
+            for label, value in (("stop_loss", stop_loss), ("take_profit", take_profit)):
+                if value is None or not math.isfinite(value) or value == 0:
+                    logger.warning("⚠️ %s invalid (%s); blocking trade", label, value)
+                    m._add_reason_code("INVALID_PROTECTION")
+                    return
 
             if atr > 0:
                 logger.info(
@@ -405,6 +420,19 @@ class OrderCoordinator:
                     message="Entry blocked by hard guardrails",
                     payload={"trade_cycle_id": m._current_cycle_id},
                 )
+                return
+
+            if getattr(m, "one_minute_cfg", None) and getattr(m.one_minute_cfg, "dry_run", False):
+                logger.warning(
+                    "🔶 DRY RUN: Would place %s order for %d @ %.2f (SL=%.2f TP=%.2f)",
+                    signal.action,
+                    qty,
+                    current_price,
+                    stop_loss,
+                    take_profit,
+                )
+                m._record_submission_timestamp()
+                self.record_signal_key(signal_key)
                 return
 
             if m.simulation_mode:

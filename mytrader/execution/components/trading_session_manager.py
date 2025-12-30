@@ -9,8 +9,7 @@ from ...utils.timezone_utils import now_cst
 from ..ib_executor import TradeExecutor
 from ...monitoring.live_tracker import LivePerformanceTracker
 from ...strategies.engine import StrategyEngine
-from ...strategies.momentum_reversal import MomentumReversalStrategy
-from ...strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+from ...strategies.mes_one_minute import MesOneMinuteTrendStrategy
 from ...risk.manager import RiskManager
 from ...utils.telegram_notifier import TelegramNotifier
 from ...llm.rag_storage import RAGStorage
@@ -49,7 +48,7 @@ class TradingSessionManager:
             )
 
             m.engine = StrategyEngine(
-                [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]
+                [MesOneMinuteTrendStrategy(m.one_minute_cfg or m.settings.one_minute)]
             )
             m.signal_processor.engine = m.engine
 
@@ -167,29 +166,16 @@ class TradingSessionManager:
         try:
             while m.running and not m.stop_requested:
                 try:
-                    logger.debug("Fetching current price...")
-                    current_price = await m.executor.get_current_price()
-                    if not current_price:
-                        m.status.message = "Waiting for price data..."
+                    new_bar = await m._fetch_latest_minute_bar()
+                    if not new_bar:
+                        m.status.message = "Waiting for completed 1m bar..."
                         await m._broadcast_status()
                         await asyncio.sleep(poll_interval)
                         continue
 
+                    m._ingest_completed_bar(new_bar)
+                    current_price = float(new_bar["close"])
                     m.status.current_price = current_price
-                    price_bar = {
-                        "timestamp": now_cst(),
-                        "open": current_price,
-                        "high": current_price,
-                        "low": current_price,
-                        "close": current_price,
-                        "volume": 0,
-                    }
-                    m.price_history.append(price_bar)
-
-                    if len(m.price_history) > 500:
-                        m.price_history = m.price_history[-500:]
-
-                    m.status.bars_collected = len(m.price_history)
 
                     if len(m.price_history) < m.status.min_bars_needed:
                         m.status.message = f"Collecting data: {len(m.price_history)}/{m.status.min_bars_needed} bars"
@@ -216,7 +202,7 @@ class TradingSessionManager:
                         m._position_verified = True
 
                     logger.debug("Processing trading cycle...")
-                    await m._process_trading_cycle(current_price)
+                    await m._process_trading_cycle(current_price, bar_timestamp=new_bar["timestamp"])
 
                     await asyncio.sleep(poll_interval)
 

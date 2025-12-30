@@ -299,7 +299,7 @@ class SignalProcessor:
 
         return filters_passed, filters_applied, enhanced_conf
 
-    async def process_trading_cycle(self, current_price: float):
+    async def process_trading_cycle(self, current_price: float, bar_timestamp=None):
         """Full trading cycle orchestration."""
         import pandas as pd
         import uuid
@@ -343,8 +343,8 @@ class SignalProcessor:
         m.status.pending_order = False
         m.status.order_lock_reason = ""
 
-        now = now_cst()
-        current_candle_start = now.replace(second=0, microsecond=0)
+        ts = bar_timestamp or now_cst()
+        current_candle_start = ts.replace(second=0, microsecond=0)
         if m._last_candle_processed == current_candle_start:
             logger.debug("⏳ Waiting for next candle close (current minute already processed)")
             return
@@ -384,6 +384,12 @@ class SignalProcessor:
         m._publish_feature_snapshot(features, current_price)
         m._publish_account_context()
         structural_metrics = m._compute_structural_metrics(features)
+        try:
+            last_row = features.iloc[-1]
+            m.status.last_atr = float(last_row.get("ATR_14", 0.0))
+            m.status.last_adx = float(last_row.get("ADX_14", 0.0))
+        except Exception:
+            m.status.last_atr = 0.0
 
         signal_result = await self.generate_trading_signal(
             features=features,
@@ -412,6 +418,9 @@ class SignalProcessor:
         cycle_ctx["signal_confidence"] = signal.confidence
         cycle_ctx["regime"] = cycle_ctx.get("regime") or getattr(m.status, "hybrid_market_trend", None)
         cycle_ctx["volatility"] = cycle_ctx.get("volatility") or getattr(m.status, "hybrid_volatility_regime", None)
+        if isinstance(signal.metadata, dict):
+            m.status.hybrid_market_trend = signal.metadata.get("trend_label", m.status.hybrid_market_trend)
+            m.status.last_trend = signal.metadata.get("trend_label", getattr(m.status, "last_trend", ""))
 
         await m._broadcast_signal(signal, current_price)
 

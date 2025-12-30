@@ -48,6 +48,36 @@ class EntryFilterConfig:
 
 
 @dataclass
+class OneMinuteStrategyConfig:
+    """Configuration for the MES 1-minute close strategy."""
+
+    enabled: bool = True
+    warmup_bars: int = 320  # >= 300 to stabilize ADX/ATR
+    use_eth_session: bool = False  # False = RTH VWAP reset, True = ETH
+    breakout_enabled: bool = False
+    breakout_strength_filter: bool = True
+    pullback_lookback: int = 3
+    atr_percentile_low: float = 0.10
+    atr_percentile_high: float = 0.90
+    tiny_candle_atr_factor: float = 0.4
+    cooldown_minutes: int = 3
+    max_trades_per_hour: int = 3
+    max_trades_per_day: int = 8
+    stop_atr_multiplier: float = 1.5
+    take_profit_multiple: float = 2.0  # multiplied by stop distance (=> 3x ATR)
+    trailing_atr_multiple: float = 1.0
+    breakout_adx_threshold: float = 18.0
+    trend_adx_threshold: float = 20.0
+    allow_runner: bool = False
+    runner_take_profit_multiple: float = 1.0
+    dry_run: bool = False
+    allow_add_on: bool = False
+    trend_flip_exit: bool = True
+    breakout_use_or_levels: bool = False
+    window_bars: int = 400
+
+
+@dataclass
 class TradingConfig:
     max_position_size: int = field(default_factory=lambda: int(os.environ.get("MAX_POSITION_SIZE", "5")))
     contracts_per_order: int = 1
@@ -342,6 +372,7 @@ class FeatureFlagsConfig:
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
+    one_minute: OneMinuteStrategyConfig = field(default_factory=OneMinuteStrategyConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     strategies: List[StrategyConfig] = field(default_factory=list)

@@ -68,6 +68,28 @@ trading:
     max_atr_threshold: 5.0
     chop_zone_buffer_pct: 0.25
     sr_proximity_ticks: 8
+
+one_minute:
+  enabled: true
+  warmup_bars: 320
+  use_eth_session: false
+  breakout_enabled: false
+  pullback_lookback: 3
+  atr_percentile_low: 0.10
+  atr_percentile_high: 0.90
+  tiny_candle_atr_factor: 0.4
+  cooldown_minutes: 3
+  max_trades_per_hour: 3
+  max_trades_per_day: 8
+  stop_atr_multiplier: 1.5
+  take_profit_multiple: 2.0
+  trend_adx_threshold: 20.0
+  breakout_adx_threshold: 18.0
+  dry_run: false
+  allow_add_on: false
+  trend_flip_exit: true
+  breakout_use_or_levels: false
+  window_bars: 400
 backtest:
   data_path: "data/historical_spy_es.parquet"
   start_date: null

@@ -55,6 +55,7 @@ from ..learning.trade_learning import (
 )
 from ..optimization.optimizer import ParameterOptimizer
 from ..llm.rag_storage import RAGStorage
+from ..strategies.mes_one_minute import MesOneMinuteTrendStrategy
 try:
     from ..llm.trade_logger import TradeLogger as DecisionMetricsLogger
 except ImportError:
@@ -256,8 +257,14 @@ class LiveTradingManager:
         
         self.status = TradingStatus()
         self.status.simulation_mode = simulation_mode
+        self.one_minute_cfg = getattr(settings, "one_minute", None)
+        warmup_bars = getattr(self.one_minute_cfg, "warmup_bars", 320) if self.one_minute_cfg else 320
+        self.status.min_bars_needed = max(300, warmup_bars)
+        self._bar_window = max(500, getattr(self.one_minute_cfg, "window_bars", 400) if self.one_minute_cfg else 500)
         self.price_history: List[Dict] = []
         self.running = False
+        self._last_price_bar_ts: Optional[datetime] = None
+        self._trade_timestamps: List[datetime] = []
         self.stop_requested = False
         self._trade_time_lock = threading.Lock()
         self._last_submission_time: Optional[datetime] = None
@@ -316,6 +323,8 @@ class LiveTradingManager:
             'trade_cooldown_minutes',
             self.DEFAULT_COOLDOWN_SECONDS // 60,
         )
+        if self.one_minute_cfg and getattr(self.one_minute_cfg, "cooldown_minutes", None):
+            raw_cooldown_minutes = getattr(self.one_minute_cfg, "cooldown_minutes")
         sanitized_minutes = self.cooldown_manager.sanitize_cooldown_minutes(raw_cooldown_minutes)
         self.settings.trading.trade_cooldown_minutes = sanitized_minutes
         self._cooldown_seconds = sanitized_minutes * 60  # Convert minutes to seconds
@@ -708,17 +717,68 @@ TRADING GUIDANCE:
             }
             history.append(candle)
         if history:
-            self.price_history = history[-500:]
+            window = max(self._bar_window, min_bars)
+            self.price_history = history[-window:]
             self.status.bars_collected = len(self.price_history)
+            self._last_price_bar_ts = history[-1]["timestamp"]
             logger.info(
                 f"📚 Bootstrapped {len(self.price_history)} historical 1-min bars for structural context"
             )
+
+    async def _fetch_latest_minute_bar(self) -> Optional[Dict[str, Any]]:
+        """Fetch the most recent completed 1-minute bar from IBKR."""
+        if not self.executor or not self.executor.ib:
+            return None
+        try:
+            contract = await self.executor.get_qualified_contract()
+            use_rth = not getattr(self.one_minute_cfg, "use_eth_session", False)
+            bars = await self.executor.ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime="",
+                durationStr="180 S",
+                barSizeSetting="1 min",
+                whatToShow="TRADES",
+                useRTH=use_rth,
+                formatDate=2,
+            )
+            if not bars:
+                return None
+            last_bar = bars[-1]
+            ts = getattr(last_bar, "date", None)
+            if isinstance(ts, datetime):
+                bar_ts = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+            elif isinstance(ts, str):
+                bar_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            else:
+                bar_ts = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            if self._last_price_bar_ts and bar_ts <= self._last_price_bar_ts:
+                return None
+            candle = {
+                "timestamp": utc_to_cst(bar_ts),
+                "open": float(getattr(last_bar, "open", 0.0)),
+                "high": float(getattr(last_bar, "high", 0.0)),
+                "low": float(getattr(last_bar, "low", 0.0)),
+                "close": float(getattr(last_bar, "close", 0.0)),
+                "volume": int(getattr(last_bar, "volume", 0)),
+            }
+            return candle
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Latest minute bar fetch failed: {exc}")
+            return None
+
+    def _ingest_completed_bar(self, bar: Dict[str, Any]) -> None:
+        """Append a completed bar and maintain rolling window."""
+        self.price_history.append(bar)
+        if len(self.price_history) > self._bar_window:
+            self.price_history = self.price_history[-self._bar_window :]
+        self.status.bars_collected = len(self.price_history)
+        self._last_price_bar_ts = bar.get("timestamp")
 
     async def start(self):
         """Start the live trading loop."""
         return await self.trading_session_manager.start()
     
-    async def _process_trading_cycle(self, current_price: float):
+    async def _process_trading_cycle(self, current_price: float, bar_timestamp: Optional[datetime] = None):
         """Check position state first, then handle exits or entries."""
         # New cycle id for correlation/logging
         self._current_cycle_id = uuid.uuid4().hex[:12]
@@ -743,7 +803,7 @@ TRADING GUIDANCE:
         # Entry signals only - flat position
         if self._should_block_new_entry():
             return
-        return await self.signal_processor.process_trading_cycle(current_price)
+        return await self.signal_processor.process_trading_cycle(current_price, bar_timestamp=bar_timestamp)
 
     async def _check_position_exit_signals(self, current_price: Optional[float]) -> bool:
         """Check if existing position should be closed."""
@@ -764,6 +824,19 @@ TRADING GUIDANCE:
         if price is None:
             logger.debug("No price available for exit checks; skipping exit evaluation")
             return False
+        # Trend-flip exit (optional)
+        if self.one_minute_cfg and getattr(self.one_minute_cfg, "trend_flip_exit", False):
+            trend_label = getattr(self.status, "last_trend", "") or getattr(self.status, "hybrid_market_trend", "")
+            adx_value = float(getattr(self.status, "last_adx", 0.0) or 0.0)
+            if adx_value >= getattr(self.one_minute_cfg, "trend_adx_threshold", 20.0):
+                if position.quantity > 0 and trend_label == "DOWNTREND":
+                    logger.info("🔄 Trend flip detected against LONG; exiting at market")
+                    await self._place_exit_order("SELL", abs(position.quantity), price)
+                    return True
+                if position.quantity < 0 and trend_label == "UPTREND":
+                    logger.info("🔄 Trend flip detected against SHORT; exiting at market")
+                    await self._place_exit_order("BUY", abs(position.quantity), price)
+                    return True
         
         is_short = position.quantity < 0
         exit_signal = (
@@ -963,6 +1036,20 @@ TRADING GUIDANCE:
                 if remaining > 0:
                     logger.info("Entry blocked: cooldown %.1fs remaining", remaining)
                     return True
+
+        if self.one_minute_cfg:
+            cfg = self.one_minute_cfg
+            now = datetime.now(timezone.utc)
+            hour_cutoff = now - timedelta(hours=1)
+            day_cutoff = now - timedelta(hours=24)
+            trades_last_hour = [t for t in self._trade_timestamps if t >= hour_cutoff]
+            trades_last_day = [t for t in self._trade_timestamps if t >= day_cutoff]
+            if len(trades_last_hour) >= getattr(cfg, "max_trades_per_hour", 3):
+                logger.info("Entry blocked: max trades per hour reached (%s)", len(trades_last_hour))
+                return True
+            if len(trades_last_day) >= getattr(cfg, "max_trades_per_day", 8):
+                logger.info("Entry blocked: max trades per day reached (%s)", len(trades_last_day))
+                return True
 
         return False
 
@@ -2510,7 +2597,19 @@ TRADING GUIDANCE:
 
     def _record_last_trade_timestamp(self, timestamp: Optional[datetime] = None) -> None:
         """Persist the last trade time so cooldown survives restarts."""
-        self.cooldown_manager.record_last_trade_timestamp(timestamp)
+        ts = timestamp or datetime.now(timezone.utc)
+        self.cooldown_manager.record_last_trade_timestamp(ts)
+        self._track_trade_timestamp(ts)
+
+    def _track_trade_timestamp(self, ts: datetime) -> None:
+        """Track trade timestamps for hourly/daily rate limits."""
+        try:
+            now_utc = datetime.now(timezone.utc)
+            day_cutoff = now_utc - timedelta(hours=24)
+            self._trade_timestamps = [t for t in self._trade_timestamps if t >= day_cutoff]
+            self._trade_timestamps.append(ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
+        except Exception:
+            return
 
     def _record_submission_timestamp(self) -> None:
         """Track last submission to prevent rapid resubmits before fill."""
