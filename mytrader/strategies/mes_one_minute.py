@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import time
+from datetime import time, timedelta
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -194,10 +194,10 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             except Exception:
                 idx_local = idx_local.tz_localize(None)
         days = pd.Series(idx_local.date if hasattr(idx_local, "date") else idx_local, index=df.index)
-        daily_high = df.groupby(days)["high"].transform("max")
-        daily_low = df.groupby(days)["low"].transform("min")
-        pdh = daily_high.shift(1).ffill()
-        pdl = daily_low.shift(1).ffill()
+        daily_high = df.groupby(days)["high"].max()
+        daily_low = df.groupby(days)["low"].min()
+        pdh = days.map(lambda d: daily_high.get(d - timedelta(days=1), np.nan))
+        pdl = days.map(lambda d: daily_low.get(d - timedelta(days=1), np.nan))
         return pdh, pdl
 
     def _classify_trend(self, latest) -> str:
@@ -313,7 +313,7 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
 
         # Long breakout
         if pd.notna(pdh) and close > pdh and close > vwap and adx_value >= self.config.breakout_adx_threshold:
-            if self.config.breakout_strength_filter and close < body_top_threshold:
+            if getattr(self.config, "breakout_strength_filter", True) and close < body_top_threshold:
                 return None
             return self._enter_with_brackets(
                 direction="BUY",
@@ -325,7 +325,7 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             )
         # Short breakout
         if pd.notna(pdl) and close < pdl and close < vwap and adx_value >= self.config.breakout_adx_threshold:
-            if self.config.breakout_strength_filter and close > body_bottom_threshold:
+            if getattr(self.config, "breakout_strength_filter", True) and close > body_bottom_threshold:
                 return None
             return self._enter_with_brackets(
                 direction="SELL",
