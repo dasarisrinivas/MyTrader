@@ -12,7 +12,8 @@ from ...strategies.engine import StrategyEngine
 from ...strategies.mes_one_minute import MesOneMinuteTrendStrategy
 from ...risk.manager import RiskManager
 from ...utils.telegram_notifier import TelegramNotifier
-from ...llm.rag_storage import RAGStorage
+# Use S3 RAGStorageManager instead of local SQLite RAGStorage
+from ...rag.rag_storage_manager import RAGStorageManager as RAGStorage
 
 # Optional hybrid pipeline
 try:

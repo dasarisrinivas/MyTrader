@@ -1539,7 +1539,7 @@ class HybridRAGPipeline:
         # CRITICAL FIX: make PDL reclaim less sticky when price is effectively above
         if target_type == "PDL_RECLAIM" and _valid_level(pdl):
             if abs(price_ref - float(pdl)) <= 1.0 and price_ref >= float(pdl) - 0.5:
-                logger.info("✅ PDL reclaim achieved: price=%s, pdl=%s", price_ref, pdl)
+                logger.info(f"✅ PDL reclaim achieved: price={price_ref}, pdl={pdl}")
                 self._reset_level_confirm_wait(direction)
                 success_reason = "PDL_RECLAIM_SUCCESS"
                 final_reasoning = f"{final_reasoning}; {success_reason}" if final_reasoning else success_reason
@@ -1557,19 +1557,15 @@ class HybridRAGPipeline:
             return final_action, final_confidence, final_reasoning, None, None
 
         pre_wait = self._level_confirm_wait.get(direction, 0)
+        price_gap = (price_ref - float(pdl)) if _valid_level(pdl) else float("nan")
+        should_pass = (price_ref >= float(pdl)) if _valid_level(pdl) else False
         logger.info(
             "🔍 Level Confirmation State:\n"
-            "   Current Price: %s\n"
-            "   PDL: %s\n"
-            "   Price - PDL: %+0.2f\n"
-            "   Wait Count: %s/%s\n"
-            "   Should Pass: %s",
-            price_ref,
-            pdl,
-            (price_ref - float(pdl)) if _valid_level(pdl) else float("nan"),
-            pre_wait,
-            max_wait_candles,
-            (price_ref >= float(pdl)) if _valid_level(pdl) else False,
+            f"   Current Price: {price_ref}\n"
+            f"   PDL: {pdl}\n"
+            f"   Price - PDL: {price_gap:+0.2f}\n"
+            f"   Wait Count: {pre_wait}/{max_wait_candles}\n"
+            f"   Should Pass: {should_pass}"
         )
 
         wait_count = pre_wait + 1
@@ -1873,7 +1869,9 @@ class HybridRAGPipeline:
         if not rule_result.should_proceed:
             relaxed_action = self._maybe_relax_no_signal(rule_result)
             if relaxed_action:
-                logger.info("🔓 Relaxing NO_SIGNAL gate for trending market (%s -> %s)", rule_result.signal.value, relaxed_action.value)
+                logger.info(
+                    f"🔓 Relaxing NO_SIGNAL gate for trending market ({rule_result.signal.value} -> {relaxed_action.value})"
+                )
                 rule_result.signal = relaxed_action
                 rule_result.score = max(rule_result.score, 10)
                 rule_result.filters_warned.append("NO_SIGNAL_RELAXED")
@@ -2006,9 +2004,25 @@ class HybridRAGPipeline:
             stop_loss = llm_result.suggested_stop_loss
             take_profit = llm_result.suggested_take_profit
         else:
-            # Default: 1.5 ATR stop, 2 ATR target
-            stop_loss = atr * 1.5
-            take_profit = atr * 2.0
+            # Use config multipliers (Jan 2026 audit fix)
+            # Get from one_minute config, with sensible defaults
+            one_min_cfg = self.config.get("one_minute", {})
+            stop_mult = float(one_min_cfg.get("stop_atr_multiplier", 3.0))  # Was 1.5
+            tp_mult = float(one_min_cfg.get("take_profit_multiple", 2.0))
+            
+            # Calculate ATR-based stops
+            stop_loss = atr * stop_mult
+            take_profit = atr * stop_mult * tp_mult  # R:R based on stop
+            
+            # Enforce minimum stop distance (from risk_gate config)
+            risk_gate_cfg = self.config.get("risk_gate", {})
+            min_stop_points = float(risk_gate_cfg.get("min_stop_points", 4.0))
+            if stop_loss < min_stop_points:
+                logger.debug(
+                    f"📏 Stop {stop_loss:.2f} below min {min_stop_points}, adjusting to {min_stop_points}"
+                )
+                stop_loss = min_stop_points
+                take_profit = min_stop_points * tp_mult
 
         if final_action in (TradeAction.BUY, TradeAction.SELL, TradeAction.SCALP_BUY, TradeAction.SCALP_SELL):
             (

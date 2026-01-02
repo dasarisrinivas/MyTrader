@@ -35,6 +35,7 @@ from ..monitoring.live_tracker import LivePerformanceTracker
 from ..strategies.engine import StrategyEngine
 from ..features.feature_engineer import engineer_features
 from ..risk.manager import RiskManager
+from ..risk.risk_gate import RiskGate, RiskGateConfig
 from ..risk.atr_module import compute_protective_offsets
 from ..risk.trade_math import (
     ContractSpec,
@@ -238,6 +239,11 @@ class LiveTradingManager:
         self.aws_snapshot_builder: Optional[MarketSnapshotBuilder] = None
         self._aws_agents_allowed: bool = False
         self._aws_agents_ready: bool = False
+
+        # Hard risk gate
+        gate_cfg = getattr(settings, "risk_gate", RiskGateConfig())
+        gate_cfg.tick_size = getattr(settings.trading, "tick_size", gate_cfg.tick_size)
+        self.risk_gate = RiskGate(gate_cfg)
         
         # Knowledge base + telemetry
         rag_cfg = getattr(settings, "rag", None)
@@ -307,6 +313,7 @@ class LiveTradingManager:
         self.current_trade_id: Optional[str] = None
         self.current_trade_entry_time: Optional[str] = None
         self.current_trade_entry_price: Optional[float] = None
+        self.current_trade_action: Optional[str] = None  # BUY/SELL for RAG tracking
         self.current_trade_features: Optional[Dict] = None
         self._current_entry_cycle_id: Optional[str] = None  # Entry cycle ID for exit correlation
         self.current_trade_buckets: Optional[Dict] = None
@@ -1011,7 +1018,7 @@ TRADING GUIDANCE:
             try:
                 active = self.executor.get_active_order_count(sync=True)
                 if active > 0:
-                    logger.info("Entry blocked: %s active orders pending", active)
+                    logger.info("Entry blocked: {} active orders pending", active)
                     return True
             except Exception as exc:  # noqa: BLE001
                 logger.debug(f"Active order check skipped: {exc}")
@@ -1095,6 +1102,44 @@ TRADING GUIDANCE:
             return float(custom_gap)
         return max(1000.0, abs(current_price) * 0.10)
 
+    def _get_exit_thresholds(self) -> Tuple[float, float, float]:
+        """Return (profit_points, loss_points, max_hold_hours) using config, with sensible fallbacks."""
+        trading_cfg = getattr(self.settings, "trading", None)
+        point_value = getattr(self.contract_spec, "point_value", 1) or 1
+
+        profit_points = None
+        loss_points = None
+        max_hold_hours = None
+
+        pos_exit = getattr(trading_cfg, "position_exit", None) if trading_cfg else None
+        if pos_exit:
+            profit_dollars = getattr(pos_exit, "profit_target_dollars", None)
+            loss_dollars = getattr(pos_exit, "stop_loss_dollars", None)
+            max_hold_hours = getattr(pos_exit, "max_hold_time_hours", None)
+            if profit_dollars:
+                profit_points = float(profit_dollars) / point_value
+            if loss_dollars:
+                loss_points = float(loss_dollars) / point_value
+
+        pm_cfg = getattr(trading_cfg, "position_management", None) if trading_cfg else None
+        if profit_points is None and pm_cfg:
+            profit_points = getattr(pm_cfg, "profit_target_points", None)
+        if loss_points is None and pm_cfg:
+            loss_points = getattr(pm_cfg, "stop_loss_points", None)
+        if max_hold_hours is None and pm_cfg:
+            max_hold_hours = getattr(pm_cfg, "force_exits_after_hours", None) or getattr(
+                pm_cfg, "max_position_duration_hours", None
+            )
+
+        # Hard fallbacks to legacy constants
+        if profit_points is None:
+            profit_points = 20
+        if loss_points is None:
+            loss_points = 10
+        if max_hold_hours is None:
+            max_hold_hours = 4
+        return float(profit_points), float(loss_points), float(max_hold_hours)
+
     def _generate_exit_signal_for_short(self, current_price: float, position) -> Optional[Dict[str, float]]:
         """Generate exit signals for short positions."""
         entry_price = float(getattr(position, "avg_cost", current_price) or current_price)
@@ -1115,16 +1160,17 @@ TRADING GUIDANCE:
             )
             return None
         
+        profit_points_target, loss_points_limit, max_hold_hours = self._get_exit_thresholds()
         profit_points = entry_price - current_price
-        if profit_points >= 20:
+        if profit_points >= profit_points_target:
             return {"reason": "PROFIT_TARGET", "profit_points": profit_points}
         
         loss_points = current_price - entry_price
-        if loss_points >= 10:
+        if loss_points >= loss_points_limit:
             return {"reason": "STOP_LOSS", "loss_points": loss_points}
         
         age_hours = self._get_position_age_hours(position)
-        if age_hours is not None and age_hours >= 4:
+        if age_hours is not None and age_hours >= max_hold_hours:
             return {"reason": "TIME_EXIT", "hours_held": age_hours}
         
         return None
@@ -1149,16 +1195,17 @@ TRADING GUIDANCE:
             )
             return None
         
+        profit_points_target, loss_points_limit, max_hold_hours = self._get_exit_thresholds()
         profit_points = current_price - entry_price
-        if profit_points >= 20:
+        if profit_points >= profit_points_target:
             return {"reason": "PROFIT_TARGET", "profit_points": profit_points}
         
         loss_points = entry_price - current_price
-        if loss_points >= 10:
+        if loss_points >= loss_points_limit:
             return {"reason": "STOP_LOSS", "loss_points": loss_points}
         
         age_hours = self._get_position_age_hours(position)
-        if age_hours is not None and age_hours >= 4:
+        if age_hours is not None and age_hours >= max_hold_hours:
             return {"reason": "TIME_EXIT", "hours_held": age_hours}
         
         return None
@@ -1951,6 +1998,20 @@ TRADING GUIDANCE:
                 logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
                 self._record_submission_timestamp()
                 return
+
+            allowed_gate, gate_levels = await self._enforce_risk_gate(
+                action,
+                quantity,
+                current_price,
+                decision.get("atr", 0.0) if decision else 0.0,
+                stop_loss,
+                take_profit,
+            )
+            if not allowed_gate:
+                return
+            if gate_levels:
+                stop_loss = gate_levels.get("stop_loss", stop_loss)
+                take_profit = gate_levels.get("take_profit", take_profit)
             
             if not self._validate_entry_guard(
                 current_price,
@@ -2199,6 +2260,21 @@ TRADING GUIDANCE:
                 fallback="yes" if fallback_used else "no",
             )
 
+            allowed_gate, gate_levels = await self._enforce_risk_gate(
+                signal.action,
+                qty,
+                current_price,
+                float(row.get("ATR_14", 0.0)),
+                stop_loss,
+                take_profit,
+            )
+            if not allowed_gate:
+                return
+            if gate_levels:
+                stop_loss = gate_levels.get("stop_loss", stop_loss)
+                take_profit = gate_levels.get("take_profit", take_profit)
+                metadata.update(gate_levels)
+
             # HARD GUARDRAIL: Always validate entry guard (not just when feature flag is on)
             if not self._validate_entry_guard(
                 current_price, stop_loss, take_profit, qty, signal.action
@@ -2329,6 +2405,25 @@ TRADING GUIDANCE:
             current_price,
             features,
         )
+
+    async def _get_account_state_snapshot(self) -> Optional[dict]:
+        """Collect account funds and realized PnL; fail safe on errors."""
+        if not self.executor:
+            return None
+        try:
+            balances = await self.executor.get_account_liquidity()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("❌ Unable to read account summary: %s", exc)
+            return None
+        balances = balances or {}
+        realized_pnl = 0.0
+        try:
+            if self.tracker:
+                realized_pnl = float(getattr(self.tracker, "daily_pnl", 0.0))
+        except Exception:
+            realized_pnl = 0.0
+        balances["realized_pnl_today"] = realized_pnl
+        return balances
 
     def _validate_bracket_prices(self, action: str, entry_price: float, stop_loss: float, take_profit: float) -> bool:
         """Validate that bracket order prices are logically correct."""
@@ -2470,24 +2565,27 @@ TRADING GUIDANCE:
             return False
 
         # Check 7: Enforce minimum risk/reward ratio
+        # UPDATED Jan 2, 2026: Raised from 1.0 to 1.5 after audit showed avg loss > avg win
+        min_rr_ratio = getattr(self.settings.trading, "min_risk_reward_ratio", 1.5)
         _, reward_points, rr_ratio = compute_risk_reward(
             entry_price,
             stop_loss,
             take_profit,
             action,
         )
-        if rr_ratio < 1.0 - 1e-6:
+        if rr_ratio < min_rr_ratio - 1e-6:
             logger.warning(
-                f"⚠️ Risk/Reward {rr_ratio:.2f} < 1.0 requirement (reward={reward_points:.2f} pts)"
+                f"⚠️ Risk/Reward {rr_ratio:.2f} < {min_rr_ratio:.1f} requirement (reward={reward_points:.2f} pts)"
             )
             self._add_reason_code("POOR_RISK_REWARD")
             log_structured_event(
                 agent="live_manager",
                 event_type="risk.rr_reject",
-                message="Risk/reward below minimum 1:1",
+                message=f"Risk/reward below minimum {min_rr_ratio:.1f}:1",
                 payload={
                     "trade_cycle_id": self._current_cycle_id,
                     "risk_reward": rr_ratio,
+                    "min_required": min_rr_ratio,
                 },
             )
             return False
@@ -2569,6 +2667,59 @@ TRADING GUIDANCE:
             return False
         
         return True
+
+    async def _enforce_risk_gate(
+        self,
+        action: str,
+        quantity: int,
+        entry_price: float,
+        atr: float,
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+    ) -> tuple[bool, dict]:
+        """Run hard margin/risk gate; returns (allowed, levels)."""
+        account_state = await self._get_account_state_snapshot()
+        if not account_state:
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.entry_blocked",
+                message="Account state unavailable",
+                payload={"trade_cycle_id": self._current_cycle_id},
+            )
+            return False, {}
+        now_ts = now_cst()
+        current_pos = getattr(self.status, "current_position", 0) or 0
+        result = self.risk_gate.evaluate_entry(
+            action=action,
+            quantity=quantity,
+            entry_price=entry_price,
+            atr=atr,
+            account_state=account_state,
+            current_position=current_pos,
+            now=now_ts,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+        if not result.allowed:
+            logger.warning(f"🚫 RiskGate blocked entry: {result.reason}")
+            log_structured_event(
+                agent="live_manager",
+                event_type="risk.entry_blocked",
+                message=result.reason,
+                payload={
+                    "trade_cycle_id": self._current_cycle_id,
+                    "account_state": account_state,
+                    "levels": result.levels,
+                },
+            )
+        else:
+            logger.info(
+                "✅ RiskGate pass: margin={avail:.2f} required={req:.2f} stopPts={stop_pts:.2f}",
+                avail=account_state.get("available_funds") or account_state.get("excess_liquidity", 0.0),
+                req=result.levels.get("required_margin", 0.0),
+                stop_pts=result.levels.get("stop_points", 0.0),
+            )
+        return result.allowed, result.levels
     
     def _prepare_order_metadata(
         self,

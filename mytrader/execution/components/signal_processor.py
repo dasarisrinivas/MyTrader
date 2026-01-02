@@ -14,6 +14,14 @@ from ...utils.timezone_utils import now_cst
 from ...features.feature_engineer import engineer_features
 from .trade_decision_engine import TradingContext
 
+# NEW: Multi-timeframe support (Jan 2026)
+try:
+    from ...data.candle_aggregator import MultiTimeframeCandleBuilder
+    MTF_AVAILABLE = True
+except ImportError:
+    MTF_AVAILABLE = False
+    MultiTimeframeCandleBuilder = None
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..live_trading_manager import LiveTradingManager
 
@@ -45,7 +53,9 @@ class EmergencySignalGenerator:
 
         if self.consecutive_holds >= self.max_consecutive_holds:
             trend = market_context.get("trend", "UNKNOWN")
-            logger.warning("🚨 Emergency mode: %s consecutive HOLDs (trend=%s)", self.consecutive_holds, trend)
+            logger.warning(
+                f"🚨 Emergency mode: {self.consecutive_holds} consecutive HOLDs (trend={trend})"
+            )
 
             new_action: Optional[str] = None
             if trend in ["DOWNTREND", "WEAK_DOWN", "MICRO_DOWN"]:
@@ -86,6 +96,10 @@ class SignalProcessor:
         # Hybrid pipeline can be injected later; default to manager's instance
         self.hybrid_pipeline = getattr(manager, "hybrid_pipeline", None)
         self._emergency_generator = EmergencySignalGenerator()
+        
+        # NEW: Multi-timeframe candle builder (Jan 2026)
+        self._mtf_builder: Optional[MultiTimeframeCandleBuilder] = None
+        self._init_mtf_builder()
 
     async def generate_trading_signal(
         self,
@@ -140,6 +154,14 @@ class SignalProcessor:
                 # Emergency mode: force a directional signal after too many HOLDs
                 market_ctx = self._build_market_context_from_pipeline(pipeline_result)
                 hybrid_signal = self._emergency_generator.apply(hybrid_signal, market_ctx)
+
+                # === JAN 2026 AUDIT FIX: ADX Gate + Counter-Trend Hard-Block ===
+                hybrid_signal = self._apply_adx_and_trend_gates(
+                    hybrid_signal, features, m.status.hybrid_market_trend
+                )
+                
+                # === JAN 2026 AUDIT FIX: 5-Minute Trend Filter ===
+                hybrid_signal = self.apply_5m_trend_filter(hybrid_signal)
 
                 # Store pipeline result for trade logging
                 m._current_pipeline_result = pipeline_result
@@ -585,3 +607,208 @@ class SignalProcessor:
         except Exception:
             pass
         return context
+
+    def _apply_adx_and_trend_gates(self, signal: Any, features, market_trend: str) -> Any:
+        """Apply ADX threshold gate and counter-trend hard-block.
+        
+        Added Jan 2, 2026 after audit showed:
+        - 5/6 BUY signals in DOWNTREND caused losses
+        - Low ADX trades had high failure rate
+        
+        Returns modified signal (HOLD if blocked).
+        """
+        if signal.action == "HOLD":
+            return signal
+        
+        # Get config settings - handle both dict and config object
+        trading_cfg = getattr(self.settings, "trading", None)
+        entry_filters = None
+        
+        if trading_cfg is not None:
+            if hasattr(trading_cfg, "entry_filters"):
+                entry_filters = trading_cfg.entry_filters
+            elif isinstance(trading_cfg, dict):
+                entry_filters = trading_cfg.get("entry_filters", {})
+        
+        # Extract values handling both dict and config object
+        if entry_filters is None:
+            require_adx = True
+            min_adx = 20.0
+            allow_counter_trend = False
+        elif hasattr(entry_filters, "require_adx_confirmation"):
+            # Config object with attributes
+            require_adx = getattr(entry_filters, "require_adx_confirmation", True)
+            min_adx = getattr(entry_filters, "min_adx_threshold", 20.0)
+            allow_counter_trend = getattr(entry_filters, "allow_counter_trend", False)
+        elif isinstance(entry_filters, dict):
+            # Dict-based config
+            require_adx = entry_filters.get("require_adx_confirmation", True)
+            min_adx = entry_filters.get("min_adx_threshold", 20.0)
+            allow_counter_trend = entry_filters.get("allow_counter_trend", False)
+        else:
+            require_adx = True
+            min_adx = 20.0
+            allow_counter_trend = False
+        
+        # Extract ADX from features
+        adx_value = 0.0
+        try:
+            if hasattr(features, "iloc") and len(features) > 0:
+                last_row = features.iloc[-1]
+                adx_value = float(last_row.get("ADX_14", 0.0) or last_row.get("adx", 0.0))
+        except Exception:
+            pass
+        
+        metadata = getattr(signal, "metadata", {}) or {}
+        block_reasons = metadata.get("block_reasons", [])
+        
+        # === ADX Gate ===
+        if require_adx and adx_value > 0 and adx_value < min_adx:
+            logger.warning(
+                f"🚫 ADX GATE: Signal {signal.action} blocked - ADX {adx_value:.1f} < {min_adx:.1f} threshold"
+            )
+            block_reasons.append(f"LOW_ADX:{adx_value:.1f}<{min_adx:.1f}")
+            signal.action = "HOLD"
+            signal.confidence = 0.0
+            metadata["block_reasons"] = block_reasons
+            metadata["adx_blocked"] = True
+            metadata["adx_value"] = adx_value
+            signal.metadata = metadata
+            return signal
+        
+        # === Counter-Trend Hard-Block ===
+        if not allow_counter_trend:
+            trend_upper = (market_trend or "").upper()
+            is_counter_trend = False
+            
+            if signal.action in ("BUY", "SCALP_BUY") and "DOWN" in trend_upper:
+                is_counter_trend = True
+                block_reasons.append(f"COUNTER_TREND:BUY_IN_{trend_upper}")
+            elif signal.action in ("SELL", "SCALP_SELL") and "UP" in trend_upper:
+                is_counter_trend = True
+                block_reasons.append(f"COUNTER_TREND:SELL_IN_{trend_upper}")
+            
+            if is_counter_trend:
+                logger.warning(
+                    "🚫 COUNTER-TREND BLOCK: %s signal blocked in %s market",
+                    signal.action, trend_upper
+                )
+                signal.action = "HOLD"
+                signal.confidence = 0.0
+                metadata["block_reasons"] = block_reasons
+                metadata["counter_trend_blocked"] = True
+                metadata["blocked_trend"] = trend_upper
+                signal.metadata = metadata
+                return signal
+        
+        return signal
+
+    def _init_mtf_builder(self) -> None:
+        """Initialize the multi-timeframe candle builder if enabled in config."""
+        if not MTF_AVAILABLE or MultiTimeframeCandleBuilder is None:
+            logger.debug("Multi-timeframe builder not available")
+            return
+        
+        # Check config for MTF settings
+        one_minute_cfg = getattr(self.settings, "one_minute", {})
+        if isinstance(one_minute_cfg, dict):
+            require_5m = one_minute_cfg.get("require_5m_trend_alignment", False)
+            ema_period = one_minute_cfg.get("mtf_ema_period", 20)
+        else:
+            require_5m = getattr(one_minute_cfg, "require_5m_trend_alignment", False)
+            ema_period = getattr(one_minute_cfg, "mtf_ema_period", 20)
+        
+        if require_5m:
+            try:
+                self._mtf_builder = MultiTimeframeCandleBuilder(
+                    base_interval=1,
+                    target_interval=5,
+                    ema_period=ema_period,
+                    max_history=100,
+                )
+                logger.info("✅ Multi-timeframe candle builder initialized (1m -> 5m)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MTF builder: {e}")
+                self._mtf_builder = None
+    
+    def update_mtf_candle(self, bar: Dict[str, Any]) -> None:
+        """Feed a 1-minute bar to the multi-timeframe builder.
+        
+        Call this from the trading loop whenever a new 1-min bar completes.
+        """
+        if self._mtf_builder is None:
+            return
+        
+        try:
+            timestamp = bar.get("timestamp")
+            if timestamp is None:
+                return
+            
+            self._mtf_builder.add_bar(
+                timestamp=timestamp,
+                open_price=float(bar.get("open", 0)),
+                high_price=float(bar.get("high", 0)),
+                low_price=float(bar.get("low", 0)),
+                close_price=float(bar.get("close", 0)),
+                volume=float(bar.get("volume", 0)),
+            )
+        except Exception as e:
+            logger.debug(f"MTF candle update error: {e}")
+    
+    def check_5m_trend_alignment(self, action: str) -> Tuple[bool, str]:
+        """Check if the proposed action aligns with the 5-minute trend.
+        
+        Args:
+            action: 'BUY', 'SELL', etc.
+        
+        Returns:
+            Tuple of (is_aligned, reason)
+        """
+        if self._mtf_builder is None:
+            return True, "MTF_DISABLED"
+        
+        if not self._mtf_builder.has_complete_candle():
+            return True, "MTF_INSUFFICIENT_DATA"
+        
+        return self._mtf_builder.is_trend_aligned(action)
+    
+    def get_5m_trend(self) -> str:
+        """Get the current 5-minute trend."""
+        if self._mtf_builder is None:
+            return "UNKNOWN"
+        return self._mtf_builder.get_trend()
+    
+    def apply_5m_trend_filter(self, signal: Any) -> Any:
+        """Apply 5-minute trend filter to the signal.
+        
+        Blocks counter-trend trades based on higher timeframe analysis.
+        Added Jan 2, 2026 to reduce whipsaw losses.
+        """
+        if signal.action == "HOLD":
+            return signal
+        
+        if self._mtf_builder is None:
+            return signal
+        
+        is_aligned, reason = self.check_5m_trend_alignment(signal.action)
+        
+        metadata = getattr(signal, "metadata", {}) or {}
+        metadata["5m_trend"] = self.get_5m_trend()
+        metadata["5m_alignment"] = reason
+        
+        if not is_aligned:
+            logger.warning(
+                "🚫 5-MIN TREND BLOCK: %s signal blocked - %s",
+                signal.action, reason
+            )
+            block_reasons = metadata.get("block_reasons", [])
+            block_reasons.append(reason)
+            metadata["block_reasons"] = block_reasons
+            metadata["5m_trend_blocked"] = True
+            signal.action = "HOLD"
+            signal.confidence = 0.0
+        else:
+            logger.info(f"✅ 5-min trend aligned: {reason}")
+        
+        signal.metadata = metadata
+        return signal

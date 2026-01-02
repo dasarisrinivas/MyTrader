@@ -38,6 +38,7 @@ from ..utils.logger import logger
 from ..utils.structured_logging import log_structured_event
 from ..utils.telegram_notifier import TelegramNotifier
 from .order_builder import format_bracket_snapshot, validate_bracket_prices
+from ..utils.timezone_utils import now_cst
 
 PROTECTIVE_ORDER_TIMEOUT = 45.0  # Extended to accommodate slow bracket confirmations
 
@@ -758,12 +759,16 @@ class TradeExecutor:
     async def _reconcile_positions(self) -> None:
         """Reconcile current positions with IBKR."""
         try:
+            found_symbol = False
+            found_qty = 0
             positions = self.ib.positions()
             for position in positions:
                 if position.contract.symbol == self.symbol:
+                    found_symbol = True
                     contract = position.contract
                     sec_type = getattr(contract, "secType", "").upper()
                     qty = int(position.position)
+                    found_qty = qty
                     raw_avg_cost = float(position.avgCost)
                     multiplier = 1.0
                     price = raw_avg_cost
@@ -788,6 +793,9 @@ class TradeExecutor:
                         unrealized_pnl=float(position.unrealizedPNL) if hasattr(position, 'unrealizedPNL') else 0.0,
                         realized_pnl=0.0
                     )
+                    # Keep local trackers aligned with IB to avoid stale position state
+                    self._local_position_qty = float(qty)
+                    self._local_avg_price = price if qty != 0 else 0.0
                     logger.info(
                         "Reconciled position: {symbol} qty={qty} secType={sec_type} price={price:.2f} multiplier={mult} total_cost={total_cost:.2f}",
                         symbol=self.symbol,
@@ -796,6 +804,16 @@ class TradeExecutor:
                         price=price,
                         mult=multiplier,
                         total_cost=raw_avg_cost,
+                    )
+            # If IB reports no position for the symbol, clear any stale local entry
+            if not found_symbol or found_qty == 0:
+                removed = self.positions.pop(self.symbol, None)
+                self._local_position_qty = 0.0
+                self._local_avg_price = 0.0
+                if removed:
+                    logger.info(
+                        "Reconciled position: {symbol} is flat; cleared stale local cache",
+                        symbol=self.symbol,
                     )
         except Exception as e:
             logger.error("Failed to reconcile positions: {}", e)
@@ -1453,21 +1471,11 @@ class TradeExecutor:
                 logger.info(f"Adding take-profit order at {take_profit:.2f}")
             
             if stop_loss is not None:
-                # PROFESSIONAL STOP-LOSS: Use STOP-LIMIT with wider buffer
-                # For ES futures, allow 1-2 points (4-8 ticks) of slippage on stop
-                tick_size = self.config.tick_size
-                offset_ticks = 4  # Allow 1 point (4 ticks = $50) of slippage
-                
-                if action == "BUY":  # Long position, stop is below
-                    limit_price_sl = stop_loss - (offset_ticks * tick_size)
-                else:  # Short position, stop is above
-                    limit_price_sl = stop_loss + (offset_ticks * tick_size)
-                
-                sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price_sl)
+                sl_order = StopOrder(opposite, quantity, stop_loss)
                 sl_order.transmit = False
                 sl_order.outsideRth = True
                 bracket_children.append(sl_order)
-                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price_sl:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price_sl):.2f} buffer)")
+                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f} (STOP-MARKET)")
             
             if bracket_children:
                 bracket_children[-1].transmit = True
@@ -2149,6 +2157,27 @@ class TradeExecutor:
     def get_realized_pnl(self) -> float:
         """Get total realized PnL."""
         return self.realized_pnl
+
+    async def get_account_liquidity(self) -> Dict[str, float]:
+        """Fetch available funds/excess liquidity; raise on failure."""
+        summary = await self.ib.accountSummaryAsync()
+        data: Dict[str, float] = {}
+        for item in summary:
+            tag = item.tag
+            try:
+                value = float(item.value)
+            except Exception:
+                continue
+            if tag == "AvailableFunds":
+                data["available_funds"] = value
+            elif tag == "ExcessLiquidity":
+                data["excess_liquidity"] = value
+            elif tag == "NetLiquidation":
+                data["net_liquidation"] = value
+        if not data:
+            raise RuntimeError("account summary empty")
+        data.setdefault("timestamp", now_cst().isoformat())
+        return data
 
     def get_active_order_count(self, sync: bool = False) -> int:
         """Get number of active orders.

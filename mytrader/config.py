@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 import os
+from datetime import time
 
 
 @dataclass
@@ -78,6 +79,32 @@ class OneMinuteStrategyConfig:
 
 
 @dataclass
+class RiskGateConfig:
+    """Hard risk/margin gate for MES."""
+
+    max_contracts: int = field(default_factory=lambda: int(os.environ.get("MAX_MES_CONTRACTS", "1")))
+    risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "50")))
+    risk_per_trade_min: float = 25.0
+    risk_per_trade_max: float = 75.0
+    min_stop_points: float = 2.0
+    daily_max_loss_usd: float = field(default_factory=lambda: float(os.environ.get("DAILY_MAX_LOSS_USD", "150")))
+    margin_buffer_usd: float = field(default_factory=lambda: float(os.environ.get("MARGIN_BUFFER_USD", "1000")))
+    initial_margin_long: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_LONG", "2464")))
+    initial_margin_short: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_SHORT", "2305.6")))
+    avoid_close_window_minutes: int = field(default_factory=lambda: int(os.environ.get("AVOID_CLOSE_WINDOW_MINUTES", "20")))
+    avoid_close_enabled: bool = field(
+        default_factory=lambda: os.environ.get("AVOID_CLOSE_WINDOW_ENABLED", "true").lower() not in {"0", "false", "no"}
+    )
+    intraday_close_time: time = time(15, 0)  # America/Chicago close
+    tick_size: float = 0.25
+
+    def bounded_risk_usd(self) -> float:
+        """Clamp risk-per-trade to a safe range."""
+        raw = self.risk_per_trade_usd
+        return min(self.risk_per_trade_max, max(self.risk_per_trade_min, raw))
+
+
+@dataclass
 class TradingConfig:
     max_position_size: int = field(default_factory=lambda: int(os.environ.get("MAX_POSITION_SIZE", "5")))
     contracts_per_order: int = 1
@@ -110,6 +137,10 @@ class TradingConfig:
         default_factory=lambda: os.environ.get("IB_API_LOG_PATH", "logs/ib_api_wire.log")
     )
     reset_state_on_start: bool = False
+    
+    # Margin safety (used by PositionManager)
+    initial_margin_long: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_LONG", "2464")))
+    initial_margin_short: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_SHORT", "2305.6")))
 
     def get_validated_cooldown(self, min_val: int = 1, max_val: int = 60) -> int:
         """Return cooldown bounded to [min_val, max_val], log warning if out of bounds."""
@@ -373,6 +404,7 @@ class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
     one_minute: OneMinuteStrategyConfig = field(default_factory=OneMinuteStrategyConfig)
+    risk_gate: RiskGateConfig = field(default_factory=RiskGateConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     strategies: List[StrategyConfig] = field(default_factory=list)

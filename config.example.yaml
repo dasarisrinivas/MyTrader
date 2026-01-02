@@ -68,6 +68,15 @@ trading:
     max_atr_threshold: 5.0
     chop_zone_buffer_pct: 0.25
     sr_proximity_ticks: 8
+risk_gate:
+  max_contracts: 1
+  risk_per_trade_usd: 50
+  daily_max_loss_usd: 150
+  margin_buffer_usd: 1000
+  initial_margin_long: 2464.0
+  initial_margin_short: 2305.6
+  avoid_close_window_minutes: 20
+  avoid_close_enabled: true
 
 one_minute:
   enabled: true

@@ -1,108 +1,2494 @@
-2025-12-29 16:16:14 CST | INFO     | __main__:main:47 - 🚀 Starting MyTrader RAG-Enhanced Bot (LIVE MODE)
+2026-01-02 13:07:59 CST | INFO     | __main__:main:47 - 🚀 Starting MyTrader RAG-Enhanced Bot (LIVE MODE)
 
-2025-12-29 16:16:14 CST | INFO     | mytrader.rag.local_vector_store:__init__:46 - Local vector store ready at rag_data/local_kb/local_kb.sqlite
+2026-01-02 13:07:59 CST | INFO     | mytrader.rag.local_vector_store:__init__:46 - Local vector store ready at rag_data/local_kb/local_kb.sqlite
 
-2025-12-29 16:16:14 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:42 - Initializing trading components...
+2026-01-02 13:07:59 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:42 - Initializing trading components...
 
-2025-12-29 16:16:14 CST | INFO     | mytrader.utils.telegram_notifier:__init__:44 - ✅ Telegram notifications enabled
+2026-01-02 13:07:59 CST | INFO     | mytrader.utils.telegram_notifier:__init__:44 - ✅ Telegram notifications enabled
 
-2025-12-29 16:16:14 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:63 - ✅ Telegram notifications initialized
+2026-01-02 13:07:59 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:63 - ✅ Telegram notifications initialized
 
-2025-12-29 16:16:14 CST | INFO     | mytrader.monitoring.order_tracker:_init_database:156 - Order tracker database initialized: /Users/svss/Documents/code/MyTrader/data/orders.db
+2026-01-02 13:07:59 CST | INFO     | mytrader.monitoring.order_tracker:_init_database:156 - Order tracker database initialized: /Users/svss/Documents/code/MyTrader/data/orders.db
 
-2025-12-29 16:16:14 CST | INFO     | mytrader.execution.ib_executor:connect:539 - Connecting executor to IBKR 127.0.0.1:4002 (client_id=11, timeout=120s)
+2026-01-02 13:07:59 CST | INFO     | mytrader.execution.ib_executor:connect:540 - Connecting executor to IBKR 127.0.0.1:4002 (client_id=11, timeout=120s)
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.ib_executor:connect:567 - Connected to IBKR - using snapshot market data requests
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.ib_executor:connect:568 - Connected to IBKR - using snapshot market data requests
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.ib_executor:connect:577 - Skipping startup order cancel per config (cancel_orders_on_startup=False)
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.ib_executor:connect:578 - Skipping startup order cancel per config (cancel_orders_on_startup=False)
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:791 - Reconciled position: MES qty=-1 secType=FUT price=6957.13 multiplier=5.0 total_cost=34785.63
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.ib_executor:_start_keepalive:2632 - Keepalive task started
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.ib_executor:_start_keepalive:2603 - Keepalive task started
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.components.trading_session_manager:force_order_reconciliation:235 - Forcing reconciliation of active orders with IBKR...
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.components.trading_session_manager:force_order_reconciliation:235 - Forcing reconciliation of active orders with IBKR...
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.ib_executor:_reconcile_orders:695 - ✅ No active orders
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.ib_executor:_reconcile_orders:694 - ✅ No active orders
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.components.trading_session_manager:force_order_reconciliation:237 - Order reconciliation complete.
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.components.trading_session_manager:force_order_reconciliation:237 - Order reconciliation complete.
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.components.cooldown_manager:load_persistent_cooldown_state:79 - ⏱️ Cooldown resume: last trade at %s
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.components.cooldown_manager:load_persistent_cooldown_state:79 - ⏱️ Cooldown resume: last trade at %s
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:93 - ✅ RAG Storage initialized
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:93 - ✅ RAG Storage initialized
+2026-01-02 13:08:00 CST | INFO     | mytrader.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/MyTrader/data/llm_trades.db
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/MyTrader/data/llm_trades.db
+2026-01-02 13:08:00 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:100 - ✅ Decision metrics logger initialized
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:100 - ✅ Decision metrics logger initialized
+2026-01-02 13:08:00 CST | INFO     | mytrader.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-01-02 13:08:00 CST | INFO     | mytrader.rag.rag_storage_manager:__init__:164 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.rag.rag_storage_manager:__init__:164 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-01-02 13:08:00 CST | INFO     | mytrader.rag.trade_logger:__init__:67 - TradeLogger initialized
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.rag.trade_logger:__init__:67 - TradeLogger initialized
+2026-01-02 13:08:00 CST | INFO     | mytrader.rag.mistake_analyzer:__init__:146 - MistakeAnalyzer initialized
 
-2025-12-29 16:16:15 CST | INFO     | mytrader.rag.mistake_analyzer:__init__:146 - MistakeAnalyzer initialized
+2026-01-02 13:08:00 CST | INFO     | mytrader.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2025-12-29 16:16:16 CST | INFO     | mytrader.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.embedding_builder:_init_sentence_transformer:120 - Loaded sentence transformer: all-MiniLM-L6-v2 (dim=384)
 
-2025-12-29 16:16:17 CST | INFO     | mytrader.rag.embedding_builder:_init_sentence_transformer:120 - Loaded sentence transformer: all-MiniLM-L6-v2 (dim=384)
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/index.faiss
 
-2025-12-29 16:16:17 CST | INFO     | mytrader.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/index.faiss
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/metadata.pkl
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/metadata.pkl
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.embedding_builder:_load_index:600 - Loaded FAISS index from S3 with 6 vectors
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.embedding_builder:_load_index:600 - Loaded FAISS index from S3 with 6 vectors
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.embedding_builder:__init__:109 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.embedding_builder:__init__:109 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
+2026-01-02 13:08:02 CST | INFO     | mytrader.hybrid.multi_factor_scorer:__init__:59 - MultiFactorScorer initialized with weights={'technical': 0.3, 'llm': 0.2, 'rag': 0.2, 'news': 0.1, 'macro': 0.1, 'risk': 0.1}
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.hybrid.multi_factor_scorer:__init__:59 - MultiFactorScorer initialized with weights={'technical': 0.3, 'llm': 0.2, 'rag': 0.2, 'news': 0.1, 'macro': 0.1, 'risk': 0.1}
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:230 - RuleEngine initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:230 - RuleEngine initialized
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:603 - RAGRetriever initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:603 - RAGRetriever initialized
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:814 - LLMDecisionMaker initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:814 - LLMDecisionMaker initialized
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:1333 - HybridRAGPipeline initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:__init__:1333 - HybridRAGPipeline initialized
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.data_ingestion:__init__:49 - RAGDataIngestionPipeline watching data
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.data_ingestion:__init__:49 - RAGDataIngestionPipeline watching data
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.rag_daily_updater:__init__:47 - RAGDailyUpdater initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.rag_daily_updater:__init__:47 - RAGDailyUpdater initialized
+2026-01-02 13:08:02 CST | INFO     | mytrader.rag.pipeline_integration:__init__:202 - HybridPipelineIntegration initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.rag.pipeline_integration:__init__:202 - HybridPipelineIntegration initialized
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:120 - 🔎 Hybrid RAG index ready (faiss, 6 docs)
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:120 - 🔎 Hybrid RAG index ready (faiss, 6 docs)
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:124 - ✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:124 - ✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_configure_aws_agents:431 - ℹ️  AWS Agents disabled: OpenSearch backend not permitted
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_configure_aws_agents:425 - ℹ️  AWS Agents disabled: OpenSearch backend not permitted
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:483 - 📊 Loading historical market context...
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:477 - 📊 Loading historical market context...
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.ib_executor:keepalive_loop:2591 - Starting connection keepalive task (checking every 30s)
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.ib_executor:keepalive_loop:2562 - Starting connection keepalive task (checking every 30s)
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.ib_executor:get_qualified_contract:512 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.ib_executor:get_qualified_contract:511 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:579 - ✅ Historical context loaded:
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:573 - ✅ Historical context loaded:
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:580 -    📈 Previous Day: High=6947.50, Low=6890.00, Close=6892.50
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:574 -    📈 Previous Day: High=6994.00, Low=6969.00, Close=6979.25
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:584 -    📊 Today: High=6939.75, Low=6866.50
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:578 -    📊 Today: High=6967.75, Low=6936.25
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:585 -    📅 Weekly Range: 6866.50 - 6994.00
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_load_historical_context:579 -    📅 Weekly Range: 6908.50 - 6994.00
+2026-01-02 13:08:02 CST | INFO     | mytrader.execution.live_trading_manager:_store_historical_context_in_rag:650 - ✅ Stored market context in RAG: rag_data/docs_dynamic/market_context_2026-01-02.txt
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_store_historical_context_in_rag:644 - ✅ Stored market context in RAG: rag_data/docs_dynamic/market_context_2025-12-29.txt
+2026-01-02 13:08:03 CST | INFO     | mytrader.execution.live_trading_manager:_bootstrap_price_history:730 - 📚 Bootstrapped 300 historical 1-min bars for structural context
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.live_trading_manager:_bootstrap_price_history:724 - 📚 Bootstrapped 320 historical 1-min bars for structural context
+2026-01-02 13:08:03 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:138 - ✅ Connected to IBKR
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:138 - ✅ Connected to IBKR
+2026-01-02 13:08:03 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:145 - ✅ Live trading manager initialized
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.components.trading_session_manager:initialize:145 - ✅ Live trading manager initialized
+2026-01-02 13:08:03 CST | INFO     | mytrader.execution.components.trading_session_manager:start:160 - 🔄 Starting trading loop...
 
-2025-12-29 16:16:18 CST | INFO     | mytrader.execution.components.trading_session_manager:start:160 - 🔄 Starting trading loop...
+2026-01-02 13:08:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
 
-2025-12-29 16:27:05 CST | INFO     | __main__:handle_signal:76 - 🛑 Shutdown signal received
+2026-01-02 13:08:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:08:00 CST
 
-2025-12-29 16:27:05 CST | INFO     | mytrader.execution.components.trading_session_manager:stop:231 - Trading session stopped
+2026-01-02 13:08:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
 
-2025-12-29 16:27:07 CST | INFO     | mytrader.execution.components.trading_session_manager:stop:231 - Trading session stopped
+2026-01-02 13:08:08 CST | INFO     | mytrader.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/MyTrader/data/llm_trades.db
 
+2026-01-02 13:08:08 CST | INFO     | mytrader.rag.trade_logger:_get_metrics_logger:362 - Metrics logger ready for structural persistence
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-26/025007_d8415f56.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-19/153007_53e3be8b.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-18/013010_02879f3e.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-16/020504_3d5d3415.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-15/172708_349b8dd1.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-12/094939_cfbffda2.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-08/190350_test_007.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-07/190350_test_006.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-06/190350_test_005.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-05/190350_test_004.json
+
+2026-01-02 13:08:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-04/190350_test_003.json
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-03/190350_test_002.json
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-02/190350_test_001.json
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2078 - 🔍 Level Confirmation Debug:
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2079 -    Current Price: 6883.5
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2080 -    PDH: 6939.75 (diff: -56.25)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2081 -    PDL: 6866.5 (diff: +17.00)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2082 -    Above PDL: True
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2083 -    Below PDH: True
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2085 -    Range Size: 73.25
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: BUY (conf=60%, time=1699ms)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - BUY entry=6883.50 SL=6873.99 (9.51) TP=6902.51 (19.01)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.pipeline_integration:_log_protection_snapshot:810 - 🛡️ Protection snapshot | BUY entry=6883.50 SL=6873.99 (9.51) TP=6902.51 (19.01) fallback=no
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - BUY @ 0.60
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: BUY (conf=0.60, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: BUY (conf=0.60, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - BUY 0.60
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1622 -   ↳ Placing HYBRID order: BUY
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2103 - 🤖 HYBRID: Placing BUY order
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2150 - 🎯 Using HYBRID risk params: SL=9.51, TP=19.01
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2207 - 🔍 Stop-Loss Calculation Debug:
+   Action: BUY
+   Current Price: 6883.50
+   Entry Price: 6883.50
+   ATR Value: 3.1691
+   Stop Offset: 9.51
+   Target Offset: 19.01
+   Stop-Loss: 6873.99 (below entry)
+   Take-Profit: 6902.51 (above entry)
+   Fallback Used: no (ok)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2251 - 📊 Order telemetry | qty=1 position=0 lock=False entry=6883.50 SL=6873.99 TP=6902.51 fallback=no
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.live_trading_manager:_enforce_risk_gate:2715 - ✅ RiskGate pass: margin=5103.96 required=3464.00 stopPts=9.50
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1341 - ✅ PositionManager approved: 1 contracts (Reason: Approved)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1362 - 📊 Using LIMIT order @ 6884.50 (market_hint: 6883.50, buffer: 1.0)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1471 - Adding take-profit order at 6902.50
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1478 - Adding stop-loss order: stop=6874.00 (STOP-MARKET)
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1494 - 📡 Bracket telemetry | qty=1 lock=False entry=6883.50 SL=6874.00 TP=6902.50 fallback=no
+
+2026-01-02 13:08:10 CST | WARNING  | mytrader.execution.ib_executor:_engage_order_lock:272 - 🔒 Order lock engaged: BUY 1 @ 6883.5
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ parent-submit | backend=IB mock=False orderId=1992 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.monitoring.order_tracker:record_order_placement:204 - 📝 Recorded order placement: ID=1992, BUY 1 MES
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-submit-1 | backend=IB mock=False orderId=1993 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:08:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-1993-ack-start | backend=IB mock=False orderId=1993 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:08:13 CST | WARNING  | mytrader.execution.ib_executor:_await_order_submission:1847 - ⏳ child-1993 1993 still PendingSubmit after 3.0s
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-1993-ack-complete | backend=IB mock=False orderId=1993 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:record_order_placement:204 - 📝 Recorded order placement: ID=1993, SELL 1 MES
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:place_order:1631 - 📝 Placed bracket order 1993 (LIMIT) (parent=1992)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-submit-2 | backend=IB mock=False orderId=1994 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-1994-ack-start | backend=IB mock=False orderId=1994 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1993 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1993 status: PreSubmitted
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1994 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1994 status: PreSubmitted
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1992 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1992 status: PreSubmitted
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_execution:996 - ✅ Execution: Order 1992, qty=1.0, price=6883.75, slippage=$0.75
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:record_execution:290 - ✅ Execution recorded: Order 1992, 1.0 @ 6883.75
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1121 - 📱 Checking Telegram: enabled=True
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1131 - 📱 Sending Telegram alert: BUY 1.0 @ 6883.75, SL=6874.0, TP=6902.5
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1157 - 📱 Telegram alert queued successfully
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1992 status: Filled (filled=1.0, remaining=0.0, avg=6883.75)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1992 status: Filled (1.0 filled)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.75 multiplier=5.0 total_cost=34418.75
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1993 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1993 status: PreSubmitted
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1994 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1994 status: PreSubmitted
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1993 status: Submitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1993 status: Submitted
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-1994-ack-complete | backend=IB mock=False orderId=1994 permId=892868522 status=PreSubmitted filled=0.0 remaining=1.0 clientId=11
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.order_tracker:record_order_placement:204 - 📝 Recorded order placement: ID=1994, SELL 1.0 MES
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:place_order:1631 - 📝 Placed bracket order 1994 (STOP) (parent=1992)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ parent-ack-start | backend=IB mock=False orderId=1992 permId=892868520 status=Filled filled=1.0 remaining=0.0 clientId=11
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ parent-ack-complete | backend=IB mock=False orderId=1992 permId=892868520 status=Filled filled=1.0 remaining=0.0 clientId=11
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:_release_order_lock:277 - 🔓 Order lock released (bracket submission complete)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:place_order:1674 - Position metadata stored for trailing stops
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.ib_executor:place_order:1676 - Order BUY placed: orderId=1992 status=Filled
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2356 - ⏱️ HYBRID trade fill - cooldown activated
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.monitoring.live_tracker:record_trade:171 - Recorded trade: %s %d @ %.2f, position=%d
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.rag.trade_logger:log_entry:213 - Trade entry logged: 87d3c048 - BUY 1 @ 6883.75 (SL: 6874.00, TP: 6902.50)
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2382 - ✅ Trade logged to Hybrid RAG system
+
+2026-01-02 13:08:13 CST | INFO     | mytrader.execution.components.order_coordinator:register_trade_entry:97 - 📝 Registered trade entry: cycle_id=1fd7bab34eda, action=BUY, qty=1, entry=6883.75
+
+2026-01-02 13:09:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:09:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:09:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:09:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:09:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6884.75
+
+2026-01-02 13:09:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6884.75 pnl/ct=4.38 total=4.38
+
+2026-01-02 13:09:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6884.75
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6884.75 pnl/ct=4.38 total=4.38
+
+2026-01-02 13:10:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:11:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:11:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:11:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:11:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:11:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6884.5
+
+2026-01-02 13:11:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6884.50 pnl/ct=3.13 total=3.13
+
+2026-01-02 13:11:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6889.5
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6889.50 pnl/ct=28.13 total=28.13
+
+2026-01-02 13:12:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:13:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:13:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:13:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:13:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:13:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6893.25
+
+2026-01-02 13:13:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6893.25 pnl/ct=46.88 total=46.88
+
+2026-01-02 13:13:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:14:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:14:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:14:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:14:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:14:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6892.25
+
+2026-01-02 13:14:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6892.25 pnl/ct=41.88 total=41.88
+
+2026-01-02 13:14:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6893.5
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6893.50 pnl/ct=48.13 total=48.13
+
+2026-01-02 13:15:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6892.0
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6892.00 pnl/ct=40.63 total=40.63
+
+2026-01-02 13:16:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6892.75
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6892.75 pnl/ct=44.38 total=44.38
+
+2026-01-02 13:17:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6892.25
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6892.25 pnl/ct=41.88 total=41.88
+
+2026-01-02 13:18:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:19:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:19:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:19:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:19:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:19:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6890.25
+
+2026-01-02 13:19:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6890.25 pnl/ct=31.88 total=31.88
+
+2026-01-02 13:19:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:20:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:20:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:20:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:20:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:20:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6889.5
+
+2026-01-02 13:20:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6889.50 pnl/ct=28.13 total=28.13
+
+2026-01-02 13:20:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6890.0
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6890.00 pnl/ct=30.63 total=30.63
+
+2026-01-02 13:21:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:22:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:22:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:22:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:22:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:22:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6892.25
+
+2026-01-02 13:22:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6892.25 pnl/ct=41.88 total=41.88
+
+2026-01-02 13:22:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:23:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:23:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:23:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:23:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:23:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6894.0
+
+2026-01-02 13:23:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6894.00 pnl/ct=50.63 total=50.63
+
+2026-01-02 13:23:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6895.0
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6895.00 pnl/ct=55.63 total=55.63
+
+2026-01-02 13:24:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6898.5
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6898.50 pnl/ct=73.13 total=73.13
+
+2026-01-02 13:25:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:26:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:26:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:26:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:26:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:26:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6897.5
+
+2026-01-02 13:26:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6897.50 pnl/ct=68.13 total=68.13
+
+2026-01-02 13:26:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:27:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:27:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:27:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:27:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:27:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6897.5
+
+2026-01-02 13:27:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6897.50 pnl/ct=68.13 total=68.13
+
+2026-01-02 13:27:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6896.5
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6896.50 pnl/ct=63.13 total=63.13
+
+2026-01-02 13:28:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6897.25
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6897.25 pnl/ct=66.88 total=66.88
+
+2026-01-02 13:29:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:30:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:30:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:30:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:30:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:30:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6898.0
+
+2026-01-02 13:30:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6898.00 pnl/ct=70.63 total=70.63
+
+2026-01-02 13:30:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:31:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:31:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:31:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6883.87 multiplier=5.0 total_cost=34419.37
+
+2026-01-02 13:31:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:31:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6899.5
+
+2026-01-02 13:31:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6883.87 price=6899.50 pnl/ct=78.13 total=78.13
+
+2026-01-02 13:31:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1994 status: Cancelled (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1994 status: Cancelled
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_execution:996 - ✅ Execution: Order 1993, qty=1.0, price=6902.50, slippage=$0.00
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1019 - 💰 Realized PnL gross=93.13 net=93.13 (points=18.63, commission=0.00, totals gross=93.13 net=93.13)
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.monitoring.order_tracker:record_execution:290 - ✅ Execution recorded: Order 1993, 1.0 @ 6902.50
+
+2026-01-02 13:32:00 CST | ERROR    | mytrader.execution.ib_executor:_on_execution:1093 - 🚨 EMERGENCY STOP REQUIRED: Entry order 1993 filled @ 6902.5 but bracket orders missing or inactive. Expected SL=6874.0
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1121 - 📱 Checking Telegram: enabled=True
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1131 - 📱 Sending Telegram alert: SELL 1.0 @ 6902.5, SL=6874.0, TP=6902.5
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1157 - 📱 Telegram alert queued successfully
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 1993 status: Filled (filled=1.0, remaining=0.0, avg=6902.50)
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 1993 status: Filled (1.0 filled)
+
+2026-01-02 13:32:00 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:814 - Reconciled position: MES is flat; cleared stale local cache
+
+2026-01-02 13:32:00 CST | WARNING  | mytrader.execution.ib_executor:_place_emergency_stop:2408 - 🚨 Placing EMERGENCY STOP for order 1993: SELL 1.0 @ 6902.5, SL=6874.0
+
+2026-01-02 13:32:00 CST | WARNING  | mytrader.execution.ib_executor:_place_emergency_stop:2416 - ⚠️ No position found - emergency stop not needed
+
+2026-01-02 13:32:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:32:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:32:00 CST
+
+2026-01-02 13:32:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:32:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=714ms)
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:32:11 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:33:00 CST
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=469ms)
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:33:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:34:00 CST
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=380ms)
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:34:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:35:05 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:35:05 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:35:00 CST
+
+2026-01-02 13:35:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=392ms)
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:35:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:36:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:36:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:36:00 CST
+
+2026-01-02 13:36:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:36:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=402ms)
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:36:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:37:00 CST
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=334ms)
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:37:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:38:00 CST
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=401ms)
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:38:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:39:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:39:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:39:00 CST
+
+2026-01-02 13:39:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:39:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (40% < 40%)
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=40%, time=351ms)
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.40
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.40, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.40, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.40
+
+2026-01-02 13:39:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:40:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:40:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:40:00 CST
+
+2026-01-02 13:40:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:40:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=600ms)
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:40:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 13:41:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:41:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 13:41:00 CST
+
+2026-01-02 13:41:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 13:41:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=548ms)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 13:41:07 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1622 -   ↳ Placing HYBRID order: BUY
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2103 - 🤖 HYBRID: Placing BUY order
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2150 - 🎯 Using HYBRID risk params: SL=5.52, TP=11.04
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2207 - 🔍 Stop-Loss Calculation Debug:
+   Action: BUY
+   Current Price: 6907.25
+   Entry Price: 6907.25
+   ATR Value: 1.8407
+   Stop Offset: 5.52
+   Target Offset: 11.04
+   Stop-Loss: 6901.73 (below entry)
+   Take-Profit: 6918.29 (above entry)
+   Fallback Used: no (ok)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2251 - 📊 Order telemetry | qty=1 position=0 lock=False entry=6907.25 SL=6901.73 TP=6918.29 fallback=no
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.live_trading_manager:_enforce_risk_gate:2715 - ✅ RiskGate pass: margin=5196.47 required=3464.00 stopPts=5.50
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:place_order:1341 - ✅ PositionManager approved: 1 contracts (Reason: Approved)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:place_order:1362 - 📊 Using LIMIT order @ 6908.25 (market_hint: 6907.25, buffer: 1.0)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:place_order:1471 - Adding take-profit order at 6918.25
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:place_order:1478 - Adding stop-loss order: stop=6901.75 (STOP-MARKET)
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:place_order:1494 - 📡 Bracket telemetry | qty=1 lock=False entry=6907.25 SL=6901.75 TP=6918.25 fallback=no
+
+2026-01-02 13:41:07 CST | WARNING  | mytrader.execution.ib_executor:_engage_order_lock:272 - 🔒 Order lock engaged: BUY 1 @ 6907.25
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ parent-submit | backend=IB mock=False orderId=2401 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.monitoring.order_tracker:record_order_placement:204 - 📝 Recorded order placement: ID=2401, BUY 1 MES
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-submit-1 | backend=IB mock=False orderId=2402 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:41:07 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-2402-ack-start | backend=IB mock=False orderId=2402 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:41:10 CST | WARNING  | mytrader.execution.ib_executor:_await_order_submission:1847 - ⏳ child-2402 2402 still PendingSubmit after 3.0s
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-2402-ack-complete | backend=IB mock=False orderId=2402 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:record_order_placement:204 - 📝 Recorded order placement: ID=2402, SELL 1 MES
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1631 - 📝 Placed bracket order 2402 (LIMIT) (parent=2401)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-submit-2 | backend=IB mock=False orderId=2403 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-2403-ack-start | backend=IB mock=False orderId=2403 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2402 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2402 status: PreSubmitted
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2403 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2403 status: PreSubmitted
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2401 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2401 status: PreSubmitted
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_execution:996 - ✅ Execution: Order 2401, qty=1.0, price=6907.00, slippage=$1.25
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:record_execution:290 - ✅ Execution recorded: Order 2401, 1.0 @ 6907.00
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1121 - 📱 Checking Telegram: enabled=True
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1131 - 📱 Sending Telegram alert: BUY 1.0 @ 6907.0, SL=6901.75, TP=6918.25
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1157 - 📱 Telegram alert queued successfully
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.00 multiplier=5.0 total_cost=34535.00
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2401 status: Filled (filled=1.0, remaining=0.0, avg=6907.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2401 status: Filled (1.0 filled)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2402 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2402 status: PreSubmitted
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2403 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2403 status: PreSubmitted
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2402 status: Submitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2402 status: Submitted
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ child-2403-ack-complete | backend=IB mock=False orderId=2403 permId=892868525 status=PreSubmitted filled=0.0 remaining=1.0 clientId=11
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.order_tracker:record_order_placement:204 - 📝 Recorded order placement: ID=2403, SELL 1.0 MES
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1631 - 📝 Placed bracket order 2403 (STOP) (parent=2401)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ parent-ack-start | backend=IB mock=False orderId=2401 permId=892868523 status=Filled filled=1.0 remaining=0.0 clientId=11
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_log_trade_status:1825 - 🛰️ parent-ack-complete | backend=IB mock=False orderId=2401 permId=892868523 status=Filled filled=1.0 remaining=0.0 clientId=11
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:_release_order_lock:277 - 🔓 Order lock released (bracket submission complete)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1674 - Position metadata stored for trailing stops
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.ib_executor:place_order:1676 - Order BUY placed: orderId=2401 status=Filled
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2356 - ⏱️ HYBRID trade fill - cooldown activated
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.monitoring.live_tracker:record_trade:171 - Recorded trade: %s %d @ %.2f, position=%d
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.rag.trade_logger:log_entry:213 - Trade entry logged: c090448d - BUY 1 @ 6907.00 (SL: 6901.75, TP: 6918.25)
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.live_trading_manager:_place_hybrid_order:2382 - ✅ Trade logged to Hybrid RAG system
+
+2026-01-02 13:41:10 CST | INFO     | mytrader.execution.components.order_coordinator:register_trade_entry:97 - 📝 Registered trade entry: cycle_id=ed3ccb8ed5a1, action=BUY, qty=1, entry=6907.00
+
+2026-01-02 13:42:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:42:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:42:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:42:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:42:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6906.25
+
+2026-01-02 13:42:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6906.25 pnl/ct=-4.37 total=-4.37
+
+2026-01-02 13:42:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:43:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:43:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:43:08 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:43:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:43:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6904.25
+
+2026-01-02 13:43:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6904.25 pnl/ct=-14.37 total=-14.37
+
+2026-01-02 13:43:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6905.25
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6905.25 pnl/ct=-9.37 total=-9.37
+
+2026-01-02 13:44:05 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6905.75
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6905.75 pnl/ct=-6.87 total=-6.87
+
+2026-01-02 13:45:07 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6905.0
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6905.00 pnl/ct=-10.62 total=-10.62
+
+2026-01-02 13:46:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:47:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:47:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:47:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:47:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:47:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6906.25
+
+2026-01-02 13:47:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6906.25 pnl/ct=-4.37 total=-4.37
+
+2026-01-02 13:47:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:48:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:48:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:48:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:48:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:48:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6903.25
+
+2026-01-02 13:48:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6903.25 pnl/ct=-19.37 total=-19.37
+
+2026-01-02 13:48:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6903.75
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6903.75 pnl/ct=-16.87 total=-16.87
+
+2026-01-02 13:49:09 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:50:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:50:05 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:50:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:50:05 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:50:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6905.75
+
+2026-01-02 13:50:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6905.75 pnl/ct=-6.87 total=-6.87
+
+2026-01-02 13:50:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:51:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:51:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:51:07 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:51:07 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:51:08 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6904.75
+
+2026-01-02 13:51:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6904.75 pnl/ct=-11.87 total=-11.87
+
+2026-01-02 13:51:08 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:52:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:52:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:52:09 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:52:09 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:52:10 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6905.75
+
+2026-01-02 13:52:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6905.75 pnl/ct=-6.87 total=-6.87
+
+2026-01-02 13:52:10 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_trading_cycle:802 - 📊 Current position detected: 1 contracts
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:799 - Reconciled position: MES qty=1 secType=FUT price=6907.12 multiplier=5.0 total_cost=34535.62
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2540 - Requesting market data for MESH6...
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.ib_executor:get_current_price:2555 - Got last price: 6903.75
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:911 - 📊 Position P&L check -> entry=6907.12 price=6903.75 pnl/ct=-16.87 total=-16.87
+
+2026-01-02 13:53:06 CST | INFO     | mytrader.execution.live_trading_manager:_check_position_exit_logic:920 - Trend-based exit check: current trend=UPTREND qty=1
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2402 status: PendingCancel (filled=0.0, remaining=0.0, avg=0.00)
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2402 status: PendingCancel
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_execution:998 - ✅ Execution: Order 2403, qty=1.0, price=6902.00, commission=0.0
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1019 - 💰 Realized PnL gross=-25.62 net=-25.62 (points=-5.12, commission=0.00, totals gross=67.51 net=67.51)
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.monitoring.order_tracker:record_execution:290 - ✅ Execution recorded: Order 2403, 1.0 @ 6902.00
+
+2026-01-02 13:54:05 CST | ERROR    | mytrader.execution.ib_executor:_on_execution:1093 - 🚨 EMERGENCY STOP REQUIRED: Entry order 2403 filled @ 6902.0 but bracket orders missing or inactive. Expected SL=6901.75
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1121 - 📱 Checking Telegram: enabled=True
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1131 - 📱 Sending Telegram alert: SELL 1.0 @ 6902.0, SL=6901.75, TP=6918.25
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_execution:1157 - 📱 Telegram alert queued successfully
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_reconcile_positions:814 - Reconciled position: MES is flat; cleared stale local cache
+
+2026-01-02 13:54:05 CST | WARNING  | mytrader.execution.ib_executor:_place_emergency_stop:2408 - 🚨 Placing EMERGENCY STOP for order 2403: SELL 1.0 @ 6902.0, SL=6901.75
+
+2026-01-02 13:54:05 CST | WARNING  | mytrader.execution.ib_executor:_place_emergency_stop:2416 - ⚠️ No position found - emergency stop not needed
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2403 status: Filled (filled=1.0, remaining=0.0, avg=6902.00)
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2403 status: Filled (1.0 filled)
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.execution.ib_executor:_on_order_status:935 - 📊 Order 2402 status: Cancelled (filled=0.0, remaining=0.0, avg=0.00)
+
+2026-01-02 13:54:05 CST | INFO     | mytrader.monitoring.order_tracker:update_order_status:249 - 📊 Order 2402 status: Cancelled
+
+2026-01-02 13:54:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:54:07 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 13:55:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:55:09 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 13:56:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:56:10 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 13:57:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:57:06 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 13:58:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:58:07 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 13:59:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 13:59:09 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:00:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:00:11 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:01:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:01:07 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:02:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:02:09 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:03:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:03:10 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:04:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:04:06 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:05:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:05:08 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:06:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:06:09 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:07:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:07:10 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:08:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:08:06 CST | INFO     | mytrader.execution.live_trading_manager:_should_block_new_entry:1054 - Entry blocked: max trades per hour reached (%s)
+
+2026-01-02 14:09:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:09:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:09:00 CST
+
+2026-01-02 14:09:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:09:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-26/025007_d8415f56.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-19/153007_53e3be8b.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-18/013010_02879f3e.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-16/020504_3d5d3415.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-15/172708_349b8dd1.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-12/094939_cfbffda2.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-08/190350_test_007.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-07/190350_test_006.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-06/190350_test_005.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-05/190350_test_004.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-04/190350_test_003.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-03/190350_test_002.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-02/190350_test_001.json
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=1732ms)
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:09:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:10:00 CST
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:10:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:11:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:11:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:11:00 CST
+
+2026-01-02 14:11:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:11:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (30% < 40%)
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=30%, time=530ms)
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.30
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.30, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.30, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.30
+
+2026-01-02 14:11:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:12:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:12:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:12:00 CST
+
+2026-01-02 14:12:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:12:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=592ms)
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:12:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:13:00 CST
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=481ms)
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:13:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:14:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:14:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:14:00 CST
+
+2026-01-02 14:14:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:14:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:14:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:14:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:14:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:14:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:14:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:15:00 CST
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:15:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:16:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:16:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:16:00 CST
+
+2026-01-02 14:16:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:16:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=488ms)
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:16:11 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:17:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:17:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:17:00 CST
+
+2026-01-02 14:17:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:17:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=510ms)
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:17:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:18:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:18:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:18:00 CST
+
+2026-01-02 14:18:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:18:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=468ms)
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:18:10 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 14:18:10 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SELL blocked - ADX 10.4 < 20.0 threshold
+
+2026-01-02 14:18:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:19:00 CST
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2078 - 🔍 Level Confirmation Debug:
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2079 -    Current Price: 6904.5
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2080 -    PDH: 6939.75 (diff: -35.25)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2081 -    PDL: 6866.5 (diff: +38.00)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2082 -    Above PDL: True
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2083 -    Below PDH: True
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2085 -    Range Size: 73.25
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: SCALP_SELL (conf=28%, time=536ms)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL entry=6904.50 SL=6909.12 (4.62) TP=6895.26 (9.24)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.pipeline_integration:_log_protection_snapshot:810 - 🛡️ Protection snapshot | SCALP_SELL entry=6904.50 SL=6909.12 (4.62) TP=6895.26 (9.24) fallback=no
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL @ 0.28
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: SCALP_SELL (conf=0.28, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: SCALP_SELL (conf=0.28, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL 0.28
+
+2026-01-02 14:19:06 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SCALP_SELL blocked - ADX 10.9 < 20.0 threshold
+
+2026-01-02 14:19:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:20:00 CST
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=611ms)
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:20:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:21:00 CST
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=489ms)
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:21:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:22:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:22:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:22:00 CST
+
+2026-01-02 14:22:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=592ms)
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:22:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:23:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:23:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:23:00 CST
+
+2026-01-02 14:23:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:23:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=483ms)
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:23:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:24:00 CST
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:24:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:25:00 CST
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:25:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:26:00 CST
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=508ms)
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:26:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:27:00 CST
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=491ms)
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:27:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:28:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:28:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:28:00 CST
+
+2026-01-02 14:28:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=525ms)
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:28:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:29:00 CST
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:29:08 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 14:29:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:30:00 CST
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (40% < 40%)
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=40%, time=562ms)
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.40
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.40, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.40, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.40
+
+2026-01-02 14:30:10 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 14:30:10 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SELL blocked - ADX 9.9 < 20.0 threshold
+
+2026-01-02 14:30:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:31:00 CST
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=554ms)
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:31:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:32:00 CST
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=487ms)
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:32:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:33:05 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:33:05 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:33:00 CST
+
+2026-01-02 14:33:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=459ms)
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:33:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:34:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:34:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:34:00 CST
+
+2026-01-02 14:34:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:34:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=412ms)
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:34:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:35:00 CST
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=424ms)
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:35:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:36:00 CST
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 14:36:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:37:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:37:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:37:00 CST
+
+2026-01-02 14:37:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2078 - 🔍 Level Confirmation Debug:
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2079 -    Current Price: 6902.5
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2080 -    PDH: 6939.75 (diff: -37.25)
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2081 -    PDL: 6866.5 (diff: +36.00)
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2082 -    Above PDL: True
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2083 -    Below PDH: True
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2085 -    Range Size: 73.25
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: SCALP_SELL (conf=20%, time=527ms)
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL entry=6902.50 SL=6906.61 (4.11) TP=6894.28 (8.22)
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.pipeline_integration:_log_protection_snapshot:810 - 🛡️ Protection snapshot | SCALP_SELL entry=6902.50 SL=6906.61 (4.11) TP=6894.28 (8.22) fallback=no
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL @ 0.20
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: SCALP_SELL (conf=0.20, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: SCALP_SELL (conf=0.20, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL 0.20
+
+2026-01-02 14:37:08 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SCALP_SELL blocked - ADX 10.8 < 20.0 threshold
+
+2026-01-02 14:37:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:38:00 CST
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=425ms)
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:38:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:39:00 CST
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=618ms)
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:39:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 14:40:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:40:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:40:00 CST
+
+2026-01-02 14:40:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:40:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_SELL)
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=450ms)
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 14:40:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+Error 1100, reqId -1: Connectivity between IBKR and Trader Workstation has been lost.
+2026-01-02 14:56:27 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 14:56:27 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 14:56:00 CST
+
+2026-01-02 14:56:27 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2078 - 🔍 Level Confirmation Debug:
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2079 -    Current Price: 6892.25
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2080 -    PDH: 6939.75 (diff: -47.50)
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2081 -    PDL: 6866.5 (diff: +25.75)
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2082 -    Above PDL: True
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2083 -    Below PDH: True
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2085 -    Range Size: 73.25
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: SELL (conf=51%, time=632ms)
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SELL entry=6892.25 SL=6897.75 (5.50) TP=6881.25 (11.00)
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.pipeline_integration:_log_protection_snapshot:810 - 🛡️ Protection snapshot | SELL entry=6892.25 SL=6897.75 (5.50) TP=6881.25 (11.00) fallback=no
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SELL @ 0.51
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: SELL (conf=0.51, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: SELL (conf=0.51, trend=DOWNTREND, vol=MEDIUM)
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SELL 0.51
+
+2026-01-02 14:56:28 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SELL blocked - ADX 13.1 < 20.0 threshold
+
+2026-01-02 14:56:28 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+Error 1102, reqId -1: Connectivity between IBKR and Trader Workstation has been restored - data maintained. All data farms are connected: usfarm; ushmds; secdefnj.
+Error 1100, reqId -1: Connectivity between IBKR and Trader Workstation has been lost.
+2026-01-02 15:02:05 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:02:05 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:01:00 CST
+
+2026-01-02 15:02:05 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+Error 1102, reqId -1: Connectivity between IBKR and Trader Workstation has been restored - data maintained. All data farms are connected: usfarm; ushmds; secdefnj.
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2078 - 🔍 Level Confirmation Debug:
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2079 -    Current Price: 6903.5
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2080 -    PDH: 6939.75 (diff: -36.25)
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2081 -    PDL: 6866.5 (diff: +37.00)
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2082 -    Above PDL: True
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2083 -    Below PDH: True
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2085 -    Range Size: 73.25
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: SCALP_SELL (conf=20%, time=1115ms)
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL entry=6903.50 SL=6911.18 (7.68) TP=6888.14 (15.36)
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.pipeline_integration:_log_protection_snapshot:810 - 🛡️ Protection snapshot | SCALP_SELL entry=6903.50 SL=6911.18 (7.68) TP=6888.14 (15.36) fallback=no
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL @ 0.20
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: SCALP_SELL (conf=0.20, trend=CHOP, vol=MEDIUM)
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: SCALP_SELL (conf=0.20, trend=CHOP, vol=MEDIUM)
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL 0.20
+
+2026-01-02 15:02:07 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SCALP_SELL blocked - ADX 12.8 < 20.0 threshold
+
+2026-01-02 15:02:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:02:00 CST
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2078 - 🔍 Level Confirmation Debug:
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2079 -    Current Price: 6904.0
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2080 -    PDH: 6939.75 (diff: -35.75)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2081 -    PDL: 6866.5 (diff: +37.50)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2082 -    Above PDL: True
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2083 -    Below PDH: True
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:debug_level_confirmation:2085 -    Range Size: 73.25
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: SCALP_SELL (conf=21%, time=287ms)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL entry=6904.00 SL=6911.40 (7.40) TP=6889.20 (14.80)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.pipeline_integration:_log_protection_snapshot:810 - 🛡️ Protection snapshot | SCALP_SELL entry=6904.00 SL=6911.40 (7.40) TP=6889.20 (14.80) fallback=no
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL @ 0.21
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: SCALP_SELL (conf=0.21, trend=CHOP, vol=MEDIUM)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: SCALP_SELL (conf=0.21, trend=CHOP, vol=MEDIUM)
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - SCALP_SELL 0.21
+
+2026-01-02 15:02:12 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal SCALP_SELL blocked - ADX 12.5 < 20.0 threshold
+
+2026-01-02 15:02:12 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:03:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:03:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:03:00 CST
+
+2026-01-02 15:03:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:03:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=710ms)
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:03:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:04:00 CST
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=489ms)
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:04:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:05:00 CST
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=511ms)
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:05:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:06:00 CST
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=562ms)
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:06:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:07:00 CST
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=779ms)
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:07:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:08:00 CST
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=576ms)
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:08:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:09:00 CST
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=556ms)
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:09:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:10:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:10:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:10:00 CST
+
+2026-01-02 15:10:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-26/025007_d8415f56.json
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-19/153007_53e3be8b.json
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-18/013010_02879f3e.json
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-16/020504_3d5d3415.json
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-15/172708_349b8dd1.json
+
+2026-01-02 15:10:08 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-12/094939_cfbffda2.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-08/190350_test_007.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-07/190350_test_006.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-06/190350_test_005.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-05/190350_test_004.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-04/190350_test_003.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-03/190350_test_002.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-02/190350_test_001.json
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=1518ms)
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:10:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:11:11 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:11:11 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:11:00 CST
+
+2026-01-02 15:11:11 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:11:11 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=632ms)
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:11:12 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:12:00 CST
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 15:12:08 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 15:12:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:13:00 CST
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 15:13:09 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 15:13:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:14:00 CST
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (40% < 40%)
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=40%, time=566ms)
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.40
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.40, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.40, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.40
+
+2026-01-02 15:14:06 CST | WARNING  | mytrader.execution.components.signal_processor:apply:56 - 🚨 Emergency mode: %s consecutive HOLDs (trend=%s)
+
+2026-01-02 15:14:06 CST | WARNING  | mytrader.execution.components.signal_processor:_apply_adx_and_trend_gates:665 - 🚫 ADX GATE: Signal BUY blocked - ADX 8.5 < 20.0 threshold
+
+2026-01-02 15:14:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:15:00 CST
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1872 - 🔓 Relaxing NO_SIGNAL gate for trending market (HOLD -> SCALP_BUY)
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2060 - 🚫 HOLD [CONFIDENCE_TOO_LOW] gate=hybrid_pipeline.llm detail=Confidence too low (36% < 40%)
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:2066 - Pipeline result: HOLD (conf=36%, time=631ms)
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.36
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.36, trend=UPTREND, vol=MEDIUM)
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.36
+
+2026-01-02 15:15:08 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:16:00 CST
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 15:16:10 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:17:00 CST
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 15:17:06 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:18:00 CST
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 15:18:07 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.execution.ib_executor:get_active_order_count:2206 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.execution.components.signal_processor:process_trading_cycle:372 - 🕐 New candle close at 15:19:00 CST
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.rag.hybrid_rag_pipeline:process:1897 - 🚫 HOLD [NO_SIGNAL] gate=hybrid_pipeline.rule_engine detail=no actionable signal (HOLD) filters=[]
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD @ 0.00
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.rag.pipeline_integration:process_sync:644 - Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.execution.components.signal_processor:generate_trading_signal:135 - 🤖 Hybrid Pipeline: HOLD (conf=0.00, trend=RANGE, vol=MEDIUM)
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.utils.structured_logging:log_structured_event:83 - HOLD 0.00
+
+2026-01-02 15:19:09 CST | INFO     | mytrader.execution.live_trading_manager:_process_hybrid_signal:1431 -   ↳ Signal is HOLD, skipping order placement
+
+2026-01-02 15:19:57 CST | INFO     | __main__:handle_signal:76 - 🛑 Shutdown signal received
+
+2026-01-02 15:19:57 CST | INFO     | mytrader.execution.components.trading_session_manager:stop:231 - Trading session stopped
+
+2026-01-02 15:20:00 CST | INFO     | mytrader.execution.components.trading_session_manager:stop:231 - Trading session stopped
+
+Unclosed client session
+client_session: <aiohttp.client.ClientSession object at 0x13314d760>
