@@ -36,6 +36,11 @@ class EntryFilterConfig:
     ema_slow_period: int = 20
     ema_alignment_tolerance_pct: float = 0.0002  # 0.02% of price
     counter_trend_penalty: float = 0.10
+    # ADX trend strength filter (Jan 2026)
+    require_adx_confirmation: bool = True
+    min_adx_threshold: float = 10.0  # Minimum ADX for trend trades
+    adx_period: int = 14
+    # ATR volatility filters
     atr_period: int = 14
     min_atr_threshold: float = 0.5
     min_atr_percentile: Optional[float] = None  # e.g. 10 = 10th percentile
@@ -345,6 +350,7 @@ class HybridConfig:
     # Confidence thresholds
     min_confidence_threshold: float = 0.60
     signal_threshold: int = 40
+    min_confidence_for_trade: int = 25  # ADDED: Minimum confidence % for trade execution (25 = 25%)
     
     # RAG data paths
     rag_data_path: str = "rag_data"

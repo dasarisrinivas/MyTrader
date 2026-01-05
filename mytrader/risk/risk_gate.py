@@ -71,7 +71,8 @@ class RiskGate:
             cst_now = now_cst()
         cutoff = datetime.combine(cst_now.date(), self.config.intraday_close_time, tzinfo=CST)
         window_start = cutoff - timedelta(minutes=max(0, self.config.avoid_close_window_minutes))
-        return cst_now >= window_start
+        # FIX: Only block if within the window (between window_start and cutoff), not after cutoff
+        return window_start <= cst_now <= cutoff
 
     def evaluate_entry(
         self,

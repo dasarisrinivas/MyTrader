@@ -2187,11 +2187,20 @@ class TradeExecutor:
         """
         if sync:
             self._enforce_order_lock_timeout()
-            # Note: self.ib.openTrades() returns cached state, which is updated
-            # automatically by ib_insync when running in an async event loop.
-            # No need to call ib.sleep() which can conflict with asyncio.
+            # Force a request for open orders from IB to refresh the cache
+            # This is critical for detecting orders that were cancelled externally
+            try:
+                self.ib.reqOpenOrders()
+            except Exception as e:
+                logger.debug("reqOpenOrders failed (non-critical): {}", e)
             
-            # Do a quick sync with IB to ensure accuracy
+            # Small delay to allow the callback to process
+            try:
+                self.ib.sleep(0.1)
+            except Exception:
+                pass
+            
+            # Now get the (hopefully refreshed) open trades
             open_trades = self.ib.openTrades()
             synced_orders: Dict[int, Trade] = {}
             current_time = datetime.utcnow()
@@ -2227,10 +2236,12 @@ class TradeExecutor:
                 
                 if status in pending_statuses:
                     if age_seconds is not None:
-                        if status == 'PendingSubmit' and age_seconds > stuck_threshold:
+                        # Cancel orders stuck in PendingSubmit OR PreSubmitted
+                        if status in ('PendingSubmit', 'PreSubmitted') and age_seconds > stuck_threshold:
                             logger.warning(
-                                "⚠️  Order {order_id} stuck in PendingSubmit for {age:.1f}s (threshold={threshold}s) – canceling",
+                                "⚠️  Order {order_id} stuck in {status} for {age:.1f}s (threshold={threshold}s) – canceling",
                                 order_id=order_id,
+                                status=status,
                                 age=age_seconds,
                                 threshold=stuck_threshold,
                             )
@@ -2238,9 +2249,9 @@ class TradeExecutor:
                             if self._order_locked:
                                 self._release_order_lock("stuck order canceled during sync")
                             continue
+                        # Cancel Submitted orders (both entry and bracket children) that are unfilled for too long
                         if (
                             status == 'Submitted'
-                            and getattr(trade.order, "parentId", 0) in (0, None)
                             and float(trade.orderStatus.filled or 0) == 0
                             and age_seconds > entry_timeout
                         ):
@@ -2253,6 +2264,19 @@ class TradeExecutor:
                             self._cancel_trade(trade, "entry_submitted_watchdog")
                             if self._order_locked:
                                 self._release_order_lock("stuck entry canceled during sync")
+                            continue
+                        # SAFETY: Cancel ANY unfilled order older than 10 minutes (600s)
+                        max_order_age = 600  # 10 minutes absolute max
+                        if age_seconds > max_order_age and float(trade.orderStatus.filled or 0) == 0:
+                            logger.warning(
+                                "⚠️  Order {order_id} too old ({age:.1f}s > {max}s) – force canceling",
+                                order_id=order_id,
+                                age=age_seconds,
+                                max=max_order_age,
+                            )
+                            self._cancel_trade(trade, "max_age_watchdog")
+                            if self._order_locked:
+                                self._release_order_lock("old order force canceled")
                             continue
                     synced_orders[order_id] = trade
                 else:

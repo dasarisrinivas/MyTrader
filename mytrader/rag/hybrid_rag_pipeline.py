@@ -1858,7 +1858,7 @@ class HybridRAGPipeline:
         if rule_result.filters_blocked:
             self._consecutive_blocks += 1
             if self._consecutive_blocks >= self._max_consecutive_blocks:
-                logger.warning("🔧 Circuit breaker: %s consecutive blocks, relaxing rules", self._consecutive_blocks)
+                logger.warning("🔧 Circuit breaker: {} consecutive blocks, relaxing rules", self._consecutive_blocks)
                 rule_result.filters_warned.extend(["CIRCUIT_BREAKER_ACTIVATED"])
                 rule_result.filters_blocked = []
                 self._consecutive_blocks = 0
@@ -2092,7 +2092,7 @@ class HybridRAGPipeline:
         try:
             proximity = self._emergency_proximity_threshold(pdl)
             if current_price is not None and pdl is not None and abs(current_price - pdl) <= proximity:
-                logger.warning("🚨 Emergency PDL override: price=%s near pdl=%s", current_price, pdl)
+                logger.warning("🚨 Emergency PDL override: price={} near pdl={}", current_price, pdl)
                 return True, "EMERGENCY_NEAR_PDL"
         except Exception:
             pass
@@ -2112,7 +2112,7 @@ class HybridRAGPipeline:
                 proximity = self._emergency_proximity_threshold(level)
                 if abs(current_price - level) <= proximity:
                     logger.warning(
-                        "🚨 EMERGENCY LEVEL OVERRIDE: price=%s very close to %s=%s",
+                        "🚨 EMERGENCY LEVEL OVERRIDE: price={} very close to {}={}",
                         current_price,
                         label.lower(),
                         level,
