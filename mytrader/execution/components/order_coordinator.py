@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from ...learning.trade_learning import ExecutionMetrics, TradeLearningPayload
-from ...llm.rag_storage import TradeRecord as RAGTradeRecord
+# Use S3 RAGStorageManager TradeRecord instead of local SQLite
+from ...rag.rag_storage_manager import TradeRecord as RAGTradeRecord
 from ...risk.trade_math import compute_risk_reward, expected_target_outcome
 from ...strategies.market_regime import detect_market_regime, get_regime_parameters
 from ...utils.structured_logging import log_structured_event
@@ -175,7 +176,7 @@ class OrderCoordinator:
                     realized_pnl = pnl_value
 
             exit_time = datetime.now(timezone.utc)
-            if realized_pnl != 0 and m.rag_storage and m.current_trade_id:
+            if m.rag_storage and m.current_trade_id:
                 hold_seconds = 0
                 if m.current_trade_entry_time:
                     try:
@@ -188,33 +189,45 @@ class OrderCoordinator:
                     except Exception as exc:  # noqa: BLE001
                         logger.error(f"Error calculating hold time: {exc}")
 
+                # Build S3 TradeRecord with proper fields
+                features = m.current_trade_features or {}
+                rationale = m.current_trade_rationale or {}
                 record = RAGTradeRecord(
-                    uuid=m.current_trade_id,
-                    timestamp_utc=m.current_trade_entry_time or now_cst().isoformat(),
-                    contract_month=m.settings.data.ibkr_symbol,
+                    trade_id=m.current_trade_id,
+                    timestamp=m.current_trade_entry_time or now_cst().isoformat(),
+                    action=m.current_trade_action or "UNKNOWN",
                     entry_price=m.current_trade_entry_price or 0.0,
-                    entry_qty=0,
                     exit_price=fill.execution.price,
-                    exit_qty=fill.execution.shares,
-                    pnl=realized_pnl,
-                    fees=commission_report.commission if commission_report else 0.0,
-                    hold_seconds=hold_seconds,
-                    decision_features=m.current_trade_features or {},
-                    decision_rationale=m.current_trade_rationale or {},
+                    quantity=int(fill.execution.shares),
+                    stop_loss=float(features.get("stop_loss", 0.0)),
+                    take_profit=float(features.get("take_profit", 0.0)),
+                    rsi=float(features.get("RSI_14", features.get("rsi", 50.0))),
+                    macd_hist=float(features.get("MACD_hist", features.get("macd_hist", 0.0))),
+                    ema_9=float(features.get("EMA_9", features.get("ema_9", 0.0))),
+                    ema_20=float(features.get("EMA_20", features.get("ema_20", 0.0))),
+                    atr=float(features.get("ATR_14", features.get("atr", 0.0))),
+                    result="WIN" if realized_pnl > 0 else "LOSS" if realized_pnl < 0 else "SCRATCH",
+                    realized_pnl=realized_pnl,
+                    hold_time_seconds=hold_seconds,
+                    market_regime=str(features.get("market_regime", "")),
+                    volatility_regime=str(features.get("volatility_regime", "")),
+                    session=str(features.get("session", "")),
+                    confidence=float(rationale.get("confidence", 0.0)),
+                    signal_source=str(rationale.get("signal_source", "hybrid")),
                 )
-                m.rag_storage.save_trade(record, m.current_trade_buckets)
-                logger.info("Updated RAG record %s with exit info", m.current_trade_id)
+                m.rag_storage.save_trade(record)
+                logger.info("✅ Saved trade %s to S3 RAG (P&L: $%.2f)", m.current_trade_id, realized_pnl)
                 m.current_trade_id = None
                 m.current_trade_entry_time = None
                 m.current_trade_entry_price = None
+                m.current_trade_action = None
                 m._record_last_trade_timestamp()
 
-            if realized_pnl != 0:
-                await m._finalize_trade(
-                    exit_price=fill.execution.price,
-                    exit_time=exit_time,
-                    realized_pnl=realized_pnl,
-                )
+            await m._finalize_trade(
+                exit_price=fill.execution.price,
+                exit_time=exit_time,
+                realized_pnl=realized_pnl,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error(f"Error handling order fill: {exc}")
 
@@ -359,6 +372,22 @@ class OrderCoordinator:
                     regime_params={**regime_params, "volatility": regime.value},
                 )
             metadata.update(risk_meta)
+
+            allowed_gate, gate_levels = await m._enforce_risk_gate(
+                signal.action,
+                qty,
+                current_price,
+                atr,
+                stop_loss,
+                take_profit,
+            )
+            if not allowed_gate:
+                self._recent_signal_keys.pop(signal_key, None)
+                return
+            if gate_levels:
+                stop_loss = gate_levels.get("stop_loss", stop_loss)
+                take_profit = gate_levels.get("take_profit", take_profit)
+                metadata.update(gate_levels)
 
             for label, value in (("stop_loss", stop_loss), ("take_profit", take_profit)):
                 if value is None or not math.isfinite(value) or value == 0:
@@ -545,32 +574,30 @@ class OrderCoordinator:
 
                             m.current_trade_entry_time = entry_time
                             m.current_trade_entry_price = result.fill_price
+                            m.current_trade_action = signal.action
                             m.current_trade_features = {
                                 "confidence": signal.confidence,
                                 "atr": atr,
                                 "volatility": row.get("volatility_5m", 0.0),
+                                "stop_loss": stop_loss,
+                                "take_profit": take_profit,
+                                "RSI_14": row.get("RSI_14", 50.0),
+                                "MACD_hist": row.get("MACD_hist", 0.0),
+                                "EMA_9": row.get("EMA_9", 0.0),
+                                "EMA_20": row.get("EMA_20", 0.0),
+                                "ATR_14": atr,
+                                "market_regime": getattr(m.status, "hybrid_market_regime", ""),
+                                "volatility_regime": getattr(m.status, "hybrid_volatility_regime", ""),
+                            }
+                            m.current_trade_rationale = {
+                                "confidence": signal.confidence,
+                                "signal_source": signal.metadata.get("signal_source", "hybrid") if signal.metadata else "hybrid",
                             }
 
-                            record = RAGTradeRecord(
-                                uuid=trade_uuid,
-                                timestamp_utc=entry_time,
-                                contract_month=m.settings.data.ibkr_symbol,
-                                entry_price=result.fill_price,
-                                entry_qty=qty,
-                                exit_price=None,
-                                exit_qty=None,
-                                pnl=None,
-                                fees=0.0,
-                                hold_seconds=None,
-                                decision_features=m.current_trade_features,
-                                decision_rationale=m.current_trade_rationale or {},
-                            )
-
-                            m.rag_storage.save_trade(record, m.current_trade_buckets)
-                            logger.info("Saved trade entry to RAG: %s", trade_uuid)
+                            logger.info("📝 Trade entry tracking started: %s %s @ %.2f", signal.action, trade_uuid, result.fill_price)
 
                         except Exception as exc:  # noqa: BLE001
-                            logger.error(f"Failed to save trade to RAG: {exc}")
+                            logger.error(f"Failed to setup trade tracking: {exc}")
 
         except Exception as exc:  # noqa: BLE001
             logger.error(f"❌ CRITICAL: execute_trade_with_risk_checks failed with exception: {exc}")

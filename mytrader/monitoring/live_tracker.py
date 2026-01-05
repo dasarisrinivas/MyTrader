@@ -168,8 +168,9 @@ class LivePerformanceTracker:
                 self.position_entry_price = weighted
             self.current_position -= quantity
         
-        logger.info("Recorded trade: %s %d @ %.2f, position=%d", 
-                   action, quantity, price, self.current_position)
+        logger.info(
+            f"Recorded trade: {action} {quantity} @ {price:.2f}, position={self.current_position}"
+        )
 
     def get_current_equity(self) -> float:
         """Get current total equity."""

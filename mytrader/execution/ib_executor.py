@@ -38,6 +38,7 @@ from ..utils.logger import logger
 from ..utils.structured_logging import log_structured_event
 from ..utils.telegram_notifier import TelegramNotifier
 from .order_builder import format_bracket_snapshot, validate_bracket_prices
+from ..utils.timezone_utils import now_cst
 
 PROTECTIVE_ORDER_TIMEOUT = 45.0  # Extended to accommodate slow bracket confirmations
 
@@ -758,12 +759,16 @@ class TradeExecutor:
     async def _reconcile_positions(self) -> None:
         """Reconcile current positions with IBKR."""
         try:
+            found_symbol = False
+            found_qty = 0
             positions = self.ib.positions()
             for position in positions:
                 if position.contract.symbol == self.symbol:
+                    found_symbol = True
                     contract = position.contract
                     sec_type = getattr(contract, "secType", "").upper()
                     qty = int(position.position)
+                    found_qty = qty
                     raw_avg_cost = float(position.avgCost)
                     multiplier = 1.0
                     price = raw_avg_cost
@@ -788,6 +793,9 @@ class TradeExecutor:
                         unrealized_pnl=float(position.unrealizedPNL) if hasattr(position, 'unrealizedPNL') else 0.0,
                         realized_pnl=0.0
                     )
+                    # Keep local trackers aligned with IB to avoid stale position state
+                    self._local_position_qty = float(qty)
+                    self._local_avg_price = price if qty != 0 else 0.0
                     logger.info(
                         "Reconciled position: {symbol} qty={qty} secType={sec_type} price={price:.2f} multiplier={mult} total_cost={total_cost:.2f}",
                         symbol=self.symbol,
@@ -796,6 +804,16 @@ class TradeExecutor:
                         price=price,
                         mult=multiplier,
                         total_cost=raw_avg_cost,
+                    )
+            # If IB reports no position for the symbol, clear any stale local entry
+            if not found_symbol or found_qty == 0:
+                removed = self.positions.pop(self.symbol, None)
+                self._local_position_qty = 0.0
+                self._local_avg_price = 0.0
+                if removed:
+                    logger.info(
+                        "Reconciled position: {symbol} is flat; cleared stale local cache",
+                        symbol=self.symbol,
                     )
         except Exception as e:
             logger.error("Failed to reconcile positions: {}", e)
@@ -1453,21 +1471,11 @@ class TradeExecutor:
                 logger.info(f"Adding take-profit order at {take_profit:.2f}")
             
             if stop_loss is not None:
-                # PROFESSIONAL STOP-LOSS: Use STOP-LIMIT with wider buffer
-                # For ES futures, allow 1-2 points (4-8 ticks) of slippage on stop
-                tick_size = self.config.tick_size
-                offset_ticks = 4  # Allow 1 point (4 ticks = $50) of slippage
-                
-                if action == "BUY":  # Long position, stop is below
-                    limit_price_sl = stop_loss - (offset_ticks * tick_size)
-                else:  # Short position, stop is above
-                    limit_price_sl = stop_loss + (offset_ticks * tick_size)
-                
-                sl_order = StopLimitOrder(opposite, quantity, stop_loss, limit_price_sl)
+                sl_order = StopOrder(opposite, quantity, stop_loss)
                 sl_order.transmit = False
                 sl_order.outsideRth = True
                 bracket_children.append(sl_order)
-                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f}, limit={limit_price_sl:.2f} (STOP-LIMIT with {abs(stop_loss - limit_price_sl):.2f} buffer)")
+                logger.info(f"Adding stop-loss order: stop={stop_loss:.2f} (STOP-MARKET)")
             
             if bracket_children:
                 bracket_children[-1].transmit = True
@@ -2150,6 +2158,27 @@ class TradeExecutor:
         """Get total realized PnL."""
         return self.realized_pnl
 
+    async def get_account_liquidity(self) -> Dict[str, float]:
+        """Fetch available funds/excess liquidity; raise on failure."""
+        summary = await self.ib.accountSummaryAsync()
+        data: Dict[str, float] = {}
+        for item in summary:
+            tag = item.tag
+            try:
+                value = float(item.value)
+            except Exception:
+                continue
+            if tag == "AvailableFunds":
+                data["available_funds"] = value
+            elif tag == "ExcessLiquidity":
+                data["excess_liquidity"] = value
+            elif tag == "NetLiquidation":
+                data["net_liquidation"] = value
+        if not data:
+            raise RuntimeError("account summary empty")
+        data.setdefault("timestamp", now_cst().isoformat())
+        return data
+
     def get_active_order_count(self, sync: bool = False) -> int:
         """Get number of active orders.
         
@@ -2158,11 +2187,20 @@ class TradeExecutor:
         """
         if sync:
             self._enforce_order_lock_timeout()
-            # Note: self.ib.openTrades() returns cached state, which is updated
-            # automatically by ib_insync when running in an async event loop.
-            # No need to call ib.sleep() which can conflict with asyncio.
+            # Force a request for open orders from IB to refresh the cache
+            # This is critical for detecting orders that were cancelled externally
+            try:
+                self.ib.reqOpenOrders()
+            except Exception as e:
+                logger.debug("reqOpenOrders failed (non-critical): {}", e)
             
-            # Do a quick sync with IB to ensure accuracy
+            # Small delay to allow the callback to process
+            try:
+                self.ib.sleep(0.1)
+            except Exception:
+                pass
+            
+            # Now get the (hopefully refreshed) open trades
             open_trades = self.ib.openTrades()
             synced_orders: Dict[int, Trade] = {}
             current_time = datetime.utcnow()
@@ -2198,10 +2236,12 @@ class TradeExecutor:
                 
                 if status in pending_statuses:
                     if age_seconds is not None:
-                        if status == 'PendingSubmit' and age_seconds > stuck_threshold:
+                        # Cancel orders stuck in PendingSubmit OR PreSubmitted
+                        if status in ('PendingSubmit', 'PreSubmitted') and age_seconds > stuck_threshold:
                             logger.warning(
-                                "⚠️  Order {order_id} stuck in PendingSubmit for {age:.1f}s (threshold={threshold}s) – canceling",
+                                "⚠️  Order {order_id} stuck in {status} for {age:.1f}s (threshold={threshold}s) – canceling",
                                 order_id=order_id,
+                                status=status,
                                 age=age_seconds,
                                 threshold=stuck_threshold,
                             )
@@ -2209,9 +2249,9 @@ class TradeExecutor:
                             if self._order_locked:
                                 self._release_order_lock("stuck order canceled during sync")
                             continue
+                        # Cancel Submitted orders (both entry and bracket children) that are unfilled for too long
                         if (
                             status == 'Submitted'
-                            and getattr(trade.order, "parentId", 0) in (0, None)
                             and float(trade.orderStatus.filled or 0) == 0
                             and age_seconds > entry_timeout
                         ):
@@ -2224,6 +2264,19 @@ class TradeExecutor:
                             self._cancel_trade(trade, "entry_submitted_watchdog")
                             if self._order_locked:
                                 self._release_order_lock("stuck entry canceled during sync")
+                            continue
+                        # SAFETY: Cancel ANY unfilled order older than 10 minutes (600s)
+                        max_order_age = 600  # 10 minutes absolute max
+                        if age_seconds > max_order_age and float(trade.orderStatus.filled or 0) == 0:
+                            logger.warning(
+                                "⚠️  Order {order_id} too old ({age:.1f}s > {max}s) – force canceling",
+                                order_id=order_id,
+                                age=age_seconds,
+                                max=max_order_age,
+                            )
+                            self._cancel_trade(trade, "max_age_watchdog")
+                            if self._order_locked:
+                                self._release_order_lock("old order force canceled")
                             continue
                     synced_orders[order_id] = trade
                 else:

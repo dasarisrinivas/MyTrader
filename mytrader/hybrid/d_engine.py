@@ -117,9 +117,10 @@ class DeterministicEngine:
         # Level proximity (as percentage of ATR)
         "level_proximity_atr_mult": 0.5,
         
-        # Risk parameters
-        "atr_stop_mult": 2.0,
-        "atr_target_mult": 3.0,
+        # Risk parameters (Jan 2026 audit: widened from 2.0/3.0)
+        "atr_stop_mult": 3.0,  # CHANGED: was 2.0
+        "atr_target_mult": 4.5,  # CHANGED: was 3.0 (1.5:1 R:R minimum)
+        "min_stop_points": 4.0,  # NEW: minimum stop distance
 
         # Trend-aware RSI pullback filter
         "enable_rsi_filter": True,
@@ -357,17 +358,29 @@ class DeterministicEngine:
         take_profit = 0.0
         stop_mult = self.config["atr_stop_mult"]
         target_mult = self.config["atr_target_mult"]
+        min_stop_pts = self.config.get("min_stop_points", 4.0)
+        
         if rsi_pullback:
             stop_mult = rsi_pullback.stop_loss_mult or stop_mult
             target_mult = rsi_pullback.take_profit_mult or target_mult
 
         if atr > 0 and proposed_action != "HOLD":
+            # Calculate ATR-based stop offset
+            stop_offset = atr * stop_mult
+            # Enforce minimum stop distance (Jan 2026 audit fix)
+            if stop_offset < min_stop_pts:
+                stop_offset = min_stop_pts
+                # Recalculate target to maintain R:R ratio
+                target_offset = stop_offset * (target_mult / stop_mult)
+            else:
+                target_offset = atr * target_mult
+            
             if proposed_action == "BUY":
-                stop_loss = current_price - (atr * stop_mult)
-                take_profit = current_price + (atr * target_mult)
+                stop_loss = current_price - stop_offset
+                take_profit = current_price + target_offset
             else:  # SELL
-                stop_loss = current_price + (atr * stop_mult)
-                take_profit = current_price - (atr * target_mult)
+                stop_loss = current_price + stop_offset
+                take_profit = current_price - target_offset
         
         # Check level proximity
         near_pdh, near_pdl = self._check_level_proximity(current_price, atr)

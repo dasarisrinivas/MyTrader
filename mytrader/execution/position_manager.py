@@ -76,15 +76,23 @@ class PositionManager:
             
             net_liquidation = 0.0
             init_margin = 0.0
+            available_funds = 0.0
+            excess_liquidity = 0.0
             
             for item in summary:
                 if item.tag == 'NetLiquidation':
                     net_liquidation = float(item.value)
                 elif item.tag == 'FullInitMarginReq':
                     init_margin = float(item.value)
+                elif item.tag == 'AvailableFunds':
+                    available_funds = float(item.value)
+                elif item.tag == 'ExcessLiquidity':
+                    excess_liquidity = float(item.value)
             
-            if net_liquidation > 0:
-                return init_margin, net_liquidation
+            # Prefer usable equity (available funds / excess liquidity) over net liquidation
+            usable_equity = max(available_funds, excess_liquidity, net_liquidation)
+            if usable_equity > 0:
+                return init_margin, usable_equity
             return 0.0, 1.0 # Avoid division by zero
             
         except Exception as e:
@@ -184,11 +192,11 @@ class PositionManager:
                 is_increasing_exposure = abs(projected_net) > abs(current_net)
                 
                 if is_increasing_exposure:
-                    # Rough estimate for ES margin
-                    MARGIN_PER_CONTRACT = 15000.0 # Conservative placeholder
-                    additional_margin = abs(requested_contracts) * MARGIN_PER_CONTRACT
+                    # Estimate margin using configured per-contract requirement (fallback to conservative)
+                    margin_per_contract = getattr(self.config, "initial_margin_long", 15000.0)
+                    additional_margin = abs(requested_contracts) * margin_per_contract
                     projected_margin_usage = current_margin + additional_margin
-                    projected_margin_pct = projected_margin_usage / total_liquidation
+                    projected_margin_pct = projected_margin_usage / max(total_liquidation, 1.0)
                     
                     if projected_margin_pct > self.margin_limit_pct:
                         return DecisionResult(0, 
