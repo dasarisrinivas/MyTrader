@@ -321,7 +321,7 @@ async def run_live(settings: Settings) -> None:
     util.logToConsole('ERROR')  # Reduce log noise
     
     client_id = random.randint(10, 999)  # Use random client ID to avoid conflicts
-    logger.info("Initializing IB connection to %s:%s (client_id=%d)", settings.data.ibkr_host, settings.data.ibkr_port, client_id)
+    logger.info("Initializing IB connection to {}:{} (client_id={})", settings.data.ibkr_host, settings.data.ibkr_port, client_id)
     ib = IB()
     
     # Connect with retry logic
@@ -409,8 +409,8 @@ async def run_live(settings: Settings) -> None:
     position_entry_time = None
     max_trade_duration_seconds = settings.trading.max_trade_duration_minutes * 60
 
-    logger.info("Starting live trading loop (polling every %ds)...", poll_interval)
-    logger.info("Will start generating signals after collecting %d bars (INCREASED WARM-UP)", min_bars_needed)
+    logger.info("Starting live trading loop (polling every {}s)...", poll_interval)
+    logger.info("Will start generating signals after collecting {} bars (INCREASED WARM-UP)", min_bars_needed)
     logger.info(f"Safety parameters:")
     logger.info(f"  - Disaster stop: {settings.trading.disaster_stop_pct*100:.1f}%")
     logger.info(f"  - Max trade duration: {settings.trading.max_trade_duration_minutes} minutes")
@@ -847,7 +847,7 @@ async def run_live(settings: Settings) -> None:
                             )
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
-                            logger.info("Position closed on opposite signal, realized PnL: %.2f", realized)
+                            logger.info("Position closed on opposite signal, realized PnL: {:.2f}", realized)
                             
                             # Reset tracking and apply cooldown
                             position_entry_time = None
@@ -1039,7 +1039,7 @@ async def run_live(settings: Settings) -> None:
                 await asyncio.sleep(poll_interval)
                     
             except Exception as exc:  # noqa: BLE001
-                logger.exception("Live loop error: %s", exc)
+                logger.exception("Live loop error: {}", exc)
                 await asyncio.sleep(poll_interval)
                 
     except KeyboardInterrupt:
@@ -1085,7 +1085,7 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     engine = BacktestingEngine(strategies, settings.trading, settings.backtest)
     
     # Run backtest
-    logger.info("Starting backtest on %d bars...", len(df))
+    logger.info("Starting backtest on {} bars...", len(df))
     result = engine.run(df)
     
     # Log comprehensive metrics
@@ -1094,9 +1094,9 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     logger.info("=" * 60)
     for key, value in result.metrics.items():
         if isinstance(value, float):
-            logger.info("  %s: %.4f", key.replace("_", " ").title(), value)
+            logger.info("  {}: {:.4f}", key.replace("_", " ").title(), value)
         else:
-            logger.info("  %s: %s", key.replace("_", " ").title(), value)
+            logger.info("  {}: {}", key.replace("_", " ").title(), value)
     logger.info("=" * 60)
     
     # Export detailed report
@@ -1108,18 +1108,18 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     # Export JSON report
     json_path = output_dir / "backtest_report.json"
     export_report(result.metrics, result.trades, json_path, format="json")
-    logger.info("Detailed report saved to %s", json_path)
+    logger.info("Detailed report saved to {}", json_path)
     
     # Export CSV report
     csv_path = output_dir / "backtest_report.csv"
     export_report(result.metrics, result.trades, csv_path, format="csv")
-    logger.info("CSV reports saved to %s", output_dir)
+    logger.info("CSV reports saved to {}", output_dir)
     
     # Export equity curve
     if not result.equity_curve.empty:
         equity_path = output_dir / "equity_curve.csv"
         result.equity_curve.to_csv(equity_path)
-        logger.info("Equity curve saved to %s", equity_path)
+        logger.info("Equity curve saved to {}", equity_path)
 
 
 def parse_args() -> argparse.Namespace:

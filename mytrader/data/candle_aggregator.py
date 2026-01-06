@@ -251,9 +251,10 @@ class MultiTimeframeCandleBuilder:
         current_ema = self._ema_values[-1]
         last_candle = self._candles[-1]
         prev_candle = self._candles[-2]
+        tolerance_pct = 0.002  # Allow minor pullbacks (0.2%)
         
-        # Price above EMA and making higher lows
-        if last_candle.close > current_ema and last_candle.low > prev_candle.low:
+        # Price above EMA and making higher lows (with small tolerance)
+        if last_candle.close > current_ema and last_candle.low >= prev_candle.low * (1 - tolerance_pct):
             return "UPTREND"
         
         # Price below EMA and making lower highs

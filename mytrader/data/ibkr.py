@@ -56,8 +56,14 @@ class IBKRCollector(DataCollector):
         
         for attempt in range(self.max_retries):
             try:
-                logger.info("Connecting to IBKR at %s:%s with client_id=%d (attempt %d/%d)", 
-                           self.host, self.port, self.client_id, attempt + 1, self.max_retries)
+                logger.info(
+                    "Connecting to IBKR at {}:{} with client_id={} (attempt {}/{})",
+                    self.host,
+                    self.port,
+                    self.client_id,
+                    attempt + 1,
+                    self.max_retries,
+                )
                 await self.ib.connectAsync(self.host, self.port, clientId=self.client_id, timeout=30)
                 self.connection_attempts = 0
                 
@@ -67,18 +73,21 @@ class IBKRCollector(DataCollector):
                 # Request delayed market data (free, no subscription needed)
                 # This provides 15-minute delayed data for paper trading
                 self.ib.reqMarketDataType(3)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
-                logger.info("✅ Data collector connected successfully (client_id=%d, delayed data)", self.client_id)
+                logger.info("✅ Data collector connected successfully (client_id={}, delayed data)", self.client_id)
                 return
             except TimeoutError:
                 self.connection_attempts += 1
-                logger.error("❌ Connection timeout (attempt %d/%d). IB Gateway may be in bad state.", 
-                           attempt + 1, self.max_retries)
+                logger.error(
+                    "❌ Connection timeout (attempt {}/{}). IB Gateway may be in bad state.",
+                    attempt + 1,
+                    self.max_retries,
+                )
                 if attempt < self.max_retries - 1:
                     delay = self.base_delay * (2 ** attempt)
-                    logger.warning("Retrying in %.1fs...", delay)
+                    logger.warning("Retrying in {:.1f}s...", delay)
                     await asyncio.sleep(delay)
                 else:
-                    logger.error("Failed to connect after %d attempts", self.max_retries)
+                    logger.error("Failed to connect after {} attempts", self.max_retries)
                     logger.error("SOLUTION: Restart IB Gateway completely:")
                     logger.error("  1. Close IB Gateway window")
                     logger.error("  2. Wait 30 seconds")  
@@ -115,12 +124,17 @@ class IBKRCollector(DataCollector):
                     raise
                 
                 delay = self.base_delay * (2 ** attempt)
-                logger.warning("IBKR connection failed (attempt %d/%d): %s. Retrying in %.1fs...", 
-                             attempt + 1, self.max_retries, e, delay)
+                logger.warning(
+                    "IBKR connection failed (attempt {}/{}): {}. Retrying in {:.1f}s...",
+                    attempt + 1,
+                    self.max_retries,
+                    e,
+                    delay,
+                )
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(delay)
                 else:
-                    logger.error("Failed to connect to IBKR after %d attempts", self.max_retries)
+                    logger.error("Failed to connect to IBKR after {} attempts", self.max_retries)
                     raise
 
     def _contract(self) -> Contract:
@@ -146,7 +160,7 @@ class IBKRCollector(DataCollector):
                 )
             # Get the front month (first contract in the list)
             front_month = details[0].contract
-            logger.info("Using front month contract: %s", front_month)
+            logger.info("Using front month contract: {}", front_month)
             self._qualified_contract = front_month
             return front_month
         self._qualified_contract = qualified[0]
@@ -172,7 +186,7 @@ class IBKRCollector(DataCollector):
             df.set_index("timestamp", inplace=True)
             return df[["open", "high", "low", "close", "volume"]]
         except Exception as e:
-            logger.error("Failed to collect IBKR data: %s. Reconnecting...", e)
+            logger.error("Failed to collect IBKR data: {}. Reconnecting...", e)
             self.ib.disconnect()
             await self._connect()
             raise
@@ -181,7 +195,7 @@ class IBKRCollector(DataCollector):
         """Stream data by polling historical bars (paper trading compatible)."""
         await self._connect()
         contract = await self._qualified_contract()
-        logger.info("Starting historical data polling for %s (paper trading mode)", contract.localSymbol)
+        logger.info("Starting historical data polling for {} (paper trading mode)", contract.localSymbol)
         
         last_bar_time = None
         poll_interval = 5  # Poll every 5 seconds
@@ -220,7 +234,7 @@ class IBKRCollector(DataCollector):
                     await asyncio.sleep(poll_interval)
                     
                 except Exception as e:
-                    logger.error("Error polling historical data: %s. Reconnecting...", e)
+                    logger.error("Error polling historical data: {}. Reconnecting...", e)
                     if not self.ib.isConnected():
                         self.ib.disconnect()
                         await asyncio.sleep(self.base_delay)

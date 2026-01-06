@@ -101,14 +101,14 @@ class MLParameterOptimizer:
         )
         
         # Optimize
-        logger.info("Starting Optuna optimization with %d trials...", self.n_trials)
+        logger.info("Starting Optuna optimization with {} trials...", self.n_trials)
         study.optimize(objective, n_trials=self.n_trials, n_jobs=self.n_jobs, show_progress_bar=True)
         
         # Get results
         best_params = study.best_params
         best_score = study.best_value
         
-        logger.info("Optimization complete. Best score: %.4f, Best params: %s", best_score, best_params)
+        logger.info("Optimization complete. Best score: {:.4f}, Best params: {}", best_score, best_params)
         
         # Apply best parameters
         self._apply_params(best_params)
@@ -193,7 +193,7 @@ class MLParameterOptimizer:
             for key, value in params.items():
                 if hasattr(strategy, key):
                     setattr(strategy, key, value)
-                    logger.debug("Applied %s=%s to %s", key, value, strategy.name)
+                    logger.debug("Applied {}={} to {}", key, value, strategy.name)
 
 
 class WalkForwardOptimizer:
@@ -226,7 +226,7 @@ class WalkForwardOptimizer:
         total_length = len(data)
         n_splits = (total_length - self.train_window - self.test_window) // self.step_size
         
-        logger.info("Starting walk-forward optimization with %d splits", n_splits)
+        logger.info("Starting walk-forward optimization with {} splits", n_splits)
         
         for i in range(n_splits):
             start_train = i * self.step_size
@@ -239,8 +239,14 @@ class WalkForwardOptimizer:
             train_data = data.iloc[start_train:end_train]
             test_data = data.iloc[end_train:end_test]
             
-            logger.info("Walk-forward period %d: train[%d:%d] test[%d:%d]",
-                       i + 1, start_train, end_train, end_train, end_test)
+            logger.info(
+                "Walk-forward period {}: train[{}:{}] test[{}:{}]",
+                i + 1,
+                start_train,
+                end_train,
+                end_train,
+                end_test,
+            )
             
             # Optimize on training period
             optimizer = MLParameterOptimizer(self.strategies, n_trials=50)
@@ -254,6 +260,6 @@ class WalkForwardOptimizer:
             result.best_score = test_score  # Replace with out-of-sample score
             results.append(result)
             
-            logger.info("Period %d test score: %.4f", i + 1, test_score)
+            logger.info("Period {} test score: {:.4f}", i + 1, test_score)
         
         return results

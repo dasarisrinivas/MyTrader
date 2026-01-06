@@ -488,10 +488,10 @@ class SignalProcessor:
             return
 
         if not decision.allow:
-            logger.info("Skipping trade (%s)", decision.reason or "blocked")
+            logger.info("Skipping trade ({})", decision.reason or "blocked")
             return
 
-        logger.info("  ↳ Attempting to place order: %s", signal.action)
+        logger.info("  ↳ Attempting to place order: {}", signal.action)
         await m._place_order(signal, current_price, features)
 
     async def _apply_confidence_layers(
@@ -633,21 +633,21 @@ class SignalProcessor:
         # Extract values handling both dict and config object
         if entry_filters is None:
             require_adx = True
-            min_adx = 10.0  # CHANGED: Lowered default from 20.0 to 10.0
+            min_adx = 15.0  # CHANGED: Balanced default from 20.0 to 15.0
             allow_counter_trend = False
         elif hasattr(entry_filters, "require_adx_confirmation"):
             # Config object with attributes
             require_adx = getattr(entry_filters, "require_adx_confirmation", True)
-            min_adx = getattr(entry_filters, "min_adx_threshold", 10.0)  # CHANGED default
+            min_adx = getattr(entry_filters, "min_adx_threshold", 15.0)  # CHANGED default
             allow_counter_trend = getattr(entry_filters, "allow_counter_trend", False)
         elif isinstance(entry_filters, dict):
             # Dict-based config
             require_adx = entry_filters.get("require_adx_confirmation", True)
-            min_adx = entry_filters.get("min_adx_threshold", 10.0)  # CHANGED default
+            min_adx = entry_filters.get("min_adx_threshold", 15.0)  # CHANGED default
             allow_counter_trend = entry_filters.get("allow_counter_trend", False)
         else:
             require_adx = True
-            min_adx = 10.0  # CHANGED: Lowered default from 20.0 to 10.0
+            min_adx = 15.0  # CHANGED: Balanced default from 20.0 to 15.0
             allow_counter_trend = False
         
         # Extract ADX from features

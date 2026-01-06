@@ -23,17 +23,23 @@ class RiskGateConfig:
     """Configuration for MES hard risk gate."""
 
     max_contracts: int = field(default_factory=lambda: int(os.environ.get("MAX_MES_CONTRACTS", "1")))
-    risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "50")))
+    risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "60")))
     risk_per_trade_min: float = 25.0
-    risk_per_trade_max: float = 75.0
-    min_stop_points: float = 2.0
+    risk_per_trade_max: float = 75.0  # $75 max = 15 point stop
+    # Jan 2026: Raised min_stop_points from 2.0 to 4.0 to prevent stops too tight for MES noise
+    # MES typical noise is 2-3 points, so 4.0 gives buffer for normal price wiggles
+    min_stop_points: float = 4.0
+    max_stop_points: float = 12.0  # 12 points max = $60 risk cap
     margin_buffer_usd: float = field(default_factory=lambda: float(os.environ.get("MARGIN_BUFFER_USD", "1000")))
     initial_margin_long: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_LONG", "2464")))
     initial_margin_short: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_SHORT", "2305.6")))
     daily_max_loss_usd: float = field(default_factory=lambda: float(os.environ.get("DAILY_MAX_LOSS_USD", "150")))
-    avoid_close_window_minutes: int = field(default_factory=lambda: int(os.environ.get("AVOID_CLOSE_WINDOW_MINUTES", "20")))
+    max_consecutive_losses: int = field(default_factory=lambda: int(os.environ.get("MAX_CONSECUTIVE_LOSSES", "3")))
+    avoid_close_window_minutes: int = field(default_factory=lambda: int(os.environ.get("AVOID_CLOSE_WINDOW_MINUTES", "60")))
     avoid_close_enabled: bool = field(default_factory=lambda: _env_bool("AVOID_CLOSE_WINDOW_ENABLED", True))
-    intraday_close_time: time = time(15, 0)  # RTH close CT
+    intraday_close_time: time = time(16, 0)  # End of close window CT (maintenance start)
+    maintenance_start: time = time(16, 0)  # CME maintenance start CT
+    maintenance_end: time = time(17, 0)    # CME maintenance end CT
     tick_size: float = 0.25
 
     def bounded_risk_usd(self) -> float:
@@ -53,6 +59,7 @@ class RiskGate:
 
     def __init__(self, config: RiskGateConfig):
         self.config = config
+        self._consecutive_losses: int = 0
 
     @staticmethod
     def _is_valid_number(val: Optional[float]) -> bool:
@@ -74,6 +81,27 @@ class RiskGate:
         # FIX: Only block if within the window (between window_start and cutoff), not after cutoff
         return window_start <= cst_now <= cutoff
 
+    def _check_maintenance_window(self, now: datetime) -> bool:
+        """Check if current time is in CME maintenance window (4-5 PM CT)."""
+        try:
+            cst_now = now.astimezone(CST) if now.tzinfo else now_cst()
+        except Exception:
+            cst_now = now_cst()
+        current_time = cst_now.time()
+        return self.config.maintenance_start <= current_time < self.config.maintenance_end
+
+    def record_trade_result(self, is_win: bool) -> None:
+        """Record trade outcome for consecutive loss tracking."""
+        if is_win:
+            self._consecutive_losses = 0
+        else:
+            self._consecutive_losses += 1
+            logger.warning(f"📉 Consecutive losses: {self._consecutive_losses}")
+
+    def reset_consecutive_losses(self) -> None:
+        """Reset consecutive loss counter (e.g., at daily reset)."""
+        self._consecutive_losses = 0
+
     def evaluate_entry(
         self,
         action: str,
@@ -89,11 +117,23 @@ class RiskGate:
         """Return whether an entry is allowed and any adjusted levels."""
         levels: Dict[str, float] = {}
 
+        # 0) Maintenance window check (HARD BLOCK)
+        if now and self._check_maintenance_window(now):
+            reason = "MAINTENANCE_WINDOW"
+            logger.warning("🚫 RiskGate block: CME maintenance window (4-5 PM CT)")
+            return RiskGateResult(False, reason, levels)
+
+        # 0.5) Consecutive loss lockout
+        if self._consecutive_losses >= self.config.max_consecutive_losses:
+            reason = f"CONSECUTIVE_LOSS_LOCKOUT:{self._consecutive_losses}>={self.config.max_consecutive_losses}"
+            logger.warning("🚫 RiskGate block: {}", reason)
+            return RiskGateResult(False, reason, levels)
+
         # 1) Position cap (no pyramiding)
         projected = current_position + (quantity if action.upper().startswith("BUY") else -quantity)
         if abs(projected) > self.config.max_contracts:
             reason = f"POSITION_LIMIT:{projected}>{self.config.max_contracts}"
-            logger.warning("🚫 RiskGate block: %s", reason)
+            logger.warning("🚫 RiskGate block: {}", reason)
             return RiskGateResult(False, reason, levels)
 
         # 2) Stop/tp presence and direction
@@ -129,16 +169,28 @@ class RiskGate:
         # Check minimum stop distance (Jan 2026: prevent stops too tight for noise)
         if actual_points < self.config.min_stop_points:
             logger.warning(
-                "🚫 RiskGate: Stop %.2f pts < min %.2f pts",
-                actual_points, self.config.min_stop_points
+                "🚫 RiskGate: Stop {:.2f} pts < min {:.2f} pts",
+                actual_points,
+                self.config.min_stop_points,
             )
             return RiskGateResult(False, "STOP_TOO_TIGHT", levels)
+        
+        # Check maximum stop distance (config hard cap)
+        if actual_points > self.config.max_stop_points:
+            logger.warning(
+                "🚫 RiskGate: Stop {:.2f} pts > hard cap {:.2f} pts",
+                actual_points,
+                self.config.max_stop_points,
+            )
+            return RiskGateResult(False, "STOP_EXCEEDS_CAP", levels)
         
         # Check maximum stop distance (don't risk more than budget allows)
         if actual_points > max_stop_points_from_risk:
             logger.warning(
-                "🚫 RiskGate: Stop %.2f pts > max %.2f pts (risk budget $%.0f)",
-                actual_points, max_stop_points_from_risk, self.config.bounded_risk_usd()
+                "🚫 RiskGate: Stop {:.2f} pts > max {:.2f} pts (risk budget ${:.0f})",
+                actual_points,
+                max_stop_points_from_risk,
+                self.config.bounded_risk_usd(),
             )
             return RiskGateResult(False, "STOP_TOO_WIDE", levels)
         
@@ -154,7 +206,7 @@ class RiskGate:
         ) + self.config.margin_buffer_usd
         if available < required_margin:
             reason = f"INSUFFICIENT_MARGIN:{available:.2f}<{required_margin:.2f}"
-            logger.warning("🚫 RiskGate block: %s", reason)
+            logger.warning("🚫 RiskGate block: {}", reason)
             return RiskGateResult(False, reason, levels)
         levels["required_margin"] = required_margin
         levels["available_funds"] = available

@@ -50,7 +50,7 @@ class MarketDataPipeline:
         except asyncio.CancelledError:  # noqa: TRY301
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Collector %s failed: %s", name, exc)
+            logger.exception("Collector {} failed: {}", name, exc)
 
     def _combine_buffers(self) -> pd.DataFrame:
         frames = []

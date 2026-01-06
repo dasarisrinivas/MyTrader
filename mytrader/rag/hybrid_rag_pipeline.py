@@ -7,6 +7,13 @@ This is the core trading decision pipeline that combines:
 
 The pipeline ensures safe, explainable, and context-aware trading decisions.
 Uses CST (Central Standard Time) for all timestamps.
+
+Session-aware trading (24h ES/MES):
+- RTH (8:30-15:00 CT): Standard parameters
+- Evening (17:00-23:00 CT): Higher thresholds, wider stops
+- Overnight (23:00-03:00 CT): Strictest thresholds
+- Pre-Market (03:00-08:30 CT): Elevated thresholds
+- Maintenance (16:00-17:00 CT): BLOCKED
 """
 import hashlib
 import json
@@ -24,6 +31,7 @@ from loguru import logger
 
 from mytrader.utils.hold_reason import HoldReason
 from mytrader.utils.structured_logging import log_structured_event
+from mytrader.utils.session_manager import get_session_manager, TradingSession
 
 from .retrieval_strategies import (
     recency_weight_from_timestamp,
@@ -334,8 +342,24 @@ class RuleEngine:
         
         # ===== HARD FILTERS (blockers) =====
         
-        # ATR filter - RELAXED for low-vol days
+        # SESSION GATE: Check if trading allowed for current session
         current_time = now_cst()
+        session_mgr = get_session_manager(self.config)
+        current_session = session_mgr.get_current_session(current_time)
+        session_config = session_mgr.get_session_config(current_session)
+        trading_allowed, session_reason = session_mgr.is_trading_allowed(current_time)
+        
+        if not trading_allowed:
+            result.filters_blocked.append(f"SESSION_BLOCK ({session_reason})")
+            logger.warning("🚫 SESSION BLOCK: session=%s reason=%s", current_session.value, session_reason)
+        else:
+            result.filters_passed.append(f"SESSION_OK ({current_session.value})")
+        
+        # Store session info for downstream use
+        result.indicators["current_session"] = current_session.value
+        result.indicators["session_min_confidence"] = session_config.min_confidence
+        
+        # ATR filter - RELAXED for low-vol days
         time_adjustments = self._get_time_based_adjustments(current_time)
         atr_min_threshold = self.atr_min if result.volatility_regime != "LOW" else 0.05
         atr_min_threshold = max(0.0, atr_min_threshold + time_adjustments.get("atr_min_adjustment", 0.0))
@@ -346,23 +370,32 @@ class RuleEngine:
         else:
             result.filters_passed.append("ATR_OK")
         
-        # Cooldown filter
+        # Cooldown filter - SESSION-AWARE
+        effective_cooldown = max(self.cooldown_minutes, session_config.cooldown_after_loss_minutes // 2)
         if self.last_trade_time:
             elapsed = (now_cst() - self.last_trade_time).total_seconds() / 60
-            if elapsed < self.cooldown_minutes:
-                result.filters_blocked.append(f"COOLDOWN ({elapsed:.1f} < {self.cooldown_minutes} min)")
+            if elapsed < effective_cooldown:
+                result.filters_blocked.append(f"COOLDOWN ({elapsed:.1f} < {effective_cooldown} min)")
         else:
             result.filters_passed.append("COOLDOWN_OK")
         
-        # Time filter (avoid first/last 15 min of session) - CST hours
+        # Time filter - Note session for logging
         hour = current_time.hour
         minute = current_time.minute
         
         # Market hours check (CST - ES futures trade Sun 5PM to Fri 4PM CST)
-        if 8 <= hour <= 15:  # Core trading hours 8 AM - 3 PM CST
-            result.filters_passed.append("MARKET_HOURS_OK")
+        if current_session == TradingSession.RTH:
+            result.filters_passed.append("RTH_SESSION")
+        elif current_session in [TradingSession.MAINTENANCE, TradingSession.WEEKEND]:
+            result.filters_blocked.append(f"MARKET_CLOSED ({current_session.value})")
         else:
-            result.filters_warned.append("OUTSIDE_MARKET_HOURS")
+            result.filters_passed.append(f"ETH_SESSION ({current_session.value})")
+        
+        # JAN 2026 FIX: Block trading in CHOP/RANGE markets
+        # These conditions have historically produced 4+ consecutive losses
+        if result.market_trend in ["CHOP", "RANGE"]:
+            result.filters_blocked.append(f"CHOP_MARKET_BLOCK ({result.market_trend} - no clear direction)")
+            logger.warning("🚫 CHOP MARKET BLOCK: trend=%s - too risky for entry", result.market_trend)
         
         # If any hard filters blocked, return early
         if result.filters_blocked:
@@ -546,8 +579,6 @@ class RuleEngine:
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold
         
         # Log score details for debugging
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"SCORE_DEBUG: buy={buy_score:.1f}, sell={sell_score:.1f}, "
                    f"threshold={signal_threshold}, scalp_mode={is_scalp_mode}, daily_bias={daily_bias}")
         logger.info(f"SCORE_BREAKDOWN: {' | '.join(score_details)}")
@@ -796,7 +827,9 @@ class LLMDecisionMaker:
         self.llm_client = llm_client
         self.config = config or {}
         
-        self.min_confidence_threshold = self.config.get("min_confidence", 60)
+        # Normalize confidence to 0-1 scale (detect 0-100 scale and convert)
+        raw_min_conf = self.config.get("min_confidence", 0.6)
+        self.min_confidence_threshold = raw_min_conf / 100.0 if raw_min_conf > 1.0 else raw_min_conf
         band = self.config.get("uncertainty_band")
         if isinstance(band, (list, tuple)) and len(band) == 2:
             self.uncertainty_band = (float(band[0]), float(band[1]))
@@ -872,7 +905,11 @@ class LLMDecisionMaker:
         features_summary: Dict[str, Any],
         rag_context: Any,
     ) -> LLMDecisionResult:
-        """Call LLM and enforce directional bias when it responds HOLD."""
+        """Call LLM and enforce directional bias when it responds HOLD.
+        
+        UPDATED Jan 2026: Raised minimum confidence from 25% to 45% for HOLD->action overrides.
+        Also require RSI to be more extreme (>65 or <35) to prevent low-conviction trades.
+        """
         try:
             llm_response = self._call_llm(prompt, len(prompt))
             decision = self._parse_response(llm_response)
@@ -881,16 +918,22 @@ class LLMDecisionMaker:
                 trend = features_summary.get("trend", "UNKNOWN")
                 rsi = features_summary.get("rsi", 50)
                 
-                if trend == "DOWNTREND" and rsi > 60:
+                # Jan 2026 fix: Block HOLD overrides in CHOP/RANGE markets
+                if trend in ["CHOP", "RANGE", "UNKNOWN"]:
+                    logger.info(f"🚫 Keeping HOLD in {trend} market - no override")
+                    return decision
+                
+                # Jan 2026 fix: Require more extreme RSI (was 60/40, now 65/35)
+                if trend == "DOWNTREND" and rsi > 65:
                     logger.info("🔄 Converting DOWNTREND HOLD to SELL signal")
                     decision.action = TradeAction.SELL
-                    decision.confidence = max(decision.confidence, 25.0)
+                    decision.confidence = max(decision.confidence, 45.0)  # RAISED from 25% to 45%
                     decision.reasoning = decision.reasoning or ""
                     decision.reasoning += f" | Downtrend with RSI {rsi}, converted from HOLD"
-                elif trend == "UPTREND" and rsi < 40:
+                elif trend == "UPTREND" and rsi < 35:
                     logger.info("🔄 Converting UPTREND HOLD to BUY signal")
                     decision.action = TradeAction.BUY
-                    decision.confidence = max(decision.confidence, 25.0)
+                    decision.confidence = max(decision.confidence, 45.0)  # RAISED from 25% to 45%
                     decision.reasoning = decision.reasoning or ""
                     decision.reasoning += f" | Uptrend with RSI {rsi}, converted from HOLD"
             
@@ -1269,8 +1312,10 @@ class HybridRAGPipeline:
         
         # Pipeline settings
         self.skip_llm_on_low_score = config.get("skip_llm_on_low_score", True)
-        self.min_score_for_llm = config.get("min_score_for_llm", 30)
-        self.min_confidence_for_trade = config.get("min_confidence_for_trade", 40)
+        raw_min_llm = config.get("min_score_for_llm", 0.3)
+        self.min_score_for_llm = raw_min_llm / 100.0 if raw_min_llm > 1.0 else raw_min_llm
+        raw_min_trade = config.get("min_confidence_for_trade", 0.4)
+        self.min_confidence_for_trade = raw_min_trade / 100.0 if raw_min_trade > 1.0 else raw_min_trade
         level_cfg = config.get("level_confirmation_settings", {})
         self.level_confirmation_settings = {
             "enabled": bool(

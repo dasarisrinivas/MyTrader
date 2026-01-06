@@ -58,24 +58,34 @@ class TradingViewCollector(DataCollector):
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:  # Rate limit
                     retry_after = int(e.response.headers.get("Retry-After", 60))
-                    logger.warning("TradingView rate limited. Waiting %d seconds...", retry_after)
+                    logger.warning("TradingView rate limited. Waiting {} seconds...", retry_after)
                     await asyncio.sleep(retry_after)
                 elif attempt < self.max_retries - 1:
                     delay = 2 ** attempt
-                    logger.warning("TradingView HTTP error %d (attempt %d/%d). Retrying in %ds...", 
-                                 e.response.status_code, attempt + 1, self.max_retries, delay)
+                    logger.warning(
+                        "TradingView HTTP error {} (attempt {}/{}). Retrying in {}s...",
+                        e.response.status_code,
+                        attempt + 1,
+                        self.max_retries,
+                        delay,
+                    )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error("TradingView request failed after %d attempts", self.max_retries)
+                    logger.error("TradingView request failed after {} attempts", self.max_retries)
                     raise
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     delay = 2 ** attempt
-                    logger.warning("TradingView collection error (attempt %d/%d): %s. Retrying in %ds...", 
-                                 attempt + 1, self.max_retries, e, delay)
+                    logger.warning(
+                        "TradingView collection error (attempt {}/{}): {}. Retrying in {}s...",
+                        attempt + 1,
+                        self.max_retries,
+                        e,
+                        delay,
+                    )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error("TradingView collection failed: %s", e)
+                    logger.error("TradingView collection failed: {}", e)
                     return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
         
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
@@ -97,6 +107,6 @@ class TradingViewCollector(DataCollector):
                         "source": "tradingview",
                     }
             except Exception as exc:  # noqa: BLE001
-                logger.error("TradingView stream error: %s", exc)
+                logger.error("TradingView stream error: {}", exc)
                 yield {"timestamp": datetime.utcnow(), "error": str(exc), "source": "tradingview"}
             await asyncio.sleep(60)

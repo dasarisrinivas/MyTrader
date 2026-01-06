@@ -108,7 +108,7 @@ class HybridPipelineIntegration:
                     "signal_threshold": getattr(settings.hybrid, 'signal_threshold', 40),
                 },
                 "llm": {
-                    "min_confidence": getattr(settings.hybrid, 'min_confidence', 60),
+                    "min_confidence": getattr(settings.hybrid, 'min_confidence', 0.60),  # 0-1 scale
                     "uncertainty_band": (
                         getattr(settings.hybrid, 'llm_uncertainty_band_low', 0.35),
                         getattr(settings.hybrid, 'llm_uncertainty_band_high', 0.65),
@@ -116,7 +116,7 @@ class HybridPipelineIntegration:
                     "call_cooldown_seconds": getattr(settings.hybrid, 'llm_call_cooldown_seconds', 60),
                     "response_cache_ttl_seconds": getattr(settings.hybrid, 'llm_response_cache_ttl_seconds', 900),
                 },
-                "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 40),
+                "min_confidence_for_trade": getattr(settings.hybrid, 'min_confidence_for_trade', 0.40),  # 0-1 scale
             }
             hybrid_config["level_confirmation_settings"] = {
                 "level_confirmation_enabled": getattr(settings.hybrid, "level_confirmation_enabled", True),

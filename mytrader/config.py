@@ -38,7 +38,7 @@ class EntryFilterConfig:
     counter_trend_penalty: float = 0.10
     # ADX trend strength filter (Jan 2026)
     require_adx_confirmation: bool = True
-    min_adx_threshold: float = 10.0  # Minimum ADX for trend trades
+    min_adx_threshold: float = 15.0  # Minimum ADX for trend trades
     adx_period: int = 14
     # ATR volatility filters
     atr_period: int = 14

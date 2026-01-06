@@ -605,7 +605,7 @@ class BacktestRunner:
         try:
             self.strategy_params = self.strategy_manager.load_state()
         except Exception as exc:
-            logger.warning("Unable to refresh strategy params: %s", exc)
+            logger.warning("Unable to refresh strategy params: {}", exc)
     
     def _record_open_trade(
         self,

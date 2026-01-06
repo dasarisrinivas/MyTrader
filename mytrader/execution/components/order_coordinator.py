@@ -216,7 +216,7 @@ class OrderCoordinator:
                     signal_source=str(rationale.get("signal_source", "hybrid")),
                 )
                 m.rag_storage.save_trade(record)
-                logger.info("✅ Saved trade %s to S3 RAG (P&L: $%.2f)", m.current_trade_id, realized_pnl)
+                logger.info("✅ Saved trade {} to S3 RAG (P&L: ${:.2f})", m.current_trade_id, realized_pnl)
                 m.current_trade_id = None
                 m.current_trade_entry_time = None
                 m.current_trade_entry_price = None
@@ -262,7 +262,7 @@ class OrderCoordinator:
         signal_key = self._build_signal_key(action, metadata)
 
         if signal_key in self._recent_signal_keys:
-            logger.warning("Duplicate submission blocked for key=%s", signal_key)
+            logger.warning("Duplicate submission blocked for key={}", signal_key)
             return False, "DUPLICATE_SIGNAL", signal_key
 
         # Reserve the key immediately to close race window
@@ -277,7 +277,7 @@ class OrderCoordinator:
             elapsed = (now - last_trade).total_seconds()
             remaining = cooldown_seconds - elapsed
             if remaining > 0:
-                logger.info("Cooldown active (%.1fs remaining) - blocking entry", remaining)
+                logger.info("Cooldown active ({:.1f}s remaining) - blocking entry", remaining)
                 self._recent_signal_keys.pop(signal_key, None)
                 return False, "COOLDOWN_ACTIVE", signal_key
 
@@ -296,11 +296,11 @@ class OrderCoordinator:
             try:
                 position = await self.manager.executor.get_current_position()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Position lookup failed; blocking entry: %s", exc)
+                logger.warning("Position lookup failed; blocking entry: {}", exc)
                 self._recent_signal_keys.pop(signal_key, None)
                 return False, "POSITION_UNKNOWN", signal_key
             if position and getattr(position, "quantity", 0) != 0:
-                logger.info("Open position detected (%s); blocking new entry", position.quantity)
+                logger.info("Open position detected ({}); blocking new entry", position.quantity)
                 self._recent_signal_keys.pop(signal_key, None)
                 return False, "POSITION_OPEN", signal_key
 
@@ -317,7 +317,7 @@ class OrderCoordinator:
         """Place an order with sizing, stops, and hard guardrails."""
         m = self.manager
         try:
-            logger.info("🛠️ DEBUG: Entered execute_trade_with_risk_checks for %s", signal.action)
+            logger.info("🛠️ DEBUG: Entered execute_trade_with_risk_checks for {}", signal.action)
 
             raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
             metadata = self.prepare_order_metadata(raw_metadata, current_price, "legacy")
@@ -355,7 +355,7 @@ class OrderCoordinator:
             regime, regime_conf = detect_market_regime(features)
             regime_params = get_regime_parameters(regime)
 
-            logger.info("📊 Market Regime: %s (conf=%.2f) - Using dynamic stops", regime.value, regime_conf)
+            logger.info("📊 Market Regime: {} (conf={:.2f}) - Using dynamic stops", regime.value, regime_conf)
 
             stop_loss_hint = metadata.get("stop_loss")
             take_profit_hint = metadata.get("take_profit")
@@ -391,7 +391,7 @@ class OrderCoordinator:
 
             for label, value in (("stop_loss", stop_loss), ("take_profit", take_profit)):
                 if value is None or not math.isfinite(value) or value == 0:
-                    logger.warning("⚠️ %s invalid (%s); blocking trade", label, value)
+                    logger.warning("⚠️ {} invalid ({}); blocking trade", label, value)
                     m._add_reason_code("INVALID_PROTECTION")
                     return
 
@@ -471,7 +471,7 @@ class OrderCoordinator:
                     qty,
                     current_price,
                 )
-                logger.warning("   SL: %.2f, TP: %.2f", stop_loss, take_profit)
+                logger.warning("   SL: {:.2f}, TP: {:.2f}", stop_loss, take_profit)
                 m._record_submission_timestamp()
                 self.record_signal_key(signal_key)
                 await m._broadcast_order_update(
@@ -509,11 +509,11 @@ class OrderCoordinator:
             try:
                 current_pos = await m.executor.get_current_position()
                 if current_pos and getattr(current_pos, "quantity", 0) != 0:
-                    logger.info("Position changed before submit (qty=%s); skipping entry", current_pos.quantity)
+                    logger.info("Position changed before submit (qty={}); skipping entry", current_pos.quantity)
                     self.record_signal_key(None)
                     return
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Position recheck failed; skipping entry to be safe: %s", exc)
+                logger.warning("Position recheck failed; skipping entry to be safe: {}", exc)
                 return
 
             result = await m.executor.place_order(
@@ -594,7 +594,7 @@ class OrderCoordinator:
                                 "signal_source": signal.metadata.get("signal_source", "hybrid") if signal.metadata else "hybrid",
                             }
 
-                            logger.info("📝 Trade entry tracking started: %s %s @ %.2f", signal.action, trade_uuid, result.fill_price)
+                            logger.info("📝 Trade entry tracking started: {} {} @ {:.2f}", signal.action, trade_uuid, result.fill_price)
 
                         except Exception as exc:  # noqa: BLE001
                             logger.error(f"Failed to setup trade tracking: {exc}")
@@ -603,7 +603,7 @@ class OrderCoordinator:
             logger.error(f"❌ CRITICAL: execute_trade_with_risk_checks failed with exception: {exc}")
             import traceback
 
-            logger.error("Traceback: %s", traceback.format_exc())
+            logger.error("Traceback: {}", traceback.format_exc())
             await m._broadcast_error(f"Order placement failed: {exc}")
 
     def add_reason_code(self, code: str) -> None:
