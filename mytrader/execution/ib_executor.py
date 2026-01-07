@@ -192,6 +192,8 @@ class TradeExecutor:
         self._order_lock_order_ids: set[int] = set()
         self._order_lock_timeout_seconds: int = getattr(config, "order_lock_timeout_seconds", 300)
         self._pending_order_timeout_seconds: int = getattr(config, "pending_order_timeout_seconds", 180)
+        # Timestamp of last pending-entry cancellation due to stale live bars
+        self._last_pending_cancel_ts = None
         
         # Initialize PositionManager
         from .position_manager import PositionManager
@@ -2168,6 +2170,73 @@ class TradeExecutor:
                 count += 1
         logger.info("Cancelled {count} orders", count=count)
         return count
+
+    async def cancel_pending_entry_orders(self, reason: str = "stale_live_bars", throttle_seconds: int = 30) -> dict:
+        """Cancel only pending ENTRY parent orders (not protective child orders).
+
+        Returns a dict with count and list of cancelled order ids.
+        This method is throttled by throttle_seconds (no-op if last cancel within window).
+        """
+        from datetime import datetime
+
+        now = datetime.utcnow()
+        if throttle_seconds and self._last_pending_cancel_ts:
+            try:
+                if (now - self._last_pending_cancel_ts).total_seconds() < float(throttle_seconds):
+                    logger.debug("Pending-entry cancellation throttled (last cancel at {})", self._last_pending_cancel_ts)
+                    return {"count": 0, "order_ids": []}
+            except Exception:
+                pass
+
+        pending_statuses = {"PreSubmitted", "Submitted", "PendingSubmit"}
+        cancelled_ids = []
+
+        # Iterate over a snapshot of active orders
+        for order_id, trade in list(self.active_orders.items()):
+            try:
+                # Skip initial-state (external/manual) orders
+                if self.is_initial_state_order(order_id):
+                    continue
+
+                # Only consider orders we consider 'entry parents' (we store stop/tp per parent)
+                if order_id not in self.order_targets:
+                    continue
+
+                status = None
+                try:
+                    status = getattr(trade, "orderStatus", None)
+                    status = getattr(status, "status", None) if status is not None else None
+                except Exception:
+                    status = None
+
+                if status not in pending_statuses:
+                    continue
+
+                # Cancel this parent order (this will also remove tracking of its bracket children via _cancel_trade)
+                success = self._cancel_trade(trade, reason)
+                if success:
+                    cancelled_ids.append(order_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Error while attempting to cancel pending entry {order_id}: {exc}")
+
+        if cancelled_ids:
+            self._last_pending_cancel_ts = now
+            logger.warning(
+                "Cancelled {count} pending ENTRY orders due to stale live bars ({reason})",
+                count=len(cancelled_ids),
+                reason=reason,
+            )
+            # Emit Prometheus metrics if attached
+            try:
+                prom = getattr(self, "prometheus_metrics", None)
+                symbol = getattr(self, "symbol", None)
+                if prom and symbol:
+                    prom.inc_canceled_entries(symbol, reason, len(cancelled_ids))
+                    prom.inc_cancel_call(symbol, reason, "canceled")
+            except Exception:
+                pass
+
+        return {"count": len(cancelled_ids), "order_ids": cancelled_ids}
 
     async def get_current_position(self) -> PositionInfo | None:
         """Get current position for the trading symbol."""

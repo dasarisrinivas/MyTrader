@@ -78,6 +78,13 @@ class TradingSessionManager:
                 commission_per_side=m._commission_per_side,
             )
 
+            # Attach prometheus metrics handle to executor if available
+            try:
+                if getattr(m, "prometheus_metrics", None):
+                    setattr(m.executor, "prometheus_metrics", m.prometheus_metrics)
+            except Exception:
+                pass
+
             await m.executor.connect(
                 m.settings.data.ibkr_host,
                 m.settings.data.ibkr_port,
@@ -131,6 +138,23 @@ class TradingSessionManager:
 
             m._configure_aws_agents()
             await m._load_historical_context()
+            
+            # Wire historical context to hybrid pipeline for PDH/PDL decisions
+            if m._use_hybrid_pipeline and m.hybrid_pipeline and m._historical_context:
+                try:
+                    prev_day = m._historical_context.get("previous_day", {})
+                    weekly = m._historical_context.get("weekly", {})
+                    m.hybrid_pipeline.set_price_levels(
+                        pdh=prev_day.get("high"),
+                        pdl=prev_day.get("low"),
+                        weekly_high=weekly.get("high"),
+                        weekly_low=weekly.get("low"),
+                        source="ibkr_historical",
+                    )
+                    logger.info("✅ Historical context wired to hybrid pipeline for decision-making")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"⚠️ Failed to wire historical context to hybrid pipeline: {e}")
+            
             await m._bootstrap_price_history(m.status.min_bars_needed)
 
             if m.executor and m.executor.ib:

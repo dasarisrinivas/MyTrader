@@ -1,0 +1,85 @@
+# Prometheus scrape configuration for MyTrader bot running on Mac mini
+# This file contains scrape configs that can be added to Prometheus
+
+# ==============================================================================
+# OPTION A: Using Prometheus Operator (ServiceMonitor)
+# ==============================================================================
+# ServiceMonitor custom resource for Prometheus Operator
+# Prerequisites: Prometheus Operator must be installed
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: mytrader-external
+  namespace: default
+  labels:
+    app: mytrader
+    component: metrics
+subsets:
+  - addresses:
+      # Mac mini IP address (update if it changes)
+      # Current IP found via: ifconfig | grep "inet " | grep -v 127.0.0.1
+      - ip: 192.168.4.157  # Your Mac mini IP
+    ports:
+      - name: metrics
+        port: 8000
+        protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mytrader-external
+  namespace: default
+  labels:
+    app: mytrader
+    component: metrics
+spec:
+  # This is a headless service that points to external endpoints
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector: {}  # No selector - we manually define endpoints above
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mytrader-external
+  namespace: default
+  labels:
+    app: mytrader
+    release: prometheus  # Adjust this label to match your Prometheus Operator setup
+spec:
+  selector:
+    matchLabels:
+      app: mytrader
+      component: metrics
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+
+---
+# ==============================================================================
+# OPTION B: Manual Prometheus scrape config (no Operator)
+# ==============================================================================
+# If you're NOT using Prometheus Operator, add this to your prometheus.yml:
+#
+# scrape_configs:
+#   - job_name: 'mytrader-mac-mini'
+#     static_configs:
+#       - targets:
+#           - '192.168.1.100:8000'  # UPDATE: Your Mac mini IP
+#         labels:
+#           instance: 'mac-mini'
+#           env: 'prod'
+#     scrape_interval: 30s
+#     scrape_timeout: 10s
+#     metrics_path: '/metrics'
+#
+# Then reload Prometheus:
+#   kubectl rollout restart deployment prometheus  # or however you restart it

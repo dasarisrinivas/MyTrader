@@ -240,8 +240,27 @@ class LiveTradingManager:
         self._aws_agents_allowed: bool = False
         self._aws_agents_ready: bool = False
 
-        # Hard risk gate
-        gate_cfg = getattr(settings, "risk_gate", RiskGateConfig())
+        # Hard risk gate - build RiskGateConfig from settings
+        settings_gate = getattr(settings, "risk_gate", None)
+        if settings_gate is None or isinstance(settings_gate, RiskGateConfig):
+            gate_cfg = settings_gate or RiskGateConfig()
+        else:
+            # Convert settings object to RiskGateConfig with proper defaults
+            gate_cfg = RiskGateConfig(
+                max_contracts=getattr(settings_gate, "max_contracts", 1),
+                risk_per_trade_usd=getattr(settings_gate, "risk_per_trade_usd", 60.0),
+                risk_per_trade_min=getattr(settings_gate, "risk_per_trade_min", 25.0),
+                risk_per_trade_max=getattr(settings_gate, "risk_per_trade_max", 75.0),
+                min_stop_points=getattr(settings_gate, "min_stop_points", 4.0),
+                max_stop_points=getattr(settings_gate, "max_stop_points", 12.0),
+                margin_buffer_usd=getattr(settings_gate, "margin_buffer_usd", 1000.0),
+                initial_margin_long=getattr(settings_gate, "initial_margin_long", 2464.0),
+                initial_margin_short=getattr(settings_gate, "initial_margin_short", 2305.6),
+                daily_max_loss_usd=getattr(settings_gate, "daily_max_loss_usd", 150.0),
+                max_consecutive_losses=getattr(settings_gate, "max_consecutive_losses", 3),
+                avoid_close_window_minutes=getattr(settings_gate, "avoid_close_window_minutes", 60),
+                avoid_close_enabled=getattr(settings_gate, "avoid_close_enabled", True),
+            )
         gate_cfg.tick_size = getattr(settings.trading, "tick_size", gate_cfg.tick_size)
         self.risk_gate = RiskGate(gate_cfg)
         
@@ -352,6 +371,22 @@ class LiveTradingManager:
         
         if simulation_mode:
             logger.warning("🔶 SIMULATION MODE ENABLED - Orders will NOT be sent to IBKR")
+
+        # Initialize Prometheus metrics (optional)
+        try:
+            from ..observability.prometheus_metrics import init_metrics, get_metrics
+
+            prom = init_metrics(self.settings)
+            if prom is not None:
+                # Attach module-level handle for convenience
+                self.prometheus_metrics = get_metrics()
+                logger.info(f"✅ Prometheus metrics initialized on port {self.settings.observability.prometheus_port}")
+            else:
+                self.prometheus_metrics = None
+                logger.info("⚠️  Prometheus metrics disabled (PROMETHEUS_ENABLED=false or not available)")
+        except Exception as e:
+            self.prometheus_metrics = None
+            logger.warning(f"⚠️  Failed to initialize Prometheus metrics: {e}")
     
     def _sanitize_cooldown_minutes(self, raw_value: Any) -> int:
         """Clamp cooldown minutes to a safe range and emit warnings if needed."""
@@ -576,14 +611,17 @@ class LiveTradingManager:
                     pdh = self._historical_context['previous_day']['high']
                     pdl = self._historical_context['previous_day']['low']
                     prev_close = self._historical_context['previous_day']['close']
+                    prev_date = self._historical_context['previous_day']['date']
+                    today_date = self._historical_context.get('today', {}).get('date', 'N/A')
                     
-                    logger.info(f"✅ Historical context loaded:")
-                    logger.info(f"   📈 Previous Day: High={pdh:.2f}, Low={pdl:.2f}, Close={prev_close:.2f}")
+                    logger.info(f"✅ Historical context loaded from IBKR daily bars:")
+                    logger.info(f"   📈 Previous Day ({prev_date}): High={pdh:.2f}, Low={pdl:.2f}, Close={prev_close:.2f}")
                     if self._historical_context.get('today'):
                         th = self._historical_context['today'].get('high', 0)
                         tl = self._historical_context['today'].get('low', 0)
-                        logger.info(f"   📊 Today: High={th:.2f}, Low={tl:.2f}")
+                        logger.info(f"   📊 Today ({today_date}): High={th:.2f}, Low={tl:.2f}")
                     logger.info(f"   📅 Weekly Range: {self._historical_context['weekly']['low']:.2f} - {self._historical_context['weekly']['high']:.2f}")
+                    logger.info(f"   ⏱️  Loaded at: {self._historical_context['loaded_at']}")
                     
                     # Store in RAG for agents to query
                     await self._store_historical_context_in_rag()
@@ -728,9 +766,42 @@ TRADING GUIDANCE:
             self.price_history = history[-window:]
             self.status.bars_collected = len(self.price_history)
             self._last_price_bar_ts = history[-1]["timestamp"]
+            
+            # Staleness validation: Log first/last bar timestamps and check age
+            first_bar_ts = history[0]["timestamp"]
+            last_bar_ts = history[-1]["timestamp"]
+            current_time = now_cst()
+            staleness_seconds = (current_time - last_bar_ts).total_seconds() if isinstance(last_bar_ts, datetime) else 999
+            
             logger.info(
                 f"📚 Bootstrapped {len(self.price_history)} historical 1-min bars for structural context"
             )
+            logger.info(
+                f"   ⏱️  First bar: {first_bar_ts}, Last bar: {last_bar_ts}, Now: {current_time.isoformat()}"
+            )
+            logger.info(
+                f"   ⏱️  Data age: {staleness_seconds:.0f}s (acceptable if <120s)"
+            )
+            
+            # Staleness behavior is configurable via one_minute config
+            stale_threshold = 120
+            fail_on_stale = False
+            if getattr(self, "one_minute_cfg", None):
+                stale_threshold = int(getattr(self.one_minute_cfg, "bootstrap_stale_seconds", stale_threshold))
+                fail_on_stale = bool(getattr(self.one_minute_cfg, "fail_on_bootstrap_stale", False))
+
+            # Warn if data is stale (older than threshold)
+            if staleness_seconds > stale_threshold:
+                msg = (
+                    f"⚠️  Bootstrapped bars are STALE ({staleness_seconds:.0f}s old). "
+                    "Market may be closed or data feed delayed."
+                )
+                if fail_on_stale:
+                    # Fail early so initialization aborts and operator can investigate
+                    logger.error(msg + " Failing startup due to configuration.")
+                    raise RuntimeError(msg)
+                else:
+                    logger.warning(msg)
 
     async def _fetch_latest_minute_bar(self) -> Optional[Dict[str, Any]]:
         """Fetch the most recent completed 1-minute bar from IBKR."""
@@ -1641,9 +1712,13 @@ TRADING GUIDANCE:
                 
                 # Log trade exit through hybrid pipeline
                 if self.hybrid_pipeline and hasattr(self, '_current_pipeline_result'):
+                    pd = getattr(self, '_current_pipeline_result', None)
+                    market_data_for_exit = getattr(pd, 'market_data', None) if pd is not None else None
                     self.hybrid_pipeline.log_trade_exit(
                         exit_price=current_price,
                         exit_reason="SIGNAL_EXIT",
+                        market_data=market_data_for_exit,
+                        pipeline_result=pd,
                     )
                 return
             else:

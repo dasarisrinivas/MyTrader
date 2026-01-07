@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -111,6 +112,46 @@ class SignalProcessor:
         """Generate a trading signal (hybrid or legacy) and confidence adjustments."""
         m = self.manager
 
+        # Live-bar staleness guard: compute staleness and block entries if stale.
+        # Skip this check during bootstrap (when no price bars have been collected yet).
+        last_bar_ts = getattr(m, "_last_price_bar_ts", None)
+        
+        # Only enforce staleness if we've collected bars (skip during bootstrap)
+        if last_bar_ts is not None:
+            try:
+                now = now_cst()
+                if isinstance(last_bar_ts, datetime):
+                    staleness_seconds = (now - last_bar_ts).total_seconds()
+                else:
+                    staleness_seconds = float("inf")
+            except Exception:
+                staleness_seconds = float("inf")
+
+            # Configurable threshold (one_minute.live_bar_stale_seconds) default to 120s
+            live_threshold = 120
+            try:
+                one_min_cfg = getattr(self.settings, "one_minute", None) or {}
+                if isinstance(one_min_cfg, dict):
+                    live_threshold = int(one_min_cfg.get("live_bar_stale_seconds", live_threshold))
+                else:
+                    live_threshold = int(getattr(one_min_cfg, "live_bar_stale_seconds", live_threshold))
+            except Exception:
+                live_threshold = 120
+
+            if staleness_seconds > live_threshold:
+                # Block new entries; allow exits (exit logic runs elsewhere).
+                logger.warning(
+                    f"⚠️ Blocking new entries: latest live bar is stale ({staleness_seconds:.0f}s > {live_threshold}s)"
+                )
+                # Return an explicit HOLD signal with block reason metadata so callers can log/act
+                hold_signal = SimpleNamespace(action="HOLD", confidence=0.0, metadata={})
+                hold_signal.metadata = {
+                    "block_reasons": ["STALE_LIVE_BARS"],
+                    "staleness_seconds": staleness_seconds,
+                    "live_threshold_seconds": live_threshold,
+                }
+                return SignalGenerationResult(signal=hold_signal, pipeline_result=None, filters_passed=False)
+
         # === Hybrid RAG+LLM Pipeline ===
         if m._use_hybrid_pipeline and (self.hybrid_pipeline or m.hybrid_pipeline):
             pipeline = self.hybrid_pipeline or m.hybrid_pipeline
@@ -132,6 +173,24 @@ class SignalProcessor:
                 # Update status with hybrid pipeline info
                 if pipeline_result:
                     m.context_manager.refresh_hybrid_context(pipeline_result)
+
+                    # Attach provenance details to structured logs for this decision cycle
+                    try:
+                        provenance = getattr(pipeline_result, "market_data", {})
+                        provenance = provenance.get("levels_provenance") if isinstance(provenance, dict) else None
+                    except Exception:
+                        provenance = None
+                    log_structured_event(
+                        agent="live_manager",
+                        event_type="hybrid.decision_provenance",
+                        message=f"provenance {hybrid_signal.action}",
+                        payload={
+                            "levels_provenance": provenance,
+                            "block_reasons": getattr(hybrid_signal, "metadata", {}).get("block_reasons"),
+                            "age_seconds_last_1m": provenance.get("age_seconds_last_1m") if isinstance(provenance, dict) else None,
+                            "timeframes_used": {"pipeline_timeframe": getattr(pipeline, "_timeframe", None)},
+                        },
+                    )
 
                 # Log hybrid pipeline decision
                 logger.info(
@@ -421,6 +480,78 @@ class SignalProcessor:
         )
         if not signal_result or not signal_result.signal:
             return
+
+        # Emit decision metric (count decisions by action) and clear stale episode flag if present
+        try:
+            symbol = getattr(getattr(m, 'settings', None).data, 'ibkr_symbol', None)
+            if getattr(m, 'prometheus_metrics', None) and symbol:
+                m.prometheus_metrics.inc_decision(symbol, signal_result.signal.action)
+                # If we got a non-stale decision, mark stale episode inactive
+                block_reasons_local = getattr(signal_result.signal, 'metadata', {}) or {}
+                if not (isinstance(block_reasons_local, dict) and 'STALE_LIVE_BARS' in block_reasons_local.get('block_reasons', [])):
+                    try:
+                        m.prometheus_metrics.set_stale_episode_active(symbol, False)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # If we blocked entries due to stale live bars, cancel pending ENTRY orders
+        try:
+            metadata = getattr(signal_result.signal, "metadata", {}) or {}
+            block_reasons = metadata.get("block_reasons", []) if isinstance(metadata, dict) else []
+            if "STALE_LIVE_BARS" in block_reasons:
+                one_min_cfg = getattr(self.settings, "one_minute", {}) or {}
+                if isinstance(one_min_cfg, dict):
+                    cancel_enabled = bool(one_min_cfg.get("cancel_entries_on_stale", True))
+                    throttle_seconds = int(one_min_cfg.get("cancel_stale_throttle_seconds", 30))
+                else:
+                    cancel_enabled = bool(getattr(one_min_cfg, "cancel_entries_on_stale", True))
+                    throttle_seconds = int(getattr(one_min_cfg, "cancel_stale_throttle_seconds", 30))
+
+                # Metric: stale_live_bars_blocks_total
+                try:
+                    if getattr(self.manager, "metrics_logger", None):
+                        payload = {
+                            "timestamp": now_cst().isoformat(),
+                            "stale_live_bars_blocked": 1,
+                            "last_1m_bar_age_seconds": metadata.get("staleness_seconds"),
+                        }
+                        self.manager.metrics_logger.record_market_metrics(payload)
+                except Exception:
+                    pass
+
+                # Emit Prometheus staleness metrics (signal owner of truth)
+                try:
+                    symbol = getattr(getattr(self.manager, 'settings', None).data, 'ibkr_symbol', None)
+                    if getattr(self.manager, 'prometheus_metrics', None) and symbol:
+                        # record bar age and increment stale block, mark stale episode active
+                        self.manager.prometheus_metrics.set_bar_age(symbol, "1m", metadata.get("staleness_seconds", 0))
+                        self.manager.prometheus_metrics.inc_stale_block(symbol)
+                        self.manager.prometheus_metrics.set_stale_episode_active(symbol, True)
+                except Exception:
+                    pass
+
+                if cancel_enabled and getattr(self.manager, "executor", None):
+                    try:
+                        canceled = await self.manager.executor.cancel_pending_entry_orders(
+                            reason="STALE_LIVE_BARS",
+                            throttle_seconds=throttle_seconds,
+                        )
+                        log_structured_event(
+                            agent="live_manager",
+                            event_type="stale.cancel_entries",
+                            message="Cancelled pending entry orders due to stale live bars",
+                            payload={
+                                "symbol": getattr(getattr(self.manager, 'settings', None), 'data', {}).get('ibkr_symbol', None) if isinstance(getattr(self.manager, 'settings', None), dict) else getattr(getattr(self.manager, 'settings', None), 'data', None) and getattr(getattr(self.manager, 'settings', None).data, 'ibkr_symbol', None),
+                                "cancel_result": canceled,
+                                "age_seconds_last_1m": metadata.get("staleness_seconds"),
+                            },
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"Error cancelling pending entries on stale live bars: {exc}")
+        except Exception:
+            pass
 
         if signal_result.pipeline_result and not signal_result.run_legacy_after_hybrid:
             await m._process_hybrid_signal(

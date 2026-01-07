@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from loguru import logger
+from ..utils.timezone_utils import now_cst, CST
 
 from mytrader.hybrid.multi_factor_scorer import MultiFactorScorer
 from mytrader.hybrid.coordination import AgentBus
@@ -192,14 +193,54 @@ class HybridPipelineIntegration:
         )
         if self.pipeline and self.embedding_builder:
             self.pipeline.rag_retriever.embedding_builder = self.embedding_builder
-        
+
         # Initialize daily updater
         self.daily_updater = create_daily_updater(storage=self.storage, embedding_builder=self.embedding_builder)
-        
+
         # Track current trade for logging
         self._current_trade_id: Optional[str] = None
-        
+
+        # Override levels from _historical_context (set via set_price_levels)
+        self._override_pdh: Optional[float] = None
+        self._override_pdl: Optional[float] = None
+        self._override_weekly_high: Optional[float] = None
+        self._override_weekly_low: Optional[float] = None
+        self._levels_source: str = "feature_computed"  # or "ibkr_historical"
+        # Whether to inject overrides in-place into the incoming features DF.
+        # Default True for live trading; tests/backtests can set False.
+        self.levels_inject_inplace: bool = bool(getattr(getattr(settings, 'hybrid', None), 'levels_inject_inplace', True))
+        self._warned_levels_not_inplace: bool = False
+
         logger.info("HybridPipelineIntegration initialized")
+    
+    def set_price_levels(
+        self,
+        pdh: Optional[float] = None,
+        pdl: Optional[float] = None,
+        weekly_high: Optional[float] = None,
+        weekly_low: Optional[float] = None,
+        source: str = "ibkr_historical",
+    ) -> None:
+        """Set override price levels from IBKR historical data.
+        
+        These levels take precedence over feature-computed values when non-zero.
+        
+        Args:
+            pdh: Previous day high
+            pdl: Previous day low
+            weekly_high: Current week high
+            weekly_low: Current week low
+            source: Source identifier for logging
+        """
+        self._override_pdh = pdh
+        self._override_pdl = pdl
+        self._override_weekly_high = weekly_high
+        self._override_weekly_low = weekly_low
+        self._levels_source = source
+        logger.info(
+            f"📊 Price levels set from {source}: "
+            f"PDH={pdh}, PDL={pdl}, WeekHigh={weekly_high}, WeekLow={weekly_low}"
+        )
     
     def _collect_local_documents(self) -> List[Tuple[str, str, Dict[str, Any]]]:
         """Collect documents from rag_data_path to bootstrap embeddings."""
@@ -289,7 +330,42 @@ class HybridPipelineIntegration:
         """
         if features.empty:
             return {"close": current_price, "price": current_price}
-        
+        # If IBKR-provided override levels are set on this pipeline, inject them
+        # into the features DataFrame so downstream consumers that read
+        # features["PDH"]/features["PDL"] get the IBKR values. Injection can
+        # be done in-place or on a copy depending on config (levels_inject_inplace).
+        if hasattr(self, "_override_pdh") and self._override_pdh is not None:
+            try:
+                if getattr(self, "levels_inject_inplace", True):
+                    # Mutate the original DataFrame
+                    try:
+                        features.loc[:, "PDH"] = self._override_pdh
+                        features.loc[:, "PDL"] = self._override_pdl
+                        features.loc[:, "weekly_high"] = self._override_weekly_high
+                        features.loc[:, "weekly_low"] = self._override_weekly_low
+                    except Exception:
+                        # Some index types may not support loc assignment; fall back to copy
+                        features = features.copy()
+                        features.loc[:, "PDH"] = self._override_pdh
+                        features.loc[:, "PDL"] = self._override_pdl
+                        features.loc[:, "weekly_high"] = self._override_weekly_high
+                        features.loc[:, "weekly_low"] = self._override_weekly_low
+                else:
+                    # Use a shallow copy to avoid surprising callers
+                    if not getattr(self, "_warned_levels_not_inplace", False):
+                        logger.info(
+                            "Levels injection is configured to copy (levels_inject_inplace=False); "
+                            "original features DataFrame will not be mutated."
+                        )
+                        self._warned_levels_not_inplace = True
+                    features = features.copy()
+                    features.loc[:, "PDH"] = self._override_pdh
+                    features.loc[:, "PDL"] = self._override_pdl
+                    features.loc[:, "weekly_high"] = self._override_weekly_high
+                    features.loc[:, "weekly_low"] = self._override_weekly_low
+            except Exception:
+                logger.debug("Could not inject override PDH/PDL into features; continuing")
+
         row = features.iloc[-1]
         timestamp = features.index[-1]
         if hasattr(timestamp, "isoformat"):
@@ -319,12 +395,13 @@ class HybridPipelineIntegration:
             "atr": float(row.get("ATR_14", row.get("atr", 0))),
             "atr_20_avg": float(row.get("ATR_20_avg", row.get("ATR_14", row.get("atr", 1)))),
             
-            # Levels (may need to be set elsewhere)
-            "pdh": float(row.get("PDH", row.get("pdh", 0))),
-            "pdl": float(row.get("PDL", row.get("pdl", 0))),
-            "weekly_high": float(row.get("weekly_high", 0)),
-            "weekly_low": float(row.get("weekly_low", 0)),
+            # Levels: Use override values if set, otherwise fall back to feature-computed
+            "pdh": self._override_pdh if self._override_pdh else float(row.get("PDH", row.get("pdh", 0))),
+            "pdl": self._override_pdl if self._override_pdl else float(row.get("PDL", row.get("pdl", 0))),
+            "weekly_high": self._override_weekly_high if self._override_weekly_high else float(row.get("weekly_high", 0)),
+            "weekly_low": self._override_weekly_low if self._override_weekly_low else float(row.get("weekly_low", 0)),
             "pivot": float(row.get("pivot", 0)),
+            "levels_source": self._levels_source,
             
             # Volume
             "volume_ratio": float(row.get("volume_ratio", 1.0)),
@@ -335,6 +412,39 @@ class HybridPipelineIntegration:
             "timeframe": self._timeframe,
             "candle_timestamp": candle_ts,
         }
+        # Build a provenance bundle for levels and bar freshness.
+        provenance = {
+            "levels_source": getattr(self, "_levels_source", "feature_computed"),
+            "pdh": market_data.get("pdh"),
+            "pdl": market_data.get("pdl"),
+            "weekly_high": market_data.get("weekly_high"),
+            "weekly_low": market_data.get("weekly_low"),
+            "candle_timestamp": candle_ts,
+            "now": now_cst().isoformat(),
+        }
+        # Attempt to include last_1m_bar timestamp delta
+        try:
+            last_1m_ts = timestamp if hasattr(timestamp, "isoformat") else None
+            provenance["last_1m_bar_ts"] = last_1m_ts.isoformat() if last_1m_ts is not None else None
+            if last_1m_ts is not None:
+                provenance["age_seconds_last_1m"] = (now_cst() - last_1m_ts).total_seconds()
+        except Exception:
+            provenance["last_1m_bar_ts"] = None
+            provenance["age_seconds_last_1m"] = None
+
+        # If historical_metrics contains a last 5m timestamp, include its delta
+        if historical_metrics and historical_metrics.get("last_5m_close_ts"):
+            try:
+                provenance["last_5m_close_ts"] = historical_metrics.get("last_5m_close_ts")
+                # If it's isoformat string, compute age
+                if isinstance(provenance["last_5m_close_ts"], str):
+                    dt5 = datetime.fromisoformat(provenance["last_5m_close_ts"])
+                    provenance["age_seconds_last_5m"] = (now_cst() - dt5).total_seconds()
+            except Exception:
+                provenance["age_seconds_last_5m"] = None
+
+        market_data["levels_provenance"] = provenance
+        logger.debug(f"Levels provenance: {provenance}")
         if current_position:
             market_data["current_position_qty"] = getattr(current_position, "quantity", 0) or 0
             market_data["current_position_avg_cost"] = getattr(current_position, "avg_cost", current_price) or current_price
@@ -370,6 +480,11 @@ class HybridPipelineIntegration:
         )
         
         return market_data
+
+    # Backwards-compatible alias for older callers/tests that expect the
+    # underscore-prefixed private method name.
+    def _convert_features_to_market_data(self, *args, **kwargs):
+        return self.convert_features_to_market_data(*args, **kwargs)
 
     @staticmethod
     def _safe_float(value: object, default: Optional[float] = None) -> Optional[float]:
@@ -596,6 +711,12 @@ class HybridPipelineIntegration:
             metadata=metadata,
         )
 
+        # Attach market_data to result so callers can persist or log provenance
+        try:
+            result.market_data = market_data
+        except Exception:
+            result.market_data = None
+
         if protection:
             self._log_protection_snapshot(
                 action_value=action_value,
@@ -631,6 +752,10 @@ class HybridPipelineIntegration:
                 "macro_bias": (macro_context or {}).get("regime_bias"),
                 "hold_reason": metadata.get("hold_reason"),
                 "pipeline_confidence": result.final_confidence,
+                # Include levels provenance and staleness/block info for decision auditing
+                "levels_provenance": market_data.get("levels_provenance"),
+                "block_reasons": metadata.get("block_reasons"),
+                "timeframes_used": {"pipeline_timeframe": self._timeframe},
             },
         )
         
@@ -875,6 +1000,8 @@ class HybridPipelineIntegration:
             "decision": decision.action,
             "confidence": decision.confidence,
             "historical_avg_trend": historical_summary.get("avg_trend_strength"),
+            "levels_provenance": market_data.get("levels_provenance"),
+            "block_reasons": decision.metadata.get("block_reasons") if hasattr(decision, "metadata") else None,
         }
         try:
             self.trade_logger.record_market_metrics(payload)
@@ -948,6 +1075,8 @@ class HybridPipelineIntegration:
         self,
         exit_price: float,
         exit_reason: str,
+        market_data: Optional[Dict[str, Any]] = None,
+        pipeline_result: Optional[HybridPipelineResult] = None,
     ) -> Optional[Any]:
         """Log a trade exit and analyze if it was a loss.
         
@@ -966,6 +1095,8 @@ class HybridPipelineIntegration:
             trade_id=self._current_trade_id,
             exit_price=exit_price,
             exit_reason=exit_reason,
+            market_data=market_data,
+            pipeline_result=pipeline_result,
         )
         
         # Analyze if it was a loss

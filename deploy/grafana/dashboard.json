@@ -1,0 +1,143 @@
+{
+  "dashboard": {
+    "title": "MyTrader Monitoring",
+    "tags": ["trading", "mytrader"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "Live Bar Age",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "mytrader_live_bar_age_seconds{timeframe=\"1m\"}",
+            "legendFormat": "{{symbol}} - {{timeframe}}"
+          }
+        ],
+        "yaxes": [
+          { "label": "Seconds", "format": "s" },
+          { "show": false }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [120], "type": "gt" },
+              "query": { "params": ["A", "5m", "now"] }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Stale Episode Active",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "mytrader_stale_episode_active",
+            "legendFormat": "{{symbol}}"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 1, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Decision Rate by Action",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum by (action) (rate(mytrader_decisions_total[5m]))",
+            "legendFormat": "{{action}}"
+          }
+        ],
+        "yaxes": [
+          { "label": "Decisions/sec", "format": "ops" },
+          { "show": false }
+        ]
+      },
+      {
+        "title": "Stale Blocks Rate",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(mytrader_stale_live_bars_blocks_total[5m])",
+            "legendFormat": "{{symbol}}"
+          }
+        ],
+        "yaxes": [
+          { "label": "Blocks/sec", "format": "ops" },
+          { "show": false }
+        ]
+      },
+      {
+        "title": "Canceled Entries Rate",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(mytrader_pending_entry_orders_canceled_total{reason=\"STALE_LIVE_BARS\"}[5m])",
+            "legendFormat": "{{symbol}}"
+          }
+        ],
+        "yaxes": [
+          { "label": "Cancels/sec", "format": "ops" },
+          { "show": false }
+        ]
+      },
+      {
+        "title": "Total Stale Blocks (Last Hour)",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "increase(mytrader_stale_live_bars_blocks_total[1h])",
+            "legendFormat": "{{symbol}}"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        }
+      },
+      {
+        "title": "Cancel Call Outcomes",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum by (outcome) (rate(mytrader_cancel_entries_calls_total[5m]))",
+            "legendFormat": "{{outcome}}"
+          }
+        ],
+        "yaxes": [
+          { "label": "Calls/sec", "format": "ops" },
+          { "show": false }
+        ]
+      }
+    ],
+    "refresh": "10s",
+    "time": { "from": "now-1h", "to": "now" }
+  }
+}

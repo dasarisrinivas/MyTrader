@@ -406,6 +406,15 @@ class FeatureFlagsConfig:
 
 
 @dataclass
+class ObservabilityConfig:
+    """Observability settings (Prometheus exporter)."""
+    prometheus_enabled: bool = field(default_factory=lambda: os.environ.get("PROMETHEUS_ENABLED", "False").lower() in {"1", "true", "yes"})
+    prometheus_addr: str = field(default_factory=lambda: os.environ.get("PROMETHEUS_ADDR", "0.0.0.0"))
+    prometheus_port: int = field(default_factory=lambda: int(os.environ.get("PROMETHEUS_PORT", "8000")))
+    env_label: str = field(default_factory=lambda: os.environ.get("DEPLOY_ENV", "local"))
+
+
+@dataclass
 class Settings:
     data: DataSourceConfig = field(default_factory=DataSourceConfig)
     trading: TradingConfig = field(default_factory=TradingConfig)
@@ -421,6 +430,7 @@ class Settings:
     aws_agents: AWSAgentsConfig = field(default_factory=AWSAgentsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     features: FeatureFlagsConfig = field(default_factory=FeatureFlagsConfig)
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
     def validate(self) -> None:
         if self.trading.initial_capital <= 0:
