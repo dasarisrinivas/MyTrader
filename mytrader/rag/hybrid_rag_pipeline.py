@@ -572,8 +572,47 @@ class RuleEngine:
         else:
             score_details.append("DAILY_NEUTRAL")
         
+        # ===== JAN 8 2026 FIX: MEAN-REVERSION OVERRIDE =====
+        # When price is at PDL/PDH with extreme RSI, OVERRIDE trend-following
+        # and force mean-reversion logic. This prevents selling at support
+        # or buying at resistance when RSI confirms reversal.
+        mean_reversion_override = False
+        if pdh > 0 and pdl > 0:
+            pdh_dist_pct = abs(price - pdh) / price * 100
+            pdl_dist_pct = abs(price - pdl) / price * 100
+            
+            # Near PDL (support) with oversold RSI → FORCE BUY
+            if pdl_dist_pct < 0.3 and rsi < 35:
+                if sell_score > buy_score:
+                    logger.warning(
+                        f"🔄 MEAN-REVERSION OVERRIDE: Near PDL ({pdl_dist_pct:.2f}%) "
+                        f"+ oversold RSI ({rsi:.1f}) → Flipping SELL→BUY"
+                    )
+                    # Swap scores to favor BUY
+                    old_buy, old_sell = buy_score, sell_score
+                    buy_score = max(old_sell, old_buy * 1.3)
+                    sell_score = old_buy * 0.5
+                    mean_reversion_override = True
+                    score_details.append(f"MEAN_REV_OVERRIDE(PDL+RSI{rsi:.0f})")
+            
+            # Near PDH (resistance) with overbought RSI → FORCE SELL
+            elif pdh_dist_pct < 0.3 and rsi > 65:
+                if buy_score > sell_score:
+                    logger.warning(
+                        f"🔄 MEAN-REVERSION OVERRIDE: Near PDH ({pdh_dist_pct:.2f}%) "
+                        f"+ overbought RSI ({rsi:.1f}) → Flipping BUY→SELL"
+                    )
+                    # Swap scores to favor SELL
+                    old_buy, old_sell = buy_score, sell_score
+                    sell_score = max(old_buy, old_sell * 1.3)
+                    buy_score = old_sell * 0.5
+                    mean_reversion_override = True
+                    score_details.append(f"MEAN_REV_OVERRIDE(PDH+RSI{rsi:.0f})")
+        
         # Determine final signal - use scalp threshold in low-vol/range
-        normal_threshold = self.config.get("signal_threshold", 40)
+        # JAN 8 2026 FIX: Raised default threshold from 40 to 55 to filter marginal trades
+        # Analysis showed 47% confidence trades had high failure rate
+        normal_threshold = self.config.get("signal_threshold", 55)
         threshold_adjustment = 1 + time_adjustments.get("min_confidence_adjustment", 0.0)
         normal_threshold = max(1, int(normal_threshold * threshold_adjustment))
         signal_threshold = scalp_threshold if is_scalp_mode else normal_threshold

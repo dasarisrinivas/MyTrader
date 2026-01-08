@@ -81,6 +81,9 @@ class OneMinuteStrategyConfig:
     trend_flip_exit: bool = True
     breakout_use_or_levels: bool = False
     window_bars: int = 400
+    # JAN 8 2026: Multi-timeframe trend confirmation
+    require_5m_trend_alignment: bool = True  # Check 5-min trend before 1-min entry
+    mtf_ema_period: int = 20  # EMA period for 5-min trend calculation
 
 
 @dataclass
@@ -306,6 +309,145 @@ class RAGConfig:
 
 
 @dataclass
+class StockwitsSentimentConfig:
+    """Configuration for Stocktwits sentiment integration (legacy single-source)."""
+    enabled: bool = field(
+        default_factory=lambda: os.environ.get("STOCKTWITS_SENTIMENT_ENABLED", "True").lower() in {"1", "true", "yes"}
+    )
+    # Symbols to fetch sentiment for
+    symbols: List[str] = field(default_factory=lambda: ["ES_F", "SPY"])
+    # Cache refresh interval (minimum time between API calls)
+    refresh_interval_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("STOCKTWITS_REFRESH_INTERVAL_SECONDS", "300"))
+    )
+    # HTTP request timeout
+    request_timeout_seconds: float = field(
+        default_factory=lambda: float(os.environ.get("STOCKTWITS_REQUEST_TIMEOUT", "3.0"))
+    )
+    # ============================================================
+    # RTH (Regular Trading Hours) thresholds - 8:30 AM - 3:00 PM CT
+    # Higher liquidity = more relaxed thresholds
+    # ============================================================
+    # Sentiment threshold to block contradictory entries
+    # e.g., block long if sentiment < -0.4, block short if sentiment > 0.4
+    entry_block_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_ENTRY_BLOCK_THRESHOLD", "0.4"))
+    )
+    # Weaker threshold for reducing confidence (but not blocking)
+    weak_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_WEAK_THRESHOLD", "0.2"))
+    )
+    # Threshold to trigger protective actions for existing positions
+    protect_position_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_PROTECT_POSITION_THRESHOLD", "0.6"))
+    )
+    # ============================================================
+    # Low Volume Session thresholds (Evening & Overnight)
+    # Lower liquidity = STRICTER thresholds to avoid bad fills
+    # Evening: 5:00 PM - 11:00 PM CT
+    # Overnight: 11:00 PM - 3:00 AM CT
+    # ============================================================
+    low_volume_entry_block_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_LOW_VOLUME_ENTRY_BLOCK_THRESHOLD", "0.25"))
+    )
+    low_volume_weak_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_LOW_VOLUME_WEAK_THRESHOLD", "0.10"))
+    )
+    low_volume_protect_position_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_LOW_VOLUME_PROTECT_POSITION_THRESHOLD", "0.40"))
+    )
+    # ============================================================
+    # Confidence modifiers
+    # ============================================================
+    # Confidence modifier when sentiment is mildly contradictory
+    mild_contradiction_confidence_mult: float = 0.8  # 20% reduction
+    # Confidence boost when sentiment agrees with signal
+    agreement_confidence_mult: float = 1.1  # 10% boost
+    # Additional penalty for low volume sessions (stacks with above)
+    low_volume_confidence_penalty: float = 0.9  # Extra 10% reduction in low volume
+
+
+@dataclass
+class MultiSourceSentimentConfig:
+    """Configuration for multi-source sentiment aggregation (Stocktwits + Reddit + Twitter).
+    
+    This replaces StockwitsSentimentConfig with a more comprehensive multi-source approach.
+    """
+    enabled: bool = field(
+        default_factory=lambda: os.environ.get("MULTI_SOURCE_SENTIMENT_ENABLED", "True").lower() in {"1", "true", "yes"}
+    )
+    
+    # ============================================================
+    # Source weights (must sum to 1.0)
+    # ============================================================
+    stocktwits_weight: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_STOCKTWITS_WEIGHT", "0.4"))
+    )
+    reddit_weight: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_REDDIT_WEIGHT", "0.3"))
+    )
+    twitter_weight: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_TWITTER_WEIGHT", "0.3"))
+    )
+    
+    # ============================================================
+    # API Configuration
+    # ============================================================
+    refresh_interval_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("SENTIMENT_REFRESH_INTERVAL_SECONDS", "300"))
+    )
+    request_timeout_seconds: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_REQUEST_TIMEOUT", "3.0"))
+    )
+    
+    # Stocktwits symbols
+    stocktwits_symbols: List[str] = field(default_factory=lambda: ["ES_F", "SPY"])
+    
+    # Reddit configuration
+    reddit_subreddits: List[str] = field(
+        default_factory=lambda: ["wallstreetbets", "stocks", "options"]
+    )
+    reddit_search_terms: List[str] = field(
+        default_factory=lambda: ["SPY", "SPX", "ES", "S&P 500", "futures"]
+    )
+    
+    # Twitter search terms
+    twitter_search_terms: List[str] = field(
+        default_factory=lambda: ["$SPY", "SPX", "ES futures", "S&P 500"]
+    )
+    
+    # ============================================================
+    # RTH Thresholds (Regular Trading Hours: 8:30 AM - 3:00 PM CT)
+    # ============================================================
+    entry_block_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_ENTRY_BLOCK_THRESHOLD", "0.4"))
+    )
+    weak_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_WEAK_THRESHOLD", "0.2"))
+    )
+    strong_exit_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_STRONG_EXIT_THRESHOLD", "0.6"))
+    )
+    
+    # ============================================================
+    # Low Volume Session Thresholds (Evening & Overnight)
+    # ============================================================
+    low_volume_entry_block_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_LOW_VOLUME_ENTRY_BLOCK_THRESHOLD", "0.25"))
+    )
+    low_volume_weak_threshold: float = field(
+        default_factory=lambda: float(os.environ.get("SENTIMENT_LOW_VOLUME_WEAK_THRESHOLD", "0.10"))
+    )
+    
+    # ============================================================
+    # Confidence modifiers
+    # ============================================================
+    mild_contradiction_confidence_mult: float = 0.7  # 30% reduction for reduce_size
+    agreement_confidence_mult: float = 1.1  # 10% boost
+    low_volume_confidence_penalty: float = 0.9  # Extra 10% penalty
+
+
+@dataclass
 class TelegramConfig:
     """Configuration for Telegram notifications."""
     enabled: bool = field(default_factory=lambda: os.environ.get("TELEGRAM_ENABLED", "False").lower() == "true")
@@ -426,6 +568,8 @@ class Settings:
     llm: LLMConfig = field(default_factory=LLMConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    stocktwits_sentiment: StockwitsSentimentConfig = field(default_factory=StockwitsSentimentConfig)
+    multi_source_sentiment: MultiSourceSentimentConfig = field(default_factory=MultiSourceSentimentConfig)
     hybrid: HybridConfig = field(default_factory=HybridConfig)
     aws_agents: AWSAgentsConfig = field(default_factory=AWSAgentsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
@@ -433,6 +577,9 @@ class Settings:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
     def validate(self) -> None:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if self.trading.initial_capital <= 0:
             raise ValueError("initial capital must be positive")
         if self.trading.max_position_size <= 0:
@@ -444,3 +591,51 @@ class Settings:
         if self.trading.max_contracts_limit > 5:
              # Enforce hard cap in code even if env var tries to override
              self.trading.max_contracts_limit = 5
+        
+        # ============================================================
+        # CRITICAL: Consolidate risk limits to use MOST CONSERVATIVE values
+        # This prevents dangerous inconsistencies between RiskGateConfig 
+        # and TradingConfig that could allow excessive risk.
+        # See review.md: "Inconsistent Risk Limits"
+        # ============================================================
+        
+        # Max contracts: use minimum of all sources
+        risk_gate_contracts = self.risk_gate.max_contracts
+        trading_max_pos = self.trading.max_position_size
+        trading_contracts_limit = self.trading.max_contracts_limit
+        
+        conservative_max_contracts = min(
+            risk_gate_contracts,
+            trading_max_pos, 
+            trading_contracts_limit
+        )
+        
+        if conservative_max_contracts != trading_max_pos or conservative_max_contracts != trading_contracts_limit:
+            logger.warning(
+                f"RISK CONSOLIDATION: Max contracts mismatch detected. "
+                f"RiskGate={risk_gate_contracts}, TradingConfig.max_position_size={trading_max_pos}, "
+                f"TradingConfig.max_contracts_limit={trading_contracts_limit}. "
+                f"Using most conservative: {conservative_max_contracts}"
+            )
+            self.trading.max_position_size = conservative_max_contracts
+            self.trading.max_contracts_limit = conservative_max_contracts
+        
+        # Daily loss limit: use minimum (more conservative) value
+        risk_gate_daily_loss = self.risk_gate.daily_max_loss_usd
+        trading_daily_loss = self.trading.max_daily_loss
+        
+        conservative_daily_loss = min(risk_gate_daily_loss, trading_daily_loss)
+        
+        if risk_gate_daily_loss != trading_daily_loss:
+            logger.warning(
+                f"RISK CONSOLIDATION: Daily loss limit mismatch detected. "
+                f"RiskGate=${risk_gate_daily_loss}, TradingConfig=${trading_daily_loss}. "
+                f"Using most conservative: ${conservative_daily_loss}"
+            )
+            self.trading.max_daily_loss = conservative_daily_loss
+        
+        # Log final consolidated values for audit trail
+        logger.info(
+            f"RISK LIMITS CONSOLIDATED: max_contracts={conservative_max_contracts}, "
+            f"daily_max_loss=${conservative_daily_loss}"
+        )

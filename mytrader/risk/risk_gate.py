@@ -26,9 +26,10 @@ class RiskGateConfig:
     risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "60")))
     risk_per_trade_min: float = 25.0
     risk_per_trade_max: float = 75.0  # $75 max = 15 point stop
-    # Jan 2026: Raised min_stop_points from 2.0 to 4.0 to prevent stops too tight for MES noise
-    # MES typical noise is 2-3 points, so 4.0 gives buffer for normal price wiggles
-    min_stop_points: float = 4.0
+    # JAN 8 2026 FIX: Raised min_stop_points from 4.0 to 6.0
+    # Analysis showed 83% stop-loss hit rate with 4-point stops due to normal
+    # market noise of 3-5 points. 6 points gives breathing room.
+    min_stop_points: float = 6.0
     max_stop_points: float = 12.0  # 12 points max = $60 risk cap
     margin_buffer_usd: float = field(default_factory=lambda: float(os.environ.get("MARGIN_BUFFER_USD", "1000")))
     initial_margin_long: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_LONG", "2464")))

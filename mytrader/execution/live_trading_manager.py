@@ -852,6 +852,11 @@ TRADING GUIDANCE:
         self.status.bars_collected = len(self.price_history)
         self._last_price_bar_ts = bar.get("timestamp")
         
+        # === JAN 8 2026 FIX: Feed 1m bar to 5m aggregator ===
+        # This enables the 5-minute trend filter to actually work
+        if hasattr(self, 'signal_processor') and self.signal_processor:
+            self.signal_processor.update_mtf_candle(bar)
+        
         # Update trend if not set by hybrid pipeline (ensures trend is always available)
         if not self.status.hybrid_market_trend and len(self.price_history) >= 10:
             self._compute_fallback_trend()

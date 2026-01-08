@@ -15,6 +15,37 @@ from ...utils.timezone_utils import now_cst
 from ...features.feature_engineer import engineer_features
 from .trade_decision_engine import TradingContext
 
+# NEW: Multi-source sentiment aggregator (Jan 2026)
+try:
+    from ...data.sentiment_aggregator import (
+        evaluate_sentiment_for_entry as multi_evaluate_entry,
+        evaluate_sentiment_for_position as multi_evaluate_position,
+        get_combined_mes_sentiment,
+        get_mes_sentiment_score,
+        set_cache_refresh_interval as multi_set_cache_interval,
+        SentimentDecision,
+        CombinedSentiment,
+        # JAN 8 2026: Sentiment-derived trend
+        get_sentiment_trend,
+        combine_sentiment_with_technical_trend,
+        SentimentTrend,
+    )
+    MULTI_SOURCE_SENTIMENT_AVAILABLE = True
+except ImportError:
+    MULTI_SOURCE_SENTIMENT_AVAILABLE = False
+
+# LEGACY: Single-source Stocktwits sentiment (Jan 2026)
+try:
+    from ...data.stocktwits_sentiment import (
+        evaluate_sentiment_for_entry,
+        evaluate_sentiment_for_position,
+        get_mes_sentiment,
+        set_cache_refresh_interval,
+    )
+    STOCKTWITS_SENTIMENT_AVAILABLE = True
+except ImportError:
+    STOCKTWITS_SENTIMENT_AVAILABLE = False
+
 # NEW: Multi-timeframe support (Jan 2026)
 try:
     from ...data.candle_aggregator import MultiTimeframeCandleBuilder
@@ -36,14 +67,30 @@ class SignalGenerationResult:
     filters_passed: bool = True
     filters_applied: List[str] = field(default_factory=list)
     run_legacy_after_hybrid: bool = False
+    sentiment_modifier: Any = None  # SentimentDecisionModifier if applied
 
 
 class EmergencySignalGenerator:
-    """Force a directional signal after too many consecutive HOLDs."""
+    """Monitor consecutive HOLDs and log warnings - ADVISORY ONLY.
+    
+    REVIEW FIX (Jan 2026): Changed from forcing trades to advisory-only mode.
+    
+    Previously, this class would force BUY/SELL after 10 consecutive HOLDs,
+    which was identified as dangerous in range-bound markets (could trigger
+    trades in unfavorable conditions). Now it only:
+    1. Logs warnings when threshold is reached
+    2. Adds metadata for analysis
+    3. Does NOT override the strategy's HOLD decision
+    
+    Rationale: Forcing trades after 10 minutes of inactivity is too aggressive.
+    Missing a trend is better than forcing a wrong trade. If activity is needed,
+    implement a volatility breakout trigger instead of blind forced entry.
+    """
 
-    def __init__(self, max_consecutive_holds: int = 10):
+    def __init__(self, max_consecutive_holds: int = 50):  # Increased from 10 to 50
         self.consecutive_holds = 0
         self.max_consecutive_holds = max_consecutive_holds
+        self._warning_logged = False
 
     def apply(self, signal: Any, market_context: Dict[str, Any]) -> Any:
         action = getattr(signal, "action", None)
@@ -51,33 +98,34 @@ class EmergencySignalGenerator:
             self.consecutive_holds += 1
         else:
             self.consecutive_holds = 0
+            self._warning_logged = False
 
-        if self.consecutive_holds >= self.max_consecutive_holds:
+        # ADVISORY ONLY: Log warning but do NOT force trades
+        if self.consecutive_holds >= self.max_consecutive_holds and not self._warning_logged:
             trend = market_context.get("trend", "UNKNOWN")
+            adx = market_context.get("adx", 0)
+            atr = market_context.get("atr", 0)
+            
             logger.warning(
-                f"🚨 Emergency mode: {self.consecutive_holds} consecutive HOLDs (trend={trend})"
+                f"⚠️ ADVISORY: {self.consecutive_holds} consecutive HOLDs "
+                f"(trend={trend}, ADX={adx:.1f}, ATR={atr:.2f})"
             )
-
-            new_action: Optional[str] = None
-            if trend in ["DOWNTREND", "WEAK_DOWN", "MICRO_DOWN"]:
-                new_action = "SELL"
-            elif trend in ["UPTREND", "WEAK_UP", "MICRO_UP"]:
-                new_action = "BUY"
-
-            if new_action:
-                signal.action = new_action
-                signal.confidence = max(getattr(signal, "confidence", 0.0), 0.25)
-                metadata = getattr(signal, "metadata", {})
-                metadata = metadata if isinstance(metadata, dict) else {}
-                metadata.update(
-                    {
-                        "emergency_mode": True,
-                        "emergency_reason": f"{self.consecutive_holds} consecutive HOLDs",
-                        "emergency_trend": trend,
-                    }
-                )
-                signal.metadata = metadata
-                self.consecutive_holds = 0  # reset after firing
+            logger.warning(
+                "   Strategy is inactive - market may be range-bound or filters too strict. "
+                "Review conditions if this persists."
+            )
+            
+            # Add metadata for analysis but do NOT change the action
+            metadata = getattr(signal, "metadata", {})
+            metadata = metadata if isinstance(metadata, dict) else {}
+            metadata.update({
+                "consecutive_holds_warning": True,
+                "consecutive_holds_count": self.consecutive_holds,
+                "market_trend": trend,
+                "advisory_only": True,  # Flag that we did NOT force a trade
+            })
+            signal.metadata = metadata
+            self._warning_logged = True  # Only log once per streak
 
         return signal
 
@@ -101,6 +149,367 @@ class SignalProcessor:
         # NEW: Multi-timeframe candle builder (Jan 2026)
         self._mtf_builder: Optional[MultiTimeframeCandleBuilder] = None
         self._init_mtf_builder()
+        
+        # NEW: Multi-source sentiment configuration (Jan 2026)
+        self._multi_source_enabled = False
+        self._multi_source_config = None
+        # LEGACY: Single-source Stocktwits sentiment
+        self._stocktwits_enabled = False
+        self._stocktwits_config = None
+        self._init_sentiment()
+
+    def _init_sentiment(self) -> None:
+        """Initialize sentiment integration (multi-source or legacy Stocktwits)."""
+        # Prefer multi-source sentiment if available and enabled
+        multi_cfg = getattr(self.settings, "multi_source_sentiment", None)
+        if MULTI_SOURCE_SENTIMENT_AVAILABLE and multi_cfg and getattr(multi_cfg, "enabled", False):
+            self._init_multi_source_sentiment(multi_cfg)
+            return
+        
+        # Fall back to legacy Stocktwits-only sentiment
+        stocktwits_cfg = getattr(self.settings, "stocktwits_sentiment", None)
+        if STOCKTWITS_SENTIMENT_AVAILABLE and stocktwits_cfg and getattr(stocktwits_cfg, "enabled", False):
+            self._init_stocktwits_sentiment(stocktwits_cfg)
+            return
+        
+        logger.debug("Sentiment integration disabled in config")
+    
+    def _init_multi_source_sentiment(self, cfg) -> None:
+        """Initialize multi-source sentiment aggregator (Stocktwits + Reddit)."""
+        self._multi_source_enabled = True
+        self._multi_source_config = cfg
+        
+        # Configure cache refresh interval
+        refresh_interval = getattr(cfg, "refresh_interval_seconds", 300)
+        multi_set_cache_interval(refresh_interval)
+        
+        # Check if Twitter is enabled
+        twitter_enabled = getattr(cfg, "twitter_enabled", False)
+        twitter_weight = getattr(cfg, "twitter_weight", 0.0)
+        
+        logger.info("=" * 70)
+        logger.info("📊 MULTI-SOURCE SENTIMENT AGGREGATOR ENABLED")
+        logger.info("=" * 70)
+        logger.info(f"   Sources & Weights:")
+        logger.info(f"      Stocktwits: {getattr(cfg, 'stocktwits_weight', 0.55):.0%}")
+        logger.info(f"      Reddit:     {getattr(cfg, 'reddit_weight', 0.45):.0%}")
+        if twitter_enabled and twitter_weight > 0:
+            logger.info(f"      Twitter:    {twitter_weight:.0%}")
+        else:
+            logger.info(f"      Twitter:    DISABLED (no API credentials)")
+        logger.info(f"   RTH Thresholds (8:30 AM - 3:00 PM CT):")
+        logger.info(f"      Entry block: ±{getattr(cfg, 'entry_block_threshold', 0.4)}")
+        logger.info(f"      Weak threshold: ±{getattr(cfg, 'weak_threshold', 0.2)}")
+        logger.info(f"   Low-Volume Thresholds (Evening/Overnight):")
+        logger.info(f"      Entry block: ±{getattr(cfg, 'low_volume_entry_block_threshold', 0.25)}")
+        logger.info(f"      Weak threshold: ±{getattr(cfg, 'low_volume_weak_threshold', 0.10)}")
+        logger.info(f"   Refresh interval: {refresh_interval}s")
+        logger.info("=" * 70)
+        
+        # Warm the cache with initial fetch
+        try:
+            initial = get_combined_mes_sentiment(force_refresh=True)
+            logger.info(f"   ✅ Initial combined sentiment: {initial.score:+.2f}")
+            logger.info(f"      Stocktwits: {initial.stocktwits.score:+.2f} ({initial.stocktwits.sample_count} samples)")
+            logger.info(f"      Reddit: {initial.reddit.score:+.2f} ({initial.reddit.sample_count} samples)")
+            if twitter_enabled and twitter_weight > 0:
+                logger.info(f"      Twitter: {initial.twitter.score:+.2f} ({initial.twitter.sample_count} samples)")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Initial sentiment fetch failed: {e}")
+
+    def _init_stocktwits_sentiment(self, cfg) -> None:
+        """Initialize legacy Stocktwits-only sentiment."""
+        self._stocktwits_enabled = True
+        self._stocktwits_config = cfg
+        
+        refresh_interval = getattr(cfg, "refresh_interval_seconds", 300)
+        set_cache_refresh_interval(refresh_interval)
+        
+        logger.info("=" * 60)
+        logger.info("📊 STOCKTWITS SENTIMENT (LEGACY) ENABLED")
+        logger.info("=" * 60)
+        logger.info(f"   RTH thresholds (8:30 AM - 3:00 PM CT):")
+        logger.info(f"      Entry block: ±{getattr(cfg, 'entry_block_threshold', 0.4)}")
+        logger.info(f"      Weak threshold: ±{getattr(cfg, 'weak_threshold', 0.2)}")
+        logger.info(f"   Refresh interval: {refresh_interval}s")
+        logger.info("=" * 60)
+        
+        try:
+            initial_sentiment = get_mes_sentiment(force_refresh=True)
+            logger.info(f"   ✅ Initial MES sentiment: {initial_sentiment:.2f}")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Initial sentiment fetch failed: {e}")
+    
+    def _get_current_session(self) -> str:
+        """Determine current trading session based on CST time.
+        
+        Returns:
+            'RTH' for Regular Trading Hours (8:30 AM - 3:00 PM CT)
+            'EVENING' for Evening Session (5:00 PM - 11:00 PM CT)
+            'OVERNIGHT' for Overnight (11:00 PM - 8:30 AM CT)
+        """
+        now = now_cst()
+        minutes = now.hour * 60 + now.minute
+        
+        # RTH: 8:30 AM - 3:00 PM CT (510 - 900 minutes)
+        if 510 <= minutes <= 900:
+            return "RTH"
+        # Evening: 5:00 PM - 11:00 PM CT (1020 - 1380 minutes)
+        elif 1020 <= minutes <= 1380:
+            return "EVENING"
+        # Overnight: everything else
+        else:
+            return "OVERNIGHT"
+    
+    def _is_low_volume_session(self) -> bool:
+        """Check if current session is low-volume (evening or overnight)."""
+        session = self._get_current_session()
+        return session in ("EVENING", "OVERNIGHT")
+
+    def _evaluate_sentiment(self, signal: Any) -> Tuple[Any, Optional[Any]]:
+        """Evaluate sentiment and apply to signal.
+        
+        Uses multi-source sentiment if available, otherwise falls back to Stocktwits-only.
+        Uses stricter thresholds during low-volume sessions.
+        
+        Returns:
+            Tuple of (modified_signal, sentiment_decision or None)
+        """
+        # Prefer multi-source sentiment
+        if self._multi_source_enabled and MULTI_SOURCE_SENTIMENT_AVAILABLE:
+            return self._evaluate_multi_source_sentiment(signal)
+        
+        # Fall back to legacy Stocktwits
+        if self._stocktwits_enabled and STOCKTWITS_SENTIMENT_AVAILABLE:
+            return self._evaluate_stocktwits_sentiment(signal)
+        
+        return signal, None
+    
+    def _evaluate_multi_source_sentiment(self, signal: Any) -> Tuple[Any, Optional[Any]]:
+        """Evaluate multi-source sentiment (Stocktwits + Reddit + Twitter).
+        
+        Returns:
+            Tuple of (modified_signal, SentimentDecision or None)
+        """
+        action = getattr(signal, "action", "HOLD")
+        if action == "HOLD":
+            return signal, None
+        
+        try:
+            cfg = self._multi_source_config
+            
+            # Session-aware threshold selection
+            is_low_volume = self._is_low_volume_session()
+            current_session = self._get_current_session()
+            
+            if is_low_volume:
+                entry_block = getattr(cfg, "low_volume_entry_block_threshold", 0.25)
+                weak_threshold = getattr(cfg, "low_volume_weak_threshold", 0.10)
+                low_volume_penalty = getattr(cfg, "low_volume_confidence_penalty", 0.9)
+            else:
+                entry_block = getattr(cfg, "entry_block_threshold", 0.4)
+                weak_threshold = getattr(cfg, "weak_threshold", 0.2)
+                low_volume_penalty = 1.0
+            
+            # JAN 8 2026 FIX: Extract RSI for contrarian logic
+            # When sentiment is extreme but RSI is opposite extreme, it's a contrarian opportunity
+            rsi_value = None
+            try:
+                metadata = getattr(signal, "metadata", {}) or {}
+                # Try various RSI keys
+                rsi_value = metadata.get("rsi") or metadata.get("indicators", {}).get("rsi")
+                if rsi_value is None and "rule_result" in metadata:
+                    rule_indicators = metadata.get("rule_result", {}).get("indicators", {})
+                    rsi_value = rule_indicators.get("rsi")
+                if rsi_value is not None:
+                    rsi_value = float(rsi_value)
+            except (ValueError, TypeError, AttributeError):
+                rsi_value = None
+            
+            # Get sentiment decision with RSI for contrarian logic
+            decision: SentimentDecision = multi_evaluate_entry(
+                proposed_action=action,
+                entry_block_threshold=entry_block,
+                weak_threshold=weak_threshold,
+                force_refresh=False,
+                rsi_value=rsi_value,  # JAN 8 2026 FIX: Pass RSI for contrarian detection
+            )
+            
+            # Log comprehensive info
+            logger.info(f"📊 Multi-Source Sentiment Check ({current_session}):")
+            logger.info(f"   Combined Score: {decision.combined_score:+.2f}")
+            if decision.source_breakdown:
+                logger.info(f"   Breakdown:")
+                logger.info(f"      Stocktwits: {decision.source_breakdown.get('stocktwits', 0):+.2f}")
+                logger.info(f"      Reddit:     {decision.source_breakdown.get('reddit', 0):+.2f}")
+                logger.info(f"      Twitter:    {decision.source_breakdown.get('twitter', 0):+.2f}")
+            logger.info(f"   Thresholds: block=±{entry_block}, weak=±{weak_threshold}")
+            logger.info(f"   Recommendation: {decision.action_recommendation}")
+            logger.info(f"   Reason: {decision.reason}")
+            
+            log_structured_event(
+                agent="signal_processor",
+                event_type="sentiment.multi_source.check",
+                message=f"MultiSource Sentiment {decision.action_recommendation}",
+                payload={
+                    "action": action,
+                    "session": current_session,
+                    "is_low_volume": is_low_volume,
+                    "combined_score": decision.combined_score,
+                    "source_breakdown": decision.source_breakdown,
+                    "entry_block_threshold": entry_block,
+                    "weak_threshold": weak_threshold,
+                    "allow_trade": decision.allow_trade,
+                    "recommendation": decision.action_recommendation,
+                    "confidence_modifier": decision.confidence_modifier,
+                    "reason": decision.reason,
+                },
+            )
+            
+            # Handle sentiment-based blocking
+            if not decision.allow_trade:
+                logger.warning(f"🚫 MULTI-SOURCE SENTIMENT BLOCK ({current_session}): {decision.reason}")
+                signal.action = "HOLD"
+                signal.confidence = 0.0
+                metadata = getattr(signal, "metadata", {}) or {}
+                metadata["sentiment_blocked"] = True
+                metadata["sentiment_reason"] = decision.reason
+                metadata["combined_sentiment"] = decision.combined_score
+                metadata["source_breakdown"] = decision.source_breakdown
+                metadata["session"] = current_session
+                signal.metadata = metadata
+                return signal, decision
+            
+            # Apply confidence modifier with low-volume penalty
+            effective_modifier = decision.confidence_modifier * low_volume_penalty
+            if effective_modifier != 1.0:
+                original_conf = getattr(signal, "confidence", 0.0)
+                new_conf = original_conf * effective_modifier
+                logger.info(
+                    f"   Confidence: {original_conf:.3f} → {new_conf:.3f} "
+                    f"(sentiment: {decision.confidence_modifier:.2f}, "
+                    f"low_vol: {low_volume_penalty:.2f})"
+                )
+                signal.confidence = new_conf
+                
+                metadata = getattr(signal, "metadata", {}) or {}
+                metadata["sentiment_modifier"] = decision.confidence_modifier
+                metadata["low_volume_penalty"] = low_volume_penalty
+                metadata["combined_sentiment"] = decision.combined_score
+                metadata["source_breakdown"] = decision.source_breakdown
+                metadata["session"] = current_session
+                signal.metadata = metadata
+            
+            return signal, decision
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Multi-source sentiment check failed: {e}")
+            logger.warning("   Proceeding without sentiment data")
+            return signal, None
+
+    def _evaluate_stocktwits_sentiment(self, signal: Any) -> Tuple[Any, Optional[Any]]:
+        """Evaluate legacy Stocktwits-only sentiment and apply to signal.
+        
+        Uses stricter thresholds during low-volume sessions (evening/overnight).
+        
+        Returns:
+            Tuple of (modified_signal, sentiment_modifier or None)
+        """
+        if not self._stocktwits_enabled or not STOCKTWITS_SENTIMENT_AVAILABLE:
+            return signal, None
+        
+        action = getattr(signal, "action", "HOLD")
+        if action == "HOLD":
+            return signal, None
+        
+        try:
+            cfg = self._stocktwits_config
+            
+            # Session-aware threshold selection
+            is_low_volume = self._is_low_volume_session()
+            current_session = self._get_current_session()
+            
+            if is_low_volume:
+                # Stricter thresholds during low volume (evening/overnight)
+                entry_block = getattr(cfg, "low_volume_entry_block_threshold", 0.25)
+                weak_threshold = getattr(cfg, "low_volume_weak_threshold", 0.10)
+                low_volume_penalty = getattr(cfg, "low_volume_confidence_penalty", 0.9)
+                logger.info(f"📊 Low-volume session ({current_session}) - using stricter sentiment thresholds")
+            else:
+                # RTH thresholds (more relaxed due to higher liquidity)
+                entry_block = getattr(cfg, "entry_block_threshold", 0.4)
+                weak_threshold = getattr(cfg, "weak_threshold", 0.2)
+                low_volume_penalty = 1.0  # No additional penalty during RTH
+            
+            sentiment_modifier = evaluate_sentiment_for_entry(
+                proposed_action=action,
+                entry_block_threshold=entry_block,
+                weak_threshold=weak_threshold,
+                force_refresh=False,  # Use cached data if fresh
+            )
+            
+            logger.info(f"📊 Stocktwits Sentiment Check ({current_session} session):")
+            logger.info(f"   MES Sentiment: {sentiment_modifier.mes_sentiment:.2f}")
+            logger.info(f"   Entry block threshold: ±{entry_block}")
+            logger.info(f"   Weak threshold: ±{weak_threshold}")
+            logger.info(f"   Recommendation: {sentiment_modifier.action_recommendation}")
+            logger.info(f"   Reason: {sentiment_modifier.reason}")
+            
+            log_structured_event(
+                agent="signal_processor",
+                event_type="sentiment.check",
+                message=f"Sentiment {sentiment_modifier.action_recommendation}",
+                payload={
+                    "action": action,
+                    "session": current_session,
+                    "is_low_volume": is_low_volume,
+                    "entry_block_threshold": entry_block,
+                    "weak_threshold": weak_threshold,
+                    "mes_sentiment": sentiment_modifier.mes_sentiment,
+                    "allow_trade": sentiment_modifier.allow_trade,
+                    "confidence_modifier": sentiment_modifier.confidence_modifier,
+                    "reason": sentiment_modifier.reason,
+                },
+            )
+            
+            # Handle sentiment-based blocking
+            if not sentiment_modifier.allow_trade:
+                logger.warning(f"🚫 SENTIMENT BLOCK ({current_session}): {sentiment_modifier.reason}")
+                signal.action = "HOLD"
+                signal.confidence = 0.0
+                metadata = getattr(signal, "metadata", {}) or {}
+                metadata["sentiment_blocked"] = True
+                metadata["sentiment_reason"] = sentiment_modifier.reason
+                metadata["mes_sentiment"] = sentiment_modifier.mes_sentiment
+                metadata["session"] = current_session
+                signal.metadata = metadata
+                return signal, sentiment_modifier
+            
+            # Apply confidence modifier (with additional low-volume penalty if applicable)
+            effective_modifier = sentiment_modifier.confidence_modifier * low_volume_penalty
+            if effective_modifier != 1.0:
+                original_conf = getattr(signal, "confidence", 0.0)
+                new_conf = original_conf * effective_modifier
+                logger.info(
+                    f"   Confidence adjusted: {original_conf:.3f} → {new_conf:.3f} "
+                    f"(sentiment: {sentiment_modifier.confidence_modifier:.2f}, "
+                    f"low_vol: {low_volume_penalty:.2f})"
+                )
+                signal.confidence = new_conf
+                
+                metadata = getattr(signal, "metadata", {}) or {}
+                metadata["sentiment_modifier"] = sentiment_modifier.confidence_modifier
+                metadata["low_volume_penalty"] = low_volume_penalty
+                metadata["mes_sentiment"] = sentiment_modifier.mes_sentiment
+                metadata["session"] = current_session
+                signal.metadata = metadata
+            
+            return signal, sentiment_modifier
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Stocktwits sentiment check failed: {e}")
+            logger.warning("   Proceeding without sentiment data")
+            return signal, None
 
     async def generate_trading_signal(
         self,
@@ -221,6 +630,14 @@ class SignalProcessor:
                 
                 # === JAN 2026 AUDIT FIX: 5-Minute Trend Filter ===
                 hybrid_signal = self.apply_5m_trend_filter(hybrid_signal)
+                
+                # === JAN 8 2026: Sentiment-Derived Trend Adjustment ===
+                hybrid_signal = self._apply_sentiment_trend_adjustment(hybrid_signal, m.status.hybrid_market_trend)
+                
+                # === JAN 2026: Multi-Source Sentiment Integration ===
+                sentiment_modifier = None
+                if (self._multi_source_enabled or self._stocktwits_enabled) and hybrid_signal.action != "HOLD":
+                    hybrid_signal, sentiment_modifier = self._evaluate_sentiment(hybrid_signal)
 
                 # Store pipeline result for trade logging
                 m._current_pipeline_result = pipeline_result
@@ -238,6 +655,7 @@ class SignalProcessor:
                         filters_passed=True,
                         filters_applied=[],
                         run_legacy_after_hybrid=False,
+                        sentiment_modifier=sentiment_modifier,
                     )
                 logger.info("ℹ️  Hybrid HOLD detected; legacy evaluation allowed per config")
             except Exception as exc:  # noqa: BLE001
@@ -294,6 +712,11 @@ class SignalProcessor:
         # Emergency mode for legacy path
         market_ctx = self._build_market_context_from_features(features)
         signal = self._emergency_generator.apply(signal, market_ctx)
+        
+        # === JAN 2026: Multi-Source Sentiment Integration (Legacy Path) ===
+        sentiment_modifier = None
+        if (self._multi_source_enabled or self._stocktwits_enabled) and signal.action != "HOLD":
+            signal, sentiment_modifier = self._evaluate_sentiment(signal)
 
         m.status.last_signal = signal.action
         m.status.signal_confidence = signal.confidence
@@ -304,6 +727,7 @@ class SignalProcessor:
             filters_passed=filters_passed,
             filters_applied=filters_applied,
             run_legacy_after_hybrid=False,
+            sentiment_modifier=sentiment_modifier,
         )
 
     def calculate_confidence(self, signal_data: Dict[str, float]) -> float:
@@ -762,23 +1186,26 @@ class SignalProcessor:
                 entry_filters = trading_cfg.get("entry_filters", {})
         
         # Extract values handling both dict and config object
+        # JAN 8 2026 FIX: Raised ADX threshold from 15 to 18 to filter out 
+        # borderline trending signals that whipsaw. ADX 15-18 is "weak trend"
+        # territory where trend-following strategies underperform.
         if entry_filters is None:
             require_adx = True
-            min_adx = 15.0  # CHANGED: Balanced default from 20.0 to 15.0
+            min_adx = 18.0  # RAISED from 15.0 - filter weak trends
             allow_counter_trend = False
         elif hasattr(entry_filters, "require_adx_confirmation"):
             # Config object with attributes
             require_adx = getattr(entry_filters, "require_adx_confirmation", True)
-            min_adx = getattr(entry_filters, "min_adx_threshold", 15.0)  # CHANGED default
+            min_adx = getattr(entry_filters, "min_adx_threshold", 18.0)  # RAISED default
             allow_counter_trend = getattr(entry_filters, "allow_counter_trend", False)
         elif isinstance(entry_filters, dict):
             # Dict-based config
             require_adx = entry_filters.get("require_adx_confirmation", True)
-            min_adx = entry_filters.get("min_adx_threshold", 15.0)  # CHANGED default
+            min_adx = entry_filters.get("min_adx_threshold", 18.0)  # RAISED default
             allow_counter_trend = entry_filters.get("allow_counter_trend", False)
         else:
             require_adx = True
-            min_adx = 15.0  # CHANGED: Balanced default from 20.0 to 15.0
+            min_adx = 18.0  # RAISED from 15.0 - filter weak trends
             allow_counter_trend = False
         
         # Extract ADX from features
@@ -834,6 +1261,53 @@ class SignalProcessor:
         
         return signal
 
+    def _apply_sentiment_trend_adjustment(self, signal: Any, technical_trend: str) -> Any:
+        """Apply sentiment-derived trend adjustment to signal confidence.
+        
+        JAN 8 2026: Sentiment can be a leading indicator. When sentiment
+        aligns with technicals, boost confidence. When they diverge, reduce.
+        
+        Args:
+            signal: The trading signal to adjust
+            technical_trend: Current technical trend ("UPTREND", "DOWNTREND", "NEUTRAL", etc.)
+            
+        Returns:
+            Signal with potentially modified confidence
+        """
+        if signal.action == "HOLD":
+            return signal
+        
+        if not self._multi_source_enabled or not MULTI_SOURCE_SENTIMENT_AVAILABLE:
+            return signal
+        
+        try:
+            # Get sentiment trend and combine with technical
+            combined_trend, confidence_boost, explanation = combine_sentiment_with_technical_trend(
+                technical_trend=technical_trend or "NEUTRAL",
+                force_refresh=False,  # Use cached sentiment
+            )
+            
+            # Apply confidence adjustment
+            if confidence_boost != 0.0:
+                original_conf = getattr(signal, "confidence", 0.0)
+                new_conf = max(0.0, min(1.0, original_conf + confidence_boost))
+                signal.confidence = new_conf
+                
+                logger.info(f"📊 SENTIMENT-TREND: {explanation}")
+                logger.info(f"   Confidence: {original_conf:.3f} → {new_conf:.3f}")
+                
+                # Update metadata
+                metadata = getattr(signal, "metadata", {}) or {}
+                metadata["sentiment_trend_boost"] = confidence_boost
+                metadata["sentiment_trend_explanation"] = explanation
+                metadata["combined_trend"] = combined_trend
+                signal.metadata = metadata
+            
+        except Exception as e:
+            logger.debug(f"Sentiment trend adjustment skipped: {e}")
+        
+        return signal
+
     def _init_mtf_builder(self) -> None:
         """Initialize the multi-timeframe candle builder if enabled in config."""
         if not MTF_AVAILABLE or MultiTimeframeCandleBuilder is None:
@@ -875,7 +1349,7 @@ class SignalProcessor:
             if timestamp is None:
                 return
             
-            self._mtf_builder.add_bar(
+            completed_candle = self._mtf_builder.add_bar(
                 timestamp=timestamp,
                 open_price=float(bar.get("open", 0)),
                 high_price=float(bar.get("high", 0)),
@@ -883,6 +1357,15 @@ class SignalProcessor:
                 close_price=float(bar.get("close", 0)),
                 volume=float(bar.get("volume", 0)),
             )
+            
+            # Log when a 5-minute candle completes
+            if completed_candle is not None:
+                trend_5m = self._mtf_builder.get_trend()
+                logger.info(
+                    f"📊 5-MIN CANDLE COMPLETE: O={completed_candle.open:.2f} "
+                    f"H={completed_candle.high:.2f} L={completed_candle.low:.2f} "
+                    f"C={completed_candle.close:.2f} | Trend: {trend_5m}"
+                )
         except Exception as e:
             logger.debug(f"MTF candle update error: {e}")
     
