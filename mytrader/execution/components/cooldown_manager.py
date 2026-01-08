@@ -112,7 +112,7 @@ class CooldownManager:
             try:
                 tracker.reset_symbol_state(symbol)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("⚠️  Failed to clear persisted cooldown for %s: %s", symbol, exc)
+                logger.warning("⚠️  Failed to clear persisted cooldown for {}: {}", symbol, exc)
         manager._last_trade_time = None
         manager.status.cooldown_remaining_seconds = 0
         force_release = getattr(manager.executor, "force_release_order_lock", None)

@@ -240,8 +240,27 @@ class LiveTradingManager:
         self._aws_agents_allowed: bool = False
         self._aws_agents_ready: bool = False
 
-        # Hard risk gate
-        gate_cfg = getattr(settings, "risk_gate", RiskGateConfig())
+        # Hard risk gate - build RiskGateConfig from settings
+        settings_gate = getattr(settings, "risk_gate", None)
+        if settings_gate is None or isinstance(settings_gate, RiskGateConfig):
+            gate_cfg = settings_gate or RiskGateConfig()
+        else:
+            # Convert settings object to RiskGateConfig with proper defaults
+            gate_cfg = RiskGateConfig(
+                max_contracts=getattr(settings_gate, "max_contracts", 1),
+                risk_per_trade_usd=getattr(settings_gate, "risk_per_trade_usd", 60.0),
+                risk_per_trade_min=getattr(settings_gate, "risk_per_trade_min", 25.0),
+                risk_per_trade_max=getattr(settings_gate, "risk_per_trade_max", 75.0),
+                min_stop_points=getattr(settings_gate, "min_stop_points", 4.0),
+                max_stop_points=getattr(settings_gate, "max_stop_points", 12.0),
+                margin_buffer_usd=getattr(settings_gate, "margin_buffer_usd", 1000.0),
+                initial_margin_long=getattr(settings_gate, "initial_margin_long", 2464.0),
+                initial_margin_short=getattr(settings_gate, "initial_margin_short", 2305.6),
+                daily_max_loss_usd=getattr(settings_gate, "daily_max_loss_usd", 150.0),
+                max_consecutive_losses=getattr(settings_gate, "max_consecutive_losses", 3),
+                avoid_close_window_minutes=getattr(settings_gate, "avoid_close_window_minutes", 60),
+                avoid_close_enabled=getattr(settings_gate, "avoid_close_enabled", True),
+            )
         gate_cfg.tick_size = getattr(settings.trading, "tick_size", gate_cfg.tick_size)
         self.risk_gate = RiskGate(gate_cfg)
         
@@ -352,6 +371,22 @@ class LiveTradingManager:
         
         if simulation_mode:
             logger.warning("🔶 SIMULATION MODE ENABLED - Orders will NOT be sent to IBKR")
+
+        # Initialize Prometheus metrics (optional)
+        try:
+            from ..observability.prometheus_metrics import init_metrics, get_metrics
+
+            prom = init_metrics(self.settings)
+            if prom is not None:
+                # Attach module-level handle for convenience
+                self.prometheus_metrics = get_metrics()
+                logger.info(f"✅ Prometheus metrics initialized on port {self.settings.observability.prometheus_port}")
+            else:
+                self.prometheus_metrics = None
+                logger.info("⚠️  Prometheus metrics disabled (PROMETHEUS_ENABLED=false or not available)")
+        except Exception as e:
+            self.prometheus_metrics = None
+            logger.warning(f"⚠️  Failed to initialize Prometheus metrics: {e}")
     
     def _sanitize_cooldown_minutes(self, raw_value: Any) -> int:
         """Clamp cooldown minutes to a safe range and emit warnings if needed."""
@@ -576,14 +611,17 @@ class LiveTradingManager:
                     pdh = self._historical_context['previous_day']['high']
                     pdl = self._historical_context['previous_day']['low']
                     prev_close = self._historical_context['previous_day']['close']
+                    prev_date = self._historical_context['previous_day']['date']
+                    today_date = self._historical_context.get('today', {}).get('date', 'N/A')
                     
-                    logger.info(f"✅ Historical context loaded:")
-                    logger.info(f"   📈 Previous Day: High={pdh:.2f}, Low={pdl:.2f}, Close={prev_close:.2f}")
+                    logger.info(f"✅ Historical context loaded from IBKR daily bars:")
+                    logger.info(f"   📈 Previous Day ({prev_date}): High={pdh:.2f}, Low={pdl:.2f}, Close={prev_close:.2f}")
                     if self._historical_context.get('today'):
                         th = self._historical_context['today'].get('high', 0)
                         tl = self._historical_context['today'].get('low', 0)
-                        logger.info(f"   📊 Today: High={th:.2f}, Low={tl:.2f}")
+                        logger.info(f"   📊 Today ({today_date}): High={th:.2f}, Low={tl:.2f}")
                     logger.info(f"   📅 Weekly Range: {self._historical_context['weekly']['low']:.2f} - {self._historical_context['weekly']['high']:.2f}")
+                    logger.info(f"   ⏱️  Loaded at: {self._historical_context['loaded_at']}")
                     
                     # Store in RAG for agents to query
                     await self._store_historical_context_in_rag()
@@ -728,9 +766,42 @@ TRADING GUIDANCE:
             self.price_history = history[-window:]
             self.status.bars_collected = len(self.price_history)
             self._last_price_bar_ts = history[-1]["timestamp"]
+            
+            # Staleness validation: Log first/last bar timestamps and check age
+            first_bar_ts = history[0]["timestamp"]
+            last_bar_ts = history[-1]["timestamp"]
+            current_time = now_cst()
+            staleness_seconds = (current_time - last_bar_ts).total_seconds() if isinstance(last_bar_ts, datetime) else 999
+            
             logger.info(
                 f"📚 Bootstrapped {len(self.price_history)} historical 1-min bars for structural context"
             )
+            logger.info(
+                f"   ⏱️  First bar: {first_bar_ts}, Last bar: {last_bar_ts}, Now: {current_time.isoformat()}"
+            )
+            logger.info(
+                f"   ⏱️  Data age: {staleness_seconds:.0f}s (acceptable if <120s)"
+            )
+            
+            # Staleness behavior is configurable via one_minute config
+            stale_threshold = 120
+            fail_on_stale = False
+            if getattr(self, "one_minute_cfg", None):
+                stale_threshold = int(getattr(self.one_minute_cfg, "bootstrap_stale_seconds", stale_threshold))
+                fail_on_stale = bool(getattr(self.one_minute_cfg, "fail_on_bootstrap_stale", False))
+
+            # Warn if data is stale (older than threshold)
+            if staleness_seconds > stale_threshold:
+                msg = (
+                    f"⚠️  Bootstrapped bars are STALE ({staleness_seconds:.0f}s old). "
+                    "Market may be closed or data feed delayed."
+                )
+                if fail_on_stale:
+                    # Fail early so initialization aborts and operator can investigate
+                    logger.error(msg + " Failing startup due to configuration.")
+                    raise RuntimeError(msg)
+                else:
+                    logger.warning(msg)
 
     async def _fetch_latest_minute_bar(self) -> Optional[Dict[str, Any]]:
         """Fetch the most recent completed 1-minute bar from IBKR."""
@@ -780,6 +851,33 @@ TRADING GUIDANCE:
             self.price_history = self.price_history[-self._bar_window :]
         self.status.bars_collected = len(self.price_history)
         self._last_price_bar_ts = bar.get("timestamp")
+        
+        # === JAN 8 2026 FIX: Feed 1m bar to 5m aggregator ===
+        # This enables the 5-minute trend filter to actually work
+        if hasattr(self, 'signal_processor') and self.signal_processor:
+            self.signal_processor.update_mtf_candle(bar)
+        
+        # Update trend if not set by hybrid pipeline (ensures trend is always available)
+        if not self.status.hybrid_market_trend and len(self.price_history) >= 10:
+            self._compute_fallback_trend()
+
+    def _compute_fallback_trend(self) -> None:
+        """Compute trend from price history when hybrid pipeline hasn't set it."""
+        try:
+            closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-20:] if isinstance(bar, dict)]
+            if len(closes) >= 5:
+                slope = np.polyfit(np.arange(len(closes)), closes, 1)[0]
+                # Use threshold to avoid noise in flat markets
+                if slope < -0.05:
+                    trend = "DOWNTREND"
+                elif slope > 0.05:
+                    trend = "UPTREND"
+                else:
+                    trend = "NEUTRAL"
+                self.status.hybrid_market_trend = trend
+                logger.debug(f"Fallback trend computed: {trend} (slope={slope:.5f})")
+        except Exception as exc:
+            logger.debug(f"Fallback trend computation failed: {exc}")
 
     async def start(self):
         """Start the live trading loop."""
@@ -804,7 +902,7 @@ TRADING GUIDANCE:
             exit_handled = await self._check_position_exit_signals(current_price)
             if exit_handled:
                 return
-            logger.debug("📊 Holding position (%s); skipping new entries", qty)
+            logger.debug("📊 Holding position ({}); skipping new entries", qty)
             return
 
         # Entry signals only - flat position
@@ -920,12 +1018,17 @@ TRADING GUIDANCE:
         if trend:
             logger.info(f"Trend-based exit check: current trend={trend} qty={qty}")
         else:
-            logger.info("Trend-based exit check: no trend available (hybrid_market_trend/last_trend missing)")
+            # Compute trend from price history as fallback
             closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-20:] if isinstance(bar, dict)]
             if len(closes) >= 5:
                 slope = np.polyfit(np.arange(len(closes)), closes, 1)[0]
-                fallback_trend = "DOWNTREND" if slope < 0 else "UPTREND" if slope > 0 else ""
-                logger.info(f"Trend-based exit fallback from price slope: {fallback_trend or 'UNKNOWN'} (slope={slope:.5f})")
+                trend = "DOWNTREND" if slope < -0.01 else "UPTREND" if slope > 0.01 else "NEUTRAL"
+                # Also update status so subsequent checks have it
+                self.status.hybrid_market_trend = trend
+                logger.info(f"Trend-based exit: computed from price slope={slope:.5f} -> {trend}")
+            else:
+                logger.info("Trend-based exit check: insufficient price history for trend calculation")
+                trend = ""
         if qty > 0 and trend == "DOWNTREND":
             return {"reason": "TREND_CHANGE", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
         if qty < 0 and trend == "UPTREND":
@@ -945,7 +1048,11 @@ TRADING GUIDANCE:
                 )
                 if duration.total_seconds() >= max_hold_hours * 3600:
                     action = "SELL" if qty > 0 else "BUY"
-                    logger.warning("⏳ Time-based exit triggered (hold %.2f hrs >= %.2f hrs)", duration.total_seconds() / 3600, max_hold_hours)
+                    logger.warning(
+                        "⏳ Time-based exit triggered (hold {:.2f} hrs >= {:.2f} hrs)",
+                        duration.total_seconds() / 3600,
+                        max_hold_hours,
+                    )
                     return {"reason": "TIME_EXIT", "action": action, "quantity": contracts, "pnl": total_pnl}
             except Exception as exc:  # noqa: BLE001
                 logger.debug(f"Time-based exit check skipped: {exc}")
@@ -964,7 +1071,7 @@ TRADING GUIDANCE:
         if sl_dollars is not None:
             sl_threshold = abs(sl_dollars)
             if sl_dollars < 0:
-                logger.warning("STOP_LOSS dollars configured negative; using absolute value %.2f", sl_threshold)
+                logger.warning("STOP_LOSS dollars configured negative; using absolute value {:.2f}", sl_threshold)
             if sl_threshold > 0 and total_pnl <= -sl_threshold:
                 action = "SELL" if qty > 0 else "BUY"
                 return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
@@ -980,7 +1087,7 @@ TRADING GUIDANCE:
         reason = exit_signal.get("reason", "EXIT")
         pnl = exit_signal.get("pnl", 0.0)
         if quantity <= 0 or action not in {"BUY", "SELL"}:
-            logger.warning("Invalid exit signal payload: %s", exit_signal)
+            logger.warning("Invalid exit signal payload: {}", exit_signal)
             return False
         price = current_price
         if price is None:
@@ -989,7 +1096,7 @@ TRADING GUIDANCE:
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"⚠️ Could not fetch price for exit execution: {exc}")
                 return False
-        logger.info("🔄 Executing position exit: %s %s (reason=%s, pnl=%.2f)", action, quantity, reason, pnl)
+        logger.info("🔄 Executing position exit: {} {} (reason={}, pnl={:.2f})", action, quantity, reason, pnl)
         try:
             await self.executor.place_order(
                 action=action,
@@ -1010,7 +1117,7 @@ TRADING GUIDANCE:
         """Pre-entry gate: block if lock, active orders, or cooldown in effect."""
         # Order lock
         if self.executor and self.executor.is_order_locked():
-            logger.info("Entry blocked: order lock active (%s)", self.executor.get_order_lock_reason())
+            logger.info("Entry blocked: order lock active ({})", self.executor.get_order_lock_reason())
             return True
 
         # Active orders
@@ -1041,7 +1148,7 @@ TRADING GUIDANCE:
                 elapsed = (now - last_trade).total_seconds()
                 remaining = self._cooldown_seconds - elapsed
                 if remaining > 0:
-                    logger.info("Entry blocked: cooldown %.1fs remaining", remaining)
+                    logger.info("Entry blocked: cooldown {:.1f}s remaining", remaining)
                     return True
 
         if self.one_minute_cfg:
@@ -1052,10 +1159,10 @@ TRADING GUIDANCE:
             trades_last_hour = [t for t in self._trade_timestamps if t >= hour_cutoff]
             trades_last_day = [t for t in self._trade_timestamps if t >= day_cutoff]
             if len(trades_last_hour) >= getattr(cfg, "max_trades_per_hour", 3):
-                logger.info("Entry blocked: max trades per hour reached (%s)", len(trades_last_hour))
+                logger.info("Entry blocked: max trades per hour reached ({})", len(trades_last_hour))
                 return True
             if len(trades_last_day) >= getattr(cfg, "max_trades_per_day", 8):
-                logger.info("Entry blocked: max trades per day reached (%s)", len(trades_last_day))
+                logger.info("Entry blocked: max trades per day reached ({})", len(trades_last_day))
                 return True
 
         return False
@@ -1070,10 +1177,10 @@ TRADING GUIDANCE:
         total_pnl = pnl_per_contract * current_position
 
         logger.info("🔍 Current Position Monitor:")
-        logger.info("   Position: +%s LONG", current_position)
-        logger.info("   Entry: %.2f", entry_price)
-        logger.info("   Current: %.2f", current_price)
-        logger.info("   Total P&L: $%.2f", total_pnl)
+        logger.info("   Position: +{} LONG", current_position)
+        logger.info("   Entry: {:.2f}", entry_price)
+        logger.info("   Current: {:.2f}", current_price)
+        logger.info("   Total P&L: ${:.2f}", total_pnl)
 
         if total_pnl <= -150:
             logger.warning("🚨 Significant loss detected, forcing position exit")
@@ -1610,9 +1717,13 @@ TRADING GUIDANCE:
                 
                 # Log trade exit through hybrid pipeline
                 if self.hybrid_pipeline and hasattr(self, '_current_pipeline_result'):
+                    pd = getattr(self, '_current_pipeline_result', None)
+                    market_data_for_exit = getattr(pd, 'market_data', None) if pd is not None else None
                     self.hybrid_pipeline.log_trade_exit(
                         exit_price=current_price,
                         exit_reason="SIGNAL_EXIT",
+                        market_data=market_data_for_exit,
+                        pipeline_result=pd,
                     )
                 return
             else:
@@ -1989,7 +2100,7 @@ TRADING GUIDANCE:
                 metadata,
             )
             if not allowed:
-                logger.info("AWS agent entry blocked by gate: %s", reason)
+                logger.info("AWS agent entry blocked by gate: {}", reason)
                 self._add_reason_code(reason)
                 return
 
@@ -2034,10 +2145,10 @@ TRADING GUIDANCE:
             try:
                 current_pos = await self.executor.get_current_position()
                 if current_pos and getattr(current_pos, "quantity", 0) != 0:
-                    logger.info("Position changed before AWS submit (qty=%s); skipping entry", current_pos.quantity)
+                    logger.info("Position changed before AWS submit (qty={}); skipping entry", current_pos.quantity)
                     return
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Position recheck failed; skipping AWS entry: %s", exc)
+                logger.warning("Position recheck failed; skipping AWS entry: {}", exc)
                 return
             result = await self.executor.place_order(
                 action=action,
@@ -2139,13 +2250,24 @@ TRADING GUIDANCE:
             
             # Use pipeline's calculated stop/target
             fallback_used = False
+            # Get minimum stop from risk gate config
+            risk_gate_cfg = getattr(self.settings, "risk_gate", None)
+            min_stop_pts = getattr(risk_gate_cfg, "min_stop_points", 4.0) if risk_gate_cfg else 4.0
+            
             if pipeline_result and pipeline_result.stop_loss > 0:
                 stop_offset = pipeline_result.stop_loss
                 target_offset = pipeline_result.take_profit
-                # Tighter stops for scalps
+                # Tighter stops for scalps, but NEVER below minimum
                 if is_scalp:
-                    stop_offset = stop_offset * 0.6  # 60% of normal stop
-                    target_offset = target_offset * 0.5  # 50% of normal target
+                    scalp_stop = stop_offset * 0.6  # 60% of normal stop
+                    scalp_target = target_offset * 0.5  # 50% of normal target
+                    # Enforce minimum stop even for scalps
+                    if scalp_stop < min_stop_pts:
+                        logger.info(f"🎯 Scalp stop {scalp_stop:.2f} below min {min_stop_pts:.2f}, using minimum")
+                        scalp_stop = min_stop_pts
+                        scalp_target = min_stop_pts * 1.5  # Maintain reasonable R:R
+                    stop_offset = scalp_stop
+                    target_offset = scalp_target
                     logger.info(f"🎯 Using SCALP risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
                 else:
                     logger.info(f"🎯 Using HYBRID risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
@@ -2170,16 +2292,23 @@ TRADING GUIDANCE:
                     label = "SCALP ATR" if is_scalp else "ATR"
                     logger.info(f"🎯 Using {label} offsets: SL={stop_offset:.2f}, TP={target_offset:.2f}")
             
-            # Guardrails require a minimum of four ticks of distance, so normalize offsets here
+            # Guardrails: ensure stop meets minimum from risk gate config
             min_guard_ticks = getattr(self.settings.trading, "min_distance_ticks", 4)
-            min_guard_offset = self.settings.trading.tick_size * max(1, int(min_guard_ticks))
+            min_tick_offset = self.settings.trading.tick_size * max(1, int(min_guard_ticks))
+            # Use the larger of tick-based minimum or risk gate minimum
+            min_guard_offset = max(min_tick_offset, min_stop_pts)
+            
             if stop_offset < min_guard_offset:
                 logger.info(
-                    f"🛡️ Stop offset {stop_offset:.2f} too tight (<{min_guard_ticks} ticks); "
+                    f"🛡️ Stop offset {stop_offset:.2f} too tight (< min {min_guard_offset:.2f}); "
                     f"expanding to {min_guard_offset:.2f}"
                 )
                 stop_offset = min_guard_offset
-            if target_offset < min_guard_offset:
+                # Also ensure target maintains reasonable R:R
+                if target_offset < stop_offset * 1.5:
+                    target_offset = stop_offset * 1.5
+                    logger.info(f"🛡️ Adjusted target to {target_offset:.2f} to maintain R:R")
+            if target_offset < min_tick_offset:
                 logger.info(
                     f"🛡️ Target offset {target_offset:.2f} too tight (<{min_guard_ticks} ticks); "
                     f"expanding to {min_guard_offset:.2f}"
@@ -2221,7 +2350,7 @@ TRADING GUIDANCE:
                 metadata,
             )
             if not allowed:
-                logger.info("Hybrid entry blocked by gate: %s", reason)
+                logger.info("Hybrid entry blocked by gate: {}", reason)
                 self._add_reason_code(reason)
                 return
             
@@ -2320,10 +2449,10 @@ TRADING GUIDANCE:
             try:
                 current_pos = await self.executor.get_current_position()
                 if current_pos and getattr(current_pos, "quantity", 0) != 0:
-                    logger.info("Position changed before HYBRID submit (qty=%s); skipping entry", current_pos.quantity)
+                    logger.info("Position changed before HYBRID submit (qty={}); skipping entry", current_pos.quantity)
                     return
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Position recheck failed; skipping HYBRID entry: %s", exc)
+                logger.warning("Position recheck failed; skipping HYBRID entry: {}", exc)
                 return
             result = await self.executor.place_order(
                 action=signal.action,
@@ -2413,7 +2542,7 @@ TRADING GUIDANCE:
         try:
             balances = await self.executor.get_account_liquidity()
         except Exception as exc:  # noqa: BLE001
-            logger.error("❌ Unable to read account summary: %s", exc)
+            logger.error("❌ Unable to read account summary: {}", exc)
             return None
         balances = balances or {}
         realized_pnl = 0.0
@@ -2430,19 +2559,19 @@ TRADING GUIDANCE:
         act = action.upper()
         if act in ("BUY", "SCALP_BUY"):
             if stop_loss >= entry_price:
-                logger.error("❌ BUY order: Stop-loss %.4f must be below entry %.4f", stop_loss, entry_price)
+                logger.error("❌ BUY order: Stop-loss {:.4f} must be below entry {:.4f}", stop_loss, entry_price)
                 return False
             if take_profit <= entry_price:
-                logger.error("❌ BUY order: Take-profit %.4f must be above entry %.4f", take_profit, entry_price)
+                logger.error("❌ BUY order: Take-profit {:.4f} must be above entry {:.4f}", take_profit, entry_price)
                 return False
         elif act in ("SELL", "SCALP_SELL"):
             if stop_loss <= entry_price:
-                logger.error("❌ SELL order: Stop-loss %.4f must be above entry %.4f", stop_loss, entry_price)
+                logger.error("❌ SELL order: Stop-loss {:.4f} must be above entry {:.4f}", stop_loss, entry_price)
                 return False
             if take_profit >= entry_price:
-                logger.error("❌ SELL order: Take-profit %.4f must be below entry %.4f", take_profit, entry_price)
+                logger.error("❌ SELL order: Take-profit {:.4f} must be below entry {:.4f}", take_profit, entry_price)
                 return False
-        logger.debug("✅ Bracket prices validated: %s @ %.4f, SL=%.4f, TP=%.4f", action, entry_price, stop_loss, take_profit)
+        logger.debug("✅ Bracket prices validated: {} @ {:.4f}, SL={:.4f}, TP={:.4f}", action, entry_price, stop_loss, take_profit)
         return True
 
     def _validate_entry_guard(

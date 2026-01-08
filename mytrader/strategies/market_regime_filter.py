@@ -92,13 +92,15 @@ class MarketRegimeFilter:
             current_time = datetime.now()
         
         # Check 1: Trading hours (ES futures trade nearly 24/5)
-        # Regular hours: 9:30 AM - 4:00 PM ET (most liquid)
-        # Extended: 6:00 PM - 5:00 PM ET next day
-        # We'll focus on regular hours for best execution
-        if not self._is_regular_trading_hours(current_time):
+        # For 24h operation, we no longer block outside RTH
+        # Instead, we just note the session for parameter adjustments
+        is_rth = self._is_regular_trading_hours(current_time)
+        is_market_open = self._is_market_open(current_time)
+        
+        if not is_market_open:
             return RegimeCheckResult(
                 tradable=False,
-                reason="Outside regular trading hours (9:30 AM - 4:00 PM ET)"
+                reason="Market closed (maintenance window or weekend)"
             )
         
         # Check 2: ATR threshold
@@ -220,6 +222,45 @@ class MarketRegimeFilter:
         market_close = time(16, 0)
         
         return market_open <= current_time <= market_close
+    
+    def _is_market_open(self, dt: datetime) -> bool:
+        """
+        Check if ES/MES market is open (24h except maintenance and weekends).
+        
+        CME ES/MES Schedule:
+        - Sunday 5:00 PM CT to Friday 4:00 PM CT
+        - Daily maintenance: 4:00 PM - 5:00 PM CT
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            ct_tz = ZoneInfo("America/Chicago")
+        except ImportError:
+            import pytz
+            ct_tz = pytz.timezone("America/Chicago")
+        
+        if dt.tzinfo is None:
+            from datetime import timezone as tz
+            dt = dt.replace(tzinfo=tz.utc)
+        
+        dt_ct = dt.astimezone(ct_tz)
+        current_time = dt_ct.time()
+        weekday = dt_ct.weekday()  # 0=Monday, 6=Sunday
+        
+        # Weekend: Saturday all day, Sunday before 5 PM CT
+        if weekday == 5:  # Saturday
+            return False
+        if weekday == 6 and current_time < time(17, 0):  # Sunday before 5 PM
+            return False
+        
+        # Friday after 4 PM CT (close for weekend)
+        if weekday == 4 and current_time >= time(16, 0):
+            return False
+        
+        # Daily maintenance: 4:00 PM - 5:00 PM CT
+        if time(16, 0) <= current_time < time(17, 0):
+            return False
+        
+        return True
     
     def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> Optional[float]:
         """Calculate Average True Range."""

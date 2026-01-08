@@ -48,6 +48,9 @@ class PositionManager:
         """
         Query IB for the current net position for the symbol.
         This is the authoritative source of truth.
+        
+        REVIEW FIX (Jan 2026): Raises RuntimeError on failure to force
+        callers to handle the error explicitly. Never return a guess.
         """
         try:
             positions = self.ib.positions()
@@ -56,13 +59,10 @@ class PositionManager:
                     return int(pos.position)
             return 0
         except Exception as e:
-            logger.error(f"Failed to query IB positions: {e}")
-            # Fail safe: assume we might have positions if we can't check
-            # But returning 0 might be dangerous if we actually have 5.
-            # Better to raise or return a special value? 
-            # For now, let's log and return 0 but this is a risk.
-            # Ideally, we should block trading if we can't verify positions.
-            raise RuntimeError(f"Cannot verify positions: {e}")
+            logger.error(f"CRITICAL: Failed to query IB positions: {e}")
+            # REVIEW FIX: Must raise - never guess position state
+            # Callers must handle this and halt trading
+            raise RuntimeError(f"Cannot verify positions - trading must halt: {e}")
 
     async def get_margin_usage(self) -> Tuple[float, float]:
         """
@@ -205,11 +205,13 @@ class PositionManager:
                             timestamp=timestamp)
             
             except Exception as e:
-                logger.warning(f"Margin check skipped due to error: {e}")
-                # Fail open or closed? 
-                # "Margin safety: do not submit... if margin would be exceeded"
-                # If we can't verify, maybe we should be cautious.
-                # For now, let's log and proceed but with a warning in the reason.
-                pass
+                # REVIEW FIX (Jan 2026): Fail CLOSED on margin check errors
+                # Previously this was fail-open (pass on exception) which is dangerous
+                # for margin-intensive futures trading. Better to reject trade than
+                # risk margin call or IB rejection.
+                logger.error(f"CRITICAL: Margin check failed - blocking trade: {e}")
+                return DecisionResult(0, 
+                    f"Margin check failed (fail-safe block): {e}", 
+                    timestamp=timestamp)
 
             return DecisionResult(requested_contracts, "Approved", timestamp=timestamp)

@@ -127,6 +127,12 @@ export MAX_CONTRACTS=${MAX_CONTRACTS:-5}
 export IBKR_HOST=${IBKR_HOST:-"127.0.0.1"}
 export IBKR_PORT=${IBKR_PORT:-4002}
 
+# Prometheus metrics (required for Kubernetes observability)
+export PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+export PROMETHEUS_ADDR=${PROMETHEUS_ADDR:-0.0.0.0}
+export PROMETHEUS_PORT=${PROMETHEUS_PORT:-8000}
+export DEPLOY_ENV=${DEPLOY_ENV:-prod}
+
 if [ "${ENABLE_GUARDRAILS:-0}" = "1" ]; then
     echo -e "${BLUE}[INFO]${NC} Guardrails enabled – running targeted tests..."
     GUARD_LOG=$(mktemp)
@@ -181,12 +187,16 @@ echo -e "${BLUE}[INFO]${NC} Starting trading bot (MAX_CONTRACTS=$MAX_CONTRACTS).
 nohup "$PYTHON_BIN" run_bot.py $BOT_ARGS > logs/bot.log 2>&1 &
 BOT_PID=$!
 
+# Save PID to file for stop.sh
+echo "$BOT_PID" > logs/bot.pid
+
 # Wait a bit and check if it's still running
 sleep 3
 if kill -0 "$BOT_PID" 2>/dev/null; then
     echo -e "${GREEN}✅ Bot started successfully (PID: $BOT_PID)${NC}"
 else
     echo -e "${RED}❌ Bot failed to start. Check logs/bot.log for details${NC}"
+    rm -f logs/bot.pid
     return 1 2>/dev/null || exit 1
 fi
 
@@ -197,9 +207,14 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo -e "${BLUE}📊 Bot PID:${NC} $BOT_PID"
 echo -e "${BLUE}📝 Logs:${NC} logs/bot.log"
+echo -e "${BLUE}📈 Metrics:${NC} http://localhost:${PROMETHEUS_PORT}/metrics (Prometheus enabled: ${PROMETHEUS_ENABLED})"
 echo ""
 echo -e "${YELLOW}To view live logs:${NC}"
 echo "  tail -f logs/bot.log"
+echo ""
+echo -e "${YELLOW}To check metrics:${NC}"
+echo "  curl http://localhost:${PROMETHEUS_PORT}/metrics"
+echo "  ./scripts/check_metrics_reachable.sh localhost ${PROMETHEUS_PORT}"
 echo ""
 echo -e "${YELLOW}To stop the bot:${NC}"
 echo "  . stop.sh"

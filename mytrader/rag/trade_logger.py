@@ -159,7 +159,7 @@ class TradeLogger:
                 rag_docs_used = [d[0] for d in pipeline_result.rag_retrieval.documents]
                 rag_similarity_scores = [d[2] for d in pipeline_result.rag_retrieval.documents]
         
-        # Create trade record
+    # Create trade record
         trade = TradeRecord(
             trade_id=trade_id,
             timestamp=timestamp,
@@ -206,6 +206,21 @@ class TradeLogger:
             time_of_day=time_of_day,
             day_of_week=day_of_week,
         )
+
+        # Attach provenance if available
+        try:
+            trade.entry_levels_provenance = market_data.get("levels_provenance", {})
+            # If pipeline_result contains hold/block reasons, include them
+            if pipeline_result and hasattr(pipeline_result, "rule_engine"):
+                blocked = getattr(pipeline_result.rule_engine, "filters_blocked", None)
+                if blocked:
+                    trade.entry_block_reasons = blocked
+            # Also accept metadata block reasons passed in market_data
+            md_block = market_data.get("block_reasons") if isinstance(market_data, dict) else None
+            if md_block:
+                trade.entry_block_reasons = list(md_block)
+        except Exception:
+            pass
         
         # Store as active trade
         self.active_trades[trade_id] = trade
@@ -222,6 +237,8 @@ class TradeLogger:
         trade_id: str,
         exit_price: float,
         exit_reason: str,
+        market_data: Optional[Dict[str, Any]] = None,
+        pipeline_result: Optional[Any] = None,
     ) -> Optional[TradeRecord]:
         """Log a trade exit and save to storage.
         
@@ -257,6 +274,21 @@ class TradeLogger:
             trade.result = "LOSS"
         else:
             trade.result = "BREAKEVEN"
+
+        # Attach exit provenance if provided
+        try:
+            if market_data and isinstance(market_data, dict):
+                trade.exit_levels_provenance = market_data.get("levels_provenance", {})
+                md_block = market_data.get("block_reasons")
+                if md_block:
+                    trade.exit_block_reasons = list(md_block)
+            # Or use pipeline_result to get rule_engine filters
+            if pipeline_result and hasattr(pipeline_result, "rule_engine"):
+                blocked = getattr(pipeline_result.rule_engine, "filters_blocked", None)
+                if blocked:
+                    trade.exit_block_reasons = blocked
+        except Exception:
+            pass
         
         # Calculate duration
         try:

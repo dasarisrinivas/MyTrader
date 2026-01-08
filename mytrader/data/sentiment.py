@@ -44,7 +44,7 @@ class TwitterSentimentCollector(DataCollector):
         elif self.request_count >= 450:
             # Wait until window resets
             wait_time = self.rate_limit_window - elapsed
-            logger.warning("Twitter rate limit reached. Waiting %.1f seconds...", wait_time)
+            logger.warning("Twitter rate limit reached. Waiting {:.1f} seconds...", wait_time)
             await asyncio.sleep(wait_time)
             self.window_start = datetime.utcnow()
             self.request_count = 0
@@ -81,7 +81,7 @@ class TwitterSentimentCollector(DataCollector):
                                 "source": "twitter",
                             })
                         except Exception as e:
-                            logger.debug("Error analyzing tweet sentiment: %s", e)
+                            logger.debug("Error analyzing tweet sentiment: {}", e)
                             continue
                 
                 df = pd.DataFrame(records)
@@ -100,11 +100,16 @@ class TwitterSentimentCollector(DataCollector):
             except tweepy.TweepyException as exc:
                 if attempt < self.max_retries - 1:
                     delay = 2 ** attempt
-                    logger.warning("Twitter API error (attempt %d/%d): %s. Retrying in %ds...", 
-                                 attempt + 1, self.max_retries, exc, delay)
+                    logger.warning(
+                        "Twitter API error (attempt {}/{}): {}. Retrying in {}s...",
+                        attempt + 1,
+                        self.max_retries,
+                        exc,
+                        delay,
+                    )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error("Twitter collection failed after %d attempts: %s", self.max_retries, exc)
+                    logger.error("Twitter collection failed after {} attempts: {}", self.max_retries, exc)
                     return pd.DataFrame(columns=["timestamp", "sentiment"]).set_index("timestamp")
         
         return pd.DataFrame(columns=["timestamp", "sentiment"]).set_index("timestamp")
@@ -121,5 +126,5 @@ class TwitterSentimentCollector(DataCollector):
                         "source": "twitter",
                     }
             except Exception as e:
-                logger.error("Twitter stream error: %s", e)
+                logger.error("Twitter stream error: {}", e)
             await asyncio.sleep(60)

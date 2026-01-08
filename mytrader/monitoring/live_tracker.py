@@ -333,7 +333,7 @@ class LivePerformanceTracker:
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
         
-        logger.info("Performance snapshot exported to %s", filepath)
+        logger.info("Performance snapshot exported to {}", filepath)
 
     def log_status(self) -> None:
         """Log current performance status."""

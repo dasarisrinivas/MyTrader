@@ -120,6 +120,11 @@ class TradeRecord:
     volatility_regime: str = ""  # HIGH, MEDIUM, LOW
     time_of_day: str = ""  # OPEN, MIDDAY, CLOSE
     day_of_week: str = ""
+    # Provenance and diagnostics
+    entry_levels_provenance: Dict[str, Any] = field(default_factory=dict)
+    exit_levels_provenance: Dict[str, Any] = field(default_factory=dict)
+    entry_block_reasons: List[str] = field(default_factory=list)
+    exit_block_reasons: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

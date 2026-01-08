@@ -19,6 +19,13 @@ from mytrader.config import Settings
 from mytrader.data.ibkr import IBKRCollector
 from mytrader.data.pipeline import MarketDataPipeline
 from mytrader.data.sentiment import TwitterSentimentCollector
+from mytrader.data.stocktwits_sentiment import (
+    evaluate_sentiment_for_entry,
+    evaluate_sentiment_for_position,
+    get_mes_sentiment,
+    get_sentiment_summary,
+    set_cache_refresh_interval,
+)
 from mytrader.data.tradingview import TradingViewCollector
 from mytrader.execution.ib_executor import TradeExecutor
 from mytrader.features.feature_engineer import engineer_features
@@ -194,6 +201,38 @@ async def run_live(settings: Settings) -> None:
         max_spread_ticks=settings.trading.max_spread_ticks,
     )
     
+    # =========================================================================
+    # STOCKTWITS SENTIMENT INTEGRATION
+    # =========================================================================
+    stocktwits_enabled = (
+        hasattr(settings, 'stocktwits_sentiment') 
+        and settings.stocktwits_sentiment.enabled
+    )
+    
+    if stocktwits_enabled:
+        logger.info("=" * 60)
+        logger.info("📊 STOCKTWITS SENTIMENT INTEGRATION ENABLED")
+        logger.info("=" * 60)
+        logger.info(f"   Symbols: {settings.stocktwits_sentiment.symbols}")
+        logger.info(f"   Refresh interval: {settings.stocktwits_sentiment.refresh_interval_seconds}s")
+        logger.info(f"   Entry block threshold: ±{settings.stocktwits_sentiment.entry_block_threshold}")
+        logger.info(f"   Weak threshold: ±{settings.stocktwits_sentiment.weak_threshold}")
+        logger.info(f"   Position protect threshold: ±{settings.stocktwits_sentiment.protect_position_threshold}")
+        logger.info("=" * 60)
+        
+        # Configure the sentiment cache refresh interval
+        set_cache_refresh_interval(settings.stocktwits_sentiment.refresh_interval_seconds)
+        
+        # Fetch initial sentiment to warm the cache
+        try:
+            initial_sentiment = get_mes_sentiment(force_refresh=True)
+            logger.info(f"   ✅ Initial MES sentiment: {initial_sentiment:.2f}")
+        except Exception as e:
+            logger.warning(f"   ⚠️  Initial sentiment fetch failed: {e}")
+            logger.warning("   Trading will continue without sentiment data")
+    else:
+        logger.info("📊 Stocktwits sentiment integration DISABLED")
+    
     # Initialize background LLM worker (if LLM enabled and background mode)
     llm_worker = None
     if llm_enabled and hasattr(settings.llm, 'use_background_thread') and settings.llm.use_background_thread:
@@ -321,7 +360,7 @@ async def run_live(settings: Settings) -> None:
     util.logToConsole('ERROR')  # Reduce log noise
     
     client_id = random.randint(10, 999)  # Use random client ID to avoid conflicts
-    logger.info("Initializing IB connection to %s:%s (client_id=%d)", settings.data.ibkr_host, settings.data.ibkr_port, client_id)
+    logger.info("Initializing IB connection to {}:{} (client_id={})", settings.data.ibkr_host, settings.data.ibkr_port, client_id)
     ib = IB()
     
     # Connect with retry logic
@@ -409,8 +448,8 @@ async def run_live(settings: Settings) -> None:
     position_entry_time = None
     max_trade_duration_seconds = settings.trading.max_trade_duration_minutes * 60
 
-    logger.info("Starting live trading loop (polling every %ds)...", poll_interval)
-    logger.info("Will start generating signals after collecting %d bars (INCREASED WARM-UP)", min_bars_needed)
+    logger.info("Starting live trading loop (polling every {}s)...", poll_interval)
+    logger.info("Will start generating signals after collecting {} bars (INCREASED WARM-UP)", min_bars_needed)
     logger.info(f"Safety parameters:")
     logger.info(f"  - Disaster stop: {settings.trading.disaster_stop_pct*100:.1f}%")
     logger.info(f"  - Max trade duration: {settings.trading.max_trade_duration_minutes} minutes")
@@ -502,19 +541,55 @@ async def run_live(settings: Settings) -> None:
                 current_qty = current_position.quantity if current_position else 0
                 logger.info(f"📦 Current position: {current_qty} contracts")
                 
-                # DISASTER STOP: Check if position has moved too far against us
+                # ============================================================
+                # DISASTER STOP & SLIPPAGE PROTECTION
+                # Implements multiple layers of protection per review.md:
+                # 1. Percentage-based disaster stop (existing)
+                # 2. Dollar-based unrealized loss circuit breaker (NEW)
+                # 3. Daily loss limit check on current unrealized loss (NEW)
+                # ============================================================
                 if current_position and current_qty != 0:
                     entry_price = current_position.avg_cost
                     price_change_pct = abs((current_price - entry_price) / entry_price)
+                    
+                    # Calculate unrealized PnL in dollars
+                    price_diff = current_price - entry_price
+                    unrealized_pnl = price_diff * current_qty * contract_spec.point_value
                     
                     # Check if we're losing money
                     is_losing = (current_qty > 0 and current_price < entry_price) or \
                                (current_qty < 0 and current_price > entry_price)
                     
-                    if is_losing and price_change_pct > settings.trading.disaster_stop_pct:
+                    # Get risk limits
+                    daily_max_loss = settings.risk_gate.daily_max_loss_usd
+                    # daily_loss is positive when losing money (it's a loss accumulator)
+                    current_realized_loss = risk.daily_loss
+                    
+                    # Layer 1: Percentage-based disaster stop
+                    pct_triggered = is_losing and price_change_pct > settings.trading.disaster_stop_pct
+                    
+                    # Layer 2: Dollar-based unrealized loss exceeds daily max
+                    # This catches the "40-point slippage" scenario from review.md
+                    dollar_triggered = is_losing and abs(unrealized_pnl) > daily_max_loss
+                    
+                    # Layer 3: Combined realized + unrealized exceeds daily limit
+                    combined_loss = current_realized_loss + (abs(unrealized_pnl) if is_losing else 0)
+                    combined_triggered = combined_loss > daily_max_loss
+                    
+                    if pct_triggered or dollar_triggered or combined_triggered:
+                        trigger_reason = []
+                        if pct_triggered:
+                            trigger_reason.append(f"price moved {price_change_pct*100:.2f}% (threshold: {settings.trading.disaster_stop_pct*100:.1f}%)")
+                        if dollar_triggered:
+                            trigger_reason.append(f"unrealized loss ${abs(unrealized_pnl):.2f} > daily limit ${daily_max_loss}")
+                        if combined_triggered:
+                            trigger_reason.append(f"combined loss ${combined_loss:.2f} > daily limit ${daily_max_loss}")
+                        
                         logger.error(f"🚨 DISASTER STOP TRIGGERED!")
-                        logger.error(f"   Position moved {price_change_pct*100:.2f}% against us")
-                        logger.error(f"   Threshold: {settings.trading.disaster_stop_pct*100:.1f}%")
+                        logger.error(f"   Reason(s): {'; '.join(trigger_reason)}")
+                        logger.error(f"   Entry: ${entry_price:.2f}, Current: ${current_price:.2f}")
+                        logger.error(f"   Unrealized PnL: ${unrealized_pnl:.2f}")
+                        logger.error(f"   Session realized loss: ${current_realized_loss:.2f}")
                         logger.error(f"   Force-closing position immediately")
                         
                         close_result = await executor.close_position()
@@ -528,7 +603,14 @@ async def run_live(settings: Settings) -> None:
                             realized = gross_pnl
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
-                            logger.info(f"Position closed by disaster stop, realized PnL: {realized:.2f}")
+                            logger.info(f"Position closed by disaster stop, realized PnL: ${realized:.2f}")
+                            
+                            # Check if we should halt trading for the day
+                            # risk.daily_loss is positive when we've lost money
+                            if risk.daily_loss >= daily_max_loss:
+                                logger.error(f"🛑 DAILY LOSS LIMIT BREACHED: ${risk.daily_loss:.2f} >= ${daily_max_loss}")
+                                logger.error(f"   Trading halted for remainder of session")
+                                # risk.can_trade() will now return False for all trades
                         
                         # Reset position tracking
                         position_entry_time = None
@@ -822,6 +904,40 @@ async def run_live(settings: Settings) -> None:
                             await asyncio.sleep(poll_interval)
                             continue
                     
+                    # =========================================================================
+                    # STOCKTWITS SENTIMENT CHECK FOR EXISTING POSITIONS
+                    # =========================================================================
+                    stocktwits_enabled = (
+                        hasattr(settings, 'stocktwits_sentiment') 
+                        and settings.stocktwits_sentiment.enabled
+                    )
+                    
+                    if stocktwits_enabled and current_position.quantity != 0:
+                        try:
+                            position_direction = "LONG" if current_position.quantity > 0 else "SHORT"
+                            position_sentiment = evaluate_sentiment_for_position(
+                                position_direction=position_direction,
+                                protect_threshold=settings.stocktwits_sentiment.protect_position_threshold,
+                                force_refresh=False,
+                            )
+                            
+                            # Log sentiment warning for existing position
+                            if position_sentiment.action_recommendation == "REDUCE_SIZE":
+                                logger.warning(
+                                    f"⚠️  SENTIMENT WARNING for {position_direction} position: "
+                                    f"{position_sentiment.reason}"
+                                )
+                                logger.warning(
+                                    f"   Consider tightening stop or reducing exposure. "
+                                    f"Sentiment: {position_sentiment.mes_sentiment:.2f}"
+                                )
+                                
+                                # TODO: Could implement automatic stop tightening or partial exit here
+                                # For now, just log the warning and let the trader decide
+                                
+                        except Exception as e:
+                            logger.debug(f"Position sentiment check failed: {e}")
+                    
                     # Update trailing stops if configured (matches backtest logic)
                     atr_val = float(features.iloc[-1].get("ATR_14", 0.0))
                     await executor.update_trailing_stops(current_price, atr_val)
@@ -847,7 +963,7 @@ async def run_live(settings: Settings) -> None:
                             )
                             risk.update_pnl(realized)
                             tracker.update_equity(current_price, realized)
-                            logger.info("Position closed on opposite signal, realized PnL: %.2f", realized)
+                            logger.info("Position closed on opposite signal, realized PnL: {:.2f}", realized)
                             
                             # Reset tracking and apply cooldown
                             position_entry_time = None
@@ -867,6 +983,50 @@ async def run_live(settings: Settings) -> None:
                     await asyncio.sleep(poll_interval)
                     continue
 
+                # =========================================================================
+                # STOCKTWITS SENTIMENT CHECK: Evaluate before opening new position
+                # =========================================================================
+                stocktwits_enabled = (
+                    hasattr(settings, 'stocktwits_sentiment') 
+                    and settings.stocktwits_sentiment.enabled
+                )
+                
+                sentiment_modifier = None
+                if stocktwits_enabled:
+                    try:
+                        # Configure sentiment thresholds from settings
+                        sentiment_modifier = evaluate_sentiment_for_entry(
+                            proposed_action=signal.action,
+                            entry_block_threshold=settings.stocktwits_sentiment.entry_block_threshold,
+                            weak_threshold=settings.stocktwits_sentiment.weak_threshold,
+                            force_refresh=False,  # Use cached data if fresh enough
+                        )
+                        
+                        logger.info(f"📊 Stocktwits Sentiment Check:")
+                        logger.info(f"   MES Sentiment: {sentiment_modifier.mes_sentiment:.2f}")
+                        logger.info(f"   Recommendation: {sentiment_modifier.action_recommendation}")
+                        logger.info(f"   Reason: {sentiment_modifier.reason}")
+                        
+                        # Handle sentiment-based blocking
+                        if not sentiment_modifier.allow_trade:
+                            logger.warning(f"🚫 SENTIMENT BLOCK: {sentiment_modifier.reason}")
+                            await asyncio.sleep(poll_interval)
+                            continue
+                        
+                        # Apply confidence modifier if sentiment is mildly contradictory or supportive
+                        if sentiment_modifier.confidence_modifier != 1.0:
+                            original_confidence = signal.confidence
+                            signal.confidence = signal.confidence * sentiment_modifier.confidence_modifier
+                            logger.info(
+                                f"   Confidence adjusted: {original_confidence:.3f} → {signal.confidence:.3f} "
+                                f"(modifier: {sentiment_modifier.confidence_modifier:.2f})"
+                            )
+                            
+                    except Exception as e:
+                        logger.warning(f"⚠️  Stocktwits sentiment check failed: {e}")
+                        logger.warning("   Proceeding without sentiment data")
+                        # Don't block trading on sentiment API failure
+                
                 logger.info(f"🎯 Preparing to execute {signal.action} signal...")
                 
                 # ENHANCED LOGGING: Entry reason and market conditions
@@ -1039,7 +1199,7 @@ async def run_live(settings: Settings) -> None:
                 await asyncio.sleep(poll_interval)
                     
             except Exception as exc:  # noqa: BLE001
-                logger.exception("Live loop error: %s", exc)
+                logger.exception("Live loop error: {}", exc)
                 await asyncio.sleep(poll_interval)
                 
     except KeyboardInterrupt:
@@ -1085,7 +1245,7 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     engine = BacktestingEngine(strategies, settings.trading, settings.backtest)
     
     # Run backtest
-    logger.info("Starting backtest on %d bars...", len(df))
+    logger.info("Starting backtest on {} bars...", len(df))
     result = engine.run(df)
     
     # Log comprehensive metrics
@@ -1094,9 +1254,9 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     logger.info("=" * 60)
     for key, value in result.metrics.items():
         if isinstance(value, float):
-            logger.info("  %s: %.4f", key.replace("_", " ").title(), value)
+            logger.info("  {}: {:.4f}", key.replace("_", " ").title(), value)
         else:
-            logger.info("  %s: %s", key.replace("_", " ").title(), value)
+            logger.info("  {}: {}", key.replace("_", " ").title(), value)
     logger.info("=" * 60)
     
     # Export detailed report
@@ -1108,18 +1268,18 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     # Export JSON report
     json_path = output_dir / "backtest_report.json"
     export_report(result.metrics, result.trades, json_path, format="json")
-    logger.info("Detailed report saved to %s", json_path)
+    logger.info("Detailed report saved to {}", json_path)
     
     # Export CSV report
     csv_path = output_dir / "backtest_report.csv"
     export_report(result.metrics, result.trades, csv_path, format="csv")
-    logger.info("CSV reports saved to %s", output_dir)
+    logger.info("CSV reports saved to {}", output_dir)
     
     # Export equity curve
     if not result.equity_curve.empty:
         equity_path = output_dir / "equity_curve.csv"
         result.equity_curve.to_csv(equity_path)
-        logger.info("Equity curve saved to %s", equity_path)
+        logger.info("Equity curve saved to {}", equity_path)
 
 
 def parse_args() -> argparse.Namespace:

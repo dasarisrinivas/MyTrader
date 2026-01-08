@@ -106,7 +106,7 @@ class TradeDecisionEngine:
 
         qty = min(qty, m.settings.trading.max_position_size)
 
-        logger.info("🛠️ Position sizing -> qty=%d (scaler=%.2f)", qty, scaler)
+        logger.info("🛠️ Position sizing -> qty={} (scaler={:.2f})", qty, scaler)
         return qty
 
     def evaluate_exit_signals(self) -> ExitDecision:

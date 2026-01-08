@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mytrader-config
+data:
+  # Prometheus settings
+  PROMETHEUS_ENABLED: "true"
+  PROMETHEUS_ADDR: "0.0.0.0"
+  PROMETHEUS_PORT: "8000"
+  DEPLOY_ENV: "prod"
+  
+  # Trading settings
+  IBKR_SYMBOL: "MES"
+  IBKR_EXCHANGE: "CME"
+  MAX_MES_CONTRACTS: "1"
+  RISK_PER_TRADE_USD: "50"
+  DAILY_MAX_LOSS_USD: "150"
+  
+  # Strategy settings
+  HYBRID_ENABLED: "true"
+  RAG_ENABLED: "true"

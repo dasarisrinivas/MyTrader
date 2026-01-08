@@ -44,9 +44,9 @@ class LocalKnowledgeBase:
                 self.record_trade(data)
                 ingested += 1
             except Exception as exc:
-                logger.debug("Skipping %s: %s", path, exc)
+                logger.debug("Skipping {}: {}", path, exc)
         if ingested:
-            logger.info("Seeded %d trades into local knowledge base", ingested)
+            logger.info("Seeded {} trades into local knowledge base", ingested)
         return ingested
 
     def record_trade(self, payload: TradeLearningPayload | Dict[str, Any]) -> None:

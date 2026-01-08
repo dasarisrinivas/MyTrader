@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mytrader
+  labels:
+    app: mytrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mytrader
+  template:
+    metadata:
+      labels:
+        app: mytrader
+    spec:
+      containers:
+      - name: mytrader
+        image: mytrader:latest
+        imagePullPolicy: Always
+        ports:
+        - name: metrics
+          containerPort: 8000
+          protocol: TCP
+        env:
+        # Prometheus metrics
+        - name: PROMETHEUS_ENABLED
+          value: "true"
+        - name: PROMETHEUS_ADDR
+          value: "0.0.0.0"
+        - name: PROMETHEUS_PORT
+          value: "8000"
+        - name: DEPLOY_ENV
+          value: "prod"
+        
+        # IBKR connection (example values — replace with your config)
+        - name: IBKR_HOST
+          value: "127.0.0.1"
+        - name: IBKR_PORT
+          value: "4002"
+        - name: IBKR_CLIENT_ID
+          value: "1"
+        - name: IBKR_SYMBOL
+          value: "MES"
+        - name: IBKR_EXCHANGE
+          value: "CME"
+        
+        # Risk/trading config (example values)
+        - name: MAX_MES_CONTRACTS
+          value: "1"
+        - name: RISK_PER_TRADE_USD
+          value: "50"
+        - name: DAILY_MAX_LOSS_USD
+          value: "150"
+        
+        # Optional: Add liveness/readiness probes if you have HTTP server for /health
+        # livenessProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"

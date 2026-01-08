@@ -1,0 +1,34 @@
+groups:
+- name: mytrader
+  rules:
+  - alert: MyTraderLiveBarsStale
+    expr: mytrader_live_bar_age_seconds{timeframe="1m"} > 120
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      summary: "Live 1m bars stale"
+      description: "1m bar age >120s for 5m (symbol={{ $labels.symbol }}, env={{ $labels.env }})"
+
+  - alert: MyTraderStaleEpisodeTooLong
+    expr: mytrader_stale_episode_active == 1
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Stale episode active too long"
+      description: "Stale episode active for 10m (symbol={{ $labels.symbol }}, env={{ $labels.env }})"
+
+  - alert: MyTraderFrequentStaleBlocks
+    expr: increase(mytrader_stale_live_bars_blocks_total[15m]) > 10
+    for: 0m
+    labels: { severity: warning }
+    annotations:
+      summary: "Frequent stale-bar blocks"
+      description: "More than 10 stale blocks in 15m (symbol={{ $labels.symbol }}, env={{ $labels.env }})"
+
+  - alert: MyTraderFrequentEntryCancelsFromStale
+    expr: increase(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[15m]) > 3
+    for: 0m
+    labels: { severity: warning }
+    annotations:
+      summary: "Frequent entry cancellations due to staleness"
+      description: "Canceled >3 entry orders in 15m due to stale bars (symbol={{ $labels.symbol }}, env={{ $labels.env }})"

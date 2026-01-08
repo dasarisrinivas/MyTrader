@@ -192,6 +192,8 @@ class TradeExecutor:
         self._order_lock_order_ids: set[int] = set()
         self._order_lock_timeout_seconds: int = getattr(config, "order_lock_timeout_seconds", 300)
         self._pending_order_timeout_seconds: int = getattr(config, "pending_order_timeout_seconds", 180)
+        # Timestamp of last pending-entry cancellation due to stale live bars
+        self._last_pending_cancel_ts = None
         
         # Initialize PositionManager
         from .position_manager import PositionManager
@@ -207,7 +209,7 @@ class TradeExecutor:
             self.ib.waitOnUpdate(timeout=2)
             latency_ms = (time.monotonic() - start) * 1000
             if latency_ms > 1000:
-                logger.warning("🐌 High IB latency detected (%.0f ms), using extended timeouts", latency_ms)
+                logger.warning("🐌 High IB latency detected ({:.0f} ms), using extended timeouts", latency_ms)
                 return "slow"
             return "normal"
         except Exception as exc:
@@ -293,7 +295,7 @@ class TradeExecutor:
         """Cancel any tracked orders associated with the lock."""
         if not self._order_lock_order_ids:
             return
-        logger.warning("🧹 Canceling %d locked orders (%s)", len(self._order_lock_order_ids), reason)
+        logger.warning("🧹 Canceling {} locked orders ({})", len(self._order_lock_order_ids), reason)
         for order_id in list(self._order_lock_order_ids):
             trade = self.active_orders.get(order_id)
             if not trade:
@@ -316,7 +318,7 @@ class TradeExecutor:
         if age < self._order_lock_timeout_seconds:
             return
         logger.error(
-            "⏰ Order lock watchdog triggered after %.0fs (reason=%s, parent=%s)",
+            "⏰ Order lock watchdog triggered after {:.0f}s (reason={}, parent={})",
             age,
             self._order_lock_reason,
             self._order_lock_parent_id,
@@ -561,6 +563,16 @@ class TradeExecutor:
                 timeout=timeout,
             )
             logger.error("Try restarting IB Gateway: Close it completely, wait 30s, then restart")
+            
+            # Send Telegram alert for initial connection failure
+            if self.telegram and self.telegram.enabled:
+                alert_msg = self.telegram.format_error_alert(
+                    error_type="❌ IB CONNECTION TIMEOUT",
+                    message=f"Failed to connect to Interactive Brokers within {timeout}s. IB Gateway may need to be restarted.",
+                    details=f"Host: {host}:{port}\nClient ID: {client_id}\nAction: Try restarting IB Gateway - close completely, wait 30s, then restart"
+                )
+                self.telegram.send_message_background(alert_msg)
+            
             raise
         
         # Note: We use snapshot=True for price requests, which doesn't require
@@ -780,7 +792,7 @@ class TradeExecutor:
                         if multiplier and multiplier != 0:
                             price = raw_avg_cost / multiplier
                         else:
-                            logger.warning("Multiplier missing/zero for %s; using raw avg_cost", self.symbol)
+                            logger.warning("Multiplier missing/zero for {}; using raw avg_cost", self.symbol)
                             price = raw_avg_cost
                         market_value = float(qty * price * multiplier)
                     else:
@@ -1057,6 +1069,21 @@ class TradeExecutor:
         parent_meta = self.order_metadata.get(parent_id) if parent_id is not None else None
         metadata_source = parent_meta or order_meta
         is_exit_order = order_meta.get("exit_order", False)
+        
+        # Additional checks to determine if this is an exit order:
+        # 1. If we just realized PnL, this was closing a position (not opening)
+        # 2. If the order has a parentId, it's a bracket child (SL/TP), not an entry
+        # 3. If position is now flat after this fill, it was an exit
+        if close_result and close_result.gross_pnl != 0:
+            is_exit_order = True
+            logger.debug(f"Order {order_id} identified as exit: realized PnL={close_result.gross_pnl:.2f}")
+        if parent_id is not None and parent_id > 0:
+            is_exit_order = True
+            logger.debug(f"Order {order_id} identified as exit: has parentId={parent_id}")
+        if self._local_position_qty == 0 and closed_qty > 0:
+            is_exit_order = True
+            logger.debug(f"Order {order_id} identified as exit: position now flat after closing {closed_qty}")
+        
         expected_stop_loss, expected_take_profit, protection_note = self._resolve_protection_metadata(
             order_id,
             parent_id,
@@ -1224,7 +1251,7 @@ class TradeExecutor:
         metadata.setdefault("bar_close_timestamp", metadata.get("bar_close_timestamp") or metadata.get("timestamp") or datetime.now(timezone.utc).isoformat())
         signal_key = self._build_signal_submission_key(action, metadata)
         if self._is_duplicate_signal_key(signal_key):
-            logger.warning("Duplicate signal submission blocked: %s (exit=%s)", signal_key, is_exit)
+            logger.warning("Duplicate signal submission blocked: {} (exit={})", signal_key, is_exit)
             from ib_insync import Trade as IBTrade
             dummy_trade = IBTrade()
             return OrderResult(
@@ -1505,29 +1532,29 @@ class TradeExecutor:
             min_offset = self.config.tick_size * min_ticks
             if action.upper() == "BUY":
                 if take_profit is not None and take_profit <= entry_price_estimate:
-                    logger.error("❌ BUY TP %s at/below entry %s - aborting", take_profit, entry_price_estimate)
+                    logger.error("❌ BUY TP {} at/below entry {} - aborting", take_profit, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="TP below entry")
                 if take_profit is not None and take_profit < entry_price_estimate + min_offset:
-                    logger.error("❌ BUY TP %s too close to entry %s - aborting", take_profit, entry_price_estimate)
+                    logger.error("❌ BUY TP {} too close to entry {} - aborting", take_profit, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="TP too close")
                 if stop_loss is not None and stop_loss >= entry_price_estimate:
-                    logger.error("❌ BUY SL %s above entry %s - aborting", stop_loss, entry_price_estimate)
+                    logger.error("❌ BUY SL {} above entry {} - aborting", stop_loss, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="SL above entry")
                 if stop_loss is not None and stop_loss > entry_price_estimate - min_offset:
-                    logger.error("❌ BUY SL %s too close to entry %s - aborting", stop_loss, entry_price_estimate)
+                    logger.error("❌ BUY SL {} too close to entry {} - aborting", stop_loss, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="SL too close")
             else:
                 if take_profit is not None and take_profit >= entry_price_estimate:
-                    logger.error("❌ SELL TP %s at/above entry %s - aborting", take_profit, entry_price_estimate)
+                    logger.error("❌ SELL TP {} at/above entry {} - aborting", take_profit, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="TP above entry")
                 if take_profit is not None and take_profit > entry_price_estimate - min_offset:
-                    logger.error("❌ SELL TP %s too close to entry %s - aborting", take_profit, entry_price_estimate)
+                    logger.error("❌ SELL TP {} too close to entry {} - aborting", take_profit, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="TP too close")
                 if stop_loss is not None and stop_loss <= entry_price_estimate:
-                    logger.error("❌ SELL SL %s below entry %s - aborting", stop_loss, entry_price_estimate)
+                    logger.error("❌ SELL SL {} below entry {} - aborting", stop_loss, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="SL below entry")
                 if stop_loss is not None and stop_loss < entry_price_estimate + min_offset:
-                    logger.error("❌ SELL SL %s too close to entry %s - aborting", stop_loss, entry_price_estimate)
+                    logger.error("❌ SELL SL {} too close to entry {} - aborting", stop_loss, entry_price_estimate)
                     return OrderResult(trade=parent_trade, status="Cancelled", message="SL too close")
 
         # Place parent order
@@ -2144,6 +2171,73 @@ class TradeExecutor:
         logger.info("Cancelled {count} orders", count=count)
         return count
 
+    async def cancel_pending_entry_orders(self, reason: str = "stale_live_bars", throttle_seconds: int = 30) -> dict:
+        """Cancel only pending ENTRY parent orders (not protective child orders).
+
+        Returns a dict with count and list of cancelled order ids.
+        This method is throttled by throttle_seconds (no-op if last cancel within window).
+        """
+        from datetime import datetime
+
+        now = datetime.utcnow()
+        if throttle_seconds and self._last_pending_cancel_ts:
+            try:
+                if (now - self._last_pending_cancel_ts).total_seconds() < float(throttle_seconds):
+                    logger.debug("Pending-entry cancellation throttled (last cancel at {})", self._last_pending_cancel_ts)
+                    return {"count": 0, "order_ids": []}
+            except Exception:
+                pass
+
+        pending_statuses = {"PreSubmitted", "Submitted", "PendingSubmit"}
+        cancelled_ids = []
+
+        # Iterate over a snapshot of active orders
+        for order_id, trade in list(self.active_orders.items()):
+            try:
+                # Skip initial-state (external/manual) orders
+                if self.is_initial_state_order(order_id):
+                    continue
+
+                # Only consider orders we consider 'entry parents' (we store stop/tp per parent)
+                if order_id not in self.order_targets:
+                    continue
+
+                status = None
+                try:
+                    status = getattr(trade, "orderStatus", None)
+                    status = getattr(status, "status", None) if status is not None else None
+                except Exception:
+                    status = None
+
+                if status not in pending_statuses:
+                    continue
+
+                # Cancel this parent order (this will also remove tracking of its bracket children via _cancel_trade)
+                success = self._cancel_trade(trade, reason)
+                if success:
+                    cancelled_ids.append(order_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Error while attempting to cancel pending entry {order_id}: {exc}")
+
+        if cancelled_ids:
+            self._last_pending_cancel_ts = now
+            logger.warning(
+                "Cancelled {count} pending ENTRY orders due to stale live bars ({reason})",
+                count=len(cancelled_ids),
+                reason=reason,
+            )
+            # Emit Prometheus metrics if attached
+            try:
+                prom = getattr(self, "prometheus_metrics", None)
+                symbol = getattr(self, "symbol", None)
+                if prom and symbol:
+                    prom.inc_canceled_entries(symbol, reason, len(cancelled_ids))
+                    prom.inc_cancel_call(symbol, reason, "canceled")
+            except Exception:
+                pass
+
+        return {"count": len(cancelled_ids), "order_ids": cancelled_ids}
+
     async def get_current_position(self) -> PositionInfo | None:
         """Get current position for the trading symbol."""
         await self._reconcile_positions()
@@ -2228,56 +2322,62 @@ class TradeExecutor:
                 status = trade.orderStatus.status
                 order_id = trade.order.orderId
                 created_at = self.order_creation_times.get(order_id)
-                age_seconds = (current_time - created_at).total_seconds() if created_at else None
-                age_display = f"{age_seconds:.1f}s" if age_seconds is not None else "unknown"
+                
+                # If creation time is unknown, set it now (best effort for reconnected orders)
+                if created_at is None:
+                    created_at = current_time
+                    self.order_creation_times[order_id] = created_at
+                    logger.debug(f"Set fallback creation time for order {order_id} during sync")
+                
+                age_seconds = (current_time - created_at).total_seconds()
+                age_display = f"{age_seconds:.1f}s"
                 order_snapshots.append(
                     f"#{order_id} {trade.order.action} {trade.order.totalQuantity} status={status} age={age_display}"
                 )
                 
                 if status in pending_statuses:
-                    if age_seconds is not None:
-                        # Cancel orders stuck in PendingSubmit OR PreSubmitted
-                        if status in ('PendingSubmit', 'PreSubmitted') and age_seconds > stuck_threshold:
-                            logger.warning(
-                                "⚠️  Order {order_id} stuck in {status} for {age:.1f}s (threshold={threshold}s) – canceling",
-                                order_id=order_id,
-                                status=status,
-                                age=age_seconds,
-                                threshold=stuck_threshold,
-                            )
-                            self._cancel_trade(trade, "pending_status_watchdog")
-                            if self._order_locked:
-                                self._release_order_lock("stuck order canceled during sync")
-                            continue
-                        # Cancel Submitted orders (both entry and bracket children) that are unfilled for too long
-                        if (
-                            status == 'Submitted'
-                            and float(trade.orderStatus.filled or 0) == 0
-                            and age_seconds > entry_timeout
-                        ):
-                            logger.warning(
-                                "⚠️  Entry order {order_id} stuck Submitted for {age:.1f}s (threshold={threshold}s) – canceling",
-                                order_id=order_id,
-                                age=age_seconds,
-                                threshold=entry_timeout,
-                            )
-                            self._cancel_trade(trade, "entry_submitted_watchdog")
-                            if self._order_locked:
-                                self._release_order_lock("stuck entry canceled during sync")
-                            continue
-                        # SAFETY: Cancel ANY unfilled order older than 10 minutes (600s)
-                        max_order_age = 600  # 10 minutes absolute max
-                        if age_seconds > max_order_age and float(trade.orderStatus.filled or 0) == 0:
-                            logger.warning(
-                                "⚠️  Order {order_id} too old ({age:.1f}s > {max}s) – force canceling",
-                                order_id=order_id,
-                                age=age_seconds,
-                                max=max_order_age,
-                            )
-                            self._cancel_trade(trade, "max_age_watchdog")
-                            if self._order_locked:
-                                self._release_order_lock("old order force canceled")
-                            continue
+                    # Cancel orders stuck in PendingSubmit OR PreSubmitted
+                    if status in ('PendingSubmit', 'PreSubmitted') and age_seconds > stuck_threshold:
+                        logger.warning(
+                            "⚠️  Order {order_id} stuck in {status} for {age:.1f}s (threshold={threshold}s) – canceling",
+                            order_id=order_id,
+                            status=status,
+                            age=age_seconds,
+                            threshold=stuck_threshold,
+                        )
+                        self._cancel_trade(trade, "pending_status_watchdog")
+                        if self._order_locked:
+                            self._release_order_lock("stuck order canceled during sync")
+                        continue
+                    # Cancel Submitted orders (both entry and bracket children) that are unfilled for too long
+                    if (
+                        status == 'Submitted'
+                        and float(trade.orderStatus.filled or 0) == 0
+                        and age_seconds > entry_timeout
+                    ):
+                        logger.warning(
+                            "⚠️  Entry order {order_id} stuck Submitted for {age:.1f}s (threshold={threshold}s) – canceling",
+                            order_id=order_id,
+                            age=age_seconds,
+                            threshold=entry_timeout,
+                        )
+                        self._cancel_trade(trade, "entry_submitted_watchdog")
+                        if self._order_locked:
+                            self._release_order_lock("stuck entry canceled during sync")
+                        continue
+                    # SAFETY: Cancel ANY unfilled order older than 10 minutes (600s)
+                    max_order_age = 600  # 10 minutes absolute max
+                    if age_seconds > max_order_age and float(trade.orderStatus.filled or 0) == 0:
+                        logger.warning(
+                            "⚠️  Order {order_id} too old ({age:.1f}s > {max}s) – force canceling",
+                            order_id=order_id,
+                            age=age_seconds,
+                            max=max_order_age,
+                        )
+                        self._cancel_trade(trade, "max_age_watchdog")
+                        if self._order_locked:
+                            self._release_order_lock("old order force canceled")
+                        continue
                     synced_orders[order_id] = trade
                 else:
                     logger.debug("Skipping order {order_id} with status: {status}", order_id=order_id, status=status)
@@ -2521,7 +2621,7 @@ class TradeExecutor:
                 if now - tick_ts < max(self._price_snapshot_min_interval, 5):
                     self._last_price_value = float(tick.last)
                     self._last_price_snapshot = tick_ts
-                    logger.debug("Using LiveDataManager tick %.2f (age=%.1fs)", self._last_price_value, now - tick_ts)
+                    logger.debug("Using LiveDataManager tick {:.2f} (age={:.1f}s)", self._last_price_value, now - tick_ts)
                     return self._last_price_value
             quote = self._live_data_manager.get_latest_quote(self.symbol)
             if quote and quote.mid:
@@ -2529,7 +2629,7 @@ class TradeExecutor:
                 if now - quote_ts < max(self._price_snapshot_min_interval, 5):
                     self._last_price_value = float(quote.mid)
                     self._last_price_snapshot = quote_ts
-                    logger.debug("Using LiveDataManager quote mid %.2f (age=%.1fs)", self._last_price_value, now - quote_ts)
+                    logger.debug("Using LiveDataManager quote mid {:.2f} (age={:.1f}s)", self._last_price_value, now - quote_ts)
                     return self._last_price_value
         if (
             self._last_price_value is not None
@@ -2620,11 +2720,23 @@ class TradeExecutor:
                     if not self.ib.isConnected():
                         logger.warning("⚠️  Connection lost, attempting auto-reconnect...")
                         
+                        # Send Telegram alert for connection loss
+                        if self.telegram and self.telegram.enabled:
+                            alert_msg = self.telegram.format_error_alert(
+                                error_type="🔌 IB CONNECTION LOST",
+                                message="Connection to Interactive Brokers lost. Attempting auto-reconnect...",
+                                details=f"Host: {self._connection_host}:{self._connection_port}\nClient ID: {self._connection_client_id}"
+                            )
+                            self.telegram.send_message_background(alert_msg)
+                        
+                        # Save order creation times before clearing (to restore after reconnect)
+                        saved_creation_times = dict(self.order_creation_times)
+                        
                         # Clear stale orders since we lost connection
                         if self.active_orders:
                             logger.warning(f"🧹 Clearing {len(self.active_orders)} stale orders due to disconnection")
                             self.active_orders.clear()
-                            self.order_creation_times.clear()
+                            # Don't clear order_creation_times here - we'll restore them after reconcile
                         
                         try:
                             await self.ib.connectAsync(
@@ -2638,12 +2750,49 @@ class TradeExecutor:
                             self.ib.execDetailsEvent += self._on_execution
                             logger.info("✅ Auto-reconnection successful")
                             
+                            # Send Telegram alert for successful reconnection
+                            if self.telegram and self.telegram.enabled:
+                                alert_msg = self.telegram.format_error_alert(
+                                    error_type="✅ IB CONNECTION RESTORED",
+                                    message="Successfully reconnected to Interactive Brokers.",
+                                    details=f"Host: {self._connection_host}:{self._connection_port}\nClient ID: {self._connection_client_id}"
+                                )
+                                self.telegram.send_message_background(alert_msg)
+                            
                             # Reconcile orders with IB after reconnection
                             await self._reconcile_orders()
                             await self._reconcile_positions()
                             
+                            # Restore creation times for orders that still exist
+                            # For orders without saved times, use current time (best effort)
+                            current_time = datetime.utcnow()
+                            for order_id in self.active_orders.keys():
+                                if order_id in saved_creation_times:
+                                    self.order_creation_times[order_id] = saved_creation_times[order_id]
+                                elif order_id not in self.order_creation_times:
+                                    # New order or unknown - set to current time
+                                    self.order_creation_times[order_id] = current_time
+                                    logger.debug(f"Set fallback creation time for order {order_id}")
+                            
+                            # Clean up creation times for orders that no longer exist
+                            stale_ids = [oid for oid in self.order_creation_times if oid not in self.active_orders]
+                            for oid in stale_ids:
+                                del self.order_creation_times[oid]
+                            
                         except Exception as reconnect_error:
                             logger.error(f"❌ Auto-reconnection failed: {reconnect_error}")
+                            
+                            # Send Telegram alert for failed reconnection
+                            if self.telegram and self.telegram.enabled:
+                                alert_msg = self.telegram.format_error_alert(
+                                    error_type="❌ IB RECONNECTION FAILED",
+                                    message="Failed to reconnect to Interactive Brokers. Manual intervention may be required.",
+                                    details=f"Error: {reconnect_error}\nHost: {self._connection_host}:{self._connection_port}\nClient ID: {self._connection_client_id}"
+                                )
+                                self.telegram.send_message_background(alert_msg)
+                            
+                            # Restore creation times even on failure (orders might still be active at broker)
+                            self.order_creation_times.update(saved_creation_times)
                     else:
                         # Connection is healthy, just log periodically
                         logger.debug("Connection health check: OK")

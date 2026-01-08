@@ -232,3 +232,10 @@ telegram:
   notify_on_trade: true  # Send alert when trade is executed
   notify_on_signal: false  # Send alert when signal is generated (can be noisy)
   notify_on_error: true  # Send alert on trading errors/warnings
+
+# Observability / Prometheus Metrics
+observability:
+  prometheus_enabled: true
+  prometheus_addr: "0.0.0.0"  # Bind to all interfaces (required for Kubernetes scraping)
+  prometheus_port: 8000
+  env_label: "prod"  # Environment label for metrics (prod/stage/dev)
