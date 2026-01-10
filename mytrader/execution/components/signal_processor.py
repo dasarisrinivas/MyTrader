@@ -46,6 +46,19 @@ try:
 except ImportError:
     STOCKTWITS_SENTIMENT_AVAILABLE = False
 
+# NEW: VX Futures Feed for volatility-based position sizing (Jan 2026)
+try:
+    from ...data.vx_futures_feed import (
+        VxFuturesFeed,
+        get_vx_feed,
+        init_vx_feed,
+        shutdown_vx_feed,
+    )
+    VX_FEED_AVAILABLE = True
+except ImportError:
+    VX_FEED_AVAILABLE = False
+    VxFuturesFeed = None
+
 # NEW: Multi-timeframe support (Jan 2026)
 try:
     from ...data.candle_aggregator import MultiTimeframeCandleBuilder
@@ -157,6 +170,11 @@ class SignalProcessor:
         self._stocktwits_enabled = False
         self._stocktwits_config = None
         self._init_sentiment()
+        
+        # NEW: VX Futures Feed for volatility-based sizing (Jan 2026)
+        self._vx_feed: Optional[VxFuturesFeed] = None
+        self._vx_feed_enabled = False
+        self._init_vx_feed()
 
     def _init_sentiment(self) -> None:
         """Initialize sentiment integration (multi-source or legacy Stocktwits)."""
@@ -239,6 +257,116 @@ class SignalProcessor:
             logger.info(f"   ✅ Initial MES sentiment: {initial_sentiment:.2f}")
         except Exception as e:
             logger.warning(f"   ⚠️ Initial sentiment fetch failed: {e}")
+    
+    def _init_vx_feed(self) -> None:
+        """Initialize VX futures feed for volatility-based position sizing."""
+        if not VX_FEED_AVAILABLE:
+            logger.debug("VX Futures Feed module not available")
+            return
+        
+        vix_cfg = getattr(self.settings, "vix_feed", None)
+        if not vix_cfg or not getattr(vix_cfg, "enabled", False):
+            logger.debug("VX Futures Feed disabled in config")
+            return
+        
+        try:
+            # Extract config values
+            ib_host = getattr(vix_cfg, "ib_host", "127.0.0.1")
+            ib_port = getattr(vix_cfg, "ib_port", 7497)
+            client_id = getattr(vix_cfg, "client_id", 71)
+            market_data_type = getattr(vix_cfg, "market_data_type", 1)
+            stale_seconds = getattr(vix_cfg, "stale_seconds", 120)
+            conservative_on_stale = getattr(vix_cfg, "conservative_on_stale", False)
+            max_retries = getattr(vix_cfg, "max_retries", 5)
+            base_delay = getattr(vix_cfg, "base_delay", 1.0)
+            
+            # Extract thresholds
+            thresholds = getattr(vix_cfg, "thresholds", {})
+            if isinstance(thresholds, dict):
+                extreme_threshold = thresholds.get("extreme", 30.0)
+                elevated_threshold = thresholds.get("elevated", 20.0)
+            else:
+                extreme_threshold = getattr(thresholds, "extreme", 30.0)
+                elevated_threshold = getattr(thresholds, "elevated", 20.0)
+            
+            logger.info("=" * 70)
+            logger.info("📈 VX FUTURES FEED INITIALIZATION")
+            logger.info("=" * 70)
+            logger.info(f"   IBKR Connection: {ib_host}:{ib_port} (client_id={client_id})")
+            logger.info(f"   Market Data Type: {'Live' if market_data_type == 1 else 'Delayed'}")
+            logger.info(f"   Stale Threshold: {stale_seconds}s")
+            logger.info(f"   Volatility Thresholds:")
+            logger.info(f"      VX >= {extreme_threshold}: 0.4x multiplier (extreme fear)")
+            logger.info(f"      VX >= {elevated_threshold}: 0.7x multiplier (elevated)")
+            logger.info(f"      VX < {elevated_threshold}: 1.0x multiplier (normal)")
+            
+            # Initialize the VX feed
+            self._vx_feed = init_vx_feed(
+                host=ib_host,
+                port=ib_port,
+                client_id=client_id,
+                market_data_type=market_data_type,
+                stale_seconds=stale_seconds,
+                conservative_on_stale=conservative_on_stale,
+                extreme_threshold=extreme_threshold,
+                elevated_threshold=elevated_threshold,
+                max_retries=max_retries,
+                base_delay=base_delay,
+            )
+            
+            # Start background thread
+            started = self._vx_feed.start_in_background()
+            if started:
+                self._vx_feed_enabled = True
+                logger.info("   ✅ VX Feed background thread started")
+            else:
+                logger.warning("   ⚠️ VX Feed failed to start background thread")
+            
+            logger.info("=" * 70)
+            
+        except Exception as e:
+            logger.error(f"⚠️ VX Futures Feed initialization failed: {e}")
+            logger.error("   Proceeding without VX volatility adjustment")
+            self._vx_feed = None
+            self._vx_feed_enabled = False
+    
+    def _get_vx_multiplier(self) -> float:
+        """Get the current VX-based volatility multiplier.
+        
+        Returns:
+            Multiplier between 0.4 and 1.0 based on VIX level.
+            Returns 1.0 if VX feed is disabled or unavailable.
+        """
+        if not self._vx_feed_enabled or self._vx_feed is None:
+            return 1.0
+        
+        try:
+            multiplier = self._vx_feed.get_volatility_multiplier()
+            vx_price = self._vx_feed.get_vx_price()
+            is_stale = self._vx_feed.is_stale()
+            
+            if vx_price is not None and multiplier != 1.0:
+                stale_str = " [STALE]" if is_stale else ""
+                logger.info(
+                    f"📈 VX Volatility Adjustment: VX={vx_price:.2f}{stale_str} → {multiplier:.1f}x multiplier"
+                )
+            
+            return multiplier
+        except Exception as e:
+            logger.warning(f"⚠️ VX multiplier fetch failed: {e}")
+            return 1.0
+    
+    def shutdown_vx_feed(self) -> None:
+        """Shutdown the VX futures feed (call on cleanup)."""
+        if self._vx_feed is not None:
+            try:
+                self._vx_feed.stop_background()
+                logger.info("VX Futures Feed shutdown complete")
+            except Exception as e:
+                logger.warning(f"VX Feed shutdown error: {e}")
+            finally:
+                self._vx_feed = None
+                self._vx_feed_enabled = False
     
     def _get_current_session(self) -> str:
         """Determine current trading session based on CST time.
@@ -573,6 +701,21 @@ class SignalProcessor:
                         logger.debug(f"Unable to fetch position for hybrid pipeline: {exc}")
                 if hasattr(pipeline, "set_current_position"):
                     pipeline.set_current_position(position_for_pipeline)
+                
+                # === INJECT 5-MINUTE TREND INTO FEATURES FOR RULE ENGINE ===
+                # This allows RuleEngine to use higher-timeframe trend in its scoring
+                if self._mtf_builder is not None and self._mtf_builder.has_complete_candle():
+                    htf_trend_5m = self._mtf_builder.get_trend()
+                    features["5m_trend"] = htf_trend_5m
+                    features["htf_trend"] = htf_trend_5m
+                    logger.debug(f"Injected 5m trend into features: {htf_trend_5m}")
+                
+                # Also inject sentiment bias if available from recent sentiment check
+                if hasattr(m, "_last_sentiment_bias"):
+                    features["sentiment_bias"] = m._last_sentiment_bias
+                if hasattr(m, "_last_sentiment_score"):
+                    features["sentiment_score"] = m._last_sentiment_score
+                
                 hybrid_signal, pipeline_result = await pipeline.process(
                     features,
                     current_price,
@@ -638,6 +781,42 @@ class SignalProcessor:
                 sentiment_modifier = None
                 if (self._multi_source_enabled or self._stocktwits_enabled) and hybrid_signal.action != "HOLD":
                     hybrid_signal, sentiment_modifier = self._evaluate_sentiment(hybrid_signal)
+                    
+                    # Cache sentiment for use in next cycle's trend calculation
+                    if sentiment_modifier is not None:
+                        if hasattr(sentiment_modifier, "combined_score"):
+                            # Multi-source sentiment
+                            m._last_sentiment_score = sentiment_modifier.combined_score
+                            if sentiment_modifier.combined_score > 0.2:
+                                m._last_sentiment_bias = "BULLISH"
+                            elif sentiment_modifier.combined_score < -0.2:
+                                m._last_sentiment_bias = "BEARISH"
+                            else:
+                                m._last_sentiment_bias = "NEUTRAL"
+                        elif hasattr(sentiment_modifier, "mes_sentiment"):
+                            # Stocktwits-only sentiment
+                            m._last_sentiment_score = sentiment_modifier.mes_sentiment
+                            if sentiment_modifier.mes_sentiment > 0.2:
+                                m._last_sentiment_bias = "BULLISH"
+                            elif sentiment_modifier.mes_sentiment < -0.2:
+                                m._last_sentiment_bias = "BEARISH"
+                            else:
+                                m._last_sentiment_bias = "NEUTRAL"
+
+                # === JAN 2026: VX Futures Volatility Multiplier ===
+                # Apply VX-based scaling to reduce confidence when VIX is elevated
+                vx_multiplier = self._get_vx_multiplier()
+                if vx_multiplier != 1.0 and hybrid_signal.action != "HOLD":
+                    original_conf = hybrid_signal.confidence
+                    hybrid_signal.confidence = original_conf * vx_multiplier
+                    logger.info(
+                        f"📈 VX Volatility Scaling: {original_conf:.3f} × {vx_multiplier:.1f} = "
+                        f"{hybrid_signal.confidence:.3f}"
+                    )
+                    metadata = getattr(hybrid_signal, "metadata", {}) or {}
+                    metadata["vx_multiplier"] = vx_multiplier
+                    metadata["vx_price"] = self._vx_feed.get_vx_price() if self._vx_feed else None
+                    hybrid_signal.metadata = metadata
 
                 # Store pipeline result for trade logging
                 m._current_pipeline_result = pipeline_result
@@ -884,6 +1063,16 @@ class SignalProcessor:
             m.status.message = "Feature engineering returned empty"
             await m._broadcast_status()
             return
+
+        # === INJECT VX FUTURES PRICE INTO FEATURES ===
+        # This allows the hybrid pipeline to use real-time VX for regime detection
+        # NOTE: This is ADDITIVE - it doesn't replace existing sentiment/indicator logic
+        vx_price = None
+        if self._vx_feed_enabled and self._vx_feed:
+            vx_price = self._vx_feed.get_vx_price()
+            if vx_price is not None:
+                features["vx_price"] = vx_price
+                logger.debug(f"📈 Injected VX price into features: {vx_price:.2f}")
 
         returns = features["close"].pct_change().dropna()
         m._publish_feature_snapshot(features, current_price)

@@ -167,6 +167,9 @@ class TradeExecutor:
         self._connection_client_id: int = 2
         self._keepalive_task: Optional[object] = None
         
+        # Track event handler registration to prevent duplicates (JAN 9 2026 FIX)
+        self._handlers_registered: bool = False
+        
         # Telegram notifications
         self.telegram = telegram_notifier
         
@@ -579,9 +582,8 @@ class TradeExecutor:
         # reqMarketDataType(). This avoids "competing live session" errors.
         logger.info("Connected to IBKR - using snapshot market data requests")
         
-        # Set up event handlers for order updates
-        self.ib.orderStatusEvent += self._on_order_status
-        self.ib.execDetailsEvent += self._on_execution
+        # Set up event handlers for order updates (only once to prevent duplicate notifications)
+        self._register_event_handlers()
         
         # Optional cleanup of existing orders; skip if disabled to preserve protective orders
         if getattr(self.config, "cancel_orders_on_startup", False):
@@ -595,6 +597,38 @@ class TradeExecutor:
         # Start connection keepalive task
         await self._start_keepalive()
     
+    def _register_event_handlers(self) -> None:
+        """Register IB event handlers, preventing duplicate registrations.
+        
+        JAN 9 2026 FIX: This fixes duplicate Telegram notifications caused by
+        handlers being registered multiple times on reconnection.
+        """
+        if self._handlers_registered:
+            logger.debug("Event handlers already registered, skipping")
+            return
+        
+        logger.info("📡 Registering IB event handlers")
+        self.ib.orderStatusEvent += self._on_order_status
+        self.ib.execDetailsEvent += self._on_execution
+        self._handlers_registered = True
+    
+    def _unregister_event_handlers(self) -> None:
+        """Unregister IB event handlers before disconnection.
+        
+        This prevents stale handler references and allows clean re-registration.
+        """
+        if not self._handlers_registered:
+            return
+        
+        try:
+            self.ib.orderStatusEvent -= self._on_order_status
+            self.ib.execDetailsEvent -= self._on_execution
+            self._handlers_registered = False
+            logger.debug("Event handlers unregistered")
+        except Exception as e:
+            logger.warning(f"Failed to unregister handlers: {e}")
+            self._handlers_registered = False
+
     async def _cancel_all_existing_orders(self) -> None:
         """Cancel any existing orders for this symbol and sync order state.
         
@@ -1162,12 +1196,30 @@ class TradeExecutor:
                 gross_msg = gross_pnl if close_result else 0.0
                 net_msg = realized_pnl if close_result else 0.0
                 points_msg = close_result.points if close_result else None
+                
+                # Extract decision reasoning from metadata
+                decision_reasoning = None
+                market_trend = None
+                volatility_regime = None
+                session = None
+                if metadata_source:
+                    # Score breakdown contains the key decision factors
+                    score_breakdown = metadata_source.get("score_breakdown")
+                    if score_breakdown and isinstance(score_breakdown, list):
+                        decision_reasoning = score_breakdown
+                    elif metadata_source.get("hybrid_reasoning"):
+                        decision_reasoning = [metadata_source.get("hybrid_reasoning")]
+                    
+                    market_trend = metadata_source.get("market_trend") or metadata_source.get("trend")
+                    volatility_regime = metadata_source.get("volatility_regime") or metadata_source.get("volatility")
+                    session = metadata_source.get("session")
+                
                 self.telegram.send_trade_alert_background(
                     symbol=self.symbol,
                     side=side,
                     quantity=abs_quantity,
                     fill_price=price,
-                    timestamp=datetime.utcnow(),
+                    timestamp=None,  # Will use CST timestamp automatically
                     current_position=position_qty,
                     order_id=order_id,
                     entry_price=entry_price_msg,
@@ -1180,6 +1232,10 @@ class TradeExecutor:
                     stop_loss=expected_stop_loss,
                     take_profit=expected_take_profit,
                     protection_note=protection_note,
+                    decision_reasoning=decision_reasoning,
+                    market_trend=market_trend,
+                    volatility_regime=volatility_regime,
+                    session=session,
                 )
                 logger.info(f"📱 Telegram alert queued successfully")
             except Exception as e:
@@ -2738,6 +2794,9 @@ class TradeExecutor:
                             self.active_orders.clear()
                             # Don't clear order_creation_times here - we'll restore them after reconcile
                         
+                        # Mark handlers as unregistered before reconnection (they may be stale)
+                        self._handlers_registered = False
+                        
                         try:
                             await self.ib.connectAsync(
                                 self._connection_host,
@@ -2745,9 +2804,8 @@ class TradeExecutor:
                                 clientId=self._connection_client_id,
                                 timeout=30
                             )
-                            # Re-setup after reconnection (no reqMarketDataType needed for snapshots)
-                            self.ib.orderStatusEvent += self._on_order_status
-                            self.ib.execDetailsEvent += self._on_execution
+                            # Re-register handlers after reconnection (JAN 9 2026 FIX - use helper to prevent duplicates)
+                            self._register_event_handlers()
                             logger.info("✅ Auto-reconnection successful")
                             
                             # Send Telegram alert for successful reconnection

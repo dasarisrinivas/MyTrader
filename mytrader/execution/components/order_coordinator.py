@@ -505,6 +505,51 @@ class OrderCoordinator:
             metadata["expected_gross"] = projected.gross_pnl
             metadata["expected_net"] = projected.net_pnl
 
+            # === TREND CONTINUATION OPTIMIZATION ===
+            # Check if we should modify existing bracket instead of close+re-enter
+            if hasattr(m, 'trend_continuation_optimizer') and m.trend_continuation_optimizer:
+                try:
+                    continuation_analysis = await m.trend_continuation_optimizer.analyze_continuation(
+                        new_signal_action=signal.action,
+                        current_price=current_price,
+                        new_stop_loss=stop_loss,
+                        new_take_profit=take_profit,
+                        features=row.to_dict() if hasattr(row, 'to_dict') else dict(row),
+                    )
+                    
+                    if continuation_analysis.should_modify:
+                        logger.info(
+                            "🔄 TREND CONTINUATION: Modifying existing bracket instead of close+re-enter\n"
+                            "   Reason: {}\n"
+                            "   Est. Savings: ${:.2f}",
+                            continuation_analysis.reason,
+                            continuation_analysis.savings_estimate
+                        )
+                        
+                        # Execute the modification
+                        modified = await m.trend_continuation_optimizer.execute_modification(
+                            continuation_analysis
+                        )
+                        
+                        if modified:
+                            # Skip the new order - we modified the existing one
+                            self.record_signal_key(signal_key)
+                            m._record_submission_timestamp()
+                            await m._broadcast_order_update({
+                                "status": "MODIFIED",
+                                "action": signal.action,
+                                "quantity": qty,
+                                "fill_price": current_price,
+                                "message": "Bracket extended (trend continuation)",
+                                "new_stop": continuation_analysis.new_stop_loss,
+                                "new_target": continuation_analysis.new_take_profit,
+                            })
+                            return
+                        else:
+                            logger.warning("Bracket modification failed, proceeding with normal order")
+                except Exception as cont_exc:
+                    logger.warning(f"Trend continuation check failed: {cont_exc}")
+
             # Final TOCTOU check: ensure position still flat before submitting entry
             try:
                 current_pos = await m.executor.get_current_position()

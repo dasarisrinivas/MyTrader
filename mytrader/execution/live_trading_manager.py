@@ -312,6 +312,10 @@ class LiveTradingManager:
         self.signal_processor = SignalProcessor(self.settings, self.engine, self)
         self.trade_decision_engine = TradeDecisionEngine(self)
         self.system_health_monitor = SystemHealthMonitor(self)
+        
+        # Trend continuation optimizer - modifies brackets instead of close+re-enter
+        from mytrader.execution.components.trend_continuation_optimizer import TrendContinuationOptimizer
+        self.trend_continuation_optimizer = TrendContinuationOptimizer(self)
 
         learning_cfg = getattr(settings, "learning", None)
         if (
@@ -2344,6 +2348,17 @@ TRADING GUIDANCE:
             metadata["market_trend"] = self.status.hybrid_market_trend
             metadata["volatility_regime"] = self.status.hybrid_volatility_regime
             metadata["atr_fallback_used"] = fallback_used
+            
+            # Add score breakdown for Telegram decision reasoning (JAN 8 2026)
+            if pipeline_result and hasattr(pipeline_result, "rule_engine"):
+                rule_indicators = getattr(pipeline_result.rule_engine, "indicators", {})
+                score_breakdown = rule_indicators.get("score_breakdown")
+                if score_breakdown:
+                    metadata["score_breakdown"] = score_breakdown
+                # Also add session info for Telegram
+                session = rule_indicators.get("current_session")
+                if session:
+                    metadata["session"] = session
 
             allowed, reason, signal_key = await self.order_coordinator.enforce_entry_gates(
                 signal.action,

@@ -292,6 +292,7 @@ class RuleEngine:
             "close": close_price,
             "ema_9": ema_9,
             "ema_20": ema_20,
+            "ema_50": ema_50,
             "rsi": rsi,
             "macd_hist": macd_hist,
             "atr": atr,
@@ -299,46 +300,156 @@ class RuleEngine:
             "pdl": pdl,
         }
         
-        # Determine trend - ENHANCED for micro-trends
-        # Use EMA distance and price position instead of candle open (which is too short-term)
-        open_price = market_data.get("open", price)
-        candle_pct_change = (price - open_price) / open_price * 100 if open_price > 0 else 0
+        # ===== ENHANCED TREND DETECTION (Jan 2026) =====
+        # Uses multi-bar confirmation, EMA_50 as anchor, and sentiment integration
+        # to avoid whipsaw from reactive 1-minute candle trend flipping
+        
+        # Get external higher-timeframe trend if available (from signal processor's 5m builder)
+        htf_trend = market_data.get("htf_trend", market_data.get("5m_trend", market_data.get("trend_5m", "")))
+        sentiment_bias = market_data.get("sentiment_bias", "NEUTRAL")  # BULLISH, BEARISH, NEUTRAL
+        sentiment_score = market_data.get("sentiment_score", 0.0)  # -1.0 to 1.0
+        
+        # Calculate EMA relationships
         ema_diff_pct = (ema_9 - ema_20) / ema_20 * 100 if ema_20 > 0 else 0
-        
-        # Price distance from EMA_20 (more stable reference)
+        ema_20_vs_50_pct = (ema_20 - ema_50) / ema_50 * 100 if ema_50 > 0 else 0
         price_vs_ema20_pct = (price - ema_20) / ema_20 * 100 if ema_20 > 0 else 0
-        price_vs_ema9_pct = (price - ema_9) / ema_9 * 100 if ema_9 > 0 else 0
+        price_vs_ema50_pct = (price - ema_50) / ema_50 * 100 if ema_50 > 0 else 0
         
-        # Strong trend: aligned EMAs
-        if price > ema_9 > ema_20:
+        # Use MACD histogram for momentum confirmation (multi-bar smoothed)
+        macd_bullish = macd_hist > 0
+        macd_bearish = macd_hist < 0
+        
+        # RSI context for trend validation
+        rsi_bullish = rsi > 50
+        rsi_bearish = rsi < 50
+        rsi_extreme_bullish = rsi > 60
+        rsi_extreme_bearish = rsi < 40
+        
+        # --- Multi-factor trend scoring ---
+        # Score: positive = bullish, negative = bearish
+        trend_score = 0.0
+        trend_factors = []
+        
+        # Factor 1: EMA alignment (most weight - 40%)
+        if price > ema_9 > ema_20 > ema_50:
+            trend_score += 40
+            trend_factors.append("EMA_STACK_UP")
+        elif price < ema_9 < ema_20 < ema_50:
+            trend_score -= 40
+            trend_factors.append("EMA_STACK_DOWN")
+        elif price > ema_20 and ema_diff_pct > 0:
+            trend_score += 20
+            trend_factors.append("EMA_BIAS_UP")
+        elif price < ema_20 and ema_diff_pct < 0:
+            trend_score -= 20
+            trend_factors.append("EMA_BIAS_DOWN")
+        
+        # Factor 2: EMA_50 anchor position (20%)
+        if price_vs_ema50_pct > 0.1:
+            trend_score += 20
+            trend_factors.append("ABOVE_EMA50")
+        elif price_vs_ema50_pct < -0.1:
+            trend_score -= 20
+            trend_factors.append("BELOW_EMA50")
+        
+        # Factor 3: MACD momentum (15%)
+        if macd_bullish:
+            trend_score += 15
+            trend_factors.append("MACD_POS")
+        elif macd_bearish:
+            trend_score -= 15
+            trend_factors.append("MACD_NEG")
+        
+        # Factor 4: RSI position (10%)
+        if rsi_extreme_bullish:
+            trend_score += 10
+            trend_factors.append("RSI_STRONG")
+        elif rsi_extreme_bearish:
+            trend_score -= 10
+            trend_factors.append("RSI_WEAK")
+        elif rsi_bullish:
+            trend_score += 5
+        elif rsi_bearish:
+            trend_score -= 5
+        
+        # Factor 5: Higher timeframe confirmation (10%)
+        if htf_trend in ("UPTREND", "MICRO_UP", "WEAK_UP"):
+            trend_score += 10
+            trend_factors.append("HTF_UP")
+        elif htf_trend in ("DOWNTREND", "MICRO_DOWN", "WEAK_DOWN"):
+            trend_score -= 10
+            trend_factors.append("HTF_DOWN")
+        
+        # Factor 6: Sentiment bias (5%)
+        if sentiment_bias == "BULLISH" or sentiment_score > 0.3:
+            trend_score += 5
+            trend_factors.append("SENTIMENT_BULL")
+        elif sentiment_bias == "BEARISH" or sentiment_score < -0.3:
+            trend_score -= 5
+            trend_factors.append("SENTIMENT_BEAR")
+        
+        # --- Determine final trend based on score ---
+        # Strong trend: >= 60 or <= -60 (at least 3 confirming factors)
+        # Micro trend: 30-60 range
+        # Weak trend: 10-30 range  
+        # Chop/Range: -10 to 10
+        
+        if trend_score >= 60:
             result.market_trend = "UPTREND"
-        elif price < ema_9 < ema_20:
+        elif trend_score <= -60:
             result.market_trend = "DOWNTREND"
-        # Micro trend: price 0.05%+ above/below EMA20 with EMA9 curling in same direction
-        elif price_vs_ema20_pct >= 0.05 and ema_diff_pct > 0:
+        elif trend_score >= 30:
             result.market_trend = "MICRO_UP"
-        elif price_vs_ema20_pct <= -0.05 and ema_diff_pct < 0:
+        elif trend_score <= -30:
             result.market_trend = "MICRO_DOWN"
-        # Weak trend: price above/below EMA9 with positive/negative EMA slope
-        elif price > ema_9 and ema_diff_pct > 0.01:
+        elif trend_score >= 10:
             result.market_trend = "WEAK_UP"
-        elif price < ema_9 and ema_diff_pct < -0.01:
+        elif trend_score <= -10:
             result.market_trend = "WEAK_DOWN"
-        # Range-bound: price oscillating around EMAs
-        elif abs(price_vs_ema9_pct) < 0.03 and abs(ema_diff_pct) < 0.02:
+        elif abs(ema_diff_pct) < 0.02 and abs(price_vs_ema20_pct) < 0.05:
             result.market_trend = "RANGE"
         else:
             result.market_trend = "CHOP"
         
-        # Determine volatility regime
+        # Store trend analysis details for debugging/Telegram
+        result.indicators["trend_score"] = trend_score
+        result.indicators["trend_factors"] = trend_factors
+        result.indicators["htf_trend"] = htf_trend
+        result.indicators["sentiment_bias"] = sentiment_bias
+        
+        logger.debug(
+            f"Trend Detection: score={trend_score:.1f} factors={trend_factors} "
+            f"-> {result.market_trend} (HTF={htf_trend}, Sentiment={sentiment_bias})"
+        )
+        
+        # Determine volatility regime (ATR-based + VX futures overlay)
         avg_atr = market_data.get("atr_20_avg", atr)
         atr_ratio = atr / avg_atr if avg_atr > 0 else 1
+        
+        # Base regime from ATR
         if atr_ratio > 1.3:
             result.volatility_regime = "HIGH"
         elif atr_ratio < 0.7:
             result.volatility_regime = "LOW"
         else:
             result.volatility_regime = "MEDIUM"
+        
+        # VX Futures overlay - if VX is elevated, treat volatility as HIGH
+        # This catches market-wide fear even when MES ATR is normal
+        vx_price = market_data.get("vx_price")
+        if vx_price and vx_price >= 25:
+            if result.volatility_regime != "HIGH":
+                logger.info(f"📈 VX override: VX={vx_price:.1f}>=25, upgrading {result.volatility_regime} -> HIGH")
+                result.volatility_regime = "HIGH"
+                result.filters_warned.append(f"VX_ELEVATED ({vx_price:.1f})")
+        elif vx_price and vx_price >= 20:
+            if result.volatility_regime == "LOW":
+                logger.info(f"📈 VX caution: VX={vx_price:.1f}>=20, upgrading LOW -> MEDIUM")
+                result.volatility_regime = "MEDIUM"
+                result.filters_warned.append(f"VX_CAUTIOUS ({vx_price:.1f})")
+        
+        result.indicators["vx_price"] = vx_price if vx_price else 0.0
+        result.indicators["atr_ratio"] = atr_ratio
         
         # ===== HARD FILTERS (blockers) =====
         
@@ -427,6 +538,12 @@ class RuleEngine:
         buy_score = 0
         sell_score = 0
         score_details = []  # For debugging
+        
+        # Add trend factors to score_details for Telegram visibility
+        trend_factors = result.indicators.get("trend_factors", [])
+        trend_score_val = result.indicators.get("trend_score", 0)
+        if trend_factors:
+            score_details.append(f"TREND_SCORE:{trend_score_val:+.0f}({'+'.join(trend_factors[:3])})")
         
         # Determine if scalp mode (low vol or range-bound)
         is_scalp_mode = result.volatility_regime == "LOW" or result.market_trend in ["RANGE", "CHOP"]

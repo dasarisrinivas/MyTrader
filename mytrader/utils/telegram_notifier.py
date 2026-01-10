@@ -6,10 +6,21 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from zoneinfo import ZoneInfo
 import aiohttp
 
 from ..utils.logger import logger
+
+# Import CST utilities for timezone-aware timestamps
+try:
+    from ..utils.timezone_utils import now_cst, format_cst, CST
+except ImportError:
+    CST = ZoneInfo("America/Chicago")
+    def now_cst():
+        return datetime.now(CST)
+    def format_cst(dt):
+        return dt.strftime("%Y-%m-%d %H:%M:%S CST")
 
 
 class TelegramNotifier:
@@ -161,6 +172,10 @@ class TelegramNotifier:
         net_pnl: Optional[float] = None,
         risk_reward: Optional[float] = None,
         protection_note: Optional[str] = None,
+        decision_reasoning: Optional[List[str]] = None,
+        market_trend: Optional[str] = None,
+        volatility_regime: Optional[str] = None,
+        session: Optional[str] = None,
     ) -> str:
         """
         Format a trade execution alert message.
@@ -183,12 +198,29 @@ class TelegramNotifier:
             gross_pnl: Gross profit before commissions
             net_pnl: Net profit after commissions
             risk_reward: Reported risk/reward ratio
+            protection_note: Risk management note
+            decision_reasoning: List of reasons for the trade decision (score breakdown)
+            market_trend: Current market trend (UPTREND/DOWNTREND/RANGE)
+            volatility_regime: Current volatility regime (HIGH/MEDIUM/LOW)
+            session: Current trading session (RTH/EVENING/OVERNIGHT)
             
         Returns:
             Formatted HTML message
         """
+        # Use CST timestamp
         if timestamp is None:
-            timestamp = datetime.now()
+            timestamp = now_cst()
+        else:
+            # Convert to CST if not already
+            try:
+                if timestamp.tzinfo is None:
+                    # Assume UTC and convert to CST
+                    timestamp = timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(CST)
+                else:
+                    timestamp = timestamp.astimezone(CST)
+            except Exception:
+                # Fallback to current CST time
+                timestamp = now_cst()
         
         # Emoji and color based on side
         if side.upper() == "BUY":
@@ -209,7 +241,7 @@ class TelegramNotifier:
             f"Symbol: <b>{symbol}</b>",
             f"Quantity: <b>{quantity}</b> contracts",
             f"Price: <b>${fill_price:.2f}</b>",
-            f"Time: {timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            f"Time: {timestamp.strftime('%Y-%m-%d %H:%M:%S CST')}"
         ]
 
         if entry_price is not None:
@@ -245,6 +277,27 @@ class TelegramNotifier:
         if risk_reward is not None:
             lines.append(f"R:R Ratio: {risk_reward:.2f}")
         
+        # Market context section
+        if market_trend or volatility_regime or session:
+            lines.append("")
+            lines.append("<b>📊 Market Context:</b>")
+            if session:
+                session_emoji = "☀️" if session == "RTH" else "🌙" if session == "EVENING" else "🌃"
+                lines.append(f"{session_emoji} Session: {session}")
+            if market_trend:
+                trend_emoji = "📈" if market_trend == "UPTREND" else "📉" if market_trend == "DOWNTREND" else "➡️"
+                lines.append(f"{trend_emoji} Trend: {market_trend}")
+            if volatility_regime:
+                vol_emoji = "🔥" if volatility_regime == "HIGH" else "⚡" if volatility_regime == "MEDIUM" else "😴"
+                lines.append(f"{vol_emoji} Volatility: {volatility_regime}")
+        
+        # Decision reasoning section - WHY this trade was taken
+        if decision_reasoning and len(decision_reasoning) > 0:
+            lines.append("")
+            lines.append("<b>🧠 Decision Factors:</b>")
+            for reason in decision_reasoning[:5]:  # Limit to 5 reasons to keep message concise
+                lines.append(f"  • {reason}")
+        
         # Risk management levels
         if stop_loss is not None or take_profit is not None:
             lines.append("")
@@ -269,7 +322,11 @@ class TelegramNotifier:
         confidence: float,
         price: float,
         strategy: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        decision_reasoning: Optional[List[str]] = None,
+        market_trend: Optional[str] = None,
+        volatility_regime: Optional[str] = None,
+        session: Optional[str] = None,
     ) -> str:
         """
         Format a trading signal alert (optional - for signal generation).
@@ -281,6 +338,10 @@ class TelegramNotifier:
             price: Current market price
             strategy: Strategy name
             metadata: Additional signal metadata
+            decision_reasoning: List of reasons for the trade decision
+            market_trend: Current market trend (UPTREND/DOWNTREND/RANGE)
+            volatility_regime: Current volatility regime (HIGH/MEDIUM/LOW)
+            session: Current trading session (RTH/EVENING/OVERNIGHT)
             
         Returns:
             Formatted HTML message
@@ -294,6 +355,9 @@ class TelegramNotifier:
         
         confidence_pct = confidence * 100
         
+        # Use CST timestamp
+        timestamp = now_cst()
+        
         lines = [
             "📊 <b>TRADING SIGNAL</b>",
             "",
@@ -301,11 +365,32 @@ class TelegramNotifier:
             f"Symbol: <b>{symbol}</b>",
             f"Confidence: <b>{confidence_pct:.1f}%</b>",
             f"Price: ${price:.2f}",
-            f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            f"Time: {timestamp.strftime('%Y-%m-%d %H:%M:%S CST')}"
         ]
         
         if strategy:
             lines.append(f"Strategy: {strategy}")
+        
+        # Market context section
+        if market_trend or volatility_regime or session:
+            lines.append("")
+            lines.append("<b>📊 Market Context:</b>")
+            if session:
+                session_emoji = "☀️" if session == "RTH" else "🌙" if session == "EVENING" else "🌃"
+                lines.append(f"{session_emoji} Session: {session}")
+            if market_trend:
+                trend_emoji = "📈" if market_trend == "UPTREND" else "📉" if market_trend == "DOWNTREND" else "➡️"
+                lines.append(f"{trend_emoji} Trend: {market_trend}")
+            if volatility_regime:
+                vol_emoji = "🔥" if volatility_regime == "HIGH" else "⚡" if volatility_regime == "MEDIUM" else "😴"
+                lines.append(f"{vol_emoji} Volatility: {volatility_regime}")
+        
+        # Decision reasoning section
+        if decision_reasoning and len(decision_reasoning) > 0:
+            lines.append("")
+            lines.append("<b>🧠 Decision Factors:</b>")
+            for reason in decision_reasoning[:5]:  # Limit to 5 reasons
+                lines.append(f"  • {reason}")
         
         if metadata:
             lines.append("")

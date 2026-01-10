@@ -109,6 +109,8 @@ class SentimentSource(Enum):
     STOCKTWITS = "stocktwits"
     REDDIT = "reddit"
     TWITTER = "twitter"
+    VIX = "vix"  # Market-based fear gauge
+    PUT_CALL = "put_call"  # Options sentiment
     COMBINED = "combined"
 
 
@@ -448,7 +450,8 @@ def get_stocktwits_sentiment(symbols: List[str] = None) -> SourceSentiment:
     
     logger.info(
         f"📊 Stocktwits: score={score:.2f} "
-        f"(bull={total_bullish}, bear={total_bearish}, total={total_messages})"
+        f"(bull={total_bullish}, bear={total_bearish}, total={total_messages}) "
+        f"[ts={datetime.now(timezone.utc).strftime('%H:%M:%S')}]"
     )
     
     return SourceSentiment(
@@ -819,6 +822,323 @@ def get_twitter_sentiment() -> SourceSentiment:
 
 
 # ============================================================
+# VIX-BASED MARKET SENTIMENT (Real market data, not social media)
+# ============================================================
+
+# Global VIX cache (fetched once per session or on demand)
+_vix_cache: Dict[str, Any] = {"value": None, "timestamp": None}
+_VIX_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+# VX Futures Feed integration (real-time IBKR data)
+try:
+    from .vx_futures_feed import get_vx_feed
+    VX_FEED_AVAILABLE = True
+except ImportError:
+    VX_FEED_AVAILABLE = False
+
+
+def get_vix_sentiment(vix_value: Optional[float] = None) -> SourceSentiment:
+    """Get sentiment based on VIX/VX (CBOE Volatility Index / Futures).
+    
+    Priority:
+    1. Use provided vix_value if given
+    2. Try VX Futures Feed (real-time IBKR data) - more accurate
+    3. Try cached value if fresh
+    4. Fall back to Yahoo Finance (free, no API key)
+    
+    VIX is often called the "fear gauge" - it measures expected volatility:
+    - VIX < 12: Extreme complacency (bullish, but watch for reversal)
+    - VIX 12-15: Low fear (bullish)
+    - VIX 15-20: Normal (neutral)
+    - VIX 20-25: Elevated fear (cautious)
+    - VIX 25-30: High fear (bearish, but contrarian opportunities)
+    - VIX > 30: Extreme fear (bearish, potential capitulation)
+    
+    Args:
+        vix_value: Current VIX value (if None, tries VX feed, cache, or Yahoo Finance)
+        
+    Returns:
+        SourceSentiment with score based on VIX level
+    """
+    global _vix_cache
+    source_label = "provided"
+    
+    try:
+        # Priority 1: Use provided value
+        if vix_value is not None:
+            source_label = "provided"
+        else:
+            # Priority 2: Try VX Futures Feed (real-time IBKR data)
+            if VX_FEED_AVAILABLE:
+                vx_feed = get_vx_feed()
+                if vx_feed and not vx_feed.is_stale():
+                    vx_price = vx_feed.get_vx_price()
+                    if vx_price is not None:
+                        vix_value = vx_price
+                        source_label = "vx_futures"
+                        logger.debug(f"VIX sentiment using VX futures price: {vix_value:.2f}")
+            
+            # Priority 3: Check cache
+            if vix_value is None:
+                cache_age = 0
+                if _vix_cache["timestamp"]:
+                    cache_age = (datetime.now(timezone.utc) - _vix_cache["timestamp"]).total_seconds()
+                
+                if _vix_cache["value"] and cache_age < _VIX_CACHE_TTL_SECONDS:
+                    vix_value = _vix_cache["value"]
+                    source_label = "cache"
+            
+            # Priority 4: Fall back to Yahoo Finance
+            if vix_value is None:
+                vix_value = _fetch_vix_from_yahoo()
+                if vix_value:
+                    _vix_cache["value"] = vix_value
+                    _vix_cache["timestamp"] = datetime.now(timezone.utc)
+                    source_label = "yahoo"
+        
+        if vix_value is None:
+            return SourceSentiment(
+                source=SentimentSource.VIX,
+                score=0.0,
+                confidence=0.0,
+                sample_count=0,
+                error="VIX data unavailable",
+            )
+        
+        # =================================================================
+        # VIX/VX INTERPRETATION - IMPORTANT NUANCE
+        # =================================================================
+        # VIX measures EXPECTED VOLATILITY, not direction.
+        # Higher VIX = market expects larger moves (up OR down).
+        # 
+        # Common relationship: ES down → VIX up (hedging demand)
+        # But ~20% of the time they move together (rallies with hedging).
+        #
+        # For SENTIMENT scoring, we use VIX as a RISK REGIME indicator:
+        # - Low VIX (<15): Complacent, good for trend-following
+        # - Normal VIX (15-20): Standard conditions
+        # - Elevated VIX (20-30): Uncertainty, need stronger confirmation
+        # - Extreme VIX (>30): Crisis/panic, mean-reversion opportunities
+        #
+        # The score here influences entry filters, NOT direction.
+        # A negative score means "be more cautious/require more confirmation"
+        # NOT "the market is going down."
+        # =================================================================
+        
+        if vix_value < 12:
+            # Extreme complacency - low vol environment
+            # Good for trend-following, but watch for vol expansion
+            score = 0.3
+            confidence = 0.7
+            regime = "COMPLACENT"
+        elif vix_value < 15:
+            # Low volatility - favorable for normal trading
+            score = 0.4
+            confidence = 0.8
+            regime = "LOW_VOL"
+        elif vix_value < 20:
+            # Normal range - standard conditions
+            score = 0.0
+            confidence = 0.6
+            regime = "NORMAL"
+        elif vix_value < 25:
+            # Elevated uncertainty - require stronger signals
+            score = -0.2
+            confidence = 0.7
+            regime = "ELEVATED"
+        elif vix_value < 30:
+            # High uncertainty - be very selective
+            score = -0.4
+            confidence = 0.8
+            regime = "HIGH_UNCERTAINTY"
+        else:
+            # Extreme volatility - crisis/panic mode
+            # Score is negative (cautious) but watch for mean-reversion
+            # opportunities as panic often creates overshoots
+            score = -0.5
+            confidence = 0.6  # Lower confidence due to unpredictability
+            regime = "CRISIS"
+        
+        logger.info(
+            f"📊 VIX Regime: VIX={vix_value:.2f} -> {regime} "
+            f"(score={score:+.2f}, conf={confidence:.2f}, source={source_label})"
+        )
+        
+        return SourceSentiment(
+            source=SentimentSource.VIX,
+            score=score,
+            confidence=confidence,
+            sample_count=1,  # VIX is a single aggregate metric
+        )
+        
+    except Exception as e:
+        logger.warning(f"⚠️ VIX sentiment fetch failed: {e}")
+        return SourceSentiment(
+            source=SentimentSource.VIX,
+            score=0.0,
+            confidence=0.0,
+            sample_count=0,
+            error=str(e)[:100],
+        )
+
+
+def _fetch_vix_from_yahoo() -> Optional[float]:
+    """Fetch current VIX value from Yahoo Finance (free, no API key)."""
+    try:
+        # Yahoo Finance quote page for VIX
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1m&range=1d"
+        headers = {"User-Agent": BROWSER_USER_AGENT}
+        
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        
+        data = response.json()
+        result = data.get("chart", {}).get("result", [])
+        if result:
+            meta = result[0].get("meta", {})
+            vix_value = meta.get("regularMarketPrice")
+            if vix_value:
+                logger.debug(f"VIX fetched from Yahoo: {vix_value:.2f}")
+                return float(vix_value)
+        
+        return None
+        
+    except Exception as e:
+        logger.debug(f"Yahoo VIX fetch failed: {e}")
+        return None
+
+
+def set_vix_value(vix_value: float) -> None:
+    """Manually set VIX value (e.g., from IBKR subscription).
+    
+    Call this from the trading manager when you have real-time VIX data.
+    """
+    global _vix_cache
+    _vix_cache["value"] = vix_value
+    _vix_cache["timestamp"] = datetime.now(timezone.utc)
+    logger.debug(f"VIX cache updated: {vix_value:.2f}")
+
+
+# ============================================================
+# CNN FEAR & GREED INDEX (Market-based composite)
+# ============================================================
+
+_fear_greed_cache: Dict[str, Any] = {"value": None, "timestamp": None}
+_FEAR_GREED_CACHE_TTL_SECONDS = 900  # 15 minutes (doesn't change frequently)
+
+
+def get_fear_greed_sentiment() -> SourceSentiment:
+    """Get sentiment from CNN Fear & Greed Index.
+    
+    This is a composite of 7 market indicators:
+    1. Stock Price Momentum (S&P 500 vs 125-day MA)
+    2. Stock Price Strength (52-week highs vs lows)
+    3. Stock Price Breadth (McClellan Volume Summation)
+    4. Put/Call Ratio
+    5. Junk Bond Demand
+    6. Market Volatility (VIX)
+    7. Safe Haven Demand
+    
+    Scale: 0-100 (0=Extreme Fear, 50=Neutral, 100=Extreme Greed)
+    
+    Returns:
+        SourceSentiment with score converted to [-1, 1]
+    """
+    global _fear_greed_cache
+    
+    try:
+        # Check cache
+        cache_age = 0
+        if _fear_greed_cache["timestamp"]:
+            cache_age = (datetime.now(timezone.utc) - _fear_greed_cache["timestamp"]).total_seconds()
+        
+        if _fear_greed_cache["value"] is not None and cache_age < _FEAR_GREED_CACHE_TTL_SECONDS:
+            fg_value = _fear_greed_cache["value"]
+        else:
+            fg_value = _fetch_fear_greed_index()
+            if fg_value is not None:
+                _fear_greed_cache["value"] = fg_value
+                _fear_greed_cache["timestamp"] = datetime.now(timezone.utc)
+        
+        if fg_value is None:
+            return SourceSentiment(
+                source=SentimentSource.COMBINED,  # Use COMBINED as placeholder
+                score=0.0,
+                confidence=0.0,
+                sample_count=0,
+                error="Fear & Greed data unavailable",
+            )
+        
+        # Convert 0-100 to -1 to 1
+        # 0 = Extreme Fear = -1.0
+        # 50 = Neutral = 0.0
+        # 100 = Extreme Greed = 1.0
+        score = (fg_value - 50) / 50
+        
+        # Confidence based on how extreme the reading is
+        distance_from_neutral = abs(fg_value - 50)
+        confidence = min(1.0, 0.5 + (distance_from_neutral / 100))
+        
+        logger.info(
+            f"📊 Fear & Greed Index: {fg_value:.0f} -> score={score:+.2f} "
+            f"(confidence={confidence:.2f}) [ts={datetime.now(timezone.utc).strftime('%H:%M:%S')}]"
+        )
+        
+        return SourceSentiment(
+            source=SentimentSource.COMBINED,
+            score=score,
+            confidence=confidence,
+            sample_count=7,  # Based on 7 indicators
+        )
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Fear & Greed fetch failed: {e}")
+        return SourceSentiment(
+            source=SentimentSource.COMBINED,
+            score=0.0,
+            confidence=0.0,
+            sample_count=0,
+            error=str(e)[:100],
+        )
+
+
+def _fetch_fear_greed_index() -> Optional[float]:
+    """Fetch Fear & Greed index from CNN (web scraping).
+    
+    Note: CNN may change their page structure - this is a best-effort fetch.
+    Falls back to alternative API if scraping fails.
+    """
+    try:
+        # Try Alternative.me API first (more reliable)
+        url = "https://api.alternative.me/fng/?limit=1"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("data"):
+                value = int(data["data"][0].get("value", 50))
+                classification = data["data"][0].get("value_classification", "")
+                logger.debug(f"Fear & Greed from Alternative.me: {value} ({classification})")
+                return float(value)
+    except Exception as e:
+        logger.debug(f"Alternative.me F&G fetch failed: {e}")
+    
+    # Fallback: try to estimate from VIX
+    try:
+        vix_result = get_vix_sentiment()
+        if vix_result.is_valid():
+            # Convert VIX sentiment to F&G scale
+            # VIX sentiment: -1 (fear) to +1 (greed)
+            # F&G scale: 0 (fear) to 100 (greed)
+            estimated_fg = (vix_result.score + 1) * 50
+            logger.debug(f"Fear & Greed estimated from VIX: {estimated_fg:.0f}")
+            return estimated_fg
+    except Exception:
+        pass
+    
+    return None
+
+
+# ============================================================
 # COMBINED SENTIMENT
 # ============================================================
 
@@ -899,15 +1219,27 @@ def get_combined_mes_sentiment(force_refresh: bool = False) -> CombinedSentiment
             logger.info(f"📦 Using cached sentiment (age: {age:.0f}s): {cached.score:.2f}")
             return cached
     
-    logger.info("🔄 Fetching fresh multi-source sentiment...")
+    fetch_id = datetime.now(timezone.utc).strftime("%H%M%S")
+    logger.info(f"🔄 Fetching fresh multi-source sentiment... [fetch_id={fetch_id}]")
     
-    # Fetch from all sources
+    # Fetch from all sources (social + market-based)
     stocktwits = get_stocktwits_sentiment()
     reddit = get_reddit_sentiment()
     twitter = get_twitter_sentiment()
     
-    # Compute combined score
-    combined_score = _compute_weighted_sentiment(stocktwits, reddit, twitter)
+    # NEW: Also fetch market-based sentiment (VIX)
+    vix_sentiment = get_vix_sentiment()
+    
+    # Compute combined score from social sources
+    social_score = _compute_weighted_sentiment(stocktwits, reddit, twitter)
+    
+    # Blend with VIX sentiment if available (VIX is more reliable than social)
+    # Weight: 60% social, 40% VIX (if VIX is valid)
+    if vix_sentiment.is_valid():
+        combined_score = (social_score * 0.6) + (vix_sentiment.score * 0.4)
+        logger.info(f"   Blended with VIX: social={social_score:+.2f}, vix={vix_sentiment.score:+.2f} -> {combined_score:+.2f}")
+    else:
+        combined_score = social_score
     
     result = CombinedSentiment(
         score=combined_score,
@@ -926,6 +1258,7 @@ def get_combined_mes_sentiment(force_refresh: bool = False) -> CombinedSentiment
     logger.info(f"   Stocktwits: {stocktwits.score:+.2f} ({stocktwits.sample_count} samples)")
     logger.info(f"   Reddit:     {reddit.score:+.2f} ({reddit.sample_count} samples)")
     logger.info(f"   Twitter:    {twitter.score:+.2f} ({twitter.sample_count} samples)")
+    logger.info(f"   VIX:        {vix_sentiment.score:+.2f} (market-based)")
     logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"   COMBINED:   {combined_score:+.2f}")
     logger.info("=" * 50)
@@ -1403,6 +1736,9 @@ __all__ = [
     "get_stocktwits_sentiment",
     "get_reddit_sentiment",
     "get_twitter_sentiment",
+    "get_vix_sentiment",  # JAN 9 2026 - Market-based sentiment
+    "get_fear_greed_sentiment",  # JAN 9 2026 - CNN Fear & Greed
+    "set_vix_value",  # JAN 9 2026 - Set VIX from IBKR
     # Combined sentiment
     "get_combined_mes_sentiment",
     "get_mes_sentiment_score",

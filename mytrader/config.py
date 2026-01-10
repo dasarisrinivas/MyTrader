@@ -448,6 +448,61 @@ class MultiSourceSentimentConfig:
 
 
 @dataclass
+class VixFeedThresholds:
+    """Thresholds for VX-based volatility multiplier."""
+    extreme: float = 30.0  # VX >= 30: 0.4x multiplier
+    elevated: float = 20.0  # VX >= 20: 0.7x multiplier
+
+
+@dataclass
+class VixFeedConfig:
+    """Configuration for VX Futures Feed from IBKR.
+    
+    Provides real-time VIX futures data for volatility-based position sizing.
+    When VIX is elevated, position sizes are automatically reduced.
+    """
+    enabled: bool = field(
+        default_factory=lambda: os.environ.get("VIX_FEED_ENABLED", "True").lower() in {"1", "true", "yes"}
+    )
+    
+    # IBKR Connection settings
+    ib_host: str = field(
+        default_factory=lambda: os.environ.get("VIX_FEED_IB_HOST", "127.0.0.1")
+    )
+    ib_port: int = field(
+        default_factory=lambda: int(os.environ.get("VIX_FEED_IB_PORT", "7497"))
+    )
+    client_id: int = field(
+        default_factory=lambda: int(os.environ.get("VIX_FEED_CLIENT_ID", "71"))
+    )
+    market_data_type: int = field(
+        default_factory=lambda: int(os.environ.get("VIX_FEED_MARKET_DATA_TYPE", "1"))  # 1=live, 3=delayed
+    )
+    
+    # Stale data handling
+    stale_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("VIX_FEED_STALE_SECONDS", "120"))
+    )
+    conservative_on_stale: bool = field(
+        default_factory=lambda: os.environ.get("VIX_FEED_CONSERVATIVE_ON_STALE", "False").lower() in {"1", "true", "yes"}
+    )
+    
+    # Volatility multiplier thresholds
+    thresholds: VixFeedThresholds = field(default_factory=VixFeedThresholds)
+    
+    # Reconnection settings
+    max_retries: int = field(
+        default_factory=lambda: int(os.environ.get("VIX_FEED_MAX_RETRIES", "5"))
+    )
+    base_delay: float = field(
+        default_factory=lambda: float(os.environ.get("VIX_FEED_BASE_DELAY", "1.0"))
+    )
+    max_delay: float = field(
+        default_factory=lambda: float(os.environ.get("VIX_FEED_MAX_DELAY", "60.0"))
+    )
+
+
+@dataclass
 class TelegramConfig:
     """Configuration for Telegram notifications."""
     enabled: bool = field(default_factory=lambda: os.environ.get("TELEGRAM_ENABLED", "False").lower() == "true")
@@ -570,6 +625,7 @@ class Settings:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     stocktwits_sentiment: StockwitsSentimentConfig = field(default_factory=StockwitsSentimentConfig)
     multi_source_sentiment: MultiSourceSentimentConfig = field(default_factory=MultiSourceSentimentConfig)
+    vix_feed: VixFeedConfig = field(default_factory=VixFeedConfig)
     hybrid: HybridConfig = field(default_factory=HybridConfig)
     aws_agents: AWSAgentsConfig = field(default_factory=AWSAgentsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)

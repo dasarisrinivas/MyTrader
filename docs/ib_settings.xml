@@ -1,0 +1,3582 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Settings isSettingsRestore="false">
+	<UISettings varName="ui" version="2" minQuestionDlgWidth="0" fontName="Verdana" bigScalePrices="false" bigScaleSizes="false" contractDisplay="true" delayForFilled="30" delayForCanceled="10" autoMeter="true" autoRemoveFinishedOrder="true" enableOrderSort="false" keyAdded="false" settlingAdded="false" colorText="false" showZeroPosition="true" showMoreOptions="false" showDVPZeroPosition="true" showAwayZeroPosition="true" displayServerTime="true" useLargeTextForServerTime="false" alwaysOnTop="false" flashBulletin="true" lastLoginDisplay="true" audit="true" autoRollover="true" useCondensedComboDesc="false" hideWorkspaceButtons="false" useOldOrderView="false" roundOrderSizes="false" volColumnsAdded="false" optionTraderVolColumnsAdded="false" showPricesOnVolatilityLayout="false" presetsColumnsAdded="false" scaleColumnsAdded="false" manualAwayColumnsAdded="false" clientCommissionColumnAdded="false" columnTips="true" highlightHighLow="false" showLegExecOnly="false" showMouseHotkeyTip="false" showCustomerPanel="false" showCloseIcon="true" consolidateStatus="true" showCustomerPanelInPecentage="true" showCustomerPanelAsValue="false" colorCodePnl="true" uptickBgColor="-16777012" downtickBgColor="-3407872" showModelHoldingsOutsideAllowedRange="false" modelHoldingsOutsideAllowedRangeColor="-26215" colorOptions="false" inTheMoneyColor="-3342388" outOfTheMoneyColor="-13108" showVolTip="true" showOrderStatusTip="true" showTimeStampTip="true" instanRemovalBasketOrders="false" showStatisticsForMainAndAttachedOrdersSeparately="true" ignoreLoadingZeroQuantityOrders="false" includeFxPositions="true" showToolbarOnDetachedPages="false" displayStocksWithOptsInBold="false" allowDetachPages="true" triggerCompressedView="true" displayTableGridLines="false" lastVersionPrompted="0" useSimplifiedActions="false" portfolioPageRemovedByUser="false" portfolioPageRealizedPnlIntro="false" comboExecColumnAdded="false" drillDownColumn="0" positionColumnAutoAdded="false" disabledAnimation="false" rowBrightnessLevel="1" insertPagesSorted="true" usePeggedToPrimaryNotRelative="false" avgPricePrecision="3" blotterAvgPricePrecision="5" extendedQuotePanel="false" displayedQuotePanelHelp="false" autoCreateBlotterTicket="false" autoModifyTicket="false" autoEditOnFocus="true" autoResizeColumns="true" disableGUIAnimation="false" excludePriorDaysPosition="false" roundValues="true" compactContractDisplay="false" roundValuesOnAccountWindow="true" roundValuesOnAccountWindowAPI="false" pinMarketScanner="false" sortTablesOnHeaderClick="true" showQuickHeader="true" showAdvScannerDescription="true" showOrderReversalTooltip="true" disableExpandInlineEditor="false" historicalVolatalityColumnAddedToQuotePanel="false" showHedgingIconWithSize="true" showSymbolForDerivatives="false" showComboTypeInFrontOfDescription="false" alwaysShowDST="false" suppressOthersAlerts="false" displayBuySellMousePointers="true" autoAlignment="true" removeLeadingZeroBeforeDecimal="false" showOutlineForCellWithHotkeyAction="true" doNotPromptForMdSubscr="false" showAdvisorPartitionMd="false" displayAccountType="false" useTickDots="true" displayTrueTickVolume="false" displayAbbreviatedVolume="true" formatPricesWithCommas="false" statusBarActionButtonsDisplay="true" largeMenuText="false" mosaicAlwaysBlack="false" statusBarMiniIconsDisplay="true" combineWindowsOnFocusChange1="false" windowsGroupMove="false" autoShowHotlist="false" openToolsAtActionSpot="false" shownWriteOptionsSelectionHint="false" adjustWindowAndColumnWidths="true" scaleEnabled="false" showIFAUngrouped="false" contractColumnClickActionVal="0" showPercentage="true" showExtraPrecisionInSuperscript="true" displayedMergeArbInfoPopup="false" displayAccountInTradeNotifications="false" showPerformanceProfileInOrderConfirmation="true" featureManagerVersion="0" pnLMgrVersionForWhichWarningFiled="0" colorsRepairNeeded="true" lastPriceRepairNeeded="true" comboPositionVersionForWhichWarningFiled="0" lastSelectedStrategy="0" lastTimeInstallCodecsMessageShown="0" showCalculationsForPnLTip="true" showCalculationsForPorfolioTimeValueTip="true" autoAddRecogniaPairColumns="true" recogniaDisclaimerShown="false" altavistaDisclaimerShown="false" delayForTransferredTickets="5" descriptionDisclaimerShown="false" mutualfundAPICashQty="false" cashQtyColumnRemovedByUser="false" IBGWindowTitle="IBKR Gateway" includeAccountNumberInPositions="false" pctChangeMovedIntroduced="false" pctChangeToggleIntroduced="false" groupWindows="false" jxBrowserPdfToolbar="false" shownStaticDynamicModelSwitchButtonIntroHint="false" showForecastXPanel="true">
+		<browser></browser>
+		<rapidStkEntry></rapidStkEntry>
+		<ArLayout varName="layoutMgr"/>
+		<titlebarText></titlebarText>
+		<orderDialogStructure></orderDialogStructure>
+		<ArString varName="orderRefList"/>
+		<ArString varName="traderNotesList"/>
+		<ArString varName="ticketNotesList"/>
+		<ArString varName="brokerNotesList"/>
+		<ArString varName="postToAtsList">
+			<String>1</String>
+			<String>2</String>
+			<String>5</String>
+			<String>10</String>
+		</ArString>
+		<orderTradeNotificationType>COMPLETED_ORDER</orderTradeNotificationType>
+		<lastAdvisorTabType></lastAdvisorTabType>
+	</UISettings>
+	<SystemSettings varName="system" exportTrades="false" autoExportEnabled="false" exportDir="/Users/svss/Jts/" executionSummaryExportDir="/Users/svss/Jts/" autoLogoffTime="08:00,AM" repetitiveSnapshotDelay="500" snapshotCostReminderLimit="10" snapshotExcessiveUsageLimit="50" autoExportDirectory="/Users/svss/Jts/" autoExportInt="0" autoExportExt="false" autoExportId="false" autoExportVolLink="false" autoExportSeparator="," rfqTimeout="0" safety="false" lastReadNumber="-1" ccpSocketBufferSizes="0" apiSocketBufferSizes="0" warnOnExitWithPos="false" warnOnExit="true" enableChartToolTip="false" redirectChartToolTip="false" twoPendingPages="false" exportSymbol="100" specialClearing="false" exportLocalTimezone="false" autoSaveSettings="true" dynamicDataCalc="false" autoLockTimeout="0" aggregateGroupLimit="10" applicant="false" deviceTimeZoneChangedPromptShown="false" pnlRollingTimeZone="false" familyFirstOrderTransmitted="false" useDefaultDirectoryForExport="false" preserveLastUsedDirectory="false">
+		<javaBinaryLocation></javaBinaryLocation>
+		<autoExportFile></autoExportFile>
+		<autoExportStart></autoExportStart>
+		<autoExportStop></autoExportStop>
+		<exportType>DEFAULT</exportType>
+		<lastReadTime></lastReadTime>
+		<lastAccount></lastAccount>
+		<ExecTableColumnMgr varName="execAutoExportColumnMgr" fitColumnsToWindow="false" fgHeader="-1" bgHeader="-8355195" fgHeaderMouseOver="-16777216" bgHeaderMouseOver="-1874" useCustomHeaderColors="false">
+			<ExecTableColumnCollection varName="columns" isExportTradeReport="true" scaled="false" scaledForTrackingModelTrades="false" execWindowDuplicatedColumnsAddressed="true">
+				<ArColumnInfo varName="arAllColumns">
+					<ColumnInfo colId="0" enabled="false" alignment="0" width="26"/>
+					<ColumnInfo colId="31" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="28" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="29" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="30" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="7" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="50" enabled="false" alignment="2" width="120"/>
+					<ColumnInfo colId="1" enabled="true" alignment="2" width="60"/>
+					<ColumnInfo colId="53" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="2" enabled="true" alignment="4" width="70"/>
+					<ColumnInfo colId="4" enabled="false" alignment="0" width="30"/>
+					<ColumnInfo colId="42" enabled="false" alignment="0" width="80"/>
+					<ColumnInfo colId="6" enabled="true" alignment="4" width="80"/>
+					<ColumnInfo colId="10" enabled="true" alignment="0" width="140"/>
+					<ColumnInfo colId="8" enabled="true" alignment="0" width="80"/>
+					<ColumnInfo colId="9" enabled="false" alignment="0" width="120"/>
+					<ColumnInfo colId="13" enabled="false" alignment="0" width="70"/>
+					<ColumnInfo colId="16" enabled="false" alignment="2" width="60"/>
+					<AccountColumnInfo colId="14" enabled="true" alignment="2" width="80"/>
+					<ColumnInfo colId="12" enabled="true" alignment="0" width="100"/>
+					<ColumnInfo colId="11" enabled="false" alignment="0" width="100"/>
+					<ColumnInfo colId="17" enabled="true" alignment="2" width="60"/>
+					<ColumnInfo colId="23" enabled="false" alignment="2" width="60"/>
+					<ColumnInfo colId="18" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="45" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="20" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="21" enabled="false" alignment="4" width="80"/>
+					<ColumnInfo colId="47" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="48" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="22" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="32" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="24" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="25" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="26" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="27" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="33" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="35" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="36" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="37" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="38" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="39" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="116" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="41" enabled="false" alignment="0" width="30"/>
+					<ColumnInfo colId="43" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="44" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="46" enabled="true" alignment="4" width="80"/>
+					<ColumnInfo colId="54" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="58" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="119" enabled="false" alignment="0" width="80"/>
+				</ArColumnInfo>
+			</ExecTableColumnCollection>
+		</ExecTableColumnMgr>
+		<pnlTimeZone></pnlTimeZone>
+		<deviceTimeZoneAtPnLTimeZoneSelection></deviceTimeZoneAtPnLTimeZoneSelection>
+		<defaultAllExportsDirectory></defaultAllExportsDirectory>
+	</SystemSettings>
+	<OrderSettings varName="order" reuseRejectedOrd="true" autoAdjustStopLimit="false" excludeArcaFromBest="false" saveAsDefaultSize="false" filterRfq="true" strategiesAdded="false" continuousUpdateVolDefault="false" volRandomizePrice="false" volRandomizeSize="false" indexOptFutPricing="true" revocableExerciseType="1" allowEditingTotalQuantity="false" allowEditingLeavesQuantity="true" closingPosOrderOffset="#" closingPositionTif="Default" adjustAlgoOrdersDate="true" suppressOthersMessages="false" destinationTree="false" hedgeInheritsOrderRef="false" optionDisFee="false" requiresOrderEditor="false" allowPreciseFXTrading="true" reverseOrderType="1" colorInPriceWand="false" hideApiOrders="false" chameleonApplyUserAccount="true" showMidPriceSidecarFirstTime="false">
+		<lastSpecialOrderTypeSelection></lastSpecialOrderTypeSelection>
+		<closingPosOrderType>LMT</closingPosOrderType>
+		<altClosingPosOrderType>LMT</altClosingPosOrderType>
+		<PriceTypeQuantityUnit varName="closingLimitPriceTypeOffset" quantity="0.0" unit="0" useParentOrdPrc="false">
+			<priceType>Ask</priceType>
+			<priceTypeExt>Ask</priceTypeExt>
+		</PriceTypeQuantityUnit>
+		<CompletedOrderBlinkType type="jsetting.CompletedOrderSystemCancelledBlinkType" varName="completedOrderBlinkType"/>
+		<activityEventScope>NORMAL</activityEventScope>
+		<mifidDecisionMakerType>DESICION_MAKER_FROM_LIST</mifidDecisionMakerType>
+		<SetOfDestinationSettings varName="destinationSettings"/>
+		<ReportingSettings varName="reportingSettings"/>
+	</OrderSettings>
+	<ApiSettings varName="api" readOnlyApi="false" allowOnlyLocalhost="true" socketClient="false" autoOpenOrdDonwload="true" port="4002" includeFxPositions="true" prepareDailyPnl="true" includeContinuousUpdateChanges="true" sendMessagesInEnglish="false" sendMessagesTranslated="true" logLevel="2" useNegativeAutoRange="true" overridePrecautionaryConstraints="true" bypassBondWarning="false" bypassRedirectWarning="false" bypassYtwWarning="false" bypassCalledBondWarning="false" bypassSameActionPairTradeWarning="false" bypassFlaggedAccountsWarning="false" bypassPriceBasedVolatilityRiskWarning="false" masterClientID="-1" acceptLargeSize="false" showApiMsg="true" includeMktData="false" createApiMsgLogFile="false" showIBGConsole="true" aPINotAllowedShownAfterDenyAPI="false" slowBufferTimeout="30" syncAccounts="false" proportionalAllocation="false" disableAutoClose="false" disableProfileAutoClose="false" multichartNetDoNotShowTime="0" multichartDoNotShowTime="0" verifiedAppPortRangeStart="7000" verifiedAppPortRangeEnd="8000" timeOfVerifiedAppShutdown="0" portOfVerifiedAppShutdown="0" exposeEntireTradingSchedule="true" splitInsuredDepositFromCacheBalance="false" sendZeroPositionsForTodaysOpeningOnly="false" encodeMessagesInAscii7="true" useAccountGroupWithAllocationMethods="true" sendMarketDataInLotsForUSStocks="false" showAdvancedOrderRejectInUiAlways="false" rejectMessagesAboveMaxAllowedMsgRate="false" maintainConnectionUponReceivingIncorrectlyFormattedFields="true" sendIslandForUsStocksTradingOnNasdaq="false" dateTimeAttribFormat="1" sendForexMarketDataInCompatibilityModeInIntegerUnits="false" bypassNoOverfillProtectionPrecaution="false" resubmitOrdersWhenConnectionIsRestored="true" downloadExecutionReports="1" splitHistoricalData="16" automaticallyReportNettingEventContractTrades="true">
+		<ListOfStrings varName="trustedIPAddresses">
+			<String>127.0.0.1</String>
+		</ListOfStrings>
+		<compExchSeparator></compExchSeparator>
+	</ApiSettings>
+	<AnalyticsSettings varName="analytics" version="2" hedgeColumn="false" estimateOptMdlPrice="false" whatifOnIbisStartup="true" displayMyCombos="true" useLocalBidAskIV="false" useTaxAdjustedDividend="true" showAbsoluteVolatilityChange="true" risknavDraggableFramesFirstRun="true" actualReport="2" clonedPfType="0" riskFeedPaceStr="Default" volUnits="Annual" referencePriceType="Bid or Ask">
+		<IACheckRiskCacheType varName="cacheCheckRisk" value="1" cacheEnabled="false"/>
+		<report1></report1>
+		<report2></report2>
+		<report3></report3>
+		<report4></report4>
+		<reportAutosave></reportAutosave>
+		<betaCalculationParamsRaw></betaCalculationParamsRaw>
+		<optModEdConfig></optModEdConfig>
+		<portfolioUpdate></portfolioUpdate>
+	</AnalyticsSettings>
+	<ResearchNewsSettings varName="researchNews" enableSymbolSearch="true"/>
+	<ExportSettings varName="exportSettings" exportSymbol="100" exportLocalTimezone="false" exportExt="false" exportId="false" exportVolLink="false" exportDirectory="/Users/svss/Jts/" exportSeparator=",">
+		<exportType>DEFAULT</exportType>
+		<ExecTableColumnMgr varName="execExportColumnMgr" fitColumnsToWindow="false" fgHeader="-1" bgHeader="-8355195" fgHeaderMouseOver="-16777216" bgHeaderMouseOver="-1874" useCustomHeaderColors="false">
+			<ExecTableColumnCollection varName="columns" isExportTradeReport="true" scaled="false" scaledForTrackingModelTrades="false" execWindowDuplicatedColumnsAddressed="true">
+				<ArColumnInfo varName="arAllColumns">
+					<ColumnInfo colId="0" enabled="false" alignment="0" width="26"/>
+					<ColumnInfo colId="31" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="28" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="29" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="30" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="7" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="50" enabled="false" alignment="2" width="120"/>
+					<ColumnInfo colId="1" enabled="true" alignment="2" width="60"/>
+					<ColumnInfo colId="53" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="2" enabled="true" alignment="4" width="70"/>
+					<ColumnInfo colId="4" enabled="false" alignment="0" width="30"/>
+					<ColumnInfo colId="42" enabled="false" alignment="0" width="80"/>
+					<ColumnInfo colId="6" enabled="true" alignment="4" width="80"/>
+					<ColumnInfo colId="10" enabled="true" alignment="0" width="140"/>
+					<ColumnInfo colId="8" enabled="true" alignment="0" width="80"/>
+					<ColumnInfo colId="9" enabled="false" alignment="0" width="120"/>
+					<ColumnInfo colId="13" enabled="false" alignment="0" width="70"/>
+					<ColumnInfo colId="16" enabled="false" alignment="2" width="60"/>
+					<AccountColumnInfo colId="14" enabled="true" alignment="2" width="80"/>
+					<ColumnInfo colId="12" enabled="true" alignment="0" width="100"/>
+					<ColumnInfo colId="11" enabled="false" alignment="0" width="100"/>
+					<ColumnInfo colId="17" enabled="true" alignment="2" width="60"/>
+					<ColumnInfo colId="23" enabled="false" alignment="2" width="60"/>
+					<ColumnInfo colId="18" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="45" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="20" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="21" enabled="false" alignment="4" width="80"/>
+					<ColumnInfo colId="47" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="48" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="22" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="32" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="24" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="25" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="26" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="27" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="33" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="35" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="36" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="37" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="38" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="39" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="116" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="41" enabled="false" alignment="0" width="30"/>
+					<ColumnInfo colId="43" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="44" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="46" enabled="true" alignment="4" width="80"/>
+					<ColumnInfo colId="54" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="58" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="119" enabled="false" alignment="0" width="80"/>
+				</ArColumnInfo>
+			</ExecTableColumnCollection>
+		</ExecTableColumnMgr>
+	</ExportSettings>
+	<ExportSettings varName="emailExportSettings" exportSymbol="100" exportLocalTimezone="false" exportExt="false" exportId="false" exportVolLink="false" exportDirectory="/Users/svss/Jts/" exportSeparator=" ">
+		<exportType>DEFAULT</exportType>
+		<ExecTableColumnMgr varName="execExportColumnMgr" fitColumnsToWindow="false" fgHeader="-1" bgHeader="-8355195" fgHeaderMouseOver="-16777216" bgHeaderMouseOver="-1874" useCustomHeaderColors="false">
+			<ExecTableColumnCollection varName="columns" isExportTradeReport="true" scaled="false" scaledForTrackingModelTrades="false" execWindowDuplicatedColumnsAddressed="true">
+				<ArColumnInfo varName="arAllColumns">
+					<ColumnInfo colId="0" enabled="false" alignment="0" width="26"/>
+					<ColumnInfo colId="31" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="28" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="29" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="30" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="7" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="50" enabled="false" alignment="2" width="120"/>
+					<ColumnInfo colId="1" enabled="true" alignment="2" width="60"/>
+					<ColumnInfo colId="53" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="2" enabled="true" alignment="4" width="70"/>
+					<ColumnInfo colId="4" enabled="false" alignment="0" width="30"/>
+					<ColumnInfo colId="42" enabled="false" alignment="0" width="80"/>
+					<ColumnInfo colId="6" enabled="true" alignment="4" width="80"/>
+					<ColumnInfo colId="10" enabled="true" alignment="0" width="140"/>
+					<ColumnInfo colId="8" enabled="true" alignment="0" width="80"/>
+					<ColumnInfo colId="9" enabled="false" alignment="0" width="120"/>
+					<ColumnInfo colId="13" enabled="false" alignment="0" width="70"/>
+					<ColumnInfo colId="16" enabled="false" alignment="2" width="60"/>
+					<AccountColumnInfo colId="14" enabled="true" alignment="2" width="80"/>
+					<ColumnInfo colId="12" enabled="true" alignment="0" width="100"/>
+					<ColumnInfo colId="11" enabled="false" alignment="0" width="100"/>
+					<ColumnInfo colId="17" enabled="true" alignment="2" width="60"/>
+					<ColumnInfo colId="23" enabled="false" alignment="2" width="60"/>
+					<ColumnInfo colId="18" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="45" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="20" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="21" enabled="false" alignment="4" width="80"/>
+					<ColumnInfo colId="47" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="48" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="22" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="32" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="24" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="25" enabled="false" alignment="4" width="60"/>
+					<ColumnInfo colId="26" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="27" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="33" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="35" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="36" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="37" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="38" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="39" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="116" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="41" enabled="false" alignment="0" width="30"/>
+					<ColumnInfo colId="43" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="44" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="46" enabled="true" alignment="4" width="80"/>
+					<ColumnInfo colId="54" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="58" enabled="false" alignment="0" width="60"/>
+					<ColumnInfo colId="119" enabled="false" alignment="0" width="80"/>
+				</ArColumnInfo>
+			</ExecTableColumnCollection>
+		</ExecTableColumnMgr>
+	</ExportSettings>
+	<BlotterExportSettings varName="blotterExportSettings" exportSymbol="100" exportLocalTimezone="false" exportExt="false" exportId="false" exportVolLink="false" exportSeparator=",">
+		<exportType>DEFAULT</exportType>
+	</BlotterExportSettings>
+	<SettingsVersion varName="version" majorVersion="1037" minorVersion="1"/>
+	<MultiAccountDefault varName="acountDefParams" lastSubmitted="true" useSpecifiedDefault="false">
+		<AccountSpec varName="accountSpec" apiAccountSpec="false" unrestricted="false"/>
+	</MultiAccountDefault>
+	<AllocationParams varName="defParams" lastSubmitted="true" useSpecifiedDefault="false" group="All" method="AvailableEquity" defaultMethodForAll="AvailableEquity" strictCreditCheck="false" saveClearing="true" sawAllocationGroupMessage="false" autoClosePositions="true" closeAllPositions="false" proportionalAllocation="false" totalSize="0" autoClosePositionsPresetForProfiles="true" investableCash="#" roundAllocExchBoardLot="false">
+		<AccountSpec varName="accountSpec" apiAccountSpec="false" unrestricted="false"/>
+	</AllocationParams>
+	<SmartRoutingSettings varName="smartRoutingSettings" preOpenReroute="false" favorPriceImprovements="false" noDarkPools="false" darkOnly="false">
+		<ArSmartMod varName="arSmartMod"/>
+		<defStkRoutingStrategy></defStkRoutingStrategy>
+		<RoutingStrategy varName="routingStrategy" val="0" name="SMART" desc="SMART Multipurpose">
+			<code></code>
+			<toolTip></toolTip>
+		</RoutingStrategy>
+		<ArString varName="stockDisplay">
+			<String></String>
+		</ArString>
+	</SmartRoutingSettings>
+	<MiscSettings varName="miscSettings" allMandatoryCapExchangesConfirmed="false" exportExchange="true" renameQuantityColumn="false" allowIBAway="false" modelAreUsed="false" lastDateWithNoPendingTasks="20260109" lastShownMemPerformanceWarning="0" lastShownCpuPerformanceWarning="0">
+		<portfolioUpdate></portfolioUpdate>
+		<ListOfLooseAccts varName="looseAccount"/>
+		<MapOfStrings varName="ddeIdMap">
+			<Entry key="498" val="476"/>
+			<Entry key="338" val="40"/>
+			<Entry key="827" val="209"/>
+			<Entry key="829" val="669"/>
+			<Entry key="863" val="486"/>
+			<Entry key="11" val="22572"/>
+			<Entry key="29" val="581"/>
+			<Entry key="3" val="109"/>
+			<Entry key="115" val="76"/>
+			<Entry key="18" val="172"/>
+			<Entry key="51" val="682"/>
+			<Entry key="2" val="7673"/>
+			<Entry key="153" val="1417"/>
+			<Entry key="571" val="74"/>
+			<Entry key="729" val="1095"/>
+			<Entry key="576" val="7643"/>
+			<Entry key="349" val="2173"/>
+			<Entry key="869" val="185"/>
+			<Entry key="976" val="44"/>
+			<Entry key="202" val="2397"/>
+			<Entry key="885" val="1077"/>
+			<Entry key="172" val="1324"/>
+		</MapOfStrings>
+		<MapOfStrings varName="exchangeAccountsMap"/>
+		<MapOfStrings varName="hiddenMessageMap">
+			<Entry key="OrderInfoMessages" val=""/>
+			<Entry key="ExchangeCodeMessages" val="CROSS=true,"/>
+			<Entry key="LastShownTimeStamps" val=""/>
+			<Entry key="MessageIds" val="167=1|true|,237=0|true|,247=0|true|,253=0|true|,258=0|true|,360=0|true|,"/>
+		</MapOfStrings>
+		<OptionSeriesPresetFilterSettingsCache varName="optionSeriesPresetFilterSettings" limit="100">
+			<MapConidsToPresetFilterSettings varName="mapConidsToFilterSettings"/>
+			<LinkedListOfConids varName="listOfConids"/>
+		</OptionSeriesPresetFilterSettingsCache>
+	</MiscSettings>
+	<NewsSettings varName="newsSettings" reutersEnabled="false" useAutoLogoffAsMidnight="false" showNews="true" displayNewsIndicator="true" displayPortfolioNews="true" displayMajorNews="true" highlightRecentNews="true" enableForeignNews="true" highlightRecentNewsSeconds="5" newsDetailsOpenOption="1" hasPaidNewsSupport="false" highlightHotNews="true" hideUndisplayableNews="false" enableDJNewsAlerts="false" allEventsFilter="false" isSentimConfidColumnsIntroNotShown="false" areSentimConfidColumnsHidden="false" autoResizeNewsColumns="false">
+		<RefreshInterval varName="rssRefreshInterval" index="1"/>
+		<ArLinkPattern varName="arLinkPattern"/>
+		<RSSFreshnessColors varName="rssColors" minutes="-1" hours="-3342337" days="-13369345" weeks="-16763956"/>
+		<NewsAlternationDelay varName="newsAlternationDelay" delay="10000"/>
+		<calendarRegion>US</calendarRegion>
+		<ArString varName="readTopNews"/>
+		<MapOfStrings varName="checkedNewsSources"/>
+	</NewsSettings>
+	<APINewsSettings varName="apiNewsSettings" reutersEnabled="false" useAutoLogoffAsMidnight="false" showNews="true" displayNewsIndicator="true" displayPortfolioNews="true" displayMajorNews="true" highlightRecentNews="true" enableForeignNews="true" highlightRecentNewsSeconds="5" newsDetailsOpenOption="1" hasPaidNewsSupport="false" highlightHotNews="true" hideUndisplayableNews="false" enableDJNewsAlerts="false" allEventsFilter="false" isSentimConfidColumnsIntroNotShown="false" areSentimConfidColumnsHidden="false" autoResizeNewsColumns="false">
+		<RefreshInterval varName="rssRefreshInterval" index="1"/>
+		<ArLinkPattern varName="arLinkPattern"/>
+		<RSSFreshnessColors varName="rssColors" minutes="-1" hours="-3342337" days="-13369345" weeks="-16763956"/>
+		<NewsAlternationDelay varName="newsAlternationDelay" delay="10000"/>
+		<calendarRegion>US</calendarRegion>
+		<ArString varName="readTopNews"/>
+		<MapOfStrings varName="checkedNewsSources">
+			<Entry key="BRFUPDN,N" val="1"/>
+			<Entry key="DJ-RTG,N" val="1"/>
+			<Entry key="BRFG,R" val="1"/>
+			<Entry key="BRFG,N" val="1"/>
+			<Entry key="DJ-N,N" val="1"/>
+			<Entry key="DJ-RTPRO,N" val="1"/>
+			<Entry key="DJNL,N" val="1"/>
+			<Entry key="BRFUPDN,U" val="1"/>
+			<Entry key="FLY,N" val="1"/>
+			<Entry key="DJ-RTA,N" val="1"/>
+			<Entry key="BRFUPDN,R" val="1"/>
+			<Entry key="DJ-RTE,N" val="1"/>
+		</MapOfStrings>
+	</APINewsSettings>
+	<DisplayType type="jsetting.DisplayType$NomalDisplay" varName="cboeDnDisplay"/>
+	<IBlinkTypeSettings type="jsetting.ExecutionWindowSettings" varName="execSettings" groupExecsByPrice="false">
+		<TradeBlinkType type="jsetting.ClosedBlinkType" varName="blinkType"/>
+	</IBlinkTypeSettings>
+	<ArClearingPair varName="clearingPairs"/>
+	<UpgradeHistory varName="upgradeHistory" introduceBobLayout="false" introduceExecVolColumn="false" introSuperUserAcctWindow="false" introTraderDashboard="false" introOrderWizard="false" introOrderWizardAutoOrder="false" introLookAndFeel="false" adjustMainWinSizeToPreffered="true" createMainWinUntitledPage="true" addPortfolioPageToMainWin="true" introAccountFundsColumn="false" introNetDividendColumn="false" introMutualFundColumn="false" introMoneyMarketColumn="false" introCorpBondColumn="false" introTBondColumn="false" introTBillColumn="false" introWarrantColumn="false" introIssuerOptionColumn="false" introCommodityColumn="false" introCfdTotalColumn="false" introCfdDailyColumn="false" introPortfolioPendingCashColumn="false" introMarketScanner="false" introSimilarProducts="false" introLoadCompanyResearch="false" introChartMoveData="false" alternatingRowBrightnessSettingMoved="true" languageFontUpdated="false" toolbarLanguageFontUpdated="false" introSavings="false" introExecSoftDollars="false" updateWarnOnExit="true" introPagesSorted="false" introIswTimePanelByVwap="false" introIswTimePanelByAlgo="false" introMidpoint="false" autoEditOnFocus="false" introNamedDefaults="false" uptickBgUpgrated="false" introPrecautionaryConstraints="true" introGtdColumns="false" introOmsCustomerSide="false" introOmsContraSide="false" introPortfolioDrillDownColumn="false" introNewHedging="false" introSlbDashboard="false" introSlbPortfolioExchangeColumn="false" introSlbWindowExchangeColumn="false" introExecSettled="false" introPortfolioLendableColumn="false" introReadOnlyApi="true" lastVersionAnnouncedToApi="0" currentApiAnnouncementVersion="0" introBondSizeIncrement="false" introBondATSDisclosure="false" introBondSizeIncrementApi="false" introBondYtwWarningApi="false" bondSizeIncrementUpgrated="false" destinationTreeIntro="false" introCompanyCalendar="false" introScannerAutoRefresh="false" introCommodityPreset="false" introUI2Menus="true" introSlbColumnOrder="false" introAdBitMask="0" introDynamicScannerLayout="false" introAutoClosePositions="true" allowFrozenMarketData="true" allowIndexFrozenMarketData="false" introClickTraderDeepColumns="false" upgradeContractSingleDescColumn="false" introQuoteMatrix="false" shownTrueTickVolumeWarning="false" introQuoteDetails="false" chameleonFaColumns="false" groupSnappingMigrated="false" workspaceDragged="0" introAnchorWindow="false" revertedAnchorActions="false" introFundamentalSummary="true" introBrokerageIbisToolbarBtn="false" introQuoteDetailColumns="true" introIBISAnnouncement="true" introContractEntryBitMask="0" introIBISToolbarForTAccount="true" economicValueTradeColumns="0" injectedOrderEntryStopColumn="false" introNonIBISMosaicAnnouncement="true" introIBISMosaicAnnouncement="true" introTimeAndSalesTooltip="false" introTimeAndSalesConditionsTooltip="false" introAutoShowLadder="false" introWindowsGroupMove="true" introBondNetPricing="false" introNetPrice="false" introNetPriceApi="false" introNetPriceColumn="false" introFinancialSummary="false" introDailyLineupAutoStart="false" introIndicativeDataChart="false" introScannerColumnsSelection="false" introBlotterNotes="false" containerOverlayMessageShown="false" containerResnapped="false" containerIntroduced="false" introAttachedOrdersScrolling="false" homeExchangeGroupResolved="true" introCalledBondInApi="false" chartFontMigrated="false" dontShowPDFIntro="false" introIntreasePrecision="false" derivativesColumnDisplaySet="false" probabilityLabIntroduced="false" volLabIntroduced="false" simplifiedActionsSet="false" crossChainUsed="false" mainwinTabsAdded="false" workspacesDisabled="false" workspaceDefaultInitDone="false" introHighPrecisionFXQuotes="false" introMainWinTabs="false" introMutualFundComparison="false" mainwinTabsTabAdded="false" introQuoteDetEsgColumn="false" introQuoteDetEsgCovrgColumn="false" introQuoteDetHotNewsColumn="false" introQuoteDetPerformanceColumn="false" introQuoteDetFundDetailsColum="false" introQuoteDetExchColum="false" colorMarketablePriceAreas="false" introGroupLegsIntoComboPositions="true" introAOTTab="false" injectedArrivalPriceColumn="false" introducedFrozenColumnsPortfolio="false" injectedYieldColumnsInOrderConfirm="false" introducedComparableBid="false" introducedComparableAsk="false" upgradeComparableBid="false" upgradeComparableAsk="false" introSeparateStudiesBarData="false" portfolioPerformanceIntroduced="false" complexPositionIntroduced="false" predefinedWatchlistIntroduced="false" backtestingIntroduced="false" whiteMosaicIntroduced="false" hideComplexPositionsForFAAdvisors="true" groupComplexPositionsForFa="false" showHighPrecisionForexDataSet="true" introDefaultSimulatedTradingPortNumber="true" introduce1to1Price="false" orderTicketFontSet="false" mainToolbarFontSet="false" fontCheckOnStartupDone="false" introTimeAndSalesInShares="false" introBenchmarker="false" introStockTwits="false" introPbi="false" introFyi="false" toastTickerInNewsLoadedIntoWinGroup="false" introFxPortfolioCheatSheet="false" introAdvancedScannerCheatSheet="false" introBondScannerCheatSheet="false" introUseTopDataVolUpdates="false" introBBTV="false" introDefaultBrowser="false" introNLVUncertainty="false" introPendingChargesColumn="false" introPendingChargesRow="false" introCustomBrowser="false" introSentimConfidColumns="false" botDemoShown="false" pnlRollingIntroduced="false" introNewOptionChainLayout="false" introBankSweepAccountColumn="false" introBankSweepAccountWarning="false" introMktDataSnapshotColumns="false" introAuctionWatchList="false" introRoutedAsPercent="false" introFeedback="false" introLiveTV="false" introAccruedIntrestRow="false" introAccruedIntrestColumn="false" introSMADeficitInLikeOwned="false" introMarginDeficitInLikeOwned="false" introAvailableFundsLessLikeOwned="false" introRelativePriceWand="false" introPostItNote="false" introPredefinedStratBuilder="false" introSMAReducedByLikeOwned="false" introUseKeyboardForFieldEntry="false" introOrderAcceptTimeColumn="false" introAllowQuantityEditing="true" selfImposedColsAdded="false" introOptionGrid="false" introSpxGreeks="false" introBondDeskDealerColumn="false" introBondDeskDealerClearingColumn="false" blotterQdTurnedOff="false" introAdvancedQuoteDetailsIcon="false" introAdvancedQuoteDetailsIconRuns="91" introBondScanResultsChart="true" introKeyClickConfig="false" introManualOrderTimeIntroMessage="false" checkResetAccountsOnRestart="true" introLearnTab="false" introNewsAndResearchTab="false" introLearnTabPopupCount="0" introImpactDashboardCount="0" introFinLensDashboardCount="0" introAdvancedSearch="false" introAllocationToolAtToolbar="false" introAllocationToolAtTrades="false" initCustomizeComboPositionRepresentation="false" introAdvisorSetupPopupCount="0" introRebalanceToolPopupCount="0" introAdvisorSetup="false" closingPositionsConfigDisabled="false" adjustSendMarketDataInLots="true" introHotNews="false" introTradeWorldWideFeed="false" introTradeWorldWide="false" introCryptocurrencyColumn="false" introCryptoTab="false" introCryptoTabPopupCount="0" pegBestUsed="false" capitalLossHarvestingMsgTimeStamp="0" introOnClickWand="false" apiSolicitedFieldWarning="0" setDefaultForSuppressSnaphotPopup="true" introSnapshotOnOrderConfirm="false" introBondSizeNotationChange="false" introDiscoverTool="false" introTradeViewChartsInMenu="false" introTradeViewChartsInBanner="false" pegMidForOptUsed="false" pegBestForOptUsed="false" permissionsOptionWizardBanner="false" adjustSendForexMarketDataInCompatibilityModeInIntegerUnits="true" seenOptionLiquidityTool="false" seenOptionLiquidityToolInMenu="false" createdFirstTLHOrder="false" newsIntroBanner="false" staticModelsIntroBanner="false" seenMSTLH="false" seenDemoUserAPIDisclaimer="false" maintainConnectionUponReceivingIncorrectlyFormattedFields="true" downloadTodayExecutionReports="true" seenViewOpenLots="false" movedForeCastTraderInToolbar="false" selectedDerivativeForSlb="false" upgradedBookTraderButtonsTooltips="false" seenForecastTab="false" new882User="true" new885User="true" new886User="true" new890User="true" new891User="true" new892User="true" new894User="true" new899User="true" new901User="true" new903User="true" new910User="true" new911User="true" new914User="true" new918User="true" new923User="true" new933User="true" new941User="true" new942User="true" new944User="true" new945User="true" new947User="true" new950User="true" new954User="true" new955User="true" new957User="true" new959User="true" new960User="true" new964User="true" new965User="true" new967User="true" new968User="true" new969User="true" new973User="true" new974User="true" new975User="true" new980user="true" new983user="true" new1028user="true" new1029user="true">
+		<ArString varName="introVolatilityModes"/>
+		<ArString varName="introColumnRules"/>
+		<ArString varName="discoverToolEntryPoints"/>
+	</UpgradeHistory>
+	<IDiagnostics type="jutils.Diagnostics" varName="diagnostics" includeScreenshot="true" includePreviousLogs="true">
+		<ArString varName="triggers"/>
+		<ArString varName="dumpSettingsStrings"/>
+	</IDiagnostics>
+	<TelemetrySettings varName="telemetry"/>
+	<ArAwayLocation varName="awayLocations"/>
+	<AccountSettings varName="accountSettings" showAllInBaseCurrency="false" increaseAveragePricePrecision="0" groupLegsIntoComboPositions="true" displayPnLOnCombos="true" reallocationImportInput="0" hasSeenPartitionIntroSidecar="false" realPaperDisclaimerAcked="false" hasSeenAllowOrderFromAnyMD="false" useOptionLegPriceIncrements="false" clearAccountSearchLog="false" customizeComboPositionRepresentation="false"/>
+	<SizeDisplayType type="jsetting.SizeDisplayType$FaceValueShortType" varName="sizeDisplayType"/>
+	<SizeDisplayType type="jsetting.SizeDisplayType$SLBFeeRateType" varName="slbSizeDisplayType"/>
+	<SizeDisplayType type="jsetting.SizeDisplayType$FxMkDisplayType" varName="fxSizeDisplayType"/>
+	<MarketDataSettings varName="marketDataSettings" showFrozenMarketDataForIndex="true" autoShowFrozenMarketDataForIndex="true" showFrozenMarketData="true" autoShowFrozenMarketData="true" showIndexCapability="true" showNativeTop="false" showBondNetPrice="false" highPrecisionFxQuotes="true" hasSeenAllowOrderFromAnyMD="false" realPaperDisclaimerAcked="false" paperIntroMigrated="true" suppressSnaphotPopup="false">
+		<ESignalSettings varName="esignal" allowed="false" host="CM*.esignal.com" throttlingPace="1" apiUnpacedUpdates="true">
+			<username></username>
+			<password></password>
+			<sigtext></sigtext>
+			<ESignalSecSettings varName="opt">
+				<ESignalExchangeSettings varName="usa" top="true" depth="true" hist="false"/>
+				<ESignalExchangeSettings varName="intl" top="true" depth="true" hist="false"/>
+			</ESignalSecSettings>
+			<ESignalSecSettings varName="stk">
+				<ESignalExchangeSettings varName="usa" top="true" depth="true" hist="false"/>
+				<ESignalExchangeSettings varName="intl" top="true" depth="true" hist="false"/>
+			</ESignalSecSettings>
+			<ESignalSecSettings varName="fut">
+				<ESignalExchangeSettings varName="usa" top="true" depth="true" hist="false"/>
+				<ESignalExchangeSettings varName="intl" top="true" depth="true" hist="false"/>
+			</ESignalSecSettings>
+			<ESignalSecSettings varName="ind">
+				<ESignalExchangeSettings varName="usa" top="true" depth="true" hist="false"/>
+				<ESignalExchangeSettings varName="intl" top="true" depth="true" hist="false"/>
+			</ESignalSecSettings>
+		</ESignalSettings>
+		<DelayedMarketDataList varName="delayedMarketDataList" approved="713-714-715-778-784-798CME">
+			<ArSubscriptions varName="subscriptions"/>
+			<notified></notified>
+		</DelayedMarketDataList>
+		<DelayedMarketDataList varName="historicalDataAvailability" approved="FUT-CME">
+			<ArSubscriptions varName="subscriptions"/>
+			<notified></notified>
+		</DelayedMarketDataList>
+		<DelayedMarketDataList varName="deepDataList">
+			<ArSubscriptions varName="subscriptions"/>
+			<approved></approved>
+			<notified></notified>
+		</DelayedMarketDataList>
+		<DelayedMarketDataList varName="autoShownDelayedMarketDataList">
+			<ArSubscriptions varName="subscriptions"/>
+			<approved></approved>
+			<notified></notified>
+		</DelayedMarketDataList>
+		<DelayedMarketDataList varName="topDataAggBookList">
+			<ArSubscriptions varName="subscriptions"/>
+			<approved></approved>
+			<notified></notified>
+		</DelayedMarketDataList>
+		<DelayedMarketDataList varName="deepDataAggBookList">
+			<ArSubscriptions varName="subscriptions"/>
+			<approved></approved>
+			<notified></notified>
+		</DelayedMarketDataList>
+		<ArString varName="suppressedValueRecExchanges"/>
+	</MarketDataSettings>
+	<DividendsSettings varName="dividendsSettings">
+		<Map varName="manualDividends" type="jsetting.DividendsSettings$ScheduleMap"/>
+		<Map varName="underlyingDividendSelection" type="jsetting.DividendsSettings$ScheduleMap"/>
+	</DividendsSettings>
+	<HostProbeSettings varName="hostProbeSettings" probedHostsTimeStamp="-9223372036854775808" regularReportSendTimeStamp="1767965091205"/>
+	<SidecarScannerTemplateList varName="sidecarScannerTemplateList"/>
+	<LanguageSettings varName="languageSettings">
+		<ArString varName="confirmedTranslations"/>
+	</LanguageSettings>
+	<NewsLanguageSettings varName="newsLanguageSettings"/>
+	<WatchlistList varName="watchlistList"/>
+	<WatchlistList varName="individualWatchlistList"/>
+	<DesktopTabConfigurationList varName="closedTabsList"/>
+	<ProductUniverse varName="productUniverse">
+		<ProductUniverseSettings varName="settings" universeIntroduced="true" universeEnabled="false" selectProduct="false" universeSupported="true"/>
+		<ProductUniverseMap varName="preferencesMap">
+			<HomeExchangeGroup shortName="TRQXES" longName="Turquoise Europe Spain" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRQXES" longName="Turquoise Europe Spain" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXES" longName="Cboe Europe Ltd. - CXE Order Book - Spain" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXES" longName="Cboe Europe Ltd. - CXE Order Book - Spain" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BM" longName="Bolsa de Madrid" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BM" longName="Bolsa de Madrid" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="VIRTX" longName="VIRT-X" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="VIRTX" longName="VIRT-X" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHSTK" longName="Switzerland Stocks" isGroup="true">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHSTK" longName="Switzerland Stocks" isGroup="true">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBUKETF" longName="Tradeweb EU BV - United Kingdom ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBUKETF" longName="Tradeweb EU BV - United Kingdom ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SFB" longName="Stockholm FondBors" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SFB" longName="Stockholm FondBors" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQEUAT" longName="Aquis Exchange Europe - Austria" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQEUAT" longName="Aquis Exchange Europe - Austria" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TOM" longName="TOM MTF" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TOM" longName="TOM MTF" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="OSE" longName="Oslo Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="OSE" longName="Oslo Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TSE.JPN" longName="Tokyo Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TSE.JPN" longName="Tokyo Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="VIRTX" longName="VIRT-X" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="VIRTX" longName="VIRT-X" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TPEX" longName="Taipei Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TPEX" longName="Taipei Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQXEUK" longName="Aquis Exchange PLC - United Kingdom" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQXEUK" longName="Aquis Exchange PLC - United Kingdom" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MATIF" longName="Marche A Terme d&apos;Instruments Financiers" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MATIF" longName="Marche A Terme d&apos;Instruments Financiers" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="HKFE" longName="Hong Kong Futures Exchange " isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="HKFE" longName="Hong Kong Futures Exchange " isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BELFOX" longName="Belgian Futures &amp; Options Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BELFOX" longName="Belgian Futures &amp; Options Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="PSE" longName="Pacific Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="PSE" longName="Pacific Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBIT" longName="Tradeweb EU BV - Italy ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBIT" longName="Tradeweb EU BV - Italy ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CFECRYPTO" longName="CBOE Futures Exchange - Cryptocurrency" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CFECRYPTO" longName="CBOE Futures Exchange - Cryptocurrency" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ASX" longName="Australian Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ASX" longName="Australian Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ENEXT.BE" longName="Euronext Belgium" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ENEXT.BE" longName="Euronext Belgium" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="B3" longName="Banco B3" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="B3" longName="Banco B3" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TGHEIT" longName="Turquoise Global Holdings B.V.  - Italy" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TGHEIT" longName="Turquoise Global Holdings B.V.  - Italy" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BVME.ETF" longName="Borsa Italiana ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BVME.ETF" longName="Borsa Italiana ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="LJSE" longName="Ljubljana stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="LJSE" longName="Ljubljana stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DXEIT" longName="Cboe Europe B.V. - DXE Order Book - Italy" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DXEIT" longName="Cboe Europe B.V. - DXE Order Book - Italy" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DXEDK" longName="Cboe Europe B.V. - DXE Order Book - Denmark" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DXEDK" longName="Cboe Europe B.V. - DXE Order Book - Denmark" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="IBKRAM" longName="Interactive Brokers Asset Management" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="IBKRAM" longName="Interactive Brokers Asset Management" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CBOE" longName="Chicago Board Options Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CBOE" longName="Chicago Board Options Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SEHKSZSE" longName="Hong Kong - Shenzhen Stock Exchange Northbound Trading Link" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SEHKSZSE" longName="Hong Kong - Shenzhen Stock Exchange Northbound Trading Link" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXEN" longName="Cboe Europe Ltd. - CXE Order Book - Clearnet" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXEN" longName="Cboe Europe Ltd. - CXE Order Book - Clearnet" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TGHEEN" longName="Turquoise Global Holdings Europe B.V. - Euronext" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TGHEEN" longName="Turquoise Global Holdings Europe B.V. - Euronext" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATEUK" longName="Cboe Europe Ltd. - BXE Order Book - UK" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATEUK" longName="Cboe Europe Ltd. - BXE Order Book - UK" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SGX" longName="Singapore Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SGX" longName="Singapore Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AMEX" longName="American Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AMEX" longName="American Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BVL" longName="Lisbon Stock Exchange " isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BVL" longName="Lisbon Stock Exchange " isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="OSE" longName="Oslo Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="OSE" longName="Oslo Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ICEUS" longName="Ice Futures US Inc" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ICEUS" longName="Ice Futures US Inc" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="N.VILNIUS" longName="AB NASDAQ Vilnius" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="N.VILNIUS" longName="AB NASDAQ Vilnius" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ASX" longName="Australian Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ASX" longName="Australian Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MOEX" longName="Moscow Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MOEX" longName="Moscow Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NSE" longName="National Stock Exchange of India Limited" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NSE" longName="National Stock Exchange of India Limited" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SGXCME" longName="Singapore Exchange - CME" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SGXCME" longName="Singapore Exchange - CME" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="APEXEN" longName="Apex - Euronext" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="APEXEN" longName="Apex - Euronext" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="WSE" longName="Warsaw Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="WSE" longName="Warsaw Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="KSE" longName="Korea Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="KSE" longName="Korea Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="N.RIGA" longName="NASDAQ Riga" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="N.RIGA" longName="NASDAQ Riga" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ICECRYPTO" longName="ICE - Cryptocurrency" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ICECRYPTO" longName="ICE - Cryptocurrency" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATECH" longName="Cboe Europe Ltd. - BXE Order Book - Switzerland" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATECH" longName="Cboe Europe Ltd. - BXE Order Book - Switzerland" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="JSE" longName="Johannesburg Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="JSE" longName="Johannesburg Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXUK" longName="Cboe Europe Ltd. - CXE Order Book - UK" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXUK" longName="Cboe Europe Ltd. - CXE Order Book - UK" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="LSE" longName="London Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="LSE" longName="London Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQEUIT" longName="Aquis Exchange Europe - Italy" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQEUIT" longName="Aquis Exchange Europe - Italy" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SMFE" longName="The Small Exchange" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SMFE" longName="The Small Exchange" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQEUES" longName="Aquis Exchange Europe - Spain" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQEUES" longName="Aquis Exchange Europe - Spain" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TADAWUL" longName="Saudi Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TADAWUL" longName="Saudi Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXCH" longName="Cboe Europe Ltd. - CXE Order Book - Swiss" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXCH" longName="Cboe Europe Ltd. - CXE Order Book - Swiss" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBSE" longName="Tradeweb EU BV - Sweden ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBSE" longName="Tradeweb EU BV - Sweden ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="HEX" longName="Helsinki Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="HEX" longName="Helsinki Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ICEEUSOFT" longName="ICE Europe Soft Commodities" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ICEEUSOFT" longName="ICE Europe Soft Commodities" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SNFE" longName="Sydney Futures Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SNFE" longName="Sydney Futures Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NYMEX" longName="New York Mercantile Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NYMEX" longName="New York Mercantile Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQEUEN" longName="Aquis Exchange Europe - Euronext" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQEUEN" longName="Aquis Exchange Europe - Euronext" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ARCA" longName="Archipelago" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ARCA" longName="Archipelago" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="OSE.JPN" longName="Osaka Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="OSE.JPN" longName="Osaka Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DESTK" longName="Germany Stocks" isGroup="true">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DESTK" longName="Germany Stocks" isGroup="true">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="N.TALLINN" longName="Nasdaq Tallinn" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="N.TALLINN" longName="Nasdaq Tallinn" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MXSTK" longName="Mexico Stocks" isGroup="true">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MXSTK" longName="Mexico Stocks" isGroup="true">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CEDX" longName="CBOE Europe Derivatives" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CEDX" longName="CBOE Europe Derivatives" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TGHEES" longName="Turquoise Global Holdings Europe B.V. - Spain" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TGHEES" longName="Turquoise Global Holdings Europe B.V. - Spain" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TWSE" longName="Taiwan Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TWSE" longName="Taiwan Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MEXDER" longName="Mercado Mexicano de Derivados" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MEXDER" longName="Mercado Mexicano de Derivados" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBDE" longName="Tradeweb EU BV - Germany ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBDE" longName="Tradeweb EU BV - Germany ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NYBOT" longName="New York Board of Trade" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NYBOT" longName="New York Board of Trade" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NSE" longName="National Stock Exchange of India Limited" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NSE" longName="National Stock Exchange of India Limited" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SEHK" longName="Stock Exchange of Hong Kong" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SEHK" longName="Stock Exchange of Hong Kong" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQS" longName="Quadriserv" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQS" longName="Quadriserv" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="EUREX" longName="EUREX " isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="EUREX" longName="EUREX " isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRQXCH" longName="Turquoise Europe Switzerland" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRQXCH" longName="Turquoise Europe Switzerland" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBCH" longName="Tradeweb EU BV - Switzerland ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBCH" longName="Tradeweb EU BV - Switzerland ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ASXCEN" longName="ASX Centre Point" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ASXCEN" longName="ASX Centre Point" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="OMXNO" longName="Norwegian shares on OMX" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="OMXNO" longName="Norwegian shares on OMX" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="VSE" longName="Vienna Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="VSE" longName="Vienna Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBUK" longName="Tradeweb EU BV - Euronext STK, ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBUK" longName="Tradeweb EU BV - Euronext STK, ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="OMS" longName="Stockholm Options Market" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="OMS" longName="Stockholm Options Market" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SWB2" longName="SWB for CBL settlement" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SWB2" longName="SWB for CBL settlement" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATS" longName="BATS Trading Inc" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATS" longName="BATS Trading Inc" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BVL" longName="Lisbon Stock Exchange " isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BVL" longName="Lisbon Stock Exchange " isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATEDE" longName="Cboe Europe Ltd. - BXE Order Book - Germany" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATEDE" longName="Cboe Europe Ltd. - BXE Order Book - Germany" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SGX" longName="Singapore Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SGX" longName="Singapore Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CASTK" longName="Canada Stocks" isGroup="true">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CASTK" longName="Canada Stocks" isGroup="true">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SEHKSTAR" longName="STAR Market Shares on Shanghai Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SEHKSTAR" longName="STAR Market Shares on Shanghai Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BUX" longName="Budapest Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BUX" longName="Budapest Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BVME" longName="Borsa Valori di Milano" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BVME" longName="Borsa Valori di Milano" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="FORECASTX" longName="ForecastX" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="FORECASTX" longName="ForecastX" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TGHEDE" longName="Turquoise Global Holdings Europe B.V. - Germany" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TGHEDE" longName="Turquoise Global Holdings Europe B.V. - Germany" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQXECH" longName="Aquis Exchange PLC - Switzerland" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQXECH" longName="Aquis Exchange PLC - Switzerland" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SBF" longName="Society des Bourses Francaises" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SBF" longName="Society des Bourses Francaises" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CDE" longName="Canadian Derivatives Exchange (Bourse de Montreal)" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CDE" longName="Canadian Derivatives Exchange (Bourse de Montreal)" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SBF" longName="Society des Bourses Francaises" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SBF" longName="Society des Bourses Francaises" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="FTA" longName="Financiele Termijnmarkt Amsterdam" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="FTA" longName="Financiele Termijnmarkt Amsterdam" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="USSTK" longName="United States Stocks" isGroup="true">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="USSTK" longName="United States Stocks" isGroup="true">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ADX" longName="Abu Dhabi Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ADX" longName="Abu Dhabi Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AEB" longName="Amsterdamse Effectenbeurs" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AEB" longName="Amsterdamse Effectenbeurs" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DFM" longName="Dubai Financial Market" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DFM" longName="Dubai Financial Market" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DXEES" longName="Cboe Europe B.V. - DXE Order Book - Spain" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DXEES" longName="Cboe Europe B.V. - DXE Order Book - Spain" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CME" longName="Chicago Mercantile Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CME" longName="Chicago Mercantile Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATEEN" longName="Cboe Europe Ltd. - BXE Order Book - Euronext" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATEEN" longName="Cboe Europe Ltd. - BXE Order Book - Euronext" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CBOE2" longName="Chicago Board Options Exchange 2" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CBOE2" longName="Chicago Board Options Exchange 2" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CPH" longName="Copenhagen Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CPH" longName="Copenhagen Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BM" longName="Bolsa de Madrid" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BM" longName="Bolsa de Madrid" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="IBIS" longName="Integriertes Boersenhandels- und Informations-System" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="IBIS" longName="Integriertes Boersenhandels- und Informations-System" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CBOT" longName="Chicago Board of Trade" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CBOT" longName="Chicago Board of Trade" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CFETAS" longName="Chicago Futures Exchange Trading At Settlement" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CFETAS" longName="Chicago Futures Exchange Trading At Settlement" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="RUSSELL" longName="Exchange for Russell Indices" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="RUSSELL" longName="Exchange for Russell Indices" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="LSEETF" longName="ETF segment on LSE" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="LSEETF" longName="ETF segment on LSE" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATEES" longName="Cboe Europe Ltd. - BXE Order Book - Spain" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATEES" longName="Cboe Europe Ltd. - BXE Order Book - Spain" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DXEEN" longName="Cboe Europe B.V. - DXE Order Book - Euronext" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DXEEN" longName="Cboe Europe B.V. - DXE Order Book - Euronext" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ICEEU" longName="ICE Futures Europe" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ICEEU" longName="ICE Futures Europe" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="COMEX" longName="Commodity Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="COMEX" longName="Commodity Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="QBALGOIUS" longName="QBALGO ICE US" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="QBALGOIUS" longName="QBALGO ICE US" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="VSE" longName="Vienna Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="VSE" longName="Vienna Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRQXEN" longName="Turquoise Europe EN" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRQXEN" longName="Turquoise Europe EN" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="JPSTK" longName="Japan Stocks" isGroup="true">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="JPSTK" longName="Japan Stocks" isGroup="true">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SEHKSZSE" longName="Hong Kong - Shenzhen Stock Exchange Northbound Trading Link" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SEHKSZSE" longName="Hong Kong - Shenzhen Stock Exchange Northbound Trading Link" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="LSEIOB1" longName="LSE-IOB 1" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="LSEIOB1" longName="LSE-IOB 1" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="PRA" longName="Prague Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="PRA" longName="Prague Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="IDEM" longName="Italian Derivatives Market Milano" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="IDEM" longName="Italian Derivatives Market Milano" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BURSAMY" longName="Bursa Malaysia" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BURSAMY" longName="Bursa Malaysia" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MEFFRV" longName="Mercado Espanol de Futuros Financieros Renta Variable PROXY" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MEFFRV" longName="Mercado Espanol de Futuros Financieros Renta Variable PROXY" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BOVESPA" longName="Bolsa de Valores de San Paulo" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BOVESPA" longName="Bolsa de Valores de San Paulo" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NYSE" longName="New York Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NYSE" longName="New York Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRQXDE" longName="Turquoise Europe Germany" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRQXDE" longName="Turquoise Europe Germany" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="LSE" longName="London Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="LSE" longName="London Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="APEXIT" longName="Apex - Italy" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="APEXIT" longName="Apex - Italy" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="EBS" longName="Elektronische Boerse Schweiz" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="EBS" longName="Elektronische Boerse Schweiz" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="EDGX" longName="BATS Trading EDGX" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="EDGX" longName="BATS Trading EDGX" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQEUDE" longName="Aquis Exchange Europe - Germany" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQEUDE" longName="Aquis Exchange Europe - Germany" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXDE" longName="Cboe Europe Ltd. - CXE Order Book - Germany" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXDE" longName="Cboe Europe Ltd. - CXE Order Book - Germany" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TASE" longName="Tel Aviv Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TASE" longName="Tel Aviv Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SEHKNTL" longName="Stock Exchange Hong Kong Northbound Trading Link" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SEHKNTL" longName="Stock Exchange Hong Kong Northbound Trading Link" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BURSAMY" longName="Bursa Malaysia" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BURSAMY" longName="Bursa Malaysia" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRWBEN" longName="Tradeweb EU BV - Euronext ETF" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRWBEN" longName="Tradeweb EU BV - Euronext ETF" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CFE" longName="CBOE Futures Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CFE" longName="CBOE Futures Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="IPE" longName="International Petroleum Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="IPE" longName="International Petroleum Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DXEDE" longName="Cboe Europe B.V. - DXE Order Book - Germany" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DXEDE" longName="Cboe Europe B.V. - DXE Order Book - Germany" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="LMEOTC" longName="London Metals Exchange Internal OTC" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="LMEOTC" longName="London Metals Exchange Internal OTC" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TSE" longName="Toronto Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TSE" longName="Toronto Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="DXEAT" longName="Cboe Europe B.V.  - DXE Order Book - Austria" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="DXEAT" longName="Cboe Europe B.V.  - DXE Order Book - Austria" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="PHLX" longName="Philadelphia Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="PHLX" longName="Philadelphia Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TGHEAT" longName="Turquoise Global Holdings Europe B.V. - Austria" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TGHEAT" longName="Turquoise Global Holdings Europe B.V. - Austria" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="COINDERIV" longName="Coinbase Derivatives Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="COINDERIV" longName="Coinbase Derivatives Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AEB" longName="Amsterdamse Effectenbeurs" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AEB" longName="Amsterdamse Effectenbeurs" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TGHEDK" longName="Turquoise Global Holdings Europe B.V. - Denmark" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TGHEDK" longName="Turquoise Global Holdings Europe B.V. - Denmark" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="EUIBSI" longName="IB European Systematic Internaliser" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="EUIBSI" longName="IB European Systematic Internaliser" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXAU" longName="CHI-X Australia" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXAU" longName="CHI-X Australia" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ISE" longName="International Securities Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ISE" longName="International Securities Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MONEP" longName="Marche des Opts Neg. de la Bourse de Paris" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MONEP" longName="Marche des Opts Neg. de la Bourse de Paris" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NASDAQ" longName="National Association of Security Dealers" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NASDAQ" longName="National Association of Security Dealers" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TSEJ" longName="Tokyo Stock Exchange - 2" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TSEJ" longName="Tokyo Stock Exchange - 2" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="TRQXUK" longName="Turquoise Europe United Kingdom" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="TRQXUK" longName="Turquoise Europe United Kingdom" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BATEIT" longName="Cboe Europe Ltd. - BXE Order Book - Italy" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BATEIT" longName="Cboe Europe Ltd. - BXE Order Book - Italy" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="AQEUDK" longName="Aquis Exchange Europe - Denmark" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="AQEUDK" longName="Aquis Exchange Europe - Denmark" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="ENDEX" longName="ICE Endex Futures" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="ENDEX" longName="ICE Endex Futures" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="QBALGOIEU" longName="QBALGO ICE Europe" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="QBALGOIEU" longName="QBALGO ICE Europe" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="BVME" longName="Borsa Valori di Milano" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="BVME" longName="Borsa Valori di Milano" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="NYSELIFFE" longName="NYSE Liffe US" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="NYSELIFFE" longName="NYSE Liffe US" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHIXIT" longName="Cboe Europe Ltd. - CXE Order Book - Italy" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHIXIT" longName="Cboe Europe Ltd. - CXE Order Book - Italy" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="MOEX" longName="Moscow Stock Exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="MOEX" longName="Moscow Stock Exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="CHINEXT" longName="Chinext Shares on Shenzhen Stock Exchange" isGroup="false">
+				<exchangeType>STOCK</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="CFD"/>
+					<Boolean>false</Boolean>
+					<Product secType="STK"/>
+					<Boolean>false</Boolean>
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+					<Product secType="WAR"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="CHINEXT" longName="Chinext Shares on Shenzhen Stock Exchange" isGroup="false">
+					<exchangeType>STOCK</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="IR" longName="Interest rate recording exchange" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="IR" longName="Interest rate recording exchange" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="SFB" longName="Stockholm FondBors" isGroup="false">
+				<exchangeType>INDEX</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="IND"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="SFB" longName="Stockholm FondBors" isGroup="false">
+					<exchangeType>INDEX</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+			<HomeExchangeGroup shortName="QBALGO" longName="Quantitative Brokers Algos" isGroup="false">
+				<exchangeType>FUTURE</exchangeType>
+			</HomeExchangeGroup>
+			<ProductPreferences>
+				<ProductPreferenceMap varName="preferred">
+					<Product secType="OPT"/>
+					<Boolean>false</Boolean>
+					<Product secType="FUT"/>
+					<Boolean>false</Boolean>
+				</ProductPreferenceMap>
+				<HomeExchangeGroup varName="homeExchangeGroup" shortName="QBALGO" longName="Quantitative Brokers Algos" isGroup="false">
+					<exchangeType>FUTURE</exchangeType>
+				</HomeExchangeGroup>
+			</ProductPreferences>
+		</ProductUniverseMap>
+	</ProductUniverse>
+	<ButtonGroupList varName="buttonGroupList"/>
+	<ForYouMenuSettings varName="forYouMenu">
+		<ForYouMenuMap varName="menuMap"/>
+	</ForYouMenuSettings>
+	<DefaultUniverseSetting varName="defaultUniverseSetting" lastRequestTime="0">
+		<DefaultUniverseMap varName="map"/>
+		<permissionTimeStamp></permissionTimeStamp>
+	</DefaultUniverseSetting>
+</Settings>

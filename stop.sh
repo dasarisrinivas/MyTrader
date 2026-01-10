@@ -72,11 +72,13 @@ if [ ! -z "$MYTRADER_PROCS" ]; then
 fi
 
 # Kill by port if needed (backend, frontend, and any other services)
+# NOTE: Do NOT kill ports 4001, 4002, 7496, 7497 - these are IB Gateway/TWS
 lsof -ti:8000 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 8000 (backend)${NC}"
 lsof -ti:5173 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 5173 (frontend)${NC}"
 lsof -ti:8001 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 8001${NC}"
-lsof -ti:4001 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 4001 (IB Gateway)${NC}"
-lsof -ti:7497 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 7497 (TWS API)${NC}"
+# Commented out - these kill IB Gateway which should stay running:
+# lsof -ti:4001 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 4001 (IB Gateway)${NC}"
+# lsof -ti:7497 | xargs kill -9 2>/dev/null && echo -e "${GREEN}✅ Freed port 7497 (TWS API)${NC}"
 
 # Clean up
 rm -f "$LOGS_DIR/services.info"
