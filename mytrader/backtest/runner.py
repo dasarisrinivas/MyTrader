@@ -10,6 +10,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import uuid
+
 import pandas as pd
 import pytz
 
@@ -25,6 +27,7 @@ from ..agents.lambda_wrappers import (
     Agent3RiskControlWrapper,
 )
 from ..learning.strategy_state import StrategyStateManager
+from ..monitoring.order_tracker import OrderTracker
 
 
 class BacktestRunner:
@@ -75,6 +78,11 @@ class BacktestRunner:
         
         # Initialize risk manager
         self.risk_manager = RiskManager(settings.trading)
+
+        # Order persistence (for forensic parity with live trading)
+        self.order_tracker = OrderTracker(
+            db_path=getattr(settings.data, "orders_db_path", "./data/orders.db")
+        )
         
         # Trading state
         self.capital = settings.trading.initial_capital
@@ -86,6 +94,7 @@ class BacktestRunner:
         self.trades: List[Dict[str, Any]] = []
         self.trade_memory: List[Dict[str, Any]] = []
         self.open_trade_contexts: List[Dict[str, Any]] = []
+        self._open_order_context: Optional[Dict[str, Any]] = None
         self.agent2_calls_today = 0
         self.decision_count_today = 0
         self._seed_trade_memory()
@@ -445,6 +454,7 @@ class BacktestRunner:
                 
                 # Simulate execution
                 if decision == 'BUY' and self.position == 0:
+                    trade_cycle_id = uuid.uuid4().hex[:12]
                     self.position = size
                     self.entry_price = price
                     commission = size * self.settings.trading.commission_per_contract
@@ -471,8 +481,41 @@ class BacktestRunner:
                         market_snapshot=market_snapshot,
                         confidence=confidence,
                     )
+
+                    self._open_order_context = {
+                        "trade_cycle_id": trade_cycle_id,
+                        "action": "BUY",
+                        "quantity": size,
+                        "entry_price": price,
+                        "entry_time": idx,
+                        "market_snapshot": market_snapshot,
+                        "confidence": confidence,
+                    }
+
+                    self.order_tracker.record_order_placement(
+                        order_id=int(uuid.uuid4().int % 10_000_000),
+                        symbol=self.symbol,
+                        action="BUY",
+                        quantity=size,
+                        order_type="MARKET",
+                        entry_price=price,
+                        stop_loss=None,
+                        take_profit=None,
+                        confidence=confidence,
+                        atr=market_snapshot.get("atr"),
+                        parent_order_id=None,
+                        rationale={
+                            "source": "backtest",
+                            "agent2_confidence": confidence,
+                            "decision": decision,
+                        },
+                        features=market_snapshot,
+                        market_regime=market_snapshot.get("regime"),
+                        trade_cycle_id=trade_cycle_id,
+                    )
                     
                 elif decision == 'SELL' and self.position == 0:
+                    trade_cycle_id = uuid.uuid4().hex[:12]
                     self.position = -size
                     self.entry_price = price
                     commission = size * self.settings.trading.commission_per_contract
@@ -498,6 +541,38 @@ class BacktestRunner:
                         price=price,
                         market_snapshot=market_snapshot,
                         confidence=confidence,
+                    )
+
+                    self._open_order_context = {
+                        "trade_cycle_id": trade_cycle_id,
+                        "action": "SELL",
+                        "quantity": size,
+                        "entry_price": price,
+                        "entry_time": idx,
+                        "market_snapshot": market_snapshot,
+                        "confidence": confidence,
+                    }
+
+                    self.order_tracker.record_order_placement(
+                        order_id=int(uuid.uuid4().int % 10_000_000),
+                        symbol=self.symbol,
+                        action="SELL",
+                        quantity=size,
+                        order_type="MARKET",
+                        entry_price=price,
+                        stop_loss=None,
+                        take_profit=None,
+                        confidence=confidence,
+                        atr=market_snapshot.get("atr"),
+                        parent_order_id=None,
+                        rationale={
+                            "source": "backtest",
+                            "agent2_confidence": confidence,
+                            "decision": decision,
+                        },
+                        features=market_snapshot,
+                        market_regime=market_snapshot.get("regime"),
+                        trade_cycle_id=trade_cycle_id,
                     )
             
             # Check exits for open positions
@@ -563,6 +638,51 @@ class BacktestRunner:
                         exit_trade['entry_action'] = trade_context.get('action')
                     day_trades.append(exit_trade)
                     self.artifact_logger.log_trade(date, exit_trade)
+
+                    # Persist an exit fill to orders.db (single-order simplified model).
+                    if self._open_order_context:
+                        entry_ctx = self._open_order_context
+                        exit_order_id = int(uuid.uuid4().int % 10_000_000)
+                        self.order_tracker.record_order_placement(
+                            order_id=exit_order_id,
+                            symbol=self.symbol,
+                            action="SELL" if self.position > 0 else "BUY",
+                            quantity=abs(self.position),
+                            order_type="MARKET",
+                            entry_price=exit_price,
+                            stop_loss=None,
+                            take_profit=None,
+                            confidence=entry_ctx.get("confidence"),
+                            atr=entry_ctx.get("market_snapshot", {}).get("atr"),
+                            parent_order_id=None,
+                            rationale={
+                                "source": "backtest",
+                                "exit_reason": exit_reason,
+                            },
+                            features=entry_ctx.get("market_snapshot"),
+                            market_regime=entry_ctx.get("market_snapshot", {}).get("regime"),
+                            trade_cycle_id=entry_ctx.get("trade_cycle_id"),
+                        )
+                        self.order_tracker.update_order_status(
+                            order_id=exit_order_id,
+                            status="Filled",
+                            avg_fill_price=exit_price,
+                            filled=abs(self.position),
+                        )
+                        try:
+                            self.order_tracker.record_execution(
+                                order_id=exit_order_id,
+                                quantity=abs(self.position),
+                                price=exit_price,
+                                commission=commission,
+                                realized_pnl=realized_pnl,
+                                gross_pnl=realized_pnl,
+                                net_pnl=realized_pnl - commission,
+                            )
+                        except Exception:
+                            # Backtest shouldn't fail due to optional execution persistence
+                            pass
+                        self._open_order_context = None
                     
                     self.position = 0
                     self.entry_price = 0.0

@@ -1667,6 +1667,27 @@ class TradeExecutor:
                 market_regime=market_regime,
                 trade_cycle_id=metadata.get("trade_cycle_id"),
             )
+
+            # Deterministic trade entry persistence (so audits don't depend on log retention)
+            try:
+                trade_cycle_id = metadata.get("trade_cycle_id") if metadata else None
+                if trade_cycle_id:
+                    self.order_tracker.upsert_trade_entry(
+                        trade_cycle_id=str(trade_cycle_id),
+                        root_order_id=int(parent_id),
+                        symbol=str(self.symbol),
+                        entry_time=datetime.now(timezone.utc).isoformat(),
+                        entry_price=float(limit_price if limit_price is not None else entry_price_ref or 0.0),
+                        quantity=int(quantity),
+                        extra={
+                            "stop_loss": float(stop_loss) if stop_loss is not None else None,
+                            "take_profit": float(take_profit) if take_profit is not None else None,
+                            "signal_source": metadata.get("signal_source") if metadata else None,
+                            "confidence": metadata.get("confidence") if metadata else None,
+                        },
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"trade_outcomes entry persist skipped: {exc}")
             
             # Track active order
             self.active_orders[parent_id] = parent_trade
@@ -1709,6 +1730,10 @@ class TradeExecutor:
                     stop_price=child_stop_price,
                     limit_price=child_limit_price,
                     trade_cycle_id=metadata.get("trade_cycle_id") if metadata else None,
+                    # Defensive: if we ever mis-classify a root order as a child, retain the audit trail.
+                    rationale=rationale_str,
+                    features=features_str,
+                    market_regime=market_regime,
                 )
                 
                 logger.info(f"📝 Placed bracket order {child_id} ({child_type}) (parent={parent_id})")

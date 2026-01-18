@@ -95,6 +95,10 @@ export MIN_SIMILAR_TRADES=${MIN_SIMILAR_TRADES:-$CFG_MIN_SIMILAR_TRADES}
 export MIN_WEIGHTED_WIN_RATE=${MIN_WEIGHTED_WIN_RATE:-$CFG_MIN_WEIGHTED_WIN_RATE}
 export CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD:-$CFG_CONFIDENCE_THRESHOLD}
 
+# Optional forensic-only tracing: include caller fingerprints when a root order is recorded
+# without features/rationale snapshots.
+export MYTRADER_ORDER_TRACKER_CALLSITE=${MYTRADER_ORDER_TRACKER_CALLSITE:-0}
+
 # Check if IB Gateway/TWS is running
 echo -e "${BLUE}[INFO]${NC} Checking IB Gateway/TWS on port ${IBKR_PORT}..."
 if lsof -i:"$IBKR_PORT" > /dev/null 2>&1; then
@@ -172,7 +176,7 @@ else
     export FF_ENTRY_RISK_GUARDS=${FF_ENTRY_RISK_GUARDS:-0}
     export FF_WAIT_BLOCKING=${FF_WAIT_BLOCKING:-0}
     export FF_EXIT_GUARDS=${FF_EXIT_GUARDS:-0}
-    export FF_LEARNING_HOOKS=${FF_LEARNING_HOOKS:-0}
+    export FF_LEARNING_HOOKS=${FF_LEARNING_HOOKS:-1}
 fi
 
 # Start the bot in the background
@@ -184,6 +188,9 @@ if [ "${MYTRADER_SIMULATION:-0}" = "1" ]; then
 fi
 
 echo -e "${BLUE}[INFO]${NC} Starting trading bot (MAX_CONTRACTS=$MAX_CONTRACTS)..."
+if [ "${MYTRADER_ORDER_TRACKER_CALLSITE}" != "0" ]; then
+    echo -e "${YELLOW}[WARN]${NC} MYTRADER_ORDER_TRACKER_CALLSITE enabled (extra stack inspection on missing-snapshot warnings)"
+fi
 nohup "$PYTHON_BIN" run_bot.py $BOT_ARGS > logs/bot.log 2>&1 &
 BOT_PID=$!
 

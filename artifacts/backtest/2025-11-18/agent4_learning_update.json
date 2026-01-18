@@ -1,64 +1,40 @@
 {
   "date": "2025-11-18",
-  "processed_at": "2025-12-14T21:15:40.799729+00:00",
-  "patterns_identified": [
-    {
-      "type": "REGIME_PATTERN",
-      "pattern": {
-        "regime": "UPTREND"
-      },
-      "occurrences": 2,
-      "description": "Multiple losses in UPTREND regime",
-      "recommendation": "Reduce trading in UPTREND conditions"
-    }
-  ],
+  "processed_at": "2026-01-17T23:25:51.020477+00:00",
+  "patterns_identified": [],
   "rules_updated": [
     {
-      "parameter": "risk_multiplier",
-      "new_value": 0.99,
-      "reason": "Reduced risk budget after losing day"
-    },
-    {
-      "parameter": "decision_threshold",
-      "new_value": 0.46,
-      "reason": "Reduced risk budget after losing day"
+      "parameter": "target_daily_trades",
+      "new_value": 4,
+      "reason": "Raising target trades after missed move"
     }
   ],
-  "bad_patterns_added": [
-    {
-      "type": "REGIME_PATTERN",
-      "pattern": {
-        "regime": "UPTREND"
-      },
-      "occurrences": 2,
-      "description": "Multiple losses in UPTREND regime",
-      "recommendation": "Reduce trading in UPTREND conditions"
-    }
-  ],
+  "bad_patterns_added": [],
   "summary": {
-    "trades_analyzed": 2,
-    "patterns_found": 1,
+    "trades_analyzed": 0,
+    "patterns_found": 0,
     "total_loss": 0,
     "daily_summary": {
       "date": "2025-11-18",
-      "trades_taken": 2,
+      "trades_taken": 0,
       "decision_events": 1379,
       "agent2_invocations": 1380,
-      "pnl": -27.5,
-      "missed_opportunity": 0.0,
+      "pnl": 0.0,
+      "missed_opportunity": -138.75,
       "open_position": 0
     },
     "strategy_state": {
-      "decision_threshold": 0.46,
+      "decision_threshold": 0.45,
       "min_confidence": 0.55,
       "exploration_rate": 0.3,
-      "risk_multiplier": 0.99,
+      "risk_multiplier": 0.8299999999999998,
       "max_trades_per_day": 2,
-      "target_daily_trades": 2,
-      "last_adjusted_at": "2025-12-14T21:15:40.799573+00:00"
+      "target_daily_trades": 4,
+      "last_adjusted_at": "2026-01-17T23:25:51.020215+00:00"
     },
     "adjustment_notes": [
-      "Reduced risk budget after losing day"
-    ]
+      "Raising target trades after missed move"
+    ],
+    "message": "No losing trades to analyze"
   }
 }

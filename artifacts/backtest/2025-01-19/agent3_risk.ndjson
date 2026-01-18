@@ -1,0 +1,1 @@
+{"timestamp": "2026-01-17T23:25:42.203287+00:00", "trade_decision": {"action": "WAIT", "confidence": 0.0, "symbol": "ES", "proposed_size": 0}, "allowed": false, "size_multiplier": 0.0, "adjusted_size": 0, "risk_flags": ["PLACEHOLDER"], "reason": "No market data for 2025-01-19", "placeholder_reason": "No market data for 2025-01-19"}

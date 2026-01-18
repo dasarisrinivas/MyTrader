@@ -63,7 +63,10 @@ def compute_protective_offsets(
             reward_mult = 1.25 if scalper else 2.0
             target_offset = min_distance * reward_mult
     else:
-        stop_mult = 0.75 if scalper else 1.5
+        # For MES/ES 1m trading, 1.5x ATR frequently produces very wide stops
+        # that fail the configured min_risk_reward_ratio when profits are capped.
+        # Use a slightly tighter default while keeping classic 2R targets.
+        stop_mult = 0.75 if scalper else 1.0
         target_mult = 1.0 if scalper else 2.0
         stop_offset = atr_input * stop_mult
         target_offset = atr_input * target_mult

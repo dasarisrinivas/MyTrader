@@ -137,7 +137,7 @@ class EnhancedSignalEngine:
         
         # ATR thresholds - MUCH lower for low-vol days
         self.atr_min = config.get("atr_min", 0.05)  # Was 0.15, now 0.05
-        self.atr_max = config.get("atr_max", 10.0)
+        self.atr_max = config.get("atr_max", 20.0)
         
         # Signal thresholds - LOWER for micro trends
         self.strong_signal_threshold = config.get("strong_threshold", 50)

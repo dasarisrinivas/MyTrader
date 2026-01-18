@@ -1052,28 +1052,53 @@ class ReconcileManager:
         try:
             details = action.details
             now = datetime.now(timezone.utc).isoformat()
+
+            # Preserve existing forensic snapshots if this order_id already exists.
+            # Reconcile is meant to fix status/average fills/etc. It should not delete
+            # previously-captured entry snapshots (features/rationale/trade_cycle_id).
+            existing = conn.execute(
+                """
+                SELECT trade_cycle_id, features, rationale
+                FROM orders
+                WHERE order_id = ?
+                """,
+                (details.get("order_id"),),
+            ).fetchone()
+
+            existing_trade_cycle_id = existing[0] if existing else None
+            existing_features = existing[1] if existing else None
+            existing_rationale = existing[2] if existing else None
             
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO orders (
                     order_id, timestamp, symbol, action, quantity,
                     order_type, limit_price, stop_price, status,
-                    filled_quantity, avg_fill_price, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                details.get("order_id"),
-                now,
-                details.get("symbol"),
-                details.get("action"),
-                details.get("quantity"),
-                details.get("order_type"),
-                details.get("limit_price"),
-                details.get("stop_price"),
-                details.get("status"),
-                details.get("filled", 0),
-                details.get("avg_fill_price"),
-                now,
-                now,
-            ))
+                    filled_quantity, avg_fill_price,
+                    trade_cycle_id, features, rationale,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    details.get("order_id"),
+                    now,
+                    details.get("symbol"),
+                    details.get("action"),
+                    details.get("quantity"),
+                    details.get("order_type"),
+                    details.get("limit_price"),
+                    details.get("stop_price"),
+                    details.get("status"),
+                    details.get("filled", 0),
+                    details.get("avg_fill_price"),
+                    # snapshot preservation
+                    details.get("trade_cycle_id") or existing_trade_cycle_id,
+                    details.get("features") or existing_features,
+                    details.get("rationale") or existing_rationale,
+                    now,
+                    now,
+                ),
+            )
             
             action.executed = True
             self._record_audit(action, backup_file, correlation_id, conn)

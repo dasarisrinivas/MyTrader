@@ -63,14 +63,18 @@ class OneMinuteStrategyConfig:
     breakout_enabled: bool = False
     breakout_strength_filter: bool = True
     pullback_lookback: int = 3
-    atr_percentile_low: float = 0.10
-    atr_percentile_high: float = 0.90
-    tiny_candle_atr_factor: float = 0.4
+    # JAN 11 2026 FIX: Relaxed ATR/candle filters - were blocking 99%+ of bars
+    # Old values: 0.10, 0.90, 0.4 - too strict for 1-min data
+    atr_percentile_low: float = 0.05   # Was 0.10 - allow more low-volatility periods
+    atr_percentile_high: float = 0.95  # Was 0.90 - allow more high-volatility periods  
+    tiny_candle_atr_factor: float = 0.15  # Was 0.4 - 1-min bars often have small ranges
     cooldown_minutes: int = 3
     max_trades_per_hour: int = 3
     max_trades_per_day: int = 8
-    stop_atr_multiplier: float = 1.5
-    take_profit_multiple: float = 2.0  # multiplied by stop distance (=> 3x ATR)
+    # JAN 11 2026 FIX: Increased stop multiplier to pass RiskGate min_stop_points=6
+    # With ATR ~0.94, old 1.5x = 1.4pt stop (blocked). New 6.5x = 6.1pt stop (passes)
+    stop_atr_multiplier: float = 6.5  # Was 1.5 - too tight for MES risk gate
+    take_profit_multiple: float = 2.0  # multiplied by stop distance (=> 13x ATR)
     trailing_atr_multiple: float = 1.0
     breakout_adx_threshold: float = 18.0
     trend_adx_threshold: float = 20.0
@@ -84,6 +88,130 @@ class OneMinuteStrategyConfig:
     # JAN 8 2026: Multi-timeframe trend confirmation
     require_5m_trend_alignment: bool = True  # Check 5-min trend before 1-min entry
     mtf_ema_period: int = 20  # EMA period for 5-min trend calculation
+    
+    # JAN 11 2026: Enhanced MTF structure - 15m regime, 5m setup, 1m execution
+    # 15m determines market regime/bias (trend vs chop, direction)
+    # 5m confirms setup (pullback structure, support/resistance)
+    # 1m provides precise entry trigger
+    use_mtf_regime: bool = True  # Enable full MTF structure
+    regime_timeframe: str = "15m"  # Timeframe for regime determination
+    regime_adx_threshold: float = 20.0  # ADX threshold on regime timeframe
+    regime_ema_fast: int = 9
+    regime_ema_slow: int = 21
+    require_regime_trend: bool = True  # Only trade when regime TF shows trend
+    
+    # JAN 11 2026: Session gating - only trade RTH to avoid bad overnight data
+    # IB 1-min data has 60%+ ZERO_RANGE bars overnight (no real trading)
+    rth_only: bool = True  # Only trade during RTH hours
+    rth_start_hour: int = 9   # RTH start hour (9:30 AM ET)
+    rth_start_minute: int = 30
+    rth_end_hour: int = 16    # RTH end hour (4:00 PM ET)
+    rth_end_minute: int = 0
+    
+    # JAN 11 2026: Volume filter - skip bars with no real trading activity
+    # IB ZERO_RANGE bars have volume=0 or 1, real bars have 1000+ volume
+    min_bar_volume: int = 10  # Minimum volume to consider bar valid for entry
+    
+    # JAN 11 2026: Max hold time - prevent 4.7 hour holds on 1-min signals
+    max_hold_minutes: int = 90  # Exit if trade exceeds this duration
+    
+    # JAN 11 2026: Disable trend extensions until sample size is meaningful
+    enable_trend_extensions: bool = False  # Was causing 0% win rate on extensions
+    
+    # JAN 11 2026: ATR regime filter - only trade in high volatility
+    # Backtest showed: Low ATR 27% WR, Med ATR 20% WR, High ATR 63.6% WR
+    # 67th percentile is profitable (+$10, 60% WR, 2.45 PF) but selective (5 trades)
+    require_high_atr: bool = True  # Only trade when ATR >= percentile threshold
+    high_atr_percentile: float = 0.67  # 67th percentile - focus on best regime
+    high_atr_lookback: int = 200  # Bars to use for ATR percentile calculation
+    
+    # JAN 11 2026: Overnight/Evening session support with 30m timeframe
+    # 1m data is noisy overnight - use 30m for cleaner signals
+    # Overnight = 6:00 PM - 9:30 AM ET (ES futures globex session)
+    # NOTE: Disabled until we have matching 1m+30m data with same date range
+    # Native 30m data quality: RTH 2.7% zero-range, Overnight 8.2% (vs 60%+ resampled)
+    allow_overnight_trading: bool = False  # DISABLED - need matching data
+    overnight_timeframe: str = "30m"  # Use 30m bars for overnight decisions
+    overnight_start_hour: int = 18  # Overnight starts 6:00 PM ET
+    overnight_end_hour: int = 9     # Overnight ends before RTH (9:30 AM)
+    overnight_end_minute: int = 30
+    overnight_min_volume: int = 100  # Stricter volume threshold for overnight
+    overnight_adx_threshold: float = 30.0  # Much stronger trend required overnight
+    overnight_atr_percentile: float = 0.80  # Top 20% volatility only overnight
+
+
+@dataclass
+class ThirtyMinuteStrategyConfig:
+    """Configuration for 30-minute timeframe strategy.
+    
+    JAN 11 2026: Designed specifically for 30m bars based on data analysis:
+    - ATR: 6-8 pts (vs 1-2 pts for 1m)
+    - ADX: 47.6 mean, 91.5% > 20 (stronger trends than 1m)
+    - Overnight: 77% of 30m data is overnight/globex session
+    - Bar range: ~6-7 pts typical
+    
+    Key differences from 1m strategy:
+    1. Wider stops (ATR-based, 1-1.5x ATR = 6-12 pts)
+    2. Higher ADX threshold (trends are clearer on 30m)
+    3. Longer hold times (4-8 hours typical)
+    4. Focus on trend continuation, not scalping
+    """
+    
+    enabled: bool = True
+    warmup_bars: int = 50  # 50 bars * 30min = 25 hours warmup
+    
+    # EMA settings - standard periods work well on 30m
+    ema_fast: int = 9
+    ema_slow: int = 21
+    ema_trend: int = 50  # Longer EMA for trend bias
+    
+    # ATR settings - 30m ATR is 6-8 pts typical
+    atr_period: int = 14
+    stop_atr_multiplier: float = 1.0  # 1x ATR = ~6-8 pts stop
+    take_profit_multiplier: float = 2.0  # 2R target
+    max_stop_points: float = 15.0  # Hard cap on stop distance
+    min_stop_points: float = 4.0  # Minimum stop distance
+    
+    # ADX settings - 30m shows strong trends (mean 47.6)
+    adx_period: int = 14
+    adx_trend_threshold: float = 30.0  # Raised from 25 - need stronger trend
+    adx_strong_trend: float = 40.0  # Strong trend for aggressive entries
+    
+    # RSI settings for overbought/oversold
+    rsi_period: int = 14
+    rsi_oversold: float = 35.0  # Long entry zone
+    rsi_overbought: float = 65.0  # Short entry zone
+    
+    # Signal types enabled
+    enable_ema_reclaim: bool = False  # Disabled - 28% WR, -$176 in backtest
+    enable_trend_continuation: bool = True  # 38% WR, +$76 - the profitable signal
+    enable_breakout: bool = False  # Disabled - 30m breakouts are risky
+    
+    # Pullback parameters
+    pullback_bars: int = 3  # Bars to look back for pullback
+    min_pullback_pct: float = 0.3  # Min pullback as % of recent swing
+    
+    # Trade management
+    max_trades_per_day: int = 4  # Fewer trades on 30m
+    cooldown_bars: int = 2  # 2 bars = 1 hour cooldown
+    max_hold_bars: int = 16  # 16 bars = 8 hours max hold
+    
+    # Session settings - 30m can trade overnight
+    trade_all_sessions: bool = True  # Trade RTH + Globex
+    avoid_first_bar: bool = True  # Skip first bar of session (gap risk)
+    avoid_last_bar: bool = True  # Skip last bar before close
+    
+    # Risk settings
+    require_trend_alignment: bool = True  # EMA9 > EMA21 for longs
+    require_higher_tf_trend: bool = False  # No higher TF for 30m
+    
+    # Filter settings
+    min_bar_range: float = 1.0  # Skip bars with range < 1 pt
+    skip_zero_range: bool = True  # Skip zero-range bars
+    
+    # Confidence thresholds
+    min_entry_confidence: float = 0.60  # Minimum confidence to enter
+    high_confidence_threshold: float = 0.75  # High confidence for larger size
 
 
 @dataclass
@@ -103,8 +231,12 @@ class RiskGateConfig:
     avoid_close_enabled: bool = field(
         default_factory=lambda: os.environ.get("AVOID_CLOSE_WINDOW_ENABLED", "true").lower() not in {"0", "false", "no"}
     )
-    intraday_close_time: time = time(15, 0)  # America/Chicago close
+    intraday_close_time: time = time(16, 0)  # CME close (4 PM CT)
+    maintenance_start: time = time(16, 0)  # CME maintenance start CT
+    maintenance_end: time = time(17, 0)    # CME maintenance end CT
     tick_size: float = 0.25
+    max_stop_points: float = 12.0  # Max stop distance
+    max_consecutive_losses: int = 3
 
     def bounded_risk_usd(self) -> float:
         """Clamp risk-per-trade to a safe range."""
@@ -179,6 +311,11 @@ class TradingConfig:
     confidence_threshold: float = field(default_factory=lambda: float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7")))
     min_confidence_for_trade: float = 0.60
     min_stop_distance_ticks: int = 4
+
+    # Startup entry gating (prevents immediate post-restart entries)
+    # 0 disables. These gates should only affect NEW entries; exits remain allowed.
+    startup_grace_period_seconds: int = 0
+    startup_min_completed_bars: int = 0
 
     # Hard Safety Constraints
     max_contracts_limit: int = field(default_factory=lambda: int(os.environ.get("MAX_CONTRACTS", "5")))
@@ -530,7 +667,7 @@ class HybridConfig:
     # D-Engine (Deterministic Rules) settings
     candidate_threshold: float = 0.55  # Minimum D-engine score to proceed to RAG
     atr_min: float = 0.15  # Minimum ATR threshold (lowered for low-vol markets)
-    atr_max: float = 5.0   # Maximum ATR threshold
+    atr_max: float = 20.0  # Maximum ATR threshold (Increased for ES volatility)
     
     # H-Engine (LLM + RAG) settings  
     max_calls_per_hour: int = 10

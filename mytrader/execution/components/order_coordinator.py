@@ -190,8 +190,19 @@ class OrderCoordinator:
                         logger.error(f"Error calculating hold time: {exc}")
 
                 # Build S3 TradeRecord with proper fields
-                features = m.current_trade_features or {}
-                rationale = m.current_trade_rationale or {}
+                def _json_safe(value: Any) -> Any:
+                    """Recursively convert objects (notably datetimes) to JSON-safe values."""
+
+                    if isinstance(value, datetime):
+                        return value.isoformat()
+                    if isinstance(value, dict):
+                        return {str(k): _json_safe(v) for k, v in value.items()}
+                    if isinstance(value, (list, tuple)):
+                        return [_json_safe(v) for v in value]
+                    return value
+
+                features = _json_safe(m.current_trade_features or {})
+                rationale = _json_safe(m.current_trade_rationale or {})
                 record = RAGTradeRecord(
                     trade_id=m.current_trade_id,
                     timestamp=m.current_trade_entry_time or now_cst().isoformat(),
@@ -321,6 +332,34 @@ class OrderCoordinator:
 
             raw_metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
             metadata = self.prepare_order_metadata(raw_metadata, current_price, "legacy")
+
+            # Strict scalp intent mapping (Option B): keep upstream signals as BUY/SELL for
+            # consistency, but opt-in to SCALP_* behavior via metadata.
+            #
+            # NOTE: This mapping happens early so:
+            # - entry gates, sizing/risk, and protection logic all see the normalized action
+            # - IB executor can still translate SCALP_* -> BUY/SELL for the IB API
+            try:
+                is_scalp_intent = bool(metadata.get("is_scalp"))
+            except Exception:  # noqa: BLE001
+                is_scalp_intent = False
+            if is_scalp_intent and isinstance(getattr(signal, "action", None), str):
+                action_upper = signal.action.upper()
+                mapped_action = None
+                if action_upper == "BUY":
+                    mapped_action = "SCALP_BUY"
+                elif action_upper == "SELL":
+                    mapped_action = "SCALP_SELL"
+                if mapped_action and mapped_action != signal.action:
+                    logger.info(
+                        "🎯 Scalp intent enabled via metadata.is_scalp: %s -> %s",
+                        signal.action,
+                        mapped_action,
+                    )
+                    metadata["scalp_intent_source"] = "metadata.is_scalp"
+                    metadata["original_action"] = signal.action
+                    signal.action = mapped_action
+
             allowed, reason, signal_key = await self.enforce_entry_gates(signal.action, metadata)
             if not allowed:
                 m._add_reason_code(reason)
@@ -462,6 +501,10 @@ class OrderCoordinator:
                 )
                 m._record_submission_timestamp()
                 self.record_signal_key(signal_key)
+                # 🔄 MTF GATE: Notify position opened - dry run
+                is_buy = signal.action in ("BUY", "SCALP_BUY")
+                position_direction = "long" if is_buy else "short"
+                m._notify_position_opened(position_direction)
                 return
 
             if m.simulation_mode:
@@ -474,6 +517,10 @@ class OrderCoordinator:
                 logger.warning("   SL: {:.2f}, TP: {:.2f}", stop_loss, take_profit)
                 m._record_submission_timestamp()
                 self.record_signal_key(signal_key)
+                # 🔄 MTF GATE: Notify position opened - simulation
+                is_buy = signal.action in ("BUY", "SCALP_BUY")
+                position_direction = "long" if is_buy else "short"
+                m._notify_position_opened(position_direction)
                 await m._broadcast_order_update(
                     {
                         "status": "SIMULATED",
@@ -589,6 +636,10 @@ class OrderCoordinator:
                 if result.fill_price or result.filled_quantity:
                     m._record_last_trade_timestamp()
                     logger.info("⏱️ Trade fill - cooldown activated")
+                    # 🔄 MTF GATE: Notify position opened (transition to IN_POSITION state)
+                    is_buy = signal.action in ("BUY", "SCALP_BUY")
+                    position_direction = "long" if is_buy else "short"
+                    m._notify_position_opened(position_direction)
                 else:
                     m._record_submission_timestamp()
                     logger.info("⏱️ Submission recorded (no fill yet)")

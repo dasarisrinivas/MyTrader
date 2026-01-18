@@ -10,6 +10,7 @@ from .market_data_coordinator import MarketDataCoordinator
 from .signal_processor import SignalProcessor
 from .trade_decision_engine import TradeDecisionEngine
 from .system_health_monitor import SystemHealthMonitor
+from .mtf_trend_gate import MTFTrendGate, TradingState, MTFTrendSnapshot
 
 __all__ = [
     "CooldownManager",
@@ -22,4 +23,7 @@ __all__ = [
     "SignalProcessor",
     "TradeDecisionEngine",
     "SystemHealthMonitor",
+    "MTFTrendGate",
+    "TradingState",
+    "MTFTrendSnapshot",
 ]

@@ -107,6 +107,20 @@ curl http://localhost:8000/metrics | grep mytrader_
 # mytrader_decisions_total{symbol="MES",env="prod",action="HOLD"} 45
 # mytrader_pending_entry_orders_canceled_total{symbol="MES",env="prod",reason="STALE_LIVE_BARS"} 1
 # mytrader_cancel_entries_calls_total{symbol="MES",env="prod",reason="STALE_LIVE_BARS",outcome="canceled"} 1
+
+## 🧾 Trade closure audit trail (orders.db)
+
+The bot persists deterministic trade closures to `data/orders.db` in the `trade_outcomes` table (keyed by `trade_cycle_id`).
+
+### `exit_reason` semantics
+
+`trade_outcomes.exit_reason` is written using the best available information at close time:
+
+- **Explicit exits (preferred)**: when the system initiates an exit (e.g., `SIGNAL_EXIT`, `TIME_EXIT`, `STOP_LOSS`, `PROFIT_TARGET`, `TREND_CHANGE`), that reason is stored as a *pending exit reason* and then applied to `trade_outcomes` when the position transitions to flat.
+- **Bracket fills**: if the position closes due to a bracket (TP/SL) without an explicit exit being initiated, the system attempts to infer **`PROFIT_TARGET` vs `STOP_LOSS`** by inspecting the order type of the last execution (`LIMIT`/`LMT` => TP, `STOP`/`STP`/`STOP_LIMIT` => SL). If inference is not possible, it falls back to `BRACKET_FILL`.
+- **Backfilled history**: historical backfills use `BACKFILL` and should not be interpreted as the true execution reason.
+
+This makes post-trade forensics queryable without relying on log retention.
 ```
 
 ## 🔧 Common PromQL Queries

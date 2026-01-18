@@ -61,11 +61,21 @@ except ImportError:
 
 # NEW: Multi-timeframe support (Jan 2026)
 try:
-    from ...data.candle_aggregator import MultiTimeframeCandleBuilder
+    from ...data.candle_aggregator import MultiTimeframeCandleBuilder, MTFCandleManager
     MTF_AVAILABLE = True
 except ImportError:
     MTF_AVAILABLE = False
     MultiTimeframeCandleBuilder = None
+    MTFCandleManager = None
+
+# NEW: MTF Trend Gate with state machine (Jan 12, 2026)
+try:
+    from .mtf_trend_gate import MTFTrendGate, TradingState
+    MTF_GATE_AVAILABLE = True
+except ImportError:
+    MTF_GATE_AVAILABLE = False
+    MTFTrendGate = None
+    TradingState = None
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..live_trading_manager import LiveTradingManager
@@ -159,9 +169,22 @@ class SignalProcessor:
         self.hybrid_pipeline = getattr(manager, "hybrid_pipeline", None)
         self._emergency_generator = EmergencySignalGenerator()
         
-        # NEW: Multi-timeframe candle builder (Jan 2026)
+        # NEW: Multi-timeframe candle builder (Jan 2026) - single 5m aggregator
         self._mtf_builder: Optional[MultiTimeframeCandleBuilder] = None
         self._init_mtf_builder()
+        
+        # NEW: Full MTF Candle Manager for 5m, 15m, 30m (Jan 12, 2026)
+        self._mtf_manager: Optional[MTFCandleManager] = None
+        self._init_mtf_manager()
+        
+        # NEW: MTF Trend Gate with state machine (Jan 12, 2026)
+        self._mtf_gate: Optional[MTFTrendGate] = None
+        self._init_mtf_gate()
+
+        # Seed MTF trend gate from IB historical bars so we don't stay UNKNOWN for 30-60 minutes
+        # waiting for enough local aggregations.
+        self._mtf_bootstrap_started: bool = False
+        self._mtf_bootstrap_task = None
         
         # NEW: Multi-source sentiment configuration (Jan 2026)
         self._multi_source_enabled = False
@@ -175,6 +198,169 @@ class SignalProcessor:
         self._vx_feed: Optional[VxFuturesFeed] = None
         self._vx_feed_enabled = False
         self._init_vx_feed()
+    
+    def _init_mtf_manager(self) -> None:
+        """Initialize the full multi-timeframe candle manager (5m, 15m, 30m)."""
+        if not MTF_AVAILABLE or MTFCandleManager is None:
+            logger.debug("MTFCandleManager not available")
+            return
+        
+        try:
+            self._mtf_manager = MTFCandleManager(
+                ema_period_5m=20,
+                ema_period_15m=20,
+                ema_period_30m=20,
+                max_history=100,
+            )
+            logger.info("✅ MTFCandleManager initialized (5m, 15m, 30m aggregators)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize MTFCandleManager: {e}")
+            self._mtf_manager = None
+    
+    def _init_mtf_gate(self) -> None:
+        """Initialize the MTF Trend Gate with state machine."""
+        if not MTF_GATE_AVAILABLE or MTFTrendGate is None:
+            logger.debug("MTFTrendGate not available")
+            return
+        
+        try:
+            self._mtf_gate = MTFTrendGate(
+                min_15m_candles_after_close=1,  # Wait for 1 x 15m candle after position close
+                require_full_mtf=True,          # Require all 4 timeframes
+            )
+            logger.info("✅ MTFTrendGate initialized (state machine for trend discipline)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize MTFTrendGate: {e}")
+            self._mtf_gate = None
+
+    def _ensure_mtf_gate_bootstrap(self) -> None:
+        """Kick off a one-time async bootstrap of 5m/15m/30m trends from IB historical bars.
+
+        Without this, the MTF gate can remain `UNKNOWN` for a long time (needs 30-60 minutes)
+        because `MTFCandleManager` requires multiple completed higher-TF candles before it
+        marks trends as valid.
+        """
+        if self._mtf_bootstrap_started:
+            return
+        if self._mtf_gate is None:
+            return
+        if self.manager is None or getattr(self.manager, "executor", None) is None:
+            return
+
+        try:
+            import asyncio
+
+            loop = None
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            self._mtf_bootstrap_started = True
+
+            if loop is not None and loop.is_running():
+                self._mtf_bootstrap_task = loop.create_task(self._bootstrap_mtf_gate_from_ib())
+            else:
+                # If no loop is running (tests), skip bootstrap.
+                self._mtf_bootstrap_task = None
+        except Exception as exc:
+            logger.debug(f"MTF gate bootstrap scheduling skipped: {exc}")
+
+    async def _bootstrap_mtf_gate_from_ib(self) -> None:
+        """Populate 5m/15m/30m trends using IB historical bars."""
+        if self._mtf_gate is None:
+            return
+        executor = getattr(self.manager, "executor", None)
+        if executor is None or getattr(executor, "ib", None) is None:
+            return
+
+        try:
+            contract = await executor.get_qualified_contract()
+            if not contract:
+                return
+
+            # Pull enough bars to compute EMA20 and a basic trend.
+            # NOTE: IBKR durationStr must be formatted as: "<int> <unit>" where unit is one of
+            # (S|D|W|M|Y). It does NOT support hours ("H").
+            #
+            # For 5m we use a seconds-based duration (~12 hours) to stay IB-valid.
+            bar_requests = [
+                ("5m", "43200 S", "5 mins"),  # 12 hours
+                ("15m", "3 D", "15 mins"),
+                ("30m", "5 D", "30 mins"),
+            ]
+
+            def _trend_from_ema(closes, ema):
+                if len(closes) < 3 or len(ema) < 3:
+                    return "UNKNOWN", 0.0
+                # Simple slope over last 3 EMA points
+                slope = float(ema[-1] - ema[-3])
+                if slope > 0:
+                    return "UPTREND", min(1.0, abs(slope) / 5.0)
+                if slope < 0:
+                    return "DOWNTREND", min(1.0, abs(slope) / 5.0)
+                return "NEUTRAL", 0.2
+
+            for tf, duration_str, bar_size in bar_requests:
+                try:
+                    bars = await executor.ib.reqHistoricalDataAsync(
+                        contract,
+                        endDateTime="",
+                        durationStr=duration_str,
+                        barSizeSetting=bar_size,
+                        whatToShow="TRADES",
+                        useRTH=False,
+                        formatDate=2,
+                    )
+                except AttributeError:
+                    bars = executor.ib.reqHistoricalData(
+                        contract,
+                        endDateTime="",
+                        durationStr=duration_str,
+                        barSizeSetting=bar_size,
+                        whatToShow="TRADES",
+                        useRTH=False,
+                        formatDate=2,
+                    )
+
+                if not bars:
+                    continue
+
+                closes = [float(getattr(b, "close", 0.0) or 0.0) for b in bars if getattr(b, "close", None) is not None]
+                if len(closes) < 10:
+                    continue
+
+                # EMA20
+                ema_period = 20
+                ema_vals = []
+                k = 2.0 / (ema_period + 1.0)
+                ema = closes[0]
+                for c in closes:
+                    ema = (c * k) + (ema * (1 - k))
+                    ema_vals.append(ema)
+
+                trend, conf = _trend_from_ema(closes, ema_vals)
+                last_bar = bars[-1]
+                candle_close_time = getattr(last_bar, "date", None)
+                # Normalize to aware datetime if possible
+                if isinstance(candle_close_time, str):
+                    try:
+                        candle_close_time = datetime.fromisoformat(candle_close_time.replace("Z", "+00:00"))
+                    except Exception:
+                        candle_close_time = None
+
+                self._mtf_gate.update_trend(
+                    timeframe=tf,
+                    trend=trend,
+                    confidence=float(conf),
+                    ema_value=float(ema_vals[-1]) if ema_vals else None,
+                    candle_close_time=candle_close_time,
+                )
+
+            logger.info("✅ MTF Gate bootstrapped from IB historical bars (5m/15m/30m)")
+
+        except Exception as exc:
+            logger.debug(f"MTF gate bootstrap failed: {exc}")
 
     def _init_sentiment(self) -> None:
         """Initialize sentiment integration (multi-source or legacy Stocktwits)."""
@@ -751,6 +937,72 @@ class SignalProcessor:
                     f"trend={m.status.hybrid_market_trend}, "
                     f"vol={m.status.hybrid_volatility_regime})"
                 )
+
+                # Option A diagnostics: when the pipeline returns HOLD, record whether 1m indicators
+                # needed by the trend pullback enhancer are present and their values.
+                try:
+                    if str(getattr(hybrid_signal, "action", "")).upper() == "HOLD":
+                        rsi14 = features.get("RSI_14")
+                        ema9 = features.get("EMA_9")
+
+                        # Some upstream code paths place entire indicator series into the features
+                        # dict (e.g., pandas Series). For diagnostics we only want the latest value.
+                        def _safe_last_value(val):
+                            try:
+                                if val is None:
+                                    return None
+                                # pandas Series
+                                if hasattr(val, "iloc"):
+                                    last = val.iloc[-1]
+                                    # If we somehow still got a 0-d array / scalar wrapper
+                                    if hasattr(last, "item"):
+                                        try:
+                                            return last.item()
+                                        except Exception:
+                                            return last
+                                    return last
+                                # numpy arrays / lists / tuples
+                                if hasattr(val, "__len__") and not isinstance(val, (str, bytes, dict)):
+                                    last = val[-1]
+                                    if hasattr(last, "item"):
+                                        try:
+                                            return last.item()
+                                        except Exception:
+                                            return last
+                                    return last
+                            except Exception:
+                                return val
+                            return val
+
+                        rsi14_last = _safe_last_value(rsi14)
+                        ema9_last = _safe_last_value(ema9)
+                        # Emit both a structured event (for dashboards) and a plain-text marker
+                        # so simple log greps can confirm this logic is executing.
+                        logger.info(
+                            "🧪 diag.pullback_features: "
+                            f"trend={m.status.hybrid_market_trend} "
+                            f"vol={m.status.hybrid_volatility_regime} "
+                            f"has_RSI_14={(rsi14 is not None)} rsi14={rsi14_last} "
+                            f"has_EMA_9={(ema9 is not None)} ema9={ema9_last} "
+                            f"price={current_price}"
+                        )
+                        log_structured_event(
+                            agent="signal_processor",
+                            event_type="diag.pullback_features",
+                            message="pullback feature presence",
+                            payload={
+                                "trend": m.status.hybrid_market_trend,
+                                "volatility": m.status.hybrid_volatility_regime,
+                                "has_RSI_14": rsi14 is not None,
+                                "has_EMA_9": ema9 is not None,
+                                "RSI_14": float(rsi14_last) if rsi14_last is not None else None,
+                                "EMA_9": float(ema9_last) if ema9_last is not None else None,
+                                "price": float(current_price),
+                            },
+                        )
+                except Exception:
+                    pass
+
                 log_structured_event(
                     agent="live_manager",
                     event_type="hybrid.signal",
@@ -766,6 +1018,17 @@ class SignalProcessor:
                 market_ctx = self._build_market_context_from_pipeline(pipeline_result)
                 hybrid_signal = self._emergency_generator.apply(hybrid_signal, market_ctx)
 
+                # === OPTION A (JAN 2026): Trend-follow pullback enhancer ===
+                # If the pipeline is indecisive (HOLD), try to express a *trend-aligned* pullback
+                # entry on the 1m trigger timeframe. This is explicitly NOT a counter-trend escape.
+                # All hard gates (ADX, 5m, MTF 15m/30m, sentiment) still apply below.
+                hybrid_signal = self._apply_trend_pullback_enhancer(
+                    hybrid_signal=hybrid_signal,
+                    features=features,
+                    market_trend=m.status.hybrid_market_trend,
+                    current_price=current_price,
+                )
+
                 # === JAN 2026 AUDIT FIX: ADX Gate + Counter-Trend Hard-Block ===
                 hybrid_signal = self._apply_adx_and_trend_gates(
                     hybrid_signal, features, m.status.hybrid_market_trend
@@ -773,6 +1036,10 @@ class SignalProcessor:
                 
                 # === JAN 2026 AUDIT FIX: 5-Minute Trend Filter ===
                 hybrid_signal = self.apply_5m_trend_filter(hybrid_signal)
+                
+                # === JAN 12, 2026: MTF Trend Gate (15m PRIMARY, 30m CONFIRMATION) ===
+                # This is the HARD GATE that enforces multi-timeframe discipline
+                hybrid_signal = self._apply_mtf_trend_gate(hybrid_signal)
                 
                 # === JAN 8 2026: Sentiment-Derived Trend Adjustment ===
                 hybrid_signal = self._apply_sentiment_trend_adjustment(hybrid_signal, m.status.hybrid_market_trend)
@@ -908,6 +1175,224 @@ class SignalProcessor:
             run_legacy_after_hybrid=False,
             sentiment_modifier=sentiment_modifier,
         )
+
+    def _apply_trend_pullback_enhancer(
+        self,
+        hybrid_signal,
+        features: dict,
+        market_trend: str,
+        current_price: float,
+    ):
+        """Convert pipeline HOLD into a trend-aligned pullback entry (Option A).
+
+        Contract:
+        - Input: existing `hybrid_signal` from the hybrid pipeline.
+        - Output: same object, potentially with action set to BUY/SELL and metadata annotated.
+        - Safety: only triggers when signal is HOLD and ONLY in the direction of `market_trend`.
+        - All downstream hard gates still run (ADX/counter-trend, 5m filter, MTF gate, sentiment).
+        """
+
+        try:
+            action = getattr(hybrid_signal, "action", None)
+            if str(action).upper() != "HOLD":
+                return hybrid_signal
+
+            # INFO: prove the enhancer is being evaluated in live runs.
+            _conf_raw = getattr(hybrid_signal, "confidence", 0.0)
+            try:
+                _conf_val = float(_conf_raw) if _conf_raw is not None else 0.0
+            except Exception:
+                _conf_val = 0.0
+            logger.info(
+                "🪝 Trend pullback enhancer evaluating HOLD: "
+                f"trend={market_trend} price={float(current_price):.2f} conf={_conf_val:.2f}"
+            )
+
+            # Config toggle (defaults to enabled)
+            entry_filters = None
+            trading_cfg = getattr(self.settings, "trading", None)
+            if trading_cfg is not None:
+                if hasattr(trading_cfg, "entry_filters"):
+                    entry_filters = trading_cfg.entry_filters
+                elif isinstance(trading_cfg, dict):
+                    entry_filters = trading_cfg.get("entry_filters", {})
+            if entry_filters is None:
+                entry_filters = {}
+
+            enable_pullback = True
+            if hasattr(entry_filters, "enable_trend_pullback"):
+                enable_pullback = bool(getattr(entry_filters, "enable_trend_pullback", True))
+            elif isinstance(entry_filters, dict):
+                enable_pullback = bool(entry_filters.get("enable_trend_pullback", True))
+            if not enable_pullback:
+                logger.info("🪝 Trend pullback enhancer disabled by config (enable_trend_pullback=false)")
+                return hybrid_signal
+
+            # Pullback parameters (sane defaults tuned for 1m trigger-only usage)
+            # entry_filters may be a config object (attribute-style) or a dict.
+            if isinstance(entry_filters, dict):
+                # Default (requested): widen UPTREND long pullback band to 45–65
+                rsi_long_min = float(entry_filters.get("pullback_rsi_long_min", 45.0))
+                rsi_long_max = float(entry_filters.get("pullback_rsi_long_max", 65.0))
+                rsi_short_min = float(entry_filters.get("pullback_rsi_short_min", 45.0))
+                rsi_short_max = float(entry_filters.get("pullback_rsi_short_max", 60.0))
+                # NEW: allow downtrend sells on oversold flush + EMA9 rejection
+                rsi_short_flush_max = float(entry_filters.get("pullback_rsi_short_flush_max", 45.0))
+            else:
+                # Default (requested): widen UPTREND long pullback band to 45–65
+                rsi_long_min = float(getattr(entry_filters, "pullback_rsi_long_min", 45.0))
+                rsi_long_max = float(getattr(entry_filters, "pullback_rsi_long_max", 65.0))
+                rsi_short_min = float(getattr(entry_filters, "pullback_rsi_short_min", 45.0))
+                rsi_short_max = float(getattr(entry_filters, "pullback_rsi_short_max", 60.0))
+                # NEW: allow downtrend sells on oversold flush + EMA9 rejection
+                rsi_short_flush_max = float(getattr(entry_filters, "pullback_rsi_short_flush_max", 45.0))
+
+            # Required features
+            # NOTE: Do NOT use `or` to pick fallbacks here:
+            # pandas Series have ambiguous truthiness and will raise.
+            rsi = features.get("RSI_14")
+            if rsi is None:
+                rsi = features.get("rsi")
+            ema9 = features.get("EMA_9")
+            if ema9 is None:
+                ema9 = features.get("ema_9")
+            if ema9 is None:
+                ema9 = features.get("ema9")
+
+            # Upstream hybrid paths may pass full indicator series (pandas Series). Normalize to
+            # the latest scalar value so comparison logic works.
+            def _latest_scalar(val):
+                if val is None:
+                    return None
+                try:
+                    if hasattr(val, "iloc"):
+                        last = val.iloc[-1]
+                        if hasattr(last, "item"):
+                            try:
+                                return last.item()
+                            except Exception:
+                                return last
+                        return last
+                    if hasattr(val, "__len__") and not isinstance(val, (str, bytes, dict)):
+                        last = val[-1]
+                        if hasattr(last, "item"):
+                            try:
+                                return last.item()
+                            except Exception:
+                                return last
+                        return last
+                except Exception:
+                    return val
+                return val
+
+            rsi = _latest_scalar(rsi)
+            ema9 = _latest_scalar(ema9)
+            if rsi is None or ema9 is None:
+                logger.info(
+                    "🪝 Trend pullback enhancer skipped: missing indicators "
+                    f"(has_RSI_14={features.get('RSI_14') is not None}, "
+                    f"has_EMA_9={features.get('EMA_9') is not None}, "
+                    f"has_rsi={features.get('rsi') is not None}, "
+                    f"has_ema_9={features.get('ema_9') is not None}, "
+                    f"has_ema9={features.get('ema9') is not None})"
+                )
+                return hybrid_signal
+
+            rsi = float(rsi)
+            ema9 = float(ema9)
+            price = float(current_price)
+            trend = (market_trend or "").upper()
+
+            # Trend-aligned pullback heuristics:
+            # - Long: trend is UP-ish AND RSI in pullback band AND price reclaims above EMA9
+            # - Short: trend is DOWN-ish AND RSI in pullback band AND price reclaims below EMA9
+            enh_action = None
+            enh_reason = None
+
+            if trend in {"UPTREND", "WEAK_UP", "MICRO_UP"}:
+                if (rsi_long_min <= rsi <= rsi_long_max) and (price >= ema9):
+                    enh_action = "BUY"
+                    enh_reason = "PULLBACK_LONG_1M"
+            elif trend in {"DOWNTREND", "WEAK_DOWN", "MICRO_DOWN"}:
+                # Mode A: classic pullback band + reclaim below EMA9
+                if (rsi_short_min <= rsi <= rsi_short_max) and (price <= ema9):
+                    enh_action = "SELL"
+                    enh_reason = "PULLBACK_SHORT_1M"
+                # Mode B (NEW): oversold flush in a downtrend + price rejected back below EMA9
+                # This captures cases where RSI is <45 (common in strong down pushes) but you still
+                # want a trend-follow continuation entry after a brief snap-back.
+                elif (rsi <= rsi_short_flush_max) and (price <= ema9):
+                    enh_action = "SELL"
+                    enh_reason = "PULLBACK_SHORT_FLUSH_1M"
+
+            if enh_action is None:
+                # INFO (not debug): helps validate threshold tuning in live logs
+                try:
+                    # Extra visibility for downtrends: most missed SELLs are because price is still
+                    # above EMA9 (no rejection yet) or RSI is outside the threshold.
+                    if trend in {"DOWNTREND", "WEAK_DOWN", "MICRO_DOWN"}:
+                        price_vs_ema9 = price - ema9
+                        short_band_ok = (rsi_short_min <= rsi <= rsi_short_max)
+                        short_flush_ok = (rsi <= rsi_short_flush_max)
+                        below_ema9 = price <= ema9
+                        logger.info(
+                            "🪝 Trend pullback enhancer downtrend diag: "
+                            f"trend={market_trend} rsi={rsi:.1f} price={price:.2f} ema9={ema9:.2f} "
+                            f"price-ema9={price_vs_ema9:+.2f} below_ema9={below_ema9} "
+                            f"short_band_ok={short_band_ok} short_flush_ok={short_flush_ok}"
+                        )
+                except Exception:
+                    pass
+                logger.info(
+                    "🪝 Trend pullback enhancer not triggered: "
+                    f"trend={market_trend} rsi={rsi:.1f} price={price:.2f} ema9={ema9:.2f} "
+                    f"band_long=[{rsi_long_min:.1f},{rsi_long_max:.1f}] "
+                    f"band_short=[{rsi_short_min:.1f},{rsi_short_max:.1f}] flush_max={rsi_short_flush_max:.1f}"
+                )
+                return hybrid_signal
+
+            # Apply enhancement
+            hybrid_signal.action = enh_action
+            # Modest confidence; downstream gates will still block if needed
+            base_conf = float(getattr(hybrid_signal, "confidence", 0.0) or 0.0)
+            hybrid_signal.confidence = max(base_conf, 0.42)
+
+            metadata = getattr(hybrid_signal, "metadata", {}) or {}
+            metadata["trend_pullback_enhanced"] = True
+            metadata["trend_pullback_reason"] = enh_reason
+            metadata["trend_pullback_market_trend"] = market_trend
+            metadata["trend_pullback_rsi"] = rsi
+            metadata["trend_pullback_ema9"] = ema9
+            metadata["trend_pullback_price"] = price
+            # Output stays BUY/SELL; if you later want scalp-only for these, you can set is_scalp here.
+            metadata.setdefault("is_scalp", False)
+            hybrid_signal.metadata = metadata
+
+            logger.info(
+                f"🪝 Trend pullback enhancer: HOLD -> {enh_action} ({enh_reason}) "
+                f"trend={market_trend} rsi={rsi:.1f} price={price:.2f} ema9={ema9:.2f}"
+            )
+            try:
+                log_structured_event(
+                    agent="signal_processor",
+                    event_type="signal.trend_pullback_enhancer",
+                    message=f"HOLD -> {enh_action} ({enh_reason})",
+                    payload={
+                        "action": enh_action,
+                        "reason": enh_reason,
+                        "market_trend": market_trend,
+                        "rsi": rsi,
+                        "ema9": ema9,
+                        "price": price,
+                        "metadata": metadata,
+                    },
+                )
+            except Exception:
+                pass
+            return hybrid_signal
+        except Exception as exc:  # noqa: BLE001
+            logger.info(f"🪝 Trend pullback enhancer failed (ignored): {exc}")
+            return hybrid_signal
 
     def calculate_confidence(self, signal_data: Dict[str, float]) -> float:
         """Aggregate confidence adjustments."""
@@ -1532,6 +2017,9 @@ class SignalProcessor:
         """
         if self._mtf_builder is None:
             return
+
+        # Make sure the MTF gate isn't stuck in UNKNOWN while local aggregators warm up.
+        self._ensure_mtf_gate_bootstrap()
         
         try:
             timestamp = bar.get("timestamp")
@@ -1557,6 +2045,73 @@ class SignalProcessor:
                 )
         except Exception as e:
             logger.debug(f"MTF candle update error: {e}")
+        
+        # === JAN 12, 2026: Feed to full MTF Manager (5m, 15m, 30m) ===
+        self._update_mtf_manager_and_gate(bar)
+    
+    def _update_mtf_manager_and_gate(self, bar: Dict[str, Any]) -> None:
+        """Update the MTF Manager with 1m bar and sync trends to MTF Gate.
+        
+        This feeds the 1m bar to all timeframe aggregators (5m, 15m, 30m)
+        and updates the MTF Gate with the latest trend data.
+        """
+        if self._mtf_manager is None:
+            return
+        
+        try:
+            timestamp = bar.get("timestamp")
+            if timestamp is None:
+                return
+            
+            # Feed to all aggregators
+            completed = self._mtf_manager.add_1m_bar(
+                timestamp=timestamp,
+                open_price=float(bar.get("open", 0)),
+                high_price=float(bar.get("high", 0)),
+                low_price=float(bar.get("low", 0)),
+                close_price=float(bar.get("close", 0)),
+                volume=float(bar.get("volume", 0)),
+            )
+            
+            # Update MTF Gate with trends from all timeframes
+            if self._mtf_gate is not None:
+                trends = self._mtf_manager.get_all_trends()
+                
+                for tf, trend_data in trends.items():
+                    # Important: don't overwrite a previously bootstrapped/valid trend with UNKNOWN.
+                    if not getattr(trend_data, "is_valid", False):
+                        continue
+                    if str(getattr(trend_data, "trend", "UNKNOWN") or "UNKNOWN").upper() == "UNKNOWN":
+                        continue
+
+                    self._mtf_gate.update_trend(
+                        timeframe=tf,
+                        trend=trend_data.trend,
+                        confidence=trend_data.confidence,
+                        ema_value=trend_data.ema_value,
+                        candle_close_time=trend_data.candle_close_time,
+                    )
+                
+                # Also update 1m trend (from current bar's price vs EMA)
+                # 1m trend is ONLY for logging - never used for direction
+                self._mtf_gate.update_trend(
+                    timeframe="1m",
+                    trend="TRIGGER_ONLY",  # 1m never determines trend
+                    confidence=0.0,
+                )
+                
+                # Log MTF state summary periodically (on 15m candle close)
+                if completed.get("15m") is not None:
+                    summary = self._mtf_gate.get_state_summary()
+                    logger.info(
+                        f"📊 MTF STATE: state={summary['state']}, "
+                        f"15m={summary['trends']['15m']['trend']}, "
+                        f"30m={summary['trends']['30m']['trend']}, "
+                        f"5m={summary['trends']['5m']['trend']}, "
+                        f"cooldown_remaining={summary['cooldown']['candles_remaining']}"
+                    )
+        except Exception as e:
+            logger.debug(f"MTF manager update error: {e}")
     
     def check_5m_trend_alignment(self, action: str) -> Tuple[bool, str]:
         """Check if the proposed action aligns with the 5-minute trend.
@@ -1601,8 +2156,10 @@ class SignalProcessor:
         
         if not is_aligned:
             logger.warning(
-                "🚫 5-MIN TREND BLOCK: %s signal blocked - %s",
-                signal.action, reason
+                "🚫 5-MIN TREND BLOCK: {} signal blocked - {} (5m_trend={})",
+                signal.action,
+                reason,
+                metadata.get("5m_trend", "UNKNOWN"),
             )
             block_reasons = metadata.get("block_reasons", [])
             block_reasons.append(reason)
@@ -1615,3 +2172,114 @@ class SignalProcessor:
         
         signal.metadata = metadata
         return signal
+    
+    def _apply_mtf_trend_gate(self, signal: Any) -> Any:
+        """Apply the MTF Trend Gate - HARD GATE for multi-timeframe discipline.
+        
+        JAN 12, 2026: This is the PRIMARY gate that enforces:
+        1. 15m candle = PRIMARY trend authority (must agree for any trade)
+        2. 30m candle = CONFIRMATION trend (must not contradict)
+        3. Fresh evaluation after position close
+        4. Cooldown period (wait for 15m candle after close)
+        5. 1m candle NEVER determines trend direction
+        
+        Args:
+            signal: The trading signal to gate
+        
+        Returns:
+            Signal (possibly blocked with HOLD)
+        """
+        if signal.action == "HOLD":
+            return signal
+        
+        if self._mtf_gate is None:
+            logger.debug("MTF Gate not initialized - skipping gate check")
+            return signal
+        
+        # Get sentiment bias for agreement check
+        sentiment_bias = getattr(self.manager, "_last_sentiment_bias", None)
+        
+        # Run the gate evaluation
+        allowed, reason, metadata_from_gate = self._mtf_gate.evaluate_entry(
+            proposed_action=signal.action,
+            sentiment_bias=sentiment_bias,
+        )
+        
+        # Update signal metadata with gate details
+        metadata = getattr(signal, "metadata", {}) or {}
+        metadata["mtf_gate"] = {
+            "allowed": allowed,
+            "reason": reason,
+            "state": metadata_from_gate.get("state"),
+            "trends": metadata_from_gate.get("trends"),
+            "cooldown": metadata_from_gate.get("cooldown_candles_needed"),
+        }
+        
+        if not allowed:
+            logger.warning(
+                f"🚫 MTF GATE BLOCK: {signal.action} blocked - {reason}"
+            )
+            
+            # Log detailed trend breakdown
+            trends = metadata_from_gate.get("trends", {})
+            if trends:
+                logger.info(
+                    f"   Trend snapshot: 15m={trends.get('15m', {}).get('trend', 'N/A')}, "
+                    f"30m={trends.get('30m', {}).get('trend', 'N/A')}, "
+                    f"5m={trends.get('5m', {}).get('trend', 'N/A')}"
+                )
+            
+            # Add to block reasons
+            block_reasons = metadata.get("block_reasons", [])
+            block_reasons.append(f"MTF_GATE:{reason}")
+            metadata["block_reasons"] = block_reasons
+            metadata["mtf_gate_blocked"] = True
+            
+            signal.action = "HOLD"
+            signal.confidence = 0.0
+        else:
+            logger.info(
+                f"✅ MTF GATE PASSED: {signal.action} allowed "
+                f"(state={metadata_from_gate.get('state')}, {reason})"
+            )
+        
+        signal.metadata = metadata
+        return signal
+    
+    def notify_position_opened(self, direction: str) -> None:
+        """Notify the MTF gate that a position was opened.
+        
+        Args:
+            direction: "LONG" or "SHORT"
+        """
+        if self._mtf_gate is not None:
+            self._mtf_gate.on_position_opened(direction)
+    
+    def notify_position_closed(
+        self,
+        close_reason: str,
+        direction: str,
+        pnl: float,
+    ) -> None:
+        """Notify the MTF gate that a position was closed - triggers cooldown.
+        
+        Args:
+            close_reason: "TP", "SL", "MANUAL", "TIMEOUT", "TREND_FLIP"
+            direction: "LONG" or "SHORT"
+            pnl: Realized P&L
+        """
+        if self._mtf_gate is not None:
+            self._mtf_gate.on_position_closed(close_reason, direction, pnl)
+            
+            # Log the state after close
+            summary = self._mtf_gate.get_state_summary()
+            logger.info(
+                f"📊 MTF Gate post-close: state={summary['state']}, "
+                f"cooldown={summary['cooldown']['candles_remaining']} x 15m candles"
+            )
+    
+    def get_mtf_gate_state(self) -> Optional[str]:
+        """Get the current MTF gate state."""
+        if self._mtf_gate is None:
+            return None
+        return self._mtf_gate.state.value

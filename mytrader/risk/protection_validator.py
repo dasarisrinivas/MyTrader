@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .atr_module import compute_protective_offsets
+from .trade_math import enforce_min_take_profit, get_contract_spec
+from .trade_math import TradingMode
 
 TRADE_ACTIONS = {"BUY", "SELL", "SCALP_BUY", "SCALP_SELL"}
 SCALP_ACTIONS = {"SCALP_BUY", "SCALP_SELL"}
@@ -44,6 +46,8 @@ def calculate_protection(
     atr_value: Optional[float],
     tick_size: float,
     volatility: Optional[str] = None,
+    trading_mode: TradingMode = "paper",
+    symbol: str = "MES",
 ) -> ProtectionComputation:
     """Normalize offsets and convert them into absolute prices."""
     action_upper = (action or "HOLD").upper()
@@ -74,12 +78,46 @@ def calculate_protection(
         source = "fallback_atr"
         fallback_reason = offsets.reason or "invalid_pipeline_offsets"
 
+    # Scalp normalization: for SCALP_* actions, keep brackets tight by default.
+    # This applies even when the pipeline provided offsets (source='pipeline'), so the
+    # Hyper/LLM layer can't accidentally suggest swing-style 4/8 point brackets for MES scalps.
+    if action_upper in SCALP_ACTIONS:
+        # Hard minimum stop offset (avoid 1-2 tick noise stops). Use 4 ticks by default.
+        min_stop_offset = max(tick_size * 4, tick_size)
+        stop_offset = max(stop_offset, min_stop_offset)
+
+        # For scalps, target can be tighter than stop, but should at least be a viable distance.
+        min_target_offset = max(tick_size * 4, tick_size)
+        target_offset = max(target_offset, min_target_offset)
+
     if action_upper in SELL_ACTIONS:
         stop_price = entry_price + stop_offset
         target_price = entry_price - target_offset
     else:
         stop_price = entry_price - stop_offset
         target_price = entry_price + target_offset
+
+    # Live-mode enforcement: ensure TP is not too small to be worth placing in real trading.
+    # We keep this local and dependency-light by inferring MES/ES spec via known defaults.
+    try:
+        spec = get_contract_spec(symbol)
+        ok, min_points = enforce_min_take_profit(
+            entry_price=entry_price,
+            take_profit=target_price,
+            spec=spec,
+            mode=trading_mode,
+            action=action_upper,
+        )
+        if not ok:
+            if action_upper in SELL_ACTIONS:
+                target_price = entry_price - float(min_points)
+                target_offset = float(min_points)
+            else:
+                target_price = entry_price + float(min_points)
+                target_offset = float(min_points)
+    except Exception:
+        # If config is missing (or running in paper), skip enforcement.
+        pass
 
     return ProtectionComputation(
         stop_offset=stop_offset,

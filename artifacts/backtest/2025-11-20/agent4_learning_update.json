@@ -1,6 +1,6 @@
 {
   "date": "2025-11-20",
-  "processed_at": "2025-12-14T21:15:41.699092+00:00",
+  "processed_at": "2026-01-17T23:25:52.034650+00:00",
   "patterns_identified": [],
   "rules_updated": [
     {
@@ -17,20 +17,20 @@
     "daily_summary": {
       "date": "2025-11-20",
       "trades_taken": 0,
-      "decision_events": 1380,
+      "decision_events": 1379,
       "agent2_invocations": 1380,
       "pnl": 0.0,
       "missed_opportunity": -877.5,
       "open_position": 0
     },
     "strategy_state": {
-      "decision_threshold": 0.46,
+      "decision_threshold": 0.45,
       "min_confidence": 0.55,
       "exploration_rate": 0.3,
-      "risk_multiplier": 0.99,
+      "risk_multiplier": 0.8299999999999998,
       "max_trades_per_day": 2,
       "target_daily_trades": 4,
-      "last_adjusted_at": "2025-12-14T21:15:41.698934+00:00"
+      "last_adjusted_at": "2026-01-17T23:25:52.034396+00:00"
     },
     "adjustment_notes": [
       "Raising target trades after missed move"

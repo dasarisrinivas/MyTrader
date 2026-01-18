@@ -908,27 +908,26 @@ class TrendContinuationOptimizer:
             
             exit_action = "SELL" if is_long else "BUY"
             
-            from ib_insync import StopOrder, LimitOrder
-            
-            # Place new stop order
-            stop_order = StopOrder(exit_action, quantity, analysis.new_stop_loss)
-            stop_order.transmit = True
-            stop_order.outsideRth = True
-            stop_trade = executor.ib.placeOrder(contract, stop_order)
-            stop_id = getattr(stop_trade.order, "orderId", "NA")
-            executor.active_orders[stop_id] = stop_trade
-            
-            logger.info(f"✅ New trailing stop {stop_id} at {analysis.new_stop_loss:.2f}")
-            
-            # Place new take profit order
-            tp_order = LimitOrder(exit_action, quantity, analysis.new_take_profit)
-            tp_order.transmit = True
-            tp_order.outsideRth = True
-            tp_trade = executor.ib.placeOrder(contract, tp_order)
-            tp_id = getattr(tp_trade.order, "orderId", "NA")
-            executor.active_orders[tp_id] = tp_trade
-            
-            logger.info(f"✅ New extended target {tp_id} at {analysis.new_take_profit:.2f}")
+            # IMPORTANT: Do not place protective orders directly with IB here.
+            # Direct IB placement bypasses:
+            #   - executor.place_order() protective invariants
+            #   - order_tracker persistence (orders.db)
+            #   - dedupe/reconcile locks
+            # and can create 'naked' (untracked) protection legs.
+            if hasattr(executor, "_place_standalone_protection"):
+                await executor._place_standalone_protection(
+                    quantity if is_long else -quantity,
+                    analysis.new_stop_loss,
+                    analysis.new_take_profit,
+                )
+                logger.info(
+                    "✅ Protection updated via executor: stop={:.2f} target={:.2f}",
+                    analysis.new_stop_loss,
+                    analysis.new_take_profit,
+                )
+            else:
+                logger.error("Executor missing _place_standalone_protection; cannot safely modify bracket")
+                return False
             
             # Update position tracking
             if hasattr(position, 'stop_loss'):

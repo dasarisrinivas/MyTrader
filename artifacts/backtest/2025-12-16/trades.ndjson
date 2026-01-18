@@ -1,0 +1,4 @@
+{"timestamp": "2025-12-16T00:00:00-06:00", "action": "SELL", "price": 6838.25, "quantity": 1, "confidence": 0.85, "stop_loss": "Entry - 2.0 ATR", "take_profit": "Entry + 3.0 ATR"}
+{"timestamp": "2025-12-16T00:04:00-06:00", "action": "EXIT", "price": 6840.25, "quantity": 1, "realized_pnl": -10.0, "exit_reason": "stop_loss", "trend": "RANGE", "regime": "RANGE", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-12-16T00:00:00-06:00", "action": "SELL", "price": 6838.25, "quantity": 1, "confidence": 0.85, "stop_loss": "Entry - 2.0 ATR", "take_profit": "Entry + 3.0 ATR"}
+{"timestamp": "2025-12-16T00:04:00-06:00", "action": "EXIT", "price": 6840.25, "quantity": 1, "realized_pnl": -10.0, "exit_reason": "stop_loss", "trend": "RANGE", "regime": "RANGE", "volatility": "LOW", "entry_action": "SELL"}

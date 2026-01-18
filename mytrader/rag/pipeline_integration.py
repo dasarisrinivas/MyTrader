@@ -102,7 +102,7 @@ class HybridPipelineIntegration:
             hybrid_config = {
                 "rule_engine": {
                     "atr_min": getattr(settings.hybrid, 'atr_min', 0.15),  # Lowered for low-vol markets
-                    "atr_max": getattr(settings.hybrid, 'atr_max', 5.0),
+                    "atr_max": getattr(settings.hybrid, 'atr_max', 20.0), # Increased for ES volatility
                     "rsi_oversold": getattr(settings.hybrid, 'rsi_oversold', 30),
                     "rsi_overbought": getattr(settings.hybrid, 'rsi_overbought', 70),
                     "cooldown_minutes": getattr(settings.hybrid, 'cooldown_minutes', 15),
@@ -648,6 +648,12 @@ class HybridPipelineIntegration:
                 atr_value=atr_value,
                 tick_size=self._get_tick_size(),
                 volatility=result.rule_engine.volatility_regime,
+                trading_mode=getattr(getattr(self, "manager", None), "trading_mode", "paper"),
+                symbol=getattr(getattr(getattr(self, "manager", None), "settings", None), "data", None).ibkr_symbol
+                if getattr(getattr(self, "manager", None), "settings", None)
+                and getattr(getattr(getattr(self, "manager", None), "settings", None), "data", None)
+                and getattr(getattr(getattr(self, "manager", None), "settings", None).data, "ibkr_symbol", None)
+                else "MES",
             )
             stop_points = protection.stop_offset
             take_points = protection.target_offset
@@ -679,6 +685,19 @@ class HybridPipelineIntegration:
             "range_position": market_data.get("range_position"),
             "momentum_score": market_data.get("momentum_score"),
         }
+
+        # Option B (Strict): keep primary action BUY/SELL for consistency, but
+        # add explicit scalp intent to metadata when the pipeline's final action
+        # indicates a scalp.
+        if action_value in {"SCALP_BUY", "SCALP_SELL"}:
+            metadata["is_scalp"] = True
+            metadata["original_pipeline_action"] = action_value
+            # Preserve the non-scalp equivalent for downstream audit trails.
+            metadata["original_action"] = "BUY" if action_value == "SCALP_BUY" else "SELL"
+            metadata["scalp_intent_source"] = "pipeline.final_action"
+        else:
+            # Be explicit so logs make it obvious when scalp intent is absent.
+            metadata.setdefault("is_scalp", False)
         
         if protection:
             metadata.update(
@@ -705,8 +724,14 @@ class HybridPipelineIntegration:
         metadata["pipeline_final_confidence"] = result.final_confidence
         metadata["decision_confidence"] = decision.confidence
         
+        normalized_action = decision.action
+        if action_value in {"SCALP_BUY", "SCALP_SELL"} and isinstance(normalized_action, str):
+            if normalized_action.upper() == "SCALP_BUY":
+                normalized_action = "BUY"
+            elif normalized_action.upper() == "SCALP_SELL":
+                normalized_action = "SELL"
         signal = HybridSignal(
-            action=decision.action if result.final_action != TradeAction.BLOCKED else "HOLD",
+            action=normalized_action if result.final_action != TradeAction.BLOCKED else "HOLD",
             confidence=pipeline_conf,
             metadata=metadata,
         )
@@ -726,6 +751,7 @@ class HybridPipelineIntegration:
                 confidence=signal.confidence,
                 trend=result.rule_engine.market_trend,
                 volatility=result.rule_engine.volatility_regime,
+                metadata=metadata,
             )
 
         if self.context_bus:
@@ -900,6 +926,7 @@ class HybridPipelineIntegration:
         confidence: float,
         trend: Optional[str],
         volatility: Optional[str],
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Emit telemetry about the computed protective bracket."""
         if not protection:
@@ -922,6 +949,13 @@ class HybridPipelineIntegration:
             "trend": trend,
             "volatility": volatility,
             "confidence": confidence,
+            # Help diagnose Strict scalp intent routing live.
+            "is_scalp": (bool(metadata.get("is_scalp")) if isinstance(metadata, dict) else None),
+            "original_action": (metadata.get("original_action") if isinstance(metadata, dict) else None),
+            "scalp_intent_source": (metadata.get("scalp_intent_source") if isinstance(metadata, dict) else None),
+            "original_pipeline_action": (
+                metadata.get("original_pipeline_action") if isinstance(metadata, dict) else None
+            ),
             "source": protection.source,
             "fallback_reason": protection.fallback_reason,
             "fallback_used": fallback_used,

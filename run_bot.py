@@ -40,8 +40,10 @@ async def main():
     # Parse command line arguments
     args = parse_args()
     
-    # Configure logging with file output
+    # Configure logging with file output.
+    # Keep live_trading.log (detailed runtime log) and also tee into bot.log (audit log used by tooling).
     configure_logging(log_file="logs/live_trading.log", level="INFO", serialize=False)
+    configure_logging(log_file="logs/bot.log", level="INFO", serialize=False)
     
     mode_str = "SIMULATION" if args.simulation else "LIVE"
     logger.info(f"🚀 Starting MyTrader RAG-Enhanced Bot ({mode_str} MODE)")

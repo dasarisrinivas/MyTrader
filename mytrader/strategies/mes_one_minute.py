@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import time, timedelta
+from datetime import time, timedelta, datetime
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -35,6 +35,69 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         self._trade_log: list[pd.Timestamp] = []
         self._hourly_log: list[pd.Timestamp] = []
 
+    def _is_rth(self, timestamp: pd.Timestamp) -> bool:
+        """Check if timestamp is within RTH (Regular Trading Hours)."""
+        if not self.config.rth_only:
+            return True
+            
+        # Convert to local time if needed
+        if timestamp.tz is not None:
+            try:
+                local_ts = timestamp.tz_convert("America/Chicago")
+            except Exception:
+                local_ts = timestamp
+        else:
+            local_ts = timestamp
+            
+        t = local_ts.time() if hasattr(local_ts, 'time') else time(0, 0)
+        rth_start = time(self.config.rth_start_hour, self.config.rth_start_minute)
+        rth_end = time(self.config.rth_end_hour, self.config.rth_end_minute)
+        
+        return rth_start <= t < rth_end
+
+    def _is_overnight_session(self, timestamp: pd.Timestamp) -> bool:
+        """
+        JAN 11 2026: Check if timestamp is within overnight/evening session.
+        
+        Overnight session: 6:00 PM - 9:30 AM ET (ES futures globex)
+        This is the complement of RTH, but excludes the weekend close period.
+        """
+        allow_overnight = getattr(self.config, 'allow_overnight_trading', False)
+        if not allow_overnight:
+            return False
+            
+        # Convert to local time
+        if timestamp.tz is not None:
+            try:
+                local_ts = timestamp.tz_convert("America/Chicago")
+            except Exception:
+                local_ts = timestamp
+        else:
+            local_ts = timestamp
+            
+        t = local_ts.time() if hasattr(local_ts, 'time') else time(0, 0)
+        
+        overnight_start = time(
+            getattr(self.config, 'overnight_start_hour', 18), 0
+        )
+        overnight_end = time(
+            getattr(self.config, 'overnight_end_hour', 9),
+            getattr(self.config, 'overnight_end_minute', 30)
+        )
+        
+        # Overnight spans midnight: 18:00 -> 09:30 next day
+        # So we check: t >= 18:00 OR t < 09:30
+        return t >= overnight_start or t < overnight_end
+
+    def _get_session_type(self, timestamp: pd.Timestamp) -> str:
+        """Return 'RTH', 'OVERNIGHT', or 'CLOSED' for the current timestamp."""
+        if self._is_rth(timestamp):
+            return "RTH"
+        elif self._is_overnight_session(timestamp):
+            return "OVERNIGHT"
+        else:
+            return "CLOSED"
+
     def generate(self, features: pd.DataFrame) -> Signal:
         window = features.tail(max(self.config.window_bars, 120)).copy()
         if len(window) < max(60, self.config.warmup_bars):
@@ -43,6 +106,7 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         enriched = self._ensure_indicators(window)
         latest = enriched.iloc[-1]
         prev = enriched.iloc[-2]
+        current_time = enriched.index[-1]
         atr_series = enriched["ATR_14"].tail(120).dropna()
         atr_value = float(latest["ATR_14"])
         adx_value = float(latest["ADX_14"])
@@ -54,20 +118,112 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
 
         reasons: list[str] = []
         filters_block = False
-
+        
+        # JAN 11 2026: Session-aware trading
+        # - RTH: Use 1m signals with standard filters
+        # - OVERNIGHT: Use 30m signals with stricter filters (only on 30m bar close)
+        # - CLOSED: No trading
+        session_type = self._get_session_type(current_time)
+        
+        if session_type == "CLOSED":
+            return Signal("HOLD", 0.0, {"reason": "MARKET_CLOSED"})
+        
+        # JAN 11 2026: Overnight session uses 30m timeframe for cleaner signals
+        is_overnight = session_type == "OVERNIGHT"
+        
+        if is_overnight:
+            # CRITICAL: Only make decisions on 30m bar boundaries
+            # A 30m bar closes at :00 and :30 minutes
+            bar_minute = current_time.minute
+            if bar_minute not in (0, 30):
+                # Not a 30m bar close - skip this 1m bar
+                return Signal("HOLD", 0.0, {"reason": "WAITING_30M_CLOSE"})
+            
+            # Check if 30m data is available
+            regime_30m = str(latest.get("30m_regime", "UNKNOWN"))
+            adx_30m = float(latest.get("30m_ADX_14", 0))
+            atr_30m = float(latest.get("30m_ATR_14", 0))
+            
+            if regime_30m == "UNKNOWN" or adx_30m == 0:
+                return Signal("HOLD", 0.0, {"reason": "NO_30M_DATA"})
+            
+            # Stricter overnight filters
+            overnight_adx_thresh = getattr(self.config, 'overnight_adx_threshold', 25.0)
+            overnight_atr_pct = getattr(self.config, 'overnight_atr_percentile', 0.75)
+            overnight_min_vol = getattr(self.config, 'overnight_min_volume', 50)
+            
+            # Use 30m ADX for trend check
+            if adx_30m < overnight_adx_thresh:
+                return Signal("HOLD", 0.0, {"reason": "30M_WEAK_TREND", "30m_adx": adx_30m})
+            
+            # Use 30m regime for direction
+            if regime_30m == "RANGING":
+                return Signal("HOLD", 0.0, {"reason": "30M_RANGING"})
+            
+            # Stricter volume for overnight (use aggregated 30m volume would be better)
+            # For now, check 1m volume is reasonable
+            bar_volume = float(latest.get("volume", 0))
+            if bar_volume < overnight_min_vol:
+                return Signal("HOLD", 0.0, {"reason": "OVERNIGHT_LOW_VOLUME"})
+            
+            # Stricter ATR percentile for overnight using 30m ATR
+            atr_30m_series = enriched.get("30m_ATR_14", pd.Series()).tail(200).dropna()
+            if len(atr_30m_series) >= 50:
+                high_atr_30m_threshold = atr_30m_series.quantile(overnight_atr_pct)
+                if atr_30m < high_atr_30m_threshold:
+                    return Signal("HOLD", 0.0, {"reason": "OVERNIGHT_LOW_ATR"})
+            
+            # Override trend_label with 30m regime for signal generation
+            if regime_30m == "UPTREND":
+                trend_label = "UPTREND"
+            elif regime_30m == "DOWNTREND":
+                trend_label = "DOWNTREND"
+        
+        # RTH session: use original filters
+        elif session_type == "RTH":
+            # Standard RTH volume filter
+            bar_volume = float(latest.get("volume", 0))
+            if bar_volume < self.config.min_bar_volume:
+                filters_block = True
+                reasons.append("LOW_VOLUME")
+        else:
+            # Unknown session - skip
+            return Signal("HOLD", 0.0, {"reason": "OUTSIDE_RTH"})
+        
+        # Only hard-block on invalid ATR (NaN or zero)
         if atr_value <= 0 or np.isnan(atr_value):
             filters_block = True
             reasons.append("ATR_INVALID")
-        elif atr_value < atr_low:
-            filters_block = True
-            reasons.append("ATR_TOO_LOW")
+        
+        # JAN 11 2026: High ATR regime filter - only trade when volatility is elevated
+        # Backtest showed: Low ATR 27% WR, Med ATR 20% WR, High ATR 63.6% WR
+        require_high_atr = getattr(self.config, 'require_high_atr', False)
+        if require_high_atr and not filters_block:
+            high_atr_pct = getattr(self.config, 'high_atr_percentile', 0.67)
+            lookback = getattr(self.config, 'high_atr_lookback', 200)
+            atr_lookback = enriched["ATR_14"].tail(lookback).dropna()
+            if len(atr_lookback) >= 50:
+                high_atr_threshold = atr_lookback.quantile(high_atr_pct)
+                if atr_value < high_atr_threshold:
+                    filters_block = True
+                    reasons.append("LOW_ATR_REGIME")  # Not in top tercile
+        
+        # Soft warnings (logged but don't block) for ATR percentile extremes
+        # These inform the decision but don't prevent trading
+        if atr_value < atr_low:
+            reasons.append("ATR_LOW_WARN")  # Changed from hard block
         elif atr_value > atr_high:
-            filters_block = True
-            reasons.append("ATR_TOO_HIGH")
+            reasons.append("ATR_HIGH_WARN")  # Changed from hard block
 
-        if candle_range < self.config.tiny_candle_atr_factor * atr_value:
+        # TINY_CANDLE: Only block if candle range is 0 AND we would trade
+        # Non-zero small candles are fine - the market is just quiet
+        if candle_range == 0:
+            # Zero range = no price movement, can't trade this bar
             filters_block = True
-            reasons.append("TINY_CANDLE")
+            reasons.append("ZERO_RANGE")
+        elif candle_range < self.config.tiny_candle_atr_factor * atr_value:
+            # Small candle - warn but allow trading on valid setups
+            reasons.append("SMALL_CANDLE_WARN")
 
         metadata: Dict[str, float | str] = {
             "market_state": market_state,
@@ -80,7 +236,37 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             "pdh": float(latest.get("PDH", np.nan)),
             "pdl": float(latest.get("PDL", np.nan)),
             "candle_range": candle_range,
+            "bar_volume": bar_volume,
+            "session_type": session_type,  # JAN 11 2026: Track RTH vs OVERNIGHT
         }
+        
+        # JAN 11 2026: Add 30m metadata if in overnight session
+        if is_overnight:
+            metadata["30m_regime"] = str(latest.get("30m_regime", "UNKNOWN"))
+            metadata["30m_adx"] = float(latest.get("30m_ADX_14", 0))
+            metadata["30m_atr"] = float(latest.get("30m_ATR_14", 0))
+        
+        # JAN 11 2026: Check 15m regime alignment if enabled (RTH only)
+        use_mtf_regime = getattr(self.config, 'use_mtf_regime', False)
+        regime_15m = str(latest.get("15m_regime", "UNKNOWN"))
+        metadata["15m_regime"] = regime_15m
+        
+        # Skip 15m checks for overnight - already using 30m
+        if not is_overnight and use_mtf_regime and regime_15m not in ("UNKNOWN", ""):
+            require_trend = getattr(self.config, 'require_regime_trend', True)
+            
+            if require_trend and regime_15m == "RANGING":
+                # Don't trade when 15m shows ranging - wait for trend
+                reasons.append("15M_RANGING")
+                filters_block = True
+            elif trend_label == "UPTREND" and regime_15m == "DOWNTREND":
+                # 1m uptrend but 15m downtrend - counter-trend, skip
+                reasons.append("15M_COUNTER_TREND")
+                filters_block = True
+            elif trend_label == "DOWNTREND" and regime_15m == "UPTREND":
+                # 1m downtrend but 15m uptrend - counter-trend, skip  
+                reasons.append("15M_COUNTER_TREND")
+                filters_block = True
 
         decision = StrategyDecision(action="HOLD", confidence=0.0, reason="INIT", metadata=metadata)
 
@@ -88,11 +274,10 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             decision = StrategyDecision("HOLD", 0.0, ",".join(reasons) or "CHOP", metadata=metadata)
         else:
             pullback_ok, pull_reason = self._pullback_confirmation(enriched)
-            breakout_decision = (
-                self._breakout_check(latest, adx_value, metadata)
-                if self.config.breakout_enabled
-                else None
-            )
+            # JAN 11 2026: Disable extensions if configured
+            breakout_decision = None
+            if self.config.breakout_enabled and getattr(self.config, 'enable_trend_extensions', True):
+                breakout_decision = self._breakout_check(latest, adx_value, metadata)
 
             if breakout_decision:
                 decision = breakout_decision
@@ -268,6 +453,13 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         extra_meta: Dict[str, float | str],
     ) -> StrategyDecision:
         stop_dist = atr * self.config.stop_atr_multiplier
+        
+        # JAN 11 2026: Enforce minimum stop distance to pass RiskGate
+        # RiskGate requires min_stop_points=6.0, so ensure stop_dist >= 6.5 points
+        min_stop_points = 6.5  # Slightly above RiskGate minimum to ensure passage
+        if stop_dist < min_stop_points:
+            stop_dist = min_stop_points
+        
         take_profit_dist = stop_dist * self.config.take_profit_multiple
         if stop_dist <= 0 or take_profit_dist <= 0:
             return StrategyDecision("HOLD", 0.0, "INVALID_STOPS", metadata=extra_meta)
@@ -357,19 +549,9 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             "take_profit": decision.take_profit,
         }
         logger.info(
-            "🕐 %s | state=%s trend=%s act=%s conf=%.2f reason=%s close=%.2f ema9=%.2f ema21=%.2f vwap=%.2f atr=%.2f adx=%.2f",
-            ts,
-            payload["state"],
-            payload["trend"],
-            decision.action,
-            decision.confidence,
-            decision.reason,
-            payload["close"],
-            payload["ema9"],
-            payload["ema21"],
-            payload["vwap"],
-            payload["atr"],
-            payload["adx"],
+            f"🕐 {ts} | state={payload['state']} trend={payload['trend']} act={decision.action} conf={decision.confidence:.2f} "
+            f"reason={decision.reason} close={payload['close']:.2f} ema9={payload['ema9']:.2f} "
+            f"ema21={payload['ema21']:.2f} vwap={payload['vwap']:.2f} atr={payload['atr']:.2f} adx={payload['adx']:.2f}"
         )
         log_structured_event(
             agent="mes_one_minute",

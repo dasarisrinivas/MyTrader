@@ -8,6 +8,11 @@ import numpy as np
 
 from ...utils.logger import logger
 from ...risk.atr_module import compute_protective_offsets
+from ...risk.trade_math import (
+    enforce_min_take_profit,
+    expected_target_outcome,
+    get_contract_spec,
+)
 
 
 class RiskController:
@@ -236,24 +241,51 @@ class RiskController:
         atr: float,
         regime_params: Dict[str, float],
     ) -> Tuple[float, float, Dict[str, Any]]:
-        """Compute protective stop/target using ATR + regime params."""
+        """Compute protective stop/target using ATR + regime params.
+
+        Notes:
+        - For MES scalping we keep risk rails (min stop ticks) but allow tighter ATR multiples.
+        - Live mode also enforces a minimum viable take-profit distance (per contract spec).
+        """
         metadata: Dict[str, Any] = {}
         m = self.manager
-        atr_mult_sl = regime_params.get("atr_multiplier_sl", 2.0)
-        atr_mult_tp = regime_params.get("atr_multiplier_tp", 4.0)
+
+        normalized_action = str(action or "").upper()
+        scalper = normalized_action in ("SCALP_BUY", "SCALP_SELL")
+        metadata["scalp_mode"] = scalper
+
+        # Default (non-scalp) = wider brackets
+        atr_mult_sl = float(regime_params.get("atr_multiplier_sl", 2.0))
+        atr_mult_tp = float(regime_params.get("atr_multiplier_tp", 4.0))
+
+        # Scalp mode (MES): tighter by design, still subject to min stop ticks.
+        # Keep these conservative; we can tune through settings later if needed.
+        if scalper:
+            atr_mult_sl = float(regime_params.get("atr_multiplier_sl_scalp", 1.0))
+            atr_mult_tp = float(regime_params.get("atr_multiplier_tp_scalp", 1.5))
+        metadata["atr_multiplier_sl"] = atr_mult_sl
+        metadata["atr_multiplier_tp"] = atr_mult_tp
+
+        tick_size = float(getattr(m.contract_spec, "tick_size", getattr(m.settings.trading, "tick_size", 0.25)) or 0.25)
 
         if atr > 0:
+            # 1) Stop offset: ATR-based, with per-symbol minimum stop distance.
             stop_offset = max(atr * atr_mult_sl, m._min_stop_distance)
-            target_offset = max(
-                atr * atr_mult_tp,
-                stop_offset + m.settings.trading.tick_size,
-            )
+
+            # 2) Target offset: ATR-based.
+            #    For scalps, allow 1R-ish targets; for non-scalp preserve larger default.
+            target_offset = max(atr * atr_mult_tp, tick_size)
+
+            # 3) Ensure TP is at least 1 tick beyond stop offset for non-scalp setups,
+            #    but in scalp mode we only require TP >= 1 tick (reward may be < risk).
+            if not scalper:
+                target_offset = max(target_offset, stop_offset + tick_size)
             metadata["atr_fallback_used"] = False
         else:
             offsets = compute_protective_offsets(
                 atr_value=atr,
                 tick_size=m.settings.trading.tick_size,
-                scalper=False,
+                scalper=scalper,
                 volatility=regime_params.get("volatility", "MED"),
                 current_price=entry_price,
             )
@@ -264,9 +296,51 @@ class RiskController:
                 f"⚠️ ATR invalid, using fallback offsets SL={stop_offset:.2f}, TP={target_offset:.2f}"
             )
 
-        is_buy = action.upper() in ("BUY", "SCALP_BUY")
+        is_buy = normalized_action in ("BUY", "SCALP_BUY")
         stop_loss = entry_price - stop_offset if is_buy else entry_price + stop_offset
         take_profit = entry_price + target_offset if is_buy else entry_price - target_offset
+
+        # Live-mode sanity: enforce minimum viable TP distance (per contract spec).
+        # This is especially important for MES scalps so we don't place targets that are too small
+        # to clear commissions/slippage.
+        try:
+            spec = m.contract_spec or get_contract_spec(getattr(m.settings.data, "ibkr_symbol", "MES"), getattr(m.settings, "trading", None))
+            ok, min_points = enforce_min_take_profit(
+                entry_price=entry_price,
+                take_profit=take_profit,
+                spec=spec,
+                mode=getattr(m, "trading_mode", "paper"),
+                action=normalized_action,
+            )
+            metadata["min_take_profit_points"] = float(min_points)
+            if not ok:
+                # Move TP to the minimum acceptable distance.
+                take_profit = (
+                    entry_price + float(min_points)
+                    if is_buy
+                    else entry_price - float(min_points)
+                )
+                metadata["take_profit_adjusted_for_min_points"] = True
+            else:
+                metadata["take_profit_adjusted_for_min_points"] = False
+
+            # Extra: compute expected net P&L (debugging/telemetry).
+            try:
+                projected = expected_target_outcome(
+                    entry_price,
+                    take_profit,
+                    quantity=1,
+                    spec=spec,
+                    mode=getattr(m, "trading_mode", "paper"),
+                    commission_override=getattr(m, "_commission_per_side", None),
+                )
+                metadata["projected_target_net_pnl_1ct"] = float(projected.net_pnl)
+                metadata["projected_target_gross_pnl_1ct"] = float(projected.gross_pnl)
+            except Exception:
+                pass
+        except Exception as exc:  # noqa: BLE001
+            metadata["min_take_profit_enforcement_error"] = repr(exc)
+
         return stop_loss, take_profit, metadata
 
 

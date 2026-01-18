@@ -1,0 +1,8 @@
+{"timestamp": "2025-12-14T17:01:00-06:00", "action": "SELL", "price": 6894.5, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-12-14T17:02:00-06:00", "action": "EXIT", "price": 6888.75, "quantity": 1, "realized_pnl": 28.75, "exit_reason": "take_profit", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-12-14T17:03:00-06:00", "action": "SELL", "price": 6885.25, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-12-14T17:07:00-06:00", "action": "EXIT", "price": 6879.0, "quantity": 1, "realized_pnl": 31.25, "exit_reason": "take_profit", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-12-14T17:01:00-06:00", "action": "SELL", "price": 6894.5, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-12-14T17:02:00-06:00", "action": "EXIT", "price": 6888.75, "quantity": 1, "realized_pnl": 28.75, "exit_reason": "take_profit", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-12-14T17:03:00-06:00", "action": "SELL", "price": 6885.25, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-12-14T17:07:00-06:00", "action": "EXIT", "price": 6879.0, "quantity": 1, "realized_pnl": 31.25, "exit_reason": "take_profit", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}

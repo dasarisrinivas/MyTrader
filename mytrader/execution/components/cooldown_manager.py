@@ -77,7 +77,7 @@ class CooldownManager:
         if validated:
             manager._last_trade_time = validated
             logger.info(
-                "⏱️ Cooldown resume: last trade at %s",
+                "⏱️ Cooldown resume: last trade at {}",
                 format_cst(utc_to_cst(validated)),
             )
         else:

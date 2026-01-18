@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
+_CONFIGURED = False
+
 # Central Time Zone
 CST = ZoneInfo("America/Chicago")
 
@@ -19,7 +21,11 @@ def configure_logging(log_file: str | None = None, level: str = "INFO", serializ
         level: Log level (DEBUG, INFO, WARNING, ERROR)
         serialize: Whether to serialize logs as JSON
     """
-    logger.remove()
+    global _CONFIGURED
+    # Allow multiple file sinks (e.g., tee into both live_trading.log and bot.log).
+    # Only clear default handlers once per process.
+    if not _CONFIGURED:
+        logger.remove()
     
     # Custom format function that formats time in CST
     def cst_format(record):
@@ -36,14 +42,15 @@ def configure_logging(log_file: str | None = None, level: str = "INFO", serializ
         "<level>{message}</level>\n"
     )
     
-    # Console output with CST
-    logger.add(
-        sys.stderr,
-        format=log_format,
-        level=level,
-        serialize=serialize,
-        filter=lambda record: cst_format(record) or True,
-    )
+    # Console output with CST (add once)
+    if not _CONFIGURED:
+        logger.add(
+            sys.stderr,
+            format=log_format,
+            level=level,
+            serialize=serialize,
+            filter=lambda record: cst_format(record) or True,
+        )
     
     # File output with CST
     if log_file:
@@ -56,6 +63,8 @@ def configure_logging(log_file: str | None = None, level: str = "INFO", serializ
             serialize=serialize,
             filter=lambda record: cst_format(record) or True,
         )
+
+    _CONFIGURED = True
 
 
 __all__ = ["configure_logging", "logger", "CST"]

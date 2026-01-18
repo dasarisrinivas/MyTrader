@@ -22,6 +22,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import threading
 
+import sqlite3
+
 import numpy as np
 
 from ib_insync import IB
@@ -163,6 +165,97 @@ class LiveTradingManager:
                 self.executor.order_tracker.reset_symbol_state(self.settings.data.ibkr_symbol)
         except Exception as e:
             logger.error(f"Failed to reset last trade time: {e}")
+
+    def _note_pending_exit_reason(self, trade_cycle_id: Optional[str], reason: str) -> None:
+        """Persist the 'intended' exit reason for the active trade.
+
+        We often only deterministically detect the actual close when the position transitions to
+        flat (e.g., bracket TP/SL fill). This helper lets us carry a more specific reason
+        (SIGNAL_EXIT/TIME_EXIT/STOP_LOSS/PROFIT_TARGET/etc) into trade_outcomes at closure time.
+        """
+        if not trade_cycle_id:
+            return
+        try:
+            if not hasattr(self, "_pending_exit_reasons"):
+                self._pending_exit_reasons = {}
+            self._pending_exit_reasons[str(trade_cycle_id)] = {
+                "reason": str(reason),
+                "noted_at": now_cst().isoformat(),
+            }
+        except Exception:
+            pass
+
+    def _get_pending_exit_reason(self, trade_cycle_id: Optional[str]) -> Optional[str]:
+        if not trade_cycle_id or not hasattr(self, "_pending_exit_reasons"):
+            return None
+        try:
+            entry = self._pending_exit_reasons.get(str(trade_cycle_id))
+            return entry.get("reason") if isinstance(entry, dict) else None
+        except Exception:
+            return None
+
+    def _clear_pending_exit_reason(self, trade_cycle_id: Optional[str]) -> None:
+        if not trade_cycle_id or not hasattr(self, "_pending_exit_reasons"):
+            return
+        try:
+            self._pending_exit_reasons.pop(str(trade_cycle_id), None)
+        except Exception:
+            pass
+
+    def _infer_bracket_fill_reason(
+        self,
+        conn: sqlite3.Connection,
+        trade_cycle_id: str,
+        current_direction: Optional[str] = None,
+    ) -> Optional[str]:
+        """Infer PROFIT_TARGET vs STOP_LOSS on bracket-driven closes.
+
+        Heuristic (best-effort): look at the latest execution across all orders in the trade_cycle_id
+        group, then map the order_type of that order to TP vs SL.
+
+        Returns:
+            "PROFIT_TARGET" | "STOP_LOSS" | None
+        """
+        if not trade_cycle_id:
+            return None
+
+        conn.row_factory = sqlite3.Row
+        latest = conn.execute(
+            """
+            SELECT e.order_id, e.timestamp, e.price, e.realized_pnl
+            FROM executions e
+            JOIN orders o ON o.order_id = e.order_id
+            WHERE o.trade_cycle_id = ?
+            ORDER BY e.timestamp DESC
+            LIMIT 1
+            """,
+            (trade_cycle_id,),
+        ).fetchone()
+        if not latest:
+            return None
+
+        order_row = conn.execute(
+            "SELECT order_type, limit_price, stop_price FROM orders WHERE order_id = ?",
+            (int(latest["order_id"]),),
+        ).fetchone()
+        order_type = (order_row["order_type"] if order_row else None) or ""
+        order_type = str(order_type).upper()
+
+        # Common IB/resolved order types seen in this repo
+        if order_type in {"STOP", "STP", "STOP_LIMIT"}:
+            return "STOP_LOSS"
+        if order_type in {"LIMIT", "LMT"}:
+            return "PROFIT_TARGET"
+
+        # Fallback: PnL sign. We don't know direction from this event alone; accept direction hint.
+        pnl = float(latest["realized_pnl"] or 0.0)
+        if pnl == 0.0:
+            return None
+        if current_direction and str(current_direction).upper() == "SHORT":
+            # Closing a short: positive pnl means price fell => target hit; negative => stop hit.
+            return "PROFIT_TARGET" if pnl > 0 else "STOP_LOSS"
+        # Default LONG mapping
+        return "PROFIT_TARGET" if pnl > 0 else "STOP_LOSS"
     
     # === CONFIGURATION CONSTANTS (sourced from config/cooldown manager defaults) ===
     DEFAULT_COOLDOWN_SECONDS = CooldownManager.DEFAULT_COOLDOWN_SECONDS
@@ -346,6 +439,9 @@ class LiveTradingManager:
         self._cycle_context: Dict[str, Dict[str, Any]] = {}
         self._active_reason_codes: Set[str] = set()
         
+        # JAN 12, 2026: Position state tracking for MTF gate notifications
+        self._last_known_position_qty: int = 0  # Track previous position for transition detection
+        
         # NEW: Cooldown tracking
         self._last_trade_time: Optional[datetime] = None
         raw_cooldown_minutes = getattr(
@@ -362,6 +458,18 @@ class LiveTradingManager:
         # NEW: Candle tracking for proper candle-close validation
         self._last_candle_processed: Optional[datetime] = None
         wait_for_close = True
+        # --- Startup entry gating (prevents immediate post-restart entries) ---
+        # Motivation: after restart we often have full history via bootstrap, which can trigger
+        # an entry attempt on the very next completed 1m bar before state (cooldowns/MTF caches)
+        # has stabilized. These knobs allow a short grace window and/or require N fresh bars.
+        self._startup_utc: datetime = datetime.now(timezone.utc)
+        self._startup_completed_bars: int = 0
+        self._startup_grace_period_seconds: int = int(
+            getattr(getattr(settings, "trading", None), "startup_grace_period_seconds", 0) or 0
+        )
+        self._startup_min_completed_bars: int = int(
+            getattr(getattr(settings, "trading", None), "startup_min_completed_bars", 0) or 0
+        )
         if self._entry_filter_cfg and hasattr(self._entry_filter_cfg, "wait_for_candle_close"):
             wait_for_close = bool(self._entry_filter_cfg.wait_for_candle_close)
         self._waiting_for_candle_close: bool = wait_for_close
@@ -428,14 +536,19 @@ class LiveTradingManager:
     
     def _on_execution_details(self, trade, fill):
         """Handle execution details to track trade exits for RAG/learning."""
+        # This callback can fire while an event loop is already running.
+        # Never call asyncio.run() from within a running loop.
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        if loop and loop.is_running():
+
+        if loop is not None and loop.is_running():
             loop.create_task(self.order_coordinator.handle_order_fill(trade, fill))
-        else:
-            asyncio.run(self.order_coordinator.handle_order_fill(trade, fill))
+            return
+
+        # As a fallback (e.g., during synchronous tests), create a loop just for this call.
+        asyncio.run(self.order_coordinator.handle_order_fill(trade, fill))
 
     def _bootstrap_local_kb(self, outcomes_dir: str) -> None:
         """Seed the local KB with any historical trade outcomes on disk."""
@@ -855,6 +968,13 @@ TRADING GUIDANCE:
             self.price_history = self.price_history[-self._bar_window :]
         self.status.bars_collected = len(self.price_history)
         self._last_price_bar_ts = bar.get("timestamp")
+
+        # Track fresh completed bars since process startup (used for startup entry gating).
+        try:
+            self._startup_completed_bars += 1
+        except Exception:
+            # Be resilient if attribute isn't present for any reason
+            pass
         
         # === JAN 8 2026 FIX: Feed 1m bar to 5m aggregator ===
         # This enables the 5-minute trend filter to actually work
@@ -900,6 +1020,76 @@ TRADING GUIDANCE:
             except Exception as exc:  # noqa: BLE001
                 logger.debug(f"Unable to fetch position for trading cycle: {exc}")
         qty = getattr(position, "quantity", 0) if position else 0
+
+        # === JAN 12, 2026: Detect bracket fill (TP/SL hit) by position transition ===
+        # If we had a position last cycle but now flat, bracket must have filled
+        prev_qty = self._last_known_position_qty
+        if prev_qty != 0 and qty == 0:
+            # Position was closed externally (bracket fill / TP / SL)
+            direction = "LONG" if prev_qty > 0 else "SHORT"
+            logger.info(f"📊 Position transition detected: {prev_qty} -> {qty} (bracket fill or external close)")
+            # Deterministic trade closure persistence for audit trail
+            trade_cycle_id = (
+                getattr(self, "_current_entry_cycle_id", None)
+                or getattr(self, "_current_cycle_id", None)
+                or getattr(self, "current_trade_id", None)
+            )
+            specific_reason = self._get_pending_exit_reason(trade_cycle_id)
+            if not specific_reason and trade_cycle_id and getattr(self, "executor", None) and getattr(self.executor, "order_tracker", None):
+                try:
+                    with sqlite3.connect(self.executor.order_tracker.db_path) as conn:
+                        inferred = self._infer_bracket_fill_reason(
+                            conn=conn,
+                            trade_cycle_id=str(trade_cycle_id),
+                            current_direction=direction,
+                        )
+                    specific_reason = inferred
+                except Exception:
+                    specific_reason = None
+            specific_reason = specific_reason or "BRACKET_FILL"
+            realized_pnl = 0.0
+            if trade_cycle_id and getattr(self, "executor", None) and getattr(self.executor, "order_tracker", None):
+                try:
+                    pnl = self.executor.order_tracker.finalize_trade_exit(
+                        trade_cycle_id=str(trade_cycle_id),
+                        exit_time=now_cst().isoformat(),
+                        exit_price=float(current_price) if current_price is not None else None,
+                        exit_reason=specific_reason,
+                        extra={
+                            "direction": direction,
+                            "source": "position_transition",
+                            "pending_exit_reason": specific_reason,
+                        },
+                    )
+                    if pnl and "realized_pnl" in pnl:
+                        realized_pnl = float(pnl["realized_pnl"] or 0.0)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(f"trade_outcomes finalize skipped: {exc}")
+
+            # Once we are flat, don't carry the prior exit reason into the next trade.
+            self._clear_pending_exit_reason(trade_cycle_id)
+
+            try:
+                log_structured_event(
+                    agent="live_manager",
+                    event_type="TRADE_CLOSED",
+                    message="Position transitioned to flat",
+                    payload={
+                        "trade_cycle_id": trade_cycle_id,
+                        "direction": direction,
+                        "exit_reason": specific_reason,
+                        "realized_pnl": realized_pnl,
+                    },
+                )
+            except Exception:
+                pass
+
+            self._notify_position_closed(
+                close_reason=specific_reason,
+                direction=direction,
+                pnl=realized_pnl,
+            )
+        self._last_known_position_qty = qty
 
         if qty:
             logger.info(f"📊 Current position detected: {qty} contracts")
@@ -1102,6 +1292,18 @@ TRADING GUIDANCE:
                 return False
         logger.info("🔄 Executing position exit: {} {} (reason={}, pnl={:.2f})", action, quantity, reason, pnl)
         try:
+            # Determine position direction (LONG if qty > 0, SHORT if qty < 0)
+            position_direction = "LONG" if position.quantity > 0 else "SHORT"
+
+            # Best-effort: store the intended reason so the later position->flat transition
+            # can finalize trade_outcomes with a specific exit_reason.
+            trade_cycle_id = (
+                getattr(self, "_current_entry_cycle_id", None)
+                or getattr(self, "_current_cycle_id", None)
+                or getattr(self, "current_trade_id", None)
+            )
+            self._note_pending_exit_reason(trade_cycle_id, reason)
+            
             await self.executor.place_order(
                 action=action,
                 quantity=quantity,
@@ -1110,15 +1312,97 @@ TRADING GUIDANCE:
                 take_profit=None,
                 reduce_only=True,
                 entry_price=price,
-                metadata={"exit_reason": reason, "pnl": pnl, "position_exit": True},
+                metadata={
+                    "exit_reason": reason,
+                    "pnl": pnl,
+                    "position_exit": True,
+                    "trade_cycle_id": trade_cycle_id,
+                },
             )
+            
+            # === JAN 12, 2026: Notify MTF gate about position close ===
+            self._notify_position_closed(
+                close_reason=reason,
+                direction=position_direction,
+                pnl=pnl,
+            )
+            
             return True
         except Exception as exc:  # noqa: BLE001
             logger.error(f"❌ Error executing position exit: {exc}")
             return False
+    
+    def _notify_position_closed(
+        self,
+        close_reason: str,
+        direction: str,
+        pnl: float,
+    ) -> None:
+        """Notify signal processor about position close to trigger cooldown.
+        
+        JAN 12, 2026: This is called after any position close to:
+        1. Reset decision state for fresh evaluation
+        2. Trigger cooldown (wait for 15m candle)
+        3. Clear cached trends to prevent immediate re-entry
+        
+        Args:
+            close_reason: "TP", "SL", "MANUAL", "TIMEOUT", "TREND_FLIP", etc.
+            direction: "LONG" or "SHORT"
+            pnl: Realized P&L
+        """
+        if hasattr(self, "signal_processor") and self.signal_processor:
+            self.signal_processor.notify_position_closed(
+                close_reason=close_reason,
+                direction=direction,
+                pnl=pnl,
+            )
+            logger.info(
+                f"📊 MTF Gate notified of position close: {direction} {close_reason} "
+                f"(pnl=${pnl:.2f})"
+            )
+    
+    def _notify_position_opened(self, direction: str) -> None:
+        """Notify signal processor about position open.
+        
+        Args:
+            direction: "LONG" or "SHORT"
+        """
+        if hasattr(self, "signal_processor") and self.signal_processor:
+            self.signal_processor.notify_position_opened(direction)
+            logger.info(f"📊 MTF Gate notified of position open: {direction}")
 
     def _should_block_new_entry(self) -> bool:
-        """Pre-entry gate: block if lock, active orders, or cooldown in effect."""
+        """Pre-entry gate: startup hold + lock/active orders/cooldown.
+
+        Startup hold (NEW):
+          - blocks *entries only* for a short time after process start, and/or until
+            N newly completed bars have been processed.
+          - exits/position management are unaffected because this is called only
+            on the entry path (when flat).
+        """
+
+        # --- Startup gates ---
+        if getattr(self, "_startup_grace_period_seconds", 0) > 0:
+            elapsed = (datetime.now(timezone.utc) - self._startup_utc).total_seconds()
+            remaining = self._startup_grace_period_seconds - elapsed
+            if remaining > 0:
+                logger.info(
+                    "Entry blocked: startup grace %.0fs remaining (elapsed=%.0fs)",
+                    remaining,
+                    elapsed,
+                )
+                return True
+
+        if (
+            getattr(self, "_startup_min_completed_bars", 0) > 0
+            and getattr(self, "_startup_completed_bars", 0) < self._startup_min_completed_bars
+        ):
+            logger.info(
+                "Entry blocked: waiting for %d/%d completed bars after startup",
+                self._startup_completed_bars,
+                self._startup_min_completed_bars,
+            )
+            return True
         # Order lock
         if self.executor and self.executor.is_order_locked():
             logger.info("Entry blocked: order lock active ({})", self.executor.get_order_lock_reason())
@@ -1215,8 +1499,10 @@ TRADING GUIDANCE:
 
     def _get_exit_thresholds(self) -> Tuple[float, float, float]:
         """Return (profit_points, loss_points, max_hold_hours) using config, with sensible fallbacks."""
-        trading_cfg = getattr(self.settings, "trading", None)
-        point_value = getattr(self.contract_spec, "point_value", 1) or 1
+        settings = getattr(self, "settings", None)
+        trading_cfg = getattr(settings, "trading", None) if settings else None
+        contract_spec = getattr(self, "contract_spec", None)
+        point_value = getattr(contract_spec, "point_value", 1) or 1
 
         profit_points = None
         loss_points = None
@@ -1788,6 +2074,9 @@ TRADING GUIDANCE:
                         getattr(self, '_current_entry_cycle_id', None) or \
                         self._current_cycle_id
 
+        # Determine position direction for close notification
+        position_direction = "LONG" if current_position.quantity > 0 else "SHORT"
+
         try:
             # Place market order to flatten position - ALWAYS reduce_only=True
             order_id = await self.executor.place_order(
@@ -1807,6 +2096,14 @@ TRADING GUIDANCE:
             )
             
             logger.info(f"✅ Exit order placed: ID={order_id}")
+            
+            # === JAN 12, 2026: Notify MTF gate about position close ===
+            # Use SIGNAL_EXIT as the reason for exit orders placed via _place_exit_order
+            self._notify_position_closed(
+                close_reason="SIGNAL_EXIT",
+                direction=position_direction,
+                pnl=0.0,  # PnL will be calculated when fill is received
+            )
             
             # Broadcast exit
             await self._broadcast_order_update({
@@ -2112,6 +2409,9 @@ TRADING GUIDANCE:
                 # Simulation mode - just log, don't place real order
                 logger.info(f"🔶 [SIMULATION] Would place: {action} {quantity} @ {current_price:.2f}")
                 self._record_submission_timestamp()
+                # 🔄 MTF GATE: Notify position opened - simulation
+                position_direction = "long" if action in ("BUY", "SCALP_BUY") else "short"
+                self._notify_position_opened(position_direction)
                 return
 
             allowed_gate, gate_levels = await self._enforce_risk_gate(
@@ -2167,8 +2467,27 @@ TRADING GUIDANCE:
             
             logger.info(f"✅ AWS Agent order placed: ID={order_id}")
             
-            # Track trade for RAG updates
-            self.current_trade_id = str(uuid.uuid4())
+            # Track trade for RAG updates.
+            # CRITICAL: ensure we retain a stable trade_cycle_id that the executor/tracker
+            # uses for orders + trade_outcomes. Without this, finalize_trade_exit can't find
+            # the root order and we end up relying on BACKFILL-only outcomes.
+            entry_trade_cycle_id = None
+            try:
+                entry_trade_cycle_id = (
+                    (metadata or {}).get("trade_cycle_id")
+                    or getattr(self, "_current_cycle_id", None)
+                )
+            except Exception:
+                entry_trade_cycle_id = getattr(self, "_current_cycle_id", None)
+
+            if entry_trade_cycle_id:
+                # Used by position-transition close detection.
+                self._current_entry_cycle_id = str(entry_trade_cycle_id)
+                # Prefer using the trade_cycle_id as the canonical trade identifier.
+                self.current_trade_id = str(entry_trade_cycle_id)
+            else:
+                # Fallback for legacy callsites.
+                self.current_trade_id = str(uuid.uuid4())
             self.current_trade_entry_time = now_cst().isoformat()
             self.current_trade_entry_price = current_price
             self.current_trade_features = decision.get('decision_details', {}) if decision else {}
@@ -2180,6 +2499,9 @@ TRADING GUIDANCE:
             # Update counters (submission recorded; cooldown on fill)
             if result and (result.fill_price or result.filled_quantity):
                 self._record_last_trade_timestamp()
+                # 🔄 MTF GATE: Notify position opened (transition to IN_POSITION state)
+                position_direction = "long" if action in ("BUY", "SCALP_BUY") else "short"
+                self._notify_position_opened(position_direction)
             else:
                 self._record_submission_timestamp()
             self._trades_today = getattr(self, '_trades_today', 0) + 1
@@ -2217,6 +2539,28 @@ TRADING GUIDANCE:
         """
         try:
             logger.info(f"🤖 HYBRID: Placing {signal.action} order")
+
+            # Strict scalp intent mapping (Option B): allow upstream signals to remain BUY/SELL
+            # and opt-in to SCALP_* execution behavior through metadata.is_scalp.
+            base_meta_for_mapping = signal.metadata if isinstance(getattr(signal, "metadata", None), dict) else {}
+            if bool(base_meta_for_mapping.get("is_scalp")) and isinstance(getattr(signal, "action", None), str):
+                action_upper = signal.action.upper()
+                mapped_action = None
+                if action_upper == "BUY":
+                    mapped_action = "SCALP_BUY"
+                elif action_upper == "SELL":
+                    mapped_action = "SCALP_SELL"
+                if mapped_action and mapped_action != signal.action:
+                    logger.info(
+                        "🎯 Scalp intent enabled via metadata.is_scalp: %s -> %s",
+                        signal.action,
+                        mapped_action,
+                    )
+                    # Preserve provenance for audit trails.
+                    base_meta_for_mapping.setdefault("scalp_intent_source", "metadata.is_scalp")
+                    base_meta_for_mapping.setdefault("original_action", signal.action)
+                    signal.metadata = base_meta_for_mapping
+                    signal.action = mapped_action
             
             # Position sizing
             risk_stats = self.risk.get_statistics()
@@ -2439,6 +2783,10 @@ TRADING GUIDANCE:
                 self._record_submission_timestamp()
                 self.order_coordinator.record_signal_key(signal_key)
                 
+                # 🔄 MTF GATE: Notify position opened (transition to IN_POSITION state) - simulation
+                position_direction = "long" if is_buy else "short"
+                self._notify_position_opened(position_direction)
+                
                 # Log simulated trade entry
                 if self.hybrid_pipeline:
                     self.hybrid_pipeline.log_trade_entry(
@@ -2499,6 +2847,10 @@ TRADING GUIDANCE:
                     if self.hybrid_pipeline:
                         self.hybrid_pipeline.record_trade_for_cooldown()
                     logger.info("⏱️ HYBRID trade fill - cooldown activated")
+                    
+                    # 🔄 MTF GATE: Notify position opened (transition to IN_POSITION state)
+                    position_direction = "long" if is_buy else "short"
+                    self._notify_position_opened(position_direction)
                 else:
                     self._record_submission_timestamp()
                     logger.info("⏱️ HYBRID submission recorded (no fill yet)")

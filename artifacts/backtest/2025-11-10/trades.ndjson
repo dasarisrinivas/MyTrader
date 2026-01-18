@@ -1,0 +1,12 @@
+{"timestamp": "2025-11-10T00:01:00-06:00", "action": "SELL", "price": 6802.75, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-11-10T00:06:00-06:00", "action": "EXIT", "price": 6805.0, "quantity": 1, "realized_pnl": -11.25, "exit_reason": "stop_loss", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-11-10T00:07:00-06:00", "action": "BUY", "price": 6804.75, "quantity": 1, "confidence": 0.85, "stop_loss": "Entry - 2.0 ATR", "take_profit": "Entry + 3.0 ATR"}
+{"timestamp": "2025-11-10T00:13:00-06:00", "action": "EXIT", "price": 6802.75, "quantity": 1, "realized_pnl": -10.0, "exit_reason": "stop_loss", "trend": "UPTREND", "regime": "UPTREND", "volatility": "LOW", "entry_action": "BUY"}
+{"timestamp": "2025-11-10T00:01:00-06:00", "action": "SELL", "price": 6802.75, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-11-10T00:06:00-06:00", "action": "EXIT", "price": 6805.0, "quantity": 1, "realized_pnl": -11.25, "exit_reason": "stop_loss", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-11-10T00:07:00-06:00", "action": "BUY", "price": 6804.75, "quantity": 1, "confidence": 0.85, "stop_loss": "Entry - 2.0 ATR", "take_profit": "Entry + 3.0 ATR"}
+{"timestamp": "2025-11-10T00:13:00-06:00", "action": "EXIT", "price": 6802.75, "quantity": 1, "realized_pnl": -10.0, "exit_reason": "stop_loss", "trend": "UPTREND", "regime": "UPTREND", "volatility": "LOW", "entry_action": "BUY"}
+{"timestamp": "2025-11-10T00:01:00-06:00", "action": "SELL", "price": 6802.75, "quantity": 1, "confidence": 0.55, "stop_loss": "Entry + 2.00 ATR", "take_profit": "Entry - 3.00 ATR"}
+{"timestamp": "2025-11-10T00:06:00-06:00", "action": "EXIT", "price": 6805.0, "quantity": 1, "realized_pnl": -11.25, "exit_reason": "stop_loss", "trend": "DOWNTREND", "regime": "DOWNTREND", "volatility": "LOW", "entry_action": "SELL"}
+{"timestamp": "2025-11-10T00:07:00-06:00", "action": "BUY", "price": 6804.75, "quantity": 1, "confidence": 0.85, "stop_loss": "Entry - 2.0 ATR", "take_profit": "Entry + 3.0 ATR"}
+{"timestamp": "2025-11-10T00:13:00-06:00", "action": "EXIT", "price": 6802.75, "quantity": 1, "realized_pnl": -10.0, "exit_reason": "stop_loss", "trend": "UPTREND", "regime": "UPTREND", "volatility": "LOW", "entry_action": "BUY"}

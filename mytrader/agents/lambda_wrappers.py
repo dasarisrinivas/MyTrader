@@ -757,12 +757,27 @@ class Agent4LearningWrapper(LocalLambdaWrapper):
             notes.append('Raising target trades after missed move')
         
         if pnl < 0 and losing_trades:
+            # Calculate penalties based on loss severity
+            risk_penalty = 0.05
+            threshold_penalty = 0.01
+            
+            if -50.0 < pnl < 0:
+                risk_penalty = 0.01
+                threshold_penalty = 0.0
+
             updates['risk_multiplier'] = max(
-                0.5, current_state.get('risk_multiplier', 1.0) - 0.05
+                0.5, current_state.get('risk_multiplier', 1.0) - risk_penalty
             )
-            updates['decision_threshold'] = min(
-                0.9, current_state.get('decision_threshold', 0.58) + 0.01
-            )
+            
+            if threshold_penalty > 0:
+                updates['decision_threshold'] = min(
+                    0.9, current_state.get('decision_threshold', 0.58) + threshold_penalty
+                )
+            
+            # Legacy check for high threshold capping
+            if -50.0 < pnl < 0 and current_state.get('decision_threshold', 0.58) > 0.60:
+                 updates['decision_threshold'] = 0.60
+                 notes.append('Capped threshold tightening for minor loss')
             notes.append('Reduced risk budget after losing day')
         elif pnl > 0 and trades_taken > 0:
             updates['risk_multiplier'] = min(

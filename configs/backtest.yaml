@@ -1,0 +1,172 @@
+# =============================================================================
+# Backtest Configuration
+# =============================================================================
+# This file configures the historical backtest to match live trading parameters.
+# Copy to your working directory and modify as needed.
+# =============================================================================
+
+# Data Configuration
+data:
+  symbol: "MES"
+  bar_size: "1 min"
+  secondary_bar: "5 min"
+  session: "full"  # "full" (24h) or "rth" (regular hours)
+  
+  # Roll configuration for continuous futures
+  roll:
+    method: "volume_oi_crossover"  # or "days_before_expiry"
+    days_before_expiry: 5
+    adjustment: "back_adjust"  # "back_adjust", "ratio_adjust", or "none"
+  
+  # Data source priority
+  sources:
+    - "ib"          # Interactive Brokers (preferred)
+    - "file"        # Local parquet cache
+    - "proxy_spy"   # SPY proxy (fallback, labeled)
+
+# Backtest Period
+backtest:
+  start_date: "2024-01-09"
+  end_date: "2026-01-09"
+  initial_capital: 50000.0
+  
+  # Cost Modeling (per contract)
+  slippage_ticks: 1.0        # 1 tick = $1.25 for MES
+  commission: 2.40           # Round-trip commission
+  
+  # Session windows
+  sessions:
+    rth_start: "09:30"
+    rth_end: "16:00"
+    eth_start: "18:00"      # Globex open
+    eth_end: "17:00"        # Globex close
+    
+    # CME maintenance windows (skip trades during)
+    maintenance_windows:
+      - start: "16:00"
+        end: "17:00"
+      - start: "16:15"
+        end: "16:30"
+
+# Strategy Configuration (matches OneMinuteStrategyConfig)
+strategy:
+  # EMA periods
+  ema_fast: 9
+  ema_slow: 21
+  ema_filter: 50
+  
+  # RSI settings
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+  
+  # ATR settings
+  atr_period: 14
+  atr_multiplier_sl: 1.5    # Stop loss = entry ± (ATR * 1.5)
+  atr_multiplier_tp: 2.5    # Take profit = entry ± (ATR * 2.5)
+  
+  # ADX trend filter
+  adx_period: 14
+  adx_threshold: 25         # Minimum ADX for trend confirmation
+  
+  # Session filters
+  skip_first_bar: true      # Skip first minute of session
+  respect_pdh_pdl: true     # Use prior day high/low levels
+  
+  # Signal requirements
+  require_vwap_alignment: true
+  require_volume_confirmation: false  # Volume data unreliable in futures
+
+# Trading Configuration
+trading:
+  max_contracts: 10
+  point_value: 5.0           # MES = $5 per point
+  min_tick: 0.25             # MES tick size
+  trade_size: 1              # Default contracts per trade
+  
+  # Bracket order defaults
+  default_stop_ticks: 20     # 5 points
+  default_target_ticks: 40   # 10 points
+  
+  # Position management
+  scale_out_enabled: false
+  max_holding_minutes: 120   # Maximum time in position
+
+# Risk Gate Configuration
+risk_gate:
+  enabled: true
+  
+  # Hard limits
+  max_contracts: 10
+  max_daily_loss: 1500.0     # Daily loss limit
+  max_consecutive_losses: 4
+  consecutive_loss_lockout_minutes: 60
+  
+  # Margin requirements
+  margin_per_contract: 1500.0
+  min_available_margin_pct: 0.30
+  
+  # Weekly limits
+  max_weekly_loss: 3000.0
+  max_weekly_trades: 100
+  
+  # Session controls
+  no_trade_before: "09:31"   # Skip first minute
+  no_trade_after: "15:55"    # Don't start new trades near close
+  
+  # VIX/volatility gates
+  max_vix: 35.0              # Skip trading if VIX > 35
+  min_atr: 1.0               # Need minimum volatility
+  max_atr: 15.0              # Too volatile
+
+# Trend Continuation Optimizer
+optimizer:
+  enabled: true
+  
+  # When to extend TP
+  min_unrealized_pct: 0.75   # 75% to TP triggers extension
+  tp_extension_ratio: 1.5    # Extend TP by 50%
+  
+  # Stop trailing
+  enable_trailing: true
+  trail_activation_pct: 0.5  # Start trailing at 50% to TP
+  trail_atr_mult: 1.0        # Trail at 1x ATR behind price
+  
+  # Conditions for extension
+  require_trend_intact: true
+  require_volume_surge: false
+
+# Analysis Configuration
+analysis:
+  # Regime bucketing
+  atr_buckets:
+    low: [0, 3]
+    medium: [3, 6]
+    high: [6, 999]
+  
+  vix_buckets:
+    calm: [0, 15]
+    normal: [15, 25]
+    elevated: [25, 35]
+    extreme: [35, 999]
+  
+  # Performance metrics
+  benchmark: "SPY"
+  risk_free_rate: 0.05       # For Sharpe calculation
+
+# Output Configuration
+output:
+  directory: "reports"
+  formats:
+    - "html"
+    - "json"
+  
+  # Decision trace (for live comparison)
+  trace:
+    enabled: false
+    output_file: "logs/backtest_decisions.csv"
+  
+  # Save intermediate files
+  save_equity_curve: true
+  save_trades: true
+  save_metrics: true
