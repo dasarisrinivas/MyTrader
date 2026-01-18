@@ -607,7 +607,12 @@ class IBHistoricalDownloader:
                 raise ValueError(f"No contracts found for {symbol}")
             
             # Sort by expiry and pick the front-month (earliest expiry)
-            sorted_details = sorted(details, key=lambda x: x.contract.lastTradeDateOrContractMonth)
+            # Filter out expired contracts just in case IB returns them mixed
+            valid_details = [d for d in details if d.contract.lastTradeDateOrContractMonth > datetime.now().strftime("%Y%m%d")]
+            if not valid_details:
+                 valid_details = details # Fallback to all if none future
+            
+            sorted_details = sorted(valid_details, key=lambda x: x.contract.lastTradeDateOrContractMonth)
             front_month = sorted_details[0].contract
             
             # Qualify it to ensure we have full details
@@ -627,6 +632,7 @@ class IBHistoricalDownloader:
             cached = self._check_cache(symbol, cache_key, bar_size, start, end)
             if cached is not None:
                 return cached
+
         
         # Determine chunk size based on bar size (IB limits)
         bar_size_lower = bar_size.lower()
@@ -661,8 +667,14 @@ class IBHistoricalDownloader:
         logger.info(f"Downloading {symbol} ({front_month.localSymbol}): {len(chunks)} chunks from {start.date()} to {end.date()}")
         
         all_data: List[pd.DataFrame] = []
+        empty_chunks_streak = 0
         
         for i, (chunk_start, chunk_end) in enumerate(chunks):
+            # Check for too many failures
+            if empty_chunks_streak >= 5:
+                logger.error(f"Too many consecutive empty chunks ({empty_chunks_streak}). Aborting download.")
+                break
+
             actual_days = (chunk_end - chunk_start).days
             if actual_days < 1:
                 actual_days = 1
@@ -672,6 +684,7 @@ class IBHistoricalDownloader:
             
             await self._wait_for_pacing()
             
+            chunk_success = False
             for attempt in range(self.config.max_retries):
                 try:
                     end_str = chunk_end.strftime("%Y%m%d %H:%M:%S")
@@ -707,8 +720,13 @@ class IBHistoricalDownloader:
                         if not df.empty:
                             all_data.append(df)
                             logger.info(f"  Got {len(df)} bars")
+                            chunk_success = True
+                            empty_chunks_streak = 0
+                        else:
+                            empty_chunks_streak += 1
                     else:
                         logger.warning(f"  No data for chunk {chunk_start.date()} to {chunk_end.date()}")
+                        empty_chunks_streak += 1
                     
                     break  # Success, exit retry loop
                     

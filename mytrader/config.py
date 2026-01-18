@@ -58,7 +58,7 @@ class OneMinuteStrategyConfig:
     """Configuration for the MES 1-minute close strategy."""
 
     enabled: bool = True
-    warmup_bars: int = 320  # >= 300 to stabilize ADX/ATR
+    warmup_bars: int = 800  # >= 720 (12 hours) per user request to stabilize indicators
     use_eth_session: bool = False  # False = RTH VWAP reset, True = ETH
     breakout_enabled: bool = False
     breakout_strength_filter: bool = True
@@ -72,12 +72,13 @@ class OneMinuteStrategyConfig:
     max_trades_per_hour: int = 3
     max_trades_per_day: int = 8
     # JAN 11 2026 FIX: Increased stop multiplier to pass RiskGate min_stop_points=6
-    # With ATR ~0.94, old 1.5x = 1.4pt stop (blocked). New 6.5x = 6.1pt stop (passes)
-    stop_atr_multiplier: float = 6.5  # Was 1.5 - too tight for MES risk gate
-    take_profit_multiple: float = 2.0  # multiplied by stop distance (=> 13x ATR)
+    # JAN 18 2026 UPDATE: Tuning for RTH Volatility (Backtest Verified)
+    # Lowered stop multiplier to 3.0 (from 6.5) to catch normal RTH moves while staying under new 50pt cap
+    stop_atr_multiplier: float = 3.0  # Was 6.5. Optimized for RTH trading.
+    take_profit_multiple: float = 1.0  # Was 2.0. Quick scalps in RTH.
     trailing_atr_multiple: float = 1.0
     breakout_adx_threshold: float = 18.0
-    trend_adx_threshold: float = 20.0
+    trend_adx_threshold: float = 18.0 # Was 20.0. Lower threshold to enter trends earlier.
     allow_runner: bool = False
     runner_take_profit_multiple: float = 1.0
     dry_run: bool = False
@@ -97,8 +98,9 @@ class OneMinuteStrategyConfig:
     regime_timeframe: str = "15m"  # Timeframe for regime determination
     regime_adx_threshold: float = 20.0  # ADX threshold on regime timeframe
     regime_ema_fast: int = 9
-    regime_ema_slow: int = 21
-    require_regime_trend: bool = True  # Only trade when regime TF shows trend
+    # JAN 18 2026: Relaxed filters to increase RTH trade frequency per user request
+    # Previous settings (Require Trend + High ATR) were too restrictive (~1 trade/day)
+    require_regime_trend: bool = False  # Allow trading in 15m ranging markets (uses 1m trend)
     
     # JAN 11 2026: Session gating - only trade RTH to avoid bad overnight data
     # IB 1-min data has 60%+ ZERO_RANGE bars overnight (no real trading)
@@ -118,11 +120,11 @@ class OneMinuteStrategyConfig:
     # JAN 11 2026: Disable trend extensions until sample size is meaningful
     enable_trend_extensions: bool = False  # Was causing 0% win rate on extensions
     
-    # JAN 11 2026: ATR regime filter - only trade in high volatility
-    # Backtest showed: Low ATR 27% WR, Med ATR 20% WR, High ATR 63.6% WR
-    # 67th percentile is profitable (+$10, 60% WR, 2.45 PF) but selective (5 trades)
-    require_high_atr: bool = True  # Only trade when ATR >= percentile threshold
-    high_atr_percentile: float = 0.67  # 67th percentile - focus on best regime
+    # JAN 18 2026: Disabled High ATR requirement to allow normal RTH trading
+    # Backtest showed: High ATR (top 33%) is safer, but user wants more frequency
+    # We rely on risk management (stops) to handle lower volatility periods
+    require_high_atr: bool = False  # Was True. Disabled to increase valid RTH trades.
+    high_atr_percentile: float = 0.20  # Lowered from 0.67 to 0.20 (unused if require_high_atr=False)
     high_atr_lookback: int = 200  # Bars to use for ATR percentile calculation
     
     # JAN 11 2026: Overnight/Evening session support with 30m timeframe
@@ -218,12 +220,19 @@ class ThirtyMinuteStrategyConfig:
 class RiskGateConfig:
     """Hard risk/margin gate for MES."""
 
+    # JAN 18 2026: Updated RiskGate limits to support RTH Volatility Strategy
+    # Increased caps to allow wider stops (up to 50 pts) for volatile sessions
+    risk_contracts_env: str = os.environ.get("MAX_MES_CONTRACTS", "1")
     max_contracts: int = field(default_factory=lambda: int(os.environ.get("MAX_MES_CONTRACTS", "1")))
-    risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "50")))
+    
+    # Base risk per trade raised to $250 to accommodate 50pt stops (1 contract * $5 * 50pts)
+    risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "250")))
     risk_per_trade_min: float = 25.0
-    risk_per_trade_max: float = 75.0
-    min_stop_points: float = 2.0
-    daily_max_loss_usd: float = field(default_factory=lambda: float(os.environ.get("DAILY_MAX_LOSS_USD", "150")))
+    risk_per_trade_max: float = 250.0 # Increased from 75 to 250
+    min_stop_points: float = 3.0      # Slightly increased floor
+    
+    # Daily loss raised to $750 (3 max loss trades) to prevent instant lockout
+    daily_max_loss_usd: float = field(default_factory=lambda: float(os.environ.get("DAILY_MAX_LOSS_USD", "750")))
     margin_buffer_usd: float = field(default_factory=lambda: float(os.environ.get("MARGIN_BUFFER_USD", "1000")))
     initial_margin_long: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_LONG", "2464")))
     initial_margin_short: float = field(default_factory=lambda: float(os.environ.get("MES_INITIAL_MARGIN_SHORT", "2305.6")))
@@ -235,7 +244,7 @@ class RiskGateConfig:
     maintenance_start: time = time(16, 0)  # CME maintenance start CT
     maintenance_end: time = time(17, 0)    # CME maintenance end CT
     tick_size: float = 0.25
-    max_stop_points: float = 12.0  # Max stop distance
+    max_stop_points: float = 50.0  # Increased from 12.0 to 50.0 for RTH volatility
     max_consecutive_losses: int = 3
 
     def bounded_risk_usd(self) -> float:

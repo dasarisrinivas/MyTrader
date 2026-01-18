@@ -62,12 +62,12 @@ strategy:
   
   # ATR settings
   atr_period: 14
-  atr_multiplier_sl: 1.5    # Stop loss = entry ± (ATR * 1.5)
-  atr_multiplier_tp: 2.5    # Take profit = entry ± (ATR * 2.5)
+  stop_atr_multiplier: 3.0     # Stop loss = 3.0 x ATR
+  take_profit_multiple: 1.0    # Target = 1.0 x Stop Distance
   
   # ADX trend filter
   adx_period: 14
-  adx_threshold: 25         # Minimum ADX for trend confirmation
+  trend_adx_threshold: 18.0    # Minimum ADX (lowered to 18 for earlier entry)
   
   # Session filters
   skip_first_bar: true      # Skip first minute of session

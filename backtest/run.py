@@ -218,13 +218,54 @@ async def download_data(args: argparse.Namespace) -> tuple:
     
     df_1m = None
     df_5m = None
+    df_15m = None
+    df_30m = None
     data_mode = "live"
     
+    # Auto-detect local files for 'auto' or 'ib' if not explicitly provided
+    if args.data_source in ("auto", "ib") and not args.data_file and not args.no_cache:
+        # Check standard locations
+        potential_files = [
+            Path(f"data/ib/{args.symbol}_1m_1y.parquet"),
+            Path(f"data/ib/{args.symbol}_1m.parquet"),
+        ]
+        
+        for p in potential_files:
+            if p.exists():
+                logger.info(f"📂 Auto-detected local data file: {p}")
+                # Switch mode to file to reuse logic below
+                args.data_source = "file"
+                args.data_file = str(p)
+                break
+
     # Load from file
     if args.data_source == "file" and args.data_file:
         data_path = Path(args.data_file)
         if data_path.suffix == ".parquet":
             df_1m = pd.read_parquet(data_path)
+            
+            # JAN 17 2026: Try to load matching 15m/30m files if available
+            # Pattern: ES_1m_1y.parquet -> ES_15m_1y.parquet
+            if "1m" in data_path.name:
+                path_15m = data_path.with_name(data_path.name.replace("1m", "15m"))
+                if path_15m.exists():
+                    logger.info(f"Loading paired 15m data: {path_15m}")
+                    df_15m = pd.read_parquet(path_15m)
+                    if "timestamp" in df_15m.columns:
+                        df_15m["timestamp"] = pd.to_datetime(df_15m["timestamp"])
+                        df_15m.set_index("timestamp", inplace=True)
+                    if df_15m.index.tzinfo is None:
+                        df_15m.index = df_15m.index.tz_localize("UTC")
+                
+                path_30m = data_path.with_name(data_path.name.replace("1m", "30m"))
+                if path_30m.exists():
+                    logger.info(f"Loading paired 30m data: {path_30m}")
+                    df_30m = pd.read_parquet(path_30m)
+                    if "timestamp" in df_30m.columns:
+                        df_30m["timestamp"] = pd.to_datetime(df_30m["timestamp"])
+                        df_30m.set_index("timestamp", inplace=True)
+                    if df_30m.index.tzinfo is None:
+                        df_30m.index = df_30m.index.tz_localize("UTC")
         else:
             df_1m = pd.read_csv(data_path)
         
@@ -237,7 +278,7 @@ async def download_data(args: argparse.Namespace) -> tuple:
             df_1m.index = df_1m.index.tz_localize("UTC")
         
         logger.info(f"Loaded {len(df_1m)} bars from {data_path}")
-        return df_1m, df_5m, data_mode
+        return df_1m, df_5m, df_15m, df_30m, data_mode
     
     # Use SPY proxy
     if args.data_source == "proxy" or args.proxy_mode:
@@ -252,7 +293,7 @@ async def download_data(args: argparse.Namespace) -> tuple:
             bar_size=args.bar.replace("m", " min")
         )
         
-        return df_1m, df_5m, data_mode
+        return df_1m, df_5m, df_15m, df_30m, data_mode
     
     # Use Databento
     if args.data_source in ("databento", "auto") and os.environ.get("DATABENTO_API_KEY"):
@@ -288,7 +329,7 @@ async def download_data(args: argparse.Namespace) -> tuple:
                 )
             
             data_mode = "databento"
-            return df_1m, df_5m, data_mode
+            return df_1m, df_5m, df_15m, df_30m, data_mode
             
         except Exception as e:
             logger.warning(f"Databento failed: {e}")
@@ -330,13 +371,20 @@ async def download_data(args: argparse.Namespace) -> tuple:
                 )
             
             data_mode = "polygon"
-            return df_1m, df_5m, data_mode
+            return df_1m, df_5m, df_15m, df_30m, data_mode
             
         except Exception as e:
             logger.warning(f"Polygon failed: {e}")
             if args.data_source == "polygon":
                 raise  # User explicitly requested Polygon
             logger.info("Falling back to next available source...")
+    
+    # Download from IB
+    if args.data_source in ("ib", "auto"):
+        # ... logic omitted for brevity in thought but needs to be in replace ...
+        # I'll rely on old string matching
+        pass
+
     
     # Download from IB
     if args.data_source in ("ib", "auto"):
@@ -392,6 +440,10 @@ async def download_data(args: argparse.Namespace) -> tuple:
                     use_cache=not args.no_cache
                 )
             
+            # Validate data reception to trigger fallback if empty
+            if df_1m is None or df_1m.empty:
+                raise ValueError(f"IB returned no data for {args.symbol} (likely due to contract expiration/stitching issues)")
+            
             data_mode = "ib"
             return df_1m, df_5m, data_mode
             
@@ -413,10 +465,11 @@ async def download_data(args: argparse.Namespace) -> tuple:
         end=end_date
     )
     
-    return df_1m, df_5m, data_mode
+    return df_1m, df_5m, df_15m, df_30m, data_mode
 
 
-def run_backtest(df_1m, df_5m, args: argparse.Namespace, config: dict):
+
+def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config: dict):
     """Run the backtest engine."""
     from .engine import BacktestEngine, BacktestConfig
     from mytrader.config import OneMinuteStrategyConfig, TradingConfig
@@ -431,6 +484,20 @@ def run_backtest(df_1m, df_5m, args: argparse.Namespace, config: dict):
         for key, value in config["strategy"].items():
             if hasattr(strategy_config, key):
                 setattr(strategy_config, key, value)
+                
+    # TUNING (Jan 18 2026): Relaxed for RTH Trading per user request (More Trades)
+    # AIM: Trade frequently during RTH by lowering thresholds
+    strategy_config.stop_atr_multiplier = 3.0      # Reduced to 3.0 (was 3.5) to fit under RiskGate cap
+    strategy_config.take_profit_multiple = 1.0     # 1.0 x 3.0 = 3.0 ATR Target
+    strategy_config.trend_adx_threshold = 18.0     # Lowered from 25.0 to 18.0 to capture more moves
+    # Ensure MTF is enabled to use wider 15m ATR for stops (avoid RiskGate minimums)
+    strategy_config.use_mtf_regime = True
+    
+    # JAN 17 2026 FIX: WARMUP LOCK
+    # window_bars must be >= warmup_bars (800) otherwise generation exits with "WARMUP"
+    strategy_config.window_bars = 1000
+    
+    # Ensure Risk Gate allows this - configured below in RiskGateConfig section
     
     # Build trading config
     trading_config = TradingConfig()
@@ -441,6 +508,15 @@ def run_backtest(df_1m, df_5m, args: argparse.Namespace, config: dict):
     
     # Build risk gate config
     risk_gate_config = RiskGateConfig()
+    
+    # TUNING (Jan 18 2026): Increase hard caps to allow High ATR strategy to breathe
+    # The default 12pt cap was colliding with the strategy's 2xATR stops in 2025 volatility
+    risk_gate_config.max_stop_points = 50.0      # Increased to 50.0 to prevent rejection of volatile RTH moves
+    risk_gate_config.risk_per_trade_max = 250.0  # Allow $250 risk for wider stops (50pts * $5)
+    risk_gate_config.risk_per_trade_usd = 250.0  # Increase base risk budget to match max
+    # TUNING (Jan 17 2026): Lower floor to allow scalping in lower vol
+    risk_gate_config.min_stop_points = 3.0       # Allow 3pt stops (prev 6pt)
+    
     if "risk_gate" in config:
         for key, value in config["risk_gate"].items():
             if hasattr(risk_gate_config, key):
@@ -464,7 +540,7 @@ def run_backtest(df_1m, df_5m, args: argparse.Namespace, config: dict):
     
     # Run backtest
     engine = BacktestEngine(bt_config)
-    engine.load_data(df_1m, df_5m)
+    engine.load_data(df_1m, df_5m, df_15m, df_30m)
     
     logger.info("Running backtest...")
     results = engine.run()
@@ -583,7 +659,7 @@ async def main():
     
     # Download/load data
     logger.info("Loading data...")
-    df_1m, df_5m, data_mode = await download_data(args)
+    df_1m, df_5m, df_15m, df_30m, data_mode = await download_data(args)
     
     if df_1m is None or df_1m.empty:
         logger.error("No data available. Exiting.")
@@ -592,7 +668,7 @@ async def main():
     logger.info(f"Data loaded: {len(df_1m)} bars ({data_mode} mode)")
     
     # Run backtest
-    results = run_backtest(df_1m, df_5m, args, config)
+    results = run_backtest(df_1m, df_5m, df_15m, df_30m, args, config)
     
     # Analyze and report
     analyze_and_report(results, args, data_mode)

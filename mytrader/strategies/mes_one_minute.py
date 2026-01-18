@@ -107,12 +107,41 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         latest = enriched.iloc[-1]
         prev = enriched.iloc[-2]
         current_time = enriched.index[-1]
+        
+        # Standard 1m values
         atr_series = enriched["ATR_14"].tail(120).dropna()
         atr_value = float(latest["ATR_14"])
         adx_value = float(latest["ADX_14"])
+        
+        # JAN 17 2026: Use 15m indicators if available per user request
+        # Swapping these ensures log consistency and trade params (stops) match user intent
+        use_mtf = getattr(self.config, 'use_mtf_regime', False)
+
+        if use_mtf:
+            if "15m_ATR_14" in latest and not np.isnan(latest["15m_ATR_14"]):
+                atr_value = float(latest["15m_ATR_14"])
+                if "15m_ATR_14" in enriched.columns:
+                    atr_series = enriched["15m_ATR_14"].tail(120).dropna()
+            
+            if "15m_ADX_14" in latest and not np.isnan(latest["15m_ADX_14"]):
+                adx_value = float(latest["15m_ADX_14"])
 
         market_state = "TRENDING" if adx_value >= self.config.trend_adx_threshold else "RANGING"
-        trend_label = self._classify_trend(latest)
+        
+        # 2. Trend Label (Direction)
+        if use_mtf and "15m_regime" in latest:
+            regime_val = str(latest["15m_regime"])
+            if regime_val == "UPTREND":
+                trend_label = "UPTREND"
+            elif regime_val == "DOWNTREND":
+                trend_label = "DOWNTREND"
+            elif regime_val == "RANGING":
+                trend_label = "CHOP"
+            else:
+                trend_label = self._classify_trend(latest)
+        else:
+            trend_label = self._classify_trend(latest)
+
         atr_low, atr_high = self._atr_percentile_bounds(atr_series)
         candle_range = float(latest["high"] - latest["low"])
 
@@ -148,7 +177,8 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
                 return Signal("HOLD", 0.0, {"reason": "NO_30M_DATA"})
             
             # Stricter overnight filters
-            overnight_adx_thresh = getattr(self.config, 'overnight_adx_threshold', 25.0)
+            # TUNING (Jan 17 2026): Lowered ADX threshold from 25 to 20 to catch moves earlier
+            overnight_adx_thresh = getattr(self.config, 'overnight_adx_threshold', 20.0)
             overnight_atr_pct = getattr(self.config, 'overnight_atr_percentile', 0.75)
             overnight_min_vol = getattr(self.config, 'overnight_min_volume', 50)
             
@@ -199,12 +229,21 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         # Backtest showed: Low ATR 27% WR, Med ATR 20% WR, High ATR 63.6% WR
         require_high_atr = getattr(self.config, 'require_high_atr', False)
         if require_high_atr and not filters_block:
-            high_atr_pct = getattr(self.config, 'high_atr_percentile', 0.67)
+            # TUNING (Jan 17 2026): Lowered from 0.67 (top 33%) to 0.50 (median) to increase trade frequency
+            high_atr_pct = getattr(self.config, 'high_atr_percentile', 0.50)
             lookback = getattr(self.config, 'high_atr_lookback', 200)
-            atr_lookback = enriched["ATR_14"].tail(lookback).dropna()
-            if len(atr_lookback) >= 50:
-                high_atr_threshold = atr_lookback.quantile(high_atr_pct)
-                if atr_value < high_atr_threshold:
+            
+            # JAN 17 2026: Check 15m ATR for regime if available
+            if use_mtf and "15m_ATR_14" in enriched.columns:
+                 atr_check_series = enriched["15m_ATR_14"].tail(lookback).dropna()
+                 atr_check_value = float(latest.get("15m_ATR_14", 0))
+            else:
+                 atr_check_series = enriched["ATR_14"].tail(lookback).dropna()
+                 atr_check_value = atr_value
+
+            if len(atr_check_series) >= 50:
+                high_atr_threshold = atr_check_series.quantile(high_atr_pct)
+                if atr_check_value < high_atr_threshold:
                     filters_block = True
                     reasons.append("LOW_ATR_REGIME")  # Not in top tercile
         
@@ -455,8 +494,8 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         stop_dist = atr * self.config.stop_atr_multiplier
         
         # JAN 11 2026: Enforce minimum stop distance to pass RiskGate
-        # RiskGate requires min_stop_points=6.0, so ensure stop_dist >= 6.5 points
-        min_stop_points = 6.5  # Slightly above RiskGate minimum to ensure passage
+        # RiskGate requires min_stop_points=6.0 (now tuned to 3.0), so ensure stop_dist >= 3.25 points
+        min_stop_points = 3.25  # Slightly above RiskGate minimum to ensure passage
         if stop_dist < min_stop_points:
             stop_dist = min_stop_points
         
@@ -542,7 +581,7 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             "ema21": float(latest.get("EMA_21", np.nan)),
             "vwap": float(latest.get("SESSION_VWAP", np.nan)),
             "atr": float(decision.metadata.get("atr_value", np.nan)) if decision.metadata else float(latest.get("ATR_14", np.nan)),
-            "adx": float(latest.get("ADX_14", np.nan)),
+            "adx": float(decision.metadata.get("adx_value", np.nan)) if decision.metadata else float(latest.get("ADX_14", np.nan)),
             "pdh": float(latest.get("PDH", np.nan)),
             "pdl": float(latest.get("PDL", np.nan)),
             "stop_loss": decision.stop_loss,
