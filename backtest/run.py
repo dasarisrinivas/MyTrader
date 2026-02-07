@@ -485,11 +485,16 @@ def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config:
             if hasattr(strategy_config, key):
                 setattr(strategy_config, key, value)
                 
-    # TUNING (Jan 18 2026): Relaxed for RTH Trading per user request (More Trades)
-    # AIM: Trade frequently during RTH by lowering thresholds
-    strategy_config.stop_atr_multiplier = 3.0      # Reduced to 3.0 (was 3.5) to fit under RiskGate cap
-    strategy_config.take_profit_multiple = 1.0     # 1.0 x 3.0 = 3.0 ATR Target
-    strategy_config.trend_adx_threshold = 18.0     # Lowered from 25.0 to 18.0 to capture more moves
+    # TUNING (Jan 18 2026): Defaults for RTH Trading per user request (More Trades)
+    # FEB 6 2026 FIX: Only set these if NOT already configured via YAML.
+    # Previously these hardcoded values clobbered the config file, e.g. scoring
+    # config specifies stop_atr_multiplier=1.5 but this forced 3.0.
+    if "strategy" not in config or "stop_atr_multiplier" not in config.get("strategy", {}):
+        strategy_config.stop_atr_multiplier = 3.0
+    if "strategy" not in config or "take_profit_multiple" not in config.get("strategy", {}):
+        strategy_config.take_profit_multiple = 1.0
+    if "strategy" not in config or "trend_adx_threshold" not in config.get("strategy", {}):
+        strategy_config.trend_adx_threshold = 18.0
     # Ensure MTF is enabled to use wider 15m ATR for stops (avoid RiskGate minimums)
     strategy_config.use_mtf_regime = True
     

@@ -2067,23 +2067,35 @@ class SignalProcessor:
             # FEB 3 2026: Session-specific thresholds
             scoring_evening_full = one_min_cfg.get("scoring_evening_full_threshold", scoring_full + 5.0)
             scoring_evening_half = one_min_cfg.get("scoring_evening_half_threshold", scoring_half + 5.0)
+            # FEB 6 2026: Lunch hour thresholds (11:30 AM - 1:00 PM CT)
+            scoring_lunch_full = one_min_cfg.get("scoring_lunch_full_threshold", scoring_full + 7.0)
+            scoring_lunch_half = one_min_cfg.get("scoring_lunch_half_threshold", scoring_half + 8.0)
         else:
             use_scoring = getattr(one_min_cfg, "use_scoring_system", False)
             scoring_full = getattr(one_min_cfg, "scoring_full_size_threshold", 60.0)
             scoring_half = getattr(one_min_cfg, "scoring_half_size_threshold", 45.0)
             scoring_evening_full = getattr(one_min_cfg, "scoring_evening_full_threshold", scoring_full + 5.0)
             scoring_evening_half = getattr(one_min_cfg, "scoring_evening_half_threshold", scoring_half + 5.0)
+            scoring_lunch_full = getattr(one_min_cfg, "scoring_lunch_full_threshold", scoring_full + 7.0)
+            scoring_lunch_half = getattr(one_min_cfg, "scoring_lunch_half_threshold", scoring_half + 8.0)
         
         # Detect current session and adjust thresholds
-        from datetime import datetime
+        from datetime import datetime, time as dt_time
         from zoneinfo import ZoneInfo
         now = datetime.now(ZoneInfo("America/Chicago"))
         current_hour = now.hour
+        current_time = now.time()
         
+        # Lunch hour: 11:30 AM - 1:00 PM CT — worst MES chop window
+        is_lunch_hour = dt_time(11, 30) <= current_time < dt_time(13, 0)
         # Evening session: 5 PM - 11 PM CT (17:00 - 23:00)
         is_evening_session = 17 <= current_hour < 23
         
-        if is_evening_session:
+        if is_lunch_hour:
+            scoring_full = scoring_lunch_full
+            scoring_half = scoring_lunch_half
+            logger.debug(f"🍽️ Lunch hour: Using higher thresholds (full={scoring_full}, half={scoring_half})")
+        elif is_evening_session:
             scoring_full = scoring_evening_full
             scoring_half = scoring_evening_half
             logger.debug(f"🌙 Evening session: Using higher thresholds (full={scoring_full}, half={scoring_half})")

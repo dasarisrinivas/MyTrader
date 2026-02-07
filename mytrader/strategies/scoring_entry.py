@@ -661,19 +661,42 @@ def calculate_signal_score(
     ema_21 = float(data.get('EMA_21', close))
     score.direction = "LONG" if ema_9 > ema_21 else "SHORT"
     
-    # FEB 2026 FIX: Override 1m direction with HTF when strongly misaligned.
-    # The 1m EMA crossover is noisy; when the 15m/5m trend clearly disagrees,
-    # don't enter counter to the higher timeframe. This prevents the scoring
-    # system from taking the wrong side of a larger-timeframe trend.
+    # FEB 6 2026 FIX: HTF override must happen BEFORE component scoring.
+    # Previously this ran AFTER components were scored, causing 20.7% of trades
+    # to execute in the opposite direction of their scored components
+    # (e.g., LONG trade with EMA_STACK_DOWN components).
+    # 
+    # When 1m and 15m disagree, skip the trade instead of forcing a direction.
+    # The old override created incoherent signals: SHORT-quality components
+    # used to justify LONG trades. Better to simply not trade when timeframes
+    # conflict — this is a natural filter, not a lost opportunity.
     trend_label_htf = data.get('trend_label_htf', 'UNKNOWN')
     if trend_label_htf in ("UPTREND", "LONG") and score.direction == "SHORT":
-        # HTF is up but 1m says short → override to LONG (don't fight the trend)
-        score.direction = "LONG"
-        score.metadata['htf_direction_override'] = True
+        # 1m says SHORT but 15m says UPTREND → conflicting timeframes, skip
+        score.metadata['htf_conflict'] = True
+        score.metadata['htf_direction'] = trend_label_htf
+        score.metadata['1m_direction'] = score.direction
+        # Apply a heavy penalty instead of overriding direction.
+        # This will likely push the score below threshold, filtering it out.
+        score.total_score -= 30.0
+        score.components.append(ScoreComponent(
+            "HTF_CONFLICT", -30.0, f"1m={score.direction} vs 15m={trend_label_htf}", "penalty"
+        ))
     elif trend_label_htf in ("DOWNTREND", "SHORT") and score.direction == "LONG":
-        # HTF is down but 1m says long → override to SHORT
-        score.direction = "SHORT"
-        score.metadata['htf_direction_override'] = True
+        # 1m says LONG but 15m says DOWNTREND → conflicting timeframes, skip
+        score.metadata['htf_conflict'] = True
+        score.metadata['htf_direction'] = trend_label_htf
+        score.metadata['1m_direction'] = score.direction
+        score.total_score -= 30.0
+        score.components.append(ScoreComponent(
+            "HTF_CONFLICT", -30.0, f"1m={score.direction} vs 15m={trend_label_htf}", "penalty"
+        ))
+    elif trend_label_htf in ("UPTREND", "LONG") and score.direction == "LONG":
+        # Both timeframes agree on LONG — bonus
+        score.metadata['htf_aligned'] = True
+    elif trend_label_htf in ("DOWNTREND", "SHORT") and score.direction == "SHORT":
+        # Both timeframes agree on SHORT — bonus
+        score.metadata['htf_aligned'] = True
     
     # Calculate ADX rising for regime score
     if prev_data is not None:

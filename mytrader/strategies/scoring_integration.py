@@ -12,6 +12,7 @@ Author: Senior Quantitative Trading Engineer - Feb 2026
 from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Dict, Optional, Tuple, Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -58,6 +59,12 @@ class ScoringEntryEvaluator:
         # Scoring thresholds (can be configured)
         self.min_full_size_score = getattr(config, 'scoring_full_size_threshold', 60.0)
         self.min_half_size_score = getattr(config, 'scoring_half_size_threshold', 45.0)
+        
+        # FEB 6 2026: Session-specific thresholds
+        self.lunch_full_size_score = getattr(config, 'scoring_lunch_full_threshold', self.min_full_size_score + 7.0)
+        self.lunch_half_size_score = getattr(config, 'scoring_lunch_half_threshold', self.min_half_size_score + 8.0)
+        self.evening_full_size_score = getattr(config, 'scoring_evening_full_threshold', self.min_full_size_score + 5.0)
+        self.evening_half_size_score = getattr(config, 'scoring_evening_half_threshold', self.min_half_size_score + 5.0)
         
         # Risk limits
         self.max_loss_per_trade = getattr(config, 'max_loss_per_trade', 100.0)
@@ -141,11 +148,37 @@ class ScoringEntryEvaluator:
                 signal_score=signal_score
             )
         
+        # FEB 6 2026: Select session-appropriate thresholds
+        # Lunch hour (11:30-13:00 CT) is worst MES chop window — require higher scores
+        effective_full = self.min_full_size_score
+        effective_half = self.min_half_size_score
+        try:
+            # FEB 6 2026 FIX: Use the simulated backtest time, NOT wall clock.
+            # Previously used datetime.now() which meant backtest results varied
+            # depending on what time of day you ran them.
+            if hasattr(current_time, 'tz_convert'):
+                ct_now = current_time.tz_convert(ZoneInfo("America/Chicago")).time()
+            elif hasattr(current_time, 'astimezone'):
+                ct_now = current_time.astimezone(ZoneInfo("America/Chicago")).time()
+            else:
+                ct_now = current_time.time() if hasattr(current_time, 'time') else time(12, 0)
+            
+            if time(11, 30) <= ct_now < time(13, 0):
+                effective_full = self.lunch_full_size_score
+                effective_half = self.lunch_half_size_score
+                logger.debug(f"🍽️ Lunch hour: thresholds raised to full={effective_full}, half={effective_half}")
+            elif time(17, 0) <= ct_now < time(23, 0):
+                effective_full = self.evening_full_size_score
+                effective_half = self.evening_half_size_score
+                logger.debug(f"🌙 Evening session: thresholds raised to full={effective_full}, half={effective_half}")
+        except Exception:
+            pass  # Fall back to default thresholds
+        
         # Determine position size from score
         position_size, size_reason = should_enter_trade(
             signal_score,
-            self.min_full_size_score,
-            self.min_half_size_score
+            effective_full,
+            effective_half
         )
         
         # If no trade, return HOLD
