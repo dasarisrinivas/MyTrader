@@ -119,6 +119,40 @@ class TradeLogger:
         weekly_low = market_data.get("weekly_low", 0)
         pivot = market_data.get("pivot", 0)
         
+        # Extract scoring data
+        score_breakdown = market_data.get("score_breakdown", {})
+        scoring_total = score_breakdown.get("total", 0.0)
+        scoring_trend = score_breakdown.get("trend", 0.0)
+        scoring_momentum = score_breakdown.get("momentum", 0.0)
+        scoring_regime = score_breakdown.get("regime", 0.0)
+        scoring_entry = score_breakdown.get("entry", 0.0)
+        scoring_penalty = score_breakdown.get("penalty", 0.0)
+        scoring_decision = score_breakdown.get("decision", "")
+        scoring_threshold = score_breakdown.get("threshold", 0.0)
+        
+        # Extract confidence data
+        confidence_data = market_data.get("confidence_data", {})
+        confidence_original = confidence_data.get("original", 0.0)
+        confidence_final = confidence_data.get("final", 0.0)
+        confidence_sentiment_mult = confidence_data.get("sentiment_mult", 1.0)
+        confidence_lowvol_mult = confidence_data.get("lowvol_mult", 1.0)
+        confidence_counter_trend_mult = confidence_data.get("counter_trend_mult", 1.0)
+        
+        # Extract session data
+        session_data = market_data.get("session_data", {})
+        trading_session = session_data.get("session", "")
+        session_threshold_full = session_data.get("threshold_full", 0.0)
+        session_threshold_half = session_data.get("threshold_half", 0.0)
+        session_sentiment_threshold = session_data.get("sentiment_threshold", 0.0)
+        
+        # Extract sentiment data
+        sentiment_data = market_data.get("sentiment_data", {})
+        sentiment_combined = sentiment_data.get("combined", 0.0)
+        sentiment_stocktwits = sentiment_data.get("stocktwits", 0.0)
+        sentiment_reddit = sentiment_data.get("reddit", 0.0)
+        sentiment_decision = sentiment_data.get("decision", "")
+        sentiment_reason = sentiment_data.get("reason", "")
+        
         # Calculate level proximity
         safe_entry = entry_price if entry_price is not None else market_data.get("close", 0.0) or 0.0
         safe_pdh = pdh or 0.0
@@ -205,6 +239,36 @@ class TradeLogger:
             volatility_regime=volatility_regime,
             time_of_day=time_of_day,
             day_of_week=day_of_week,
+            
+            # Scoring system
+            scoring_total=scoring_total,
+            scoring_trend=scoring_trend,
+            scoring_momentum=scoring_momentum,
+            scoring_regime=scoring_regime,
+            scoring_entry=scoring_entry,
+            scoring_penalty=scoring_penalty,
+            scoring_decision=scoring_decision,
+            scoring_threshold=scoring_threshold,
+            
+            # Confidence tracking
+            confidence_original=confidence_original,
+            confidence_final=confidence_final,
+            confidence_sentiment_mult=confidence_sentiment_mult,
+            confidence_lowvol_mult=confidence_lowvol_mult,
+            confidence_counter_trend_mult=confidence_counter_trend_mult,
+            
+            # Session information
+            trading_session=trading_session,
+            session_threshold_full=session_threshold_full,
+            session_threshold_half=session_threshold_half,
+            session_sentiment_threshold=session_sentiment_threshold,
+            
+            # Sentiment data
+            sentiment_combined=sentiment_combined,
+            sentiment_stocktwits=sentiment_stocktwits,
+            sentiment_reddit=sentiment_reddit,
+            sentiment_decision=sentiment_decision,
+            sentiment_reason=sentiment_reason,
         )
 
         # Attach provenance if available

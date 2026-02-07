@@ -150,7 +150,9 @@ def compute_risk_reward(
 ) -> tuple[float, float, float]:
     """Return (risk_points, reward_points, ratio) for an order."""
     normalized = action.upper()
-    if normalized == "BUY":
+    # BUG FIX: Handle SCALP_BUY and other buy variants, not just "BUY"
+    is_buy = normalized in ("BUY", "SCALP_BUY") or normalized.endswith("_BUY")
+    if is_buy:
         risk_points = entry_price - stop_loss
         reward_points = take_profit - entry_price
     else:

@@ -1,0 +1,11 @@
+{
+  "trade_cycle_id": "093b1deaaea5",
+  "generated_at": "2026-02-05T09:17:10.420704",
+  "context": {
+    "regime": null,
+    "volatility": null,
+    "symbol": "MES"
+  },
+  "candles": [
+    {
+      "timestamp": 

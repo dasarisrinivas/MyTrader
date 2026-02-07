@@ -45,9 +45,9 @@ trading:
   max_loop_latency_seconds: 3.0  # Max acceptable loop iteration time
   
   # Weighted voting threshold
-  min_weighted_confidence: 0.70
-  confidence_threshold: 0.7  # Confidence required for full position sizing
-  min_confidence_for_trade: 0.55  # Convert signals below this threshold to HOLD by default
+  min_weighted_confidence: 0.45
+  confidence_threshold: 0.60  # Confidence required for full position sizing
+  min_confidence_for_trade: 0.20  # Convert signals below this threshold to HOLD by default
   min_stop_distance_ticks: 4  # Hard guardrail for stop/target proximity
   
   # Entry filter tuning
@@ -59,6 +59,9 @@ trading:
     ema_slow_period: 20
     ema_alignment_tolerance_pct: 0.0002
     counter_trend_penalty: 0.10
+  require_adx_confirmation: true
+  min_adx_threshold: 12.0
+  min_adx_threshold_low_volume: 7.0
     atr_period: 14
     min_atr_threshold: 0.30
     min_atr_percentile: 10
@@ -77,6 +80,13 @@ risk_gate:
   initial_margin_short: 2305.6
   avoid_close_window_minutes: 20
   avoid_close_enabled: true
+  peak_drawdown_enabled: false
+  peak_drawdown_pct: 4.0
+  peak_drawdown_action: "halt"  # "halt" or "tighten"
+  peak_drawdown_tighten_multiplier: 0.5
+  peak_drawdown_stop_buffer_points: 0.5
+  peak_drawdown_flatten_on_trigger: true
+  peak_drawdown_reset_on_new_day: false
 
 one_minute:
   enabled: true
@@ -84,14 +94,49 @@ one_minute:
   use_eth_session: false
   breakout_enabled: false
   pullback_lookback: 3
+  require_pullback_confirmation: false
   atr_percentile_low: 0.10
   atr_percentile_high: 0.90
   tiny_candle_atr_factor: 0.4
+  atr_bounds_blocking: true
+  tiny_candle_blocking: true
   cooldown_minutes: 3
   max_trades_per_hour: 3
   max_trades_per_day: 8
   stop_atr_multiplier: 1.5
   take_profit_multiple: 2.0
+  profit_lock_trigger_r: 0.75
+  profit_lock_stop_buffer_points: 0.5
+  max_hold_minutes: 75
+  rth_stop_atr_multiplier: 3.5
+  rth_take_profit_multiple: 1.1
+  rth_trend_adx_threshold: 15.0
+  rth_rsi_long_min: 35
+  rth_rsi_long_max: 60
+  rth_rsi_short_min: 40
+  rth_rsi_short_max: 65
+  rth_require_high_atr: false
+  rth_high_atr_percentile: 0.30
+  rth_open_minutes: 90
+  rth_open_mean_reversion_enabled: true
+  rth_open_rsi_oversold: 35.0
+  rth_open_rsi_overbought: 65.0
+  rth_open_vwap_atr_mult: 0.40
+  rth_open_max_adx: 18.0
+  rth_open_min_volume: 250
+  rth_no_trade_start_hour: null
+  rth_no_trade_start_minute: null
+  rth_no_trade_end_hour: null
+  rth_no_trade_end_minute: null
+  rth_require_pullback_confirmation: true
+  rth_pullback_adx_bypass: 22.0
+  rth_only: true
+  allow_overnight_trading: false
+  rth_close_tighten_minutes: 20
+  rth_close_stop_buffer_points: 0.5
+  profit_lock_trigger_r: 0.75
+  profit_lock_stop_buffer_points: 0.5
+  max_hold_minutes: 75
   trend_adx_threshold: 20.0
   breakout_adx_threshold: 18.0
   dry_run: false
@@ -99,6 +144,19 @@ one_minute:
   trend_flip_exit: true
   breakout_use_or_levels: false
   window_bars: 400
+  require_5m_trend_alignment: true
+  mtf_gate_enabled: true
+  mtf_ema_period: 20
+
+# Hybrid RAG + LLM pipeline configuration (used by pipeline integration)
+hybrid:
+  # EMA spread % threshold to tag CHOP_RANGE (0.0005 = 0.05%)
+  chop_ema_spread_min_pct: 0.0005
+  signal_threshold: 20
+  oversold_extension_rsi_min: 40.0
+  no_signal_allow_weak_signals: false
+  no_signal_allow_chop_bias: false
+  level_confirmation_enabled: true
 backtest:
   data_path: "data/historical_spy_es.parquet"
   start_date: null

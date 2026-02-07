@@ -10,6 +10,7 @@ from ..ib_executor import TradeExecutor
 from ...monitoring.live_tracker import LivePerformanceTracker
 from ...strategies.engine import StrategyEngine
 from ...strategies.mes_one_minute import MesOneMinuteTrendStrategy
+from ...strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy  # FEB 2026: Scoring system
 from ...risk.manager import RiskManager
 from ...utils.telegram_notifier import TelegramNotifier
 # Use S3 RAGStorageManager instead of local SQLite RAGStorage
@@ -48,9 +49,18 @@ class TradingSessionManager:
                 point_value=m.contract_spec.point_value,
             )
 
-            m.engine = StrategyEngine(
-                [MesOneMinuteTrendStrategy(m.one_minute_cfg or m.settings.one_minute)]
-            )
+            # FEB 2026: Conditionally use scoring-based strategy if enabled
+            one_min_cfg = m.one_minute_cfg or m.settings.one_minute
+            use_scoring = getattr(one_min_cfg, "use_scoring_system", False)
+            
+            if use_scoring:
+                strategy = MesOneMinuteScoringStrategy(one_min_cfg)
+                logger.info("✅ Using SCORING-BASED entry system (experimental)")
+            else:
+                strategy = MesOneMinuteTrendStrategy(one_min_cfg)
+                logger.info("ℹ️  Using traditional hard-filter entry system")
+            
+            m.engine = StrategyEngine([strategy])
             m.signal_processor.engine = m.engine
 
             m.risk = RiskManager(m.settings.trading, position_sizing_method="kelly")

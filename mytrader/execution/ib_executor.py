@@ -864,6 +864,109 @@ class TradeExecutor:
         except Exception as e:
             logger.error("Failed to reconcile positions: {}", e)
 
+    def get_active_bracket_levels(self) -> Optional[Dict[str, float]]:
+        """
+        Get the take profit and stop loss levels from active bracket orders.
+        
+        Returns:
+            Dict with 'take_profit' and 'stop_loss' keys if bracket orders found, None otherwise
+        """
+        try:
+            all_trades = self.ib.trades()
+            bracket_levels = {}
+            
+            # Find the parent order (the filled entry)
+            parent_order_id = None
+            for trade in all_trades:
+                if trade.orderStatus.status == "Filled" and not hasattr(trade.order, 'parentId'):
+                    # This is a filled parent order
+                    parent_order_id = trade.order.orderId
+                    break
+            
+            if parent_order_id is None:
+                return None
+            
+            # Find active bracket children
+            for trade in all_trades:
+                if hasattr(trade.order, 'parentId') and trade.order.parentId == parent_order_id:
+                    status = trade.orderStatus.status
+                    if status not in ("Filled", "Cancelled", "Inactive"):
+                        order = trade.order
+                        # Check order type to determine if it's TP or SL
+                        order_type = order.orderType
+                        
+                        if order_type == "LMT":  # Limit order = Take Profit
+                            bracket_levels['take_profit'] = float(order.lmtPrice)
+                            logger.debug(f"Found active TP order {order.orderId} @ {order.lmtPrice}")
+                        elif order_type == "STP":  # Stop order = Stop Loss
+                            bracket_levels['stop_loss'] = float(order.auxPrice)
+                            logger.debug(f"Found active SL order {order.orderId} @ {order.auxPrice}")
+            
+            return bracket_levels if bracket_levels else None
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error retrieving active bracket levels: {e}")
+            return None
+
+    async def update_bracket_stop_loss(self, new_stop_price: float) -> bool:
+        """
+        Update the stop loss price of an active bracket order (for trailing stops).
+        
+        Args:
+            new_stop_price: The new stop loss price
+            
+        Returns:
+            True if successfully updated, False otherwise
+        """
+        try:
+            all_trades = self.ib.trades()
+            
+            # Find the parent order (filled entry)
+            parent_order_id = None
+            for trade in all_trades:
+                if trade.orderStatus.status == "Filled" and not hasattr(trade.order, 'parentId'):
+                    parent_order_id = trade.order.orderId
+                    break
+            
+            if parent_order_id is None:
+                logger.warning("⚠️ No active parent order found to update stop loss")
+                return False
+            
+            # Find the active stop loss bracket order
+            for trade in all_trades:
+                if hasattr(trade.order, 'parentId') and trade.order.parentId == parent_order_id:
+                    if trade.order.orderType == "STP":  # Stop order
+                        status = trade.orderStatus.status
+                        if status not in ("Filled", "Cancelled", "Inactive"):
+                            old_stop = float(trade.order.auxPrice)
+                            
+                            # Create modified order with new stop price
+                            from ib_insync import StopOrder
+                            modified_order = StopOrder(
+                                trade.order.action,
+                                trade.order.totalQuantity,
+                                new_stop_price
+                            )
+                            modified_order.orderId = trade.order.orderId
+                            modified_order.outsideRth = True
+                            modified_order.tif = "GTC"
+                            
+                            # Place the modified order
+                            self.ib.placeOrder(trade.contract, modified_order)
+                            
+                            logger.info(
+                                f"📝 Updated bracket stop loss: Order {trade.order.orderId} "
+                                f"from {old_stop:.2f} → {new_stop_price:.2f}"
+                            )
+                            return True
+            
+            logger.warning("⚠️ No active stop loss bracket order found to update")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Error updating bracket stop loss: {e}")
+            return False
+
     def _apply_fill_to_position(
         self,
         action: str,
@@ -1186,6 +1289,18 @@ class TradeExecutor:
                 current_position = self.positions.get(self.symbol)
                 position_qty = current_position.quantity if current_position else None
                 
+                # Get account value for notification (from cached values)
+                account_value = None
+                try:
+                    # Use accountValues() which returns cached data without blocking
+                    account_vals = self.ib.accountValues()
+                    for item in account_vals:
+                        if item.tag == "NetLiquidation":
+                            account_value = float(item.value)
+                            break
+                except Exception as e:
+                    logger.warning(f"⚠️  Could not fetch account value for Telegram: {e}")
+                
                 # Determine side from order action
                 side = order.action  # "BUY" or "SELL"
                 
@@ -1236,6 +1351,7 @@ class TradeExecutor:
                     market_trend=market_trend,
                     volatility_regime=volatility_regime,
                     session=session,
+                    account_value=account_value,  # FEB 5 2026: Add account value
                 )
                 logger.info(f"📱 Telegram alert queued successfully")
             except Exception as e:

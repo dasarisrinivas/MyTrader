@@ -15,6 +15,15 @@ from ...utils.timezone_utils import now_cst
 from ...features.feature_engineer import engineer_features
 from .trade_decision_engine import TradingContext
 
+# FEB 2026: Scoring system integration
+try:
+    from ...strategies.scoring_entry import calculate_signal_score, should_enter_trade
+    from ...strategies.scoring_integration import create_scoring_evaluator
+    SCORING_AVAILABLE = True
+except ImportError:
+    SCORING_AVAILABLE = False
+    logger.warning("Scoring system not available - will use RAG/Hybrid only")
+
 # NEW: Multi-source sentiment aggregator (Jan 2026)
 try:
     from ...data.sentiment_aggregator import (
@@ -221,6 +230,17 @@ class SignalProcessor:
         """Initialize the MTF Trend Gate with state machine."""
         if not MTF_GATE_AVAILABLE or MTFTrendGate is None:
             logger.debug("MTFTrendGate not available")
+            return
+
+        one_minute_cfg = getattr(self.settings, "one_minute", {})
+        if isinstance(one_minute_cfg, dict):
+            mtf_gate_enabled = one_minute_cfg.get("mtf_gate_enabled", True)
+        else:
+            mtf_gate_enabled = getattr(one_minute_cfg, "mtf_gate_enabled", True)
+
+        if not mtf_gate_enabled:
+            logger.info("MTFTrendGate disabled via config")
+            self._mtf_gate = None
             return
         
         try:
@@ -1035,11 +1055,21 @@ class SignalProcessor:
                 )
                 
                 # === JAN 2026 AUDIT FIX: 5-Minute Trend Filter ===
-                hybrid_signal = self.apply_5m_trend_filter(hybrid_signal)
+                one_minute_cfg = getattr(self.settings, "one_minute", {})
+                if isinstance(one_minute_cfg, dict):
+                    require_5m = one_minute_cfg.get("require_5m_trend_alignment", False)
+                    mtf_gate_enabled = one_minute_cfg.get("mtf_gate_enabled", True)
+                else:
+                    require_5m = getattr(one_minute_cfg, "require_5m_trend_alignment", False)
+                    mtf_gate_enabled = getattr(one_minute_cfg, "mtf_gate_enabled", True)
+
+                if require_5m:
+                    hybrid_signal = self.apply_5m_trend_filter(hybrid_signal)
                 
                 # === JAN 12, 2026: MTF Trend Gate (15m PRIMARY, 30m CONFIRMATION) ===
                 # This is the HARD GATE that enforces multi-timeframe discipline
-                hybrid_signal = self._apply_mtf_trend_gate(hybrid_signal)
+                if mtf_gate_enabled:
+                    hybrid_signal = self._apply_mtf_trend_gate(hybrid_signal)
                 
                 # === JAN 8 2026: Sentiment-Derived Trend Adjustment ===
                 hybrid_signal = self._apply_sentiment_trend_adjustment(hybrid_signal, m.status.hybrid_market_trend)
@@ -1087,6 +1117,14 @@ class SignalProcessor:
 
                 # Store pipeline result for trade logging
                 m._current_pipeline_result = pipeline_result
+
+                # === FEB 2026: SCORING VALIDATION ===
+                # Use scoring system to validate/refine the hybrid signal
+                hybrid_signal = self._apply_scoring_validation(
+                    hybrid_signal=hybrid_signal,
+                    features=features,
+                    current_price=current_price,
+                )
 
                 # Skip legacy RAG and filter processing unless fallback explicitly allowed
                 run_legacy_after_hybrid = (
@@ -1183,15 +1221,6 @@ class SignalProcessor:
         market_trend: str,
         current_price: float,
     ):
-        """Convert pipeline HOLD into a trend-aligned pullback entry (Option A).
-
-        Contract:
-        - Input: existing `hybrid_signal` from the hybrid pipeline.
-        - Output: same object, potentially with action set to BUY/SELL and metadata annotated.
-        - Safety: only triggers when signal is HOLD and ONLY in the direction of `market_trend`.
-        - All downstream hard gates still run (ADX/counter-trend, 5m filter, MTF gate, sentiment).
-        """
-
         try:
             action = getattr(hybrid_signal, "action", None)
             if str(action).upper() != "HOLD":
@@ -1866,21 +1895,31 @@ class SignalProcessor:
         if entry_filters is None:
             require_adx = True
             min_adx = 18.0  # RAISED from 15.0 - filter weak trends
+            min_adx_low_volume = None
             allow_counter_trend = False
         elif hasattr(entry_filters, "require_adx_confirmation"):
             # Config object with attributes
             require_adx = getattr(entry_filters, "require_adx_confirmation", True)
             min_adx = getattr(entry_filters, "min_adx_threshold", 18.0)  # RAISED default
+            min_adx_low_volume = getattr(entry_filters, "min_adx_threshold_low_volume", None)
             allow_counter_trend = getattr(entry_filters, "allow_counter_trend", False)
         elif isinstance(entry_filters, dict):
             # Dict-based config
             require_adx = entry_filters.get("require_adx_confirmation", True)
             min_adx = entry_filters.get("min_adx_threshold", 18.0)  # RAISED default
+            min_adx_low_volume = entry_filters.get("min_adx_threshold_low_volume")
             allow_counter_trend = entry_filters.get("allow_counter_trend", False)
         else:
             require_adx = True
             min_adx = 18.0  # RAISED from 15.0 - filter weak trends
+            min_adx_low_volume = None
             allow_counter_trend = False
+
+        if min_adx_low_volume is not None and self._is_low_volume_session():
+            try:
+                min_adx = float(min_adx_low_volume)
+            except (TypeError, ValueError):
+                pass
         
         # Extract ADX from features
         adx_value = 0.0
@@ -1981,6 +2020,191 @@ class SignalProcessor:
             logger.debug(f"Sentiment trend adjustment skipped: {e}")
         
         return signal
+
+    def _apply_scoring_validation(
+        self,
+        hybrid_signal: Any,
+        features,
+        current_price: float,
+    ) -> Any:
+        """Apply scoring system validation to hybrid/RAG signal.
+        
+        FEB 2026: Scoring system provides an INDEPENDENT quality assessment
+        that can validate, refine, or override the hybrid RAG/LLM decision.
+        
+        Scoring Logic:
+        - Calculates objective score (0-105 points) based on technical factors
+        - score >= 60: CONFIRM signal with full size (1.0x)
+        - score 45-59: CONFIRM signal with half size (0.5x)
+        - score < 45: DOWNGRADE to HOLD (insufficient quality)
+        
+        This creates a 2-layer validation:
+        1. RAG/Hybrid determines DIRECTION (buy/sell/hold)
+        2. Scoring determines QUALITY (should we act? how much?)
+        
+        Args:
+            hybrid_signal: Signal from RAG/hybrid pipeline
+            features: Market feature dataframe
+            current_price: Current market price
+            
+        Returns:
+            Modified signal with scoring validation applied
+        """
+        if not SCORING_AVAILABLE:
+            logger.debug("Scoring validation skipped - scoring system not available")
+            return hybrid_signal
+        
+        # Only validate actionable signals (skip HOLD)
+        if hybrid_signal.action == "HOLD":
+            return hybrid_signal
+        
+        # Check if scoring is enabled in config
+        one_min_cfg = getattr(self.settings, "one_minute", {})
+        if isinstance(one_min_cfg, dict):
+            use_scoring = one_min_cfg.get("use_scoring_system", False)
+            scoring_full = one_min_cfg.get("scoring_full_size_threshold", 60.0)
+            scoring_half = one_min_cfg.get("scoring_half_size_threshold", 45.0)
+            # FEB 3 2026: Session-specific thresholds
+            scoring_evening_full = one_min_cfg.get("scoring_evening_full_threshold", scoring_full + 5.0)
+            scoring_evening_half = one_min_cfg.get("scoring_evening_half_threshold", scoring_half + 5.0)
+        else:
+            use_scoring = getattr(one_min_cfg, "use_scoring_system", False)
+            scoring_full = getattr(one_min_cfg, "scoring_full_size_threshold", 60.0)
+            scoring_half = getattr(one_min_cfg, "scoring_half_size_threshold", 45.0)
+            scoring_evening_full = getattr(one_min_cfg, "scoring_evening_full_threshold", scoring_full + 5.0)
+            scoring_evening_half = getattr(one_min_cfg, "scoring_evening_half_threshold", scoring_half + 5.0)
+        
+        # Detect current session and adjust thresholds
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/Chicago"))
+        current_hour = now.hour
+        
+        # Evening session: 5 PM - 11 PM CT (17:00 - 23:00)
+        is_evening_session = 17 <= current_hour < 23
+        
+        if is_evening_session:
+            scoring_full = scoring_evening_full
+            scoring_half = scoring_evening_half
+            logger.debug(f"🌙 Evening session: Using higher thresholds (full={scoring_full}, half={scoring_half})")
+        
+        if not use_scoring:
+            logger.debug("Scoring validation disabled in config")
+            return hybrid_signal
+        
+        try:
+            # Prepare data for scoring
+            latest = features.iloc[-1] if not features.empty else {}
+            prev = features.iloc[-2] if len(features) >= 2 else latest
+            
+            # Convert pandas Series to dict for scoring functions
+            data = latest.to_dict() if hasattr(latest, 'to_dict') else latest
+            prev_data = prev.to_dict() if hasattr(prev, 'to_dict') else prev
+            
+            # Get recent bars for momentum analysis
+            recent_bars = features.tail(20) if len(features) >= 20 else features
+            
+            # Calculate signal score using standalone function
+            score = calculate_signal_score(
+                data=data,
+                prev_data=prev_data,
+                recent_bars=recent_bars,
+                timestamp=None,  # Will use current time internally
+                atr_percentile=None,  # Will calculate from data
+            )
+            
+            # Determine action based on score
+            position_size, reason = should_enter_trade(
+                score=score,
+                min_full_size_score=scoring_full,
+                min_half_size_score=scoring_half,
+            )
+            
+            # Convert position_size enum to float
+            from ...strategies.scoring_entry import PositionSize
+            if position_size == PositionSize.FULL:
+                decision_size = 1.0
+                decision_action = hybrid_signal.action
+            elif position_size == PositionSize.HALF:
+                decision_size = 0.5
+                decision_action = hybrid_signal.action
+            else:  # NONE
+                decision_size = 0.0
+                decision_action = "HOLD"
+            
+            # Log scoring analysis
+            breakdown = score.get_breakdown()
+            logger.info(f"🎯 SCORING VALIDATION: {hybrid_signal.action} → Score={score.total_score:.1f}/105")
+            logger.info(f"   Components: Trend={breakdown['trend']:.1f} Mom={breakdown['momentum']:.1f} "
+                       f"Regime={breakdown['regime']:.1f} Entry={breakdown['entry']:.1f} Penalty={breakdown['penalty']:.1f}")
+            logger.info(f"   Decision: {decision_action} @ {decision_size:.1f}x (Reason: {reason})")
+            
+            # Apply scoring decision
+            original_action = hybrid_signal.action
+            original_conf = getattr(hybrid_signal, "confidence", 0.0)
+            
+            if decision_action == "HOLD":
+                # Score too low - downgrade to HOLD
+                logger.warning(f"⚠️  SCORING DOWNGRADE: {original_action} blocked (score {score.total_score:.1f} < {scoring_half})")
+                hybrid_signal.action = "HOLD"
+                hybrid_signal.confidence = 0.0
+                
+                metadata = getattr(hybrid_signal, "metadata", {}) or {}
+                metadata["scoring_downgrade"] = True
+                metadata["scoring_blocked_reason"] = reason
+                metadata["original_action"] = original_action
+                metadata["score_total"] = score.total_score
+                hybrid_signal.metadata = metadata
+                
+            elif decision_size < 1.0:
+                # Marginal score (50-70) - proceed with trade but log caution
+                # NOTE: We trade 1 contract only, so no actual half-sizing
+                # Keep original confidence to avoid blocking the trade
+                logger.info(f"✅ SCORING MARGINAL: {hybrid_signal.action} @ 1x "
+                           f"(score {score.total_score:.1f}, conf {original_conf:.2f}) - Marginal quality, monitoring closely")
+                # Keep original confidence (no penalty for 1-contract trading)
+                
+                metadata = getattr(hybrid_signal, "metadata", {}) or {}
+                metadata["scoring_position_size"] = 1.0  # Always 1 contract
+                metadata["scoring_quality"] = "marginal"
+                metadata["scoring_reason"] = reason
+                metadata["score_total"] = score.total_score
+                metadata["score_breakdown"] = breakdown
+                hybrid_signal.metadata = metadata
+                
+            else:
+                # Full size - confirmed by scoring
+                logger.info(f"✅ SCORING CONFIRMED: {hybrid_signal.action} @ 1.0x (score {score.total_score:.1f})")
+                
+                metadata = getattr(hybrid_signal, "metadata", {}) or {}
+                metadata["scoring_confirmed"] = True
+                metadata["scoring_position_size"] = 1.0
+                metadata["score_total"] = score.total_score
+                metadata["score_breakdown"] = breakdown
+                hybrid_signal.metadata = metadata
+            
+            # Emit structured log for analysis
+            log_structured_event(
+                agent="signal_processor",
+                event_type="scoring_validation",
+                message=f"{original_action} → {hybrid_signal.action}",
+                payload={
+                    "original_action": original_action,
+                    "final_action": hybrid_signal.action,
+                    "score_total": score.total_score,
+                    "score_breakdown": breakdown,
+                    "position_size": decision_size,
+                    "decision_reason": reason,
+                    "confidence_before": original_conf,
+                    "confidence_after": getattr(hybrid_signal, "confidence", 0.0),
+                },
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Scoring validation failed: {e}", exc_info=True)
+            # On error, return original signal (fail-safe)
+        
+        return hybrid_signal
 
     def _init_mtf_builder(self) -> None:
         """Initialize the multi-timeframe candle builder if enabled in config."""

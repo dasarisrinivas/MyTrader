@@ -107,6 +107,12 @@ class HybridPipelineIntegration:
                     "rsi_overbought": getattr(settings.hybrid, 'rsi_overbought', 70),
                     "cooldown_minutes": getattr(settings.hybrid, 'cooldown_minutes', 15),
                     "signal_threshold": getattr(settings.hybrid, 'signal_threshold', 40),
+                    "chop_ema_spread_min_pct": getattr(settings.hybrid, 'chop_ema_spread_min_pct', 0.0005),
+                    "oversold_extension_rsi_min": getattr(settings.hybrid, 'oversold_extension_rsi_min', 40.0),
+                },
+                "no_signal_gate": {
+                    "allow_weak_signals": getattr(settings.hybrid, 'no_signal_allow_weak_signals', False),
+                    "allow_chop_bias": getattr(settings.hybrid, 'no_signal_allow_chop_bias', False),
                 },
                 "llm": {
                     "min_confidence": getattr(settings.hybrid, 'min_confidence', 0.60),  # 0-1 scale

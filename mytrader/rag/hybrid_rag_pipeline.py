@@ -87,6 +87,12 @@ class RuleEngineResult:
     market_trend: str = ""
     volatility_regime: str = ""
     daily_bias: str = "NEUTRAL"  # BULLISH, BEARISH, or NEUTRAL based on PDH/PDL/EMA50
+    
+    # Daily Trend Confirmation Gate (Feb 2026)
+    # Requires 2 of 3: VWAP slope positive on 5m, EMA21 > EMA50 on 5m/15m, ADX > 20
+    daily_trend_confirmed: bool = True  # Default True to not break existing behavior
+    daily_trend_conditions_met: int = 0  # Count of conditions met (0-3)
+    daily_trend_details: Dict[str, Any] = field(default_factory=dict)  # Details for debugging
 
     @property
     def is_actionable_signal(self) -> bool:
@@ -226,6 +232,8 @@ class RuleEngine:
         self.rsi_overbought = config.get("rsi_overbought", 70)
         self.pdh_proximity_pct = config.get("pdh_proximity_pct", 0.3)
         self.cooldown_minutes = config.get("cooldown_minutes", 15)
+        self.chop_ema_spread_min_pct = float(config.get("chop_ema_spread_min_pct", 0.0005) or 0.0)
+        self.oversold_extension_rsi_min = float(config.get("oversold_extension_rsi_min", 40.0))
         
         # Signal weights
         self.trend_weight = config.get("trend_weight", 30)
@@ -252,7 +260,7 @@ class RuleEngine:
         # Pre-market (3 AM - 8 AM CST)
         if 3 <= hour <= 8:
             return {
-                "min_confidence_adjustment": 0.05,   # Higher threshold (news risk)
+                "min_confidence_adjustment": 0.05,
                 "atr_min_adjustment": 0.0,
                 "volume_requirement": 1.2,
                 "range_requirement": 1.1,
@@ -342,9 +350,13 @@ class RuleEngine:
         is_trending = adx > 20  # Relaxed from 25 to match Harness
         
         ema_spread = abs(ema_9 - ema_50) / ema_50 if ema_50 > 0 else 0
-        if ema_spread < 0.0005:  # Relaxed from 0.001 to prevent blocking valid tight trends
+        ema_spread_threshold = self.chop_ema_spread_min_pct
+        if ema_spread_threshold > 0 and ema_spread < ema_spread_threshold:
             result.market_trend = "CHOP_RANGE"
-            result.filters_blocked.append(f"FORCE_HOLD: CHOP_RANGE (EMA spread {ema_spread:.4f} < 0.05%)")
+            result.filters_blocked.append(
+                "FORCE_HOLD: CHOP_RANGE (EMA spread "
+                f"{ema_spread:.4f} < {ema_spread_threshold * 100:.2f}%)"
+            )
 
         # ===== ENHANCED TREND DETECTION (Jan 2026) =====
         # Uses multi-bar confirmation, EMA_50 as anchor, and sentiment integration
@@ -607,6 +619,93 @@ class RuleEngine:
         
         result.daily_bias = daily_bias  # Store for later use
         
+        # ===== DAILY TREND CONFIRMATION GATE (Feb 2026) =====
+        # Validates higher-timeframe trend alignment before allowing BUY_CONTINUATION entries.
+        # Requires at least 2 of 3 conditions to be true:
+        # 1. VWAP slope positive on 5m timeframe
+        # 2. EMA21 > EMA50 on 5m or 15m
+        # 3. ADX > 20
+        # If gate fails, BUY_CONTINUATION entries are blocked for the session.
+        
+        daily_trend_conditions = 0
+        daily_trend_details = {}
+        
+        # Condition 1: VWAP slope positive on 5m timeframe
+        # Get 5m VWAP slope from market_data (computed by IndicatorBuilder)
+        vwap_slope_5m = market_data.get("vwap_slope_5m", market_data.get("5m_vwap_slope", 0.0))
+        # If not available, try to estimate from VWAP vs prev VWAP
+        if vwap_slope_5m == 0.0:
+            prev_vwap = market_data.get("prev_vwap", market_data.get("vwap_prev", vwap))
+            if prev_vwap > 0 and vwap > 0:
+                vwap_slope_5m = (vwap - prev_vwap) / prev_vwap
+        
+        vwap_slope_positive = vwap_slope_5m > 0.0001  # Small positive threshold
+        if vwap_slope_positive:
+            daily_trend_conditions += 1
+        daily_trend_details["vwap_slope_5m"] = vwap_slope_5m
+        daily_trend_details["vwap_slope_positive"] = vwap_slope_positive
+        
+        # Condition 2: EMA21 > EMA50 on 5m or 15m
+        # Check 5m EMAs
+        ema21_5m = market_data.get("5m_EMA_21", market_data.get("ema21_5m", 0.0))
+        ema50_5m = market_data.get("5m_EMA_50", market_data.get("ema50_5m", 0.0))
+        # Check 15m EMAs
+        ema21_15m = market_data.get("15m_EMA_21", market_data.get("ema21_15m", 0.0))
+        ema50_15m = market_data.get("15m_EMA_50", market_data.get("ema50_15m", 0.0))
+        
+        # Use 5m if available, else fall back to 15m, else use 1m EMAs
+        ema_bullish_5m = ema21_5m > ema50_5m if (ema21_5m > 0 and ema50_5m > 0) else False
+        ema_bullish_15m = ema21_15m > ema50_15m if (ema21_15m > 0 and ema50_15m > 0) else False
+        
+        # If neither 5m nor 15m EMAs available, use 1m as fallback
+        if not (ema21_5m > 0 or ema21_15m > 0):
+            ema_bullish_5m = ema_20 > ema_50 if ema_50 > 0 else False
+        
+        ema_alignment_bullish = ema_bullish_5m or ema_bullish_15m
+        if ema_alignment_bullish:
+            daily_trend_conditions += 1
+        daily_trend_details["ema21_5m"] = ema21_5m
+        daily_trend_details["ema50_5m"] = ema50_5m
+        daily_trend_details["ema21_15m"] = ema21_15m
+        daily_trend_details["ema50_15m"] = ema50_15m
+        daily_trend_details["ema_bullish_5m"] = ema_bullish_5m
+        daily_trend_details["ema_bullish_15m"] = ema_bullish_15m
+        daily_trend_details["ema_alignment_bullish"] = ema_alignment_bullish
+        
+        # Condition 3: ADX > 20 (already computed above)
+        adx_trending = adx > 20
+        if adx_trending:
+            daily_trend_conditions += 1
+        daily_trend_details["adx"] = adx
+        daily_trend_details["adx_trending"] = adx_trending
+        
+        # Gate passes if at least 2 of 3 conditions are true
+        daily_trend_confirmed = daily_trend_conditions >= 2
+        
+        result.daily_trend_confirmed = daily_trend_confirmed
+        result.daily_trend_conditions_met = daily_trend_conditions
+        result.daily_trend_details = daily_trend_details
+        
+        # Log the gate status
+        if daily_trend_confirmed:
+            result.filters_passed.append(
+                f"DAILY_TREND_CONFIRMED({daily_trend_conditions}/3: "
+                f"VWAP={'+' if vwap_slope_positive else '-'}, "
+                f"EMA={'+' if ema_alignment_bullish else '-'}, "
+                f"ADX={'+' if adx_trending else '-'})"
+            )
+        else:
+            result.filters_warned.append(
+                f"DAILY_TREND_UNCONFIRMED({daily_trend_conditions}/3: "
+                f"VWAP={'+' if vwap_slope_positive else '-'}, "
+                f"EMA={'+' if ema_alignment_bullish else '-'}, "
+                f"ADX={'+' if adx_trending else '-'})"
+            )
+            logger.debug(
+                f"⚠️ DAILY_TREND_GATE: {daily_trend_conditions}/3 conditions met - "
+                f"BUY_CONTINUATION may be blocked"
+            )
+        
         # ===== MANDATORY GUARDRAILS (Jan 16 2026) =====
         # Strict capital preservation rules
         trades_today = market_data.get("trades_today", 0)
@@ -736,14 +835,26 @@ class RuleEngine:
             score_details.append(f"WEAK_DOWN:+{pts:.1f}")
         elif result.market_trend in ["RANGE", "CHOP"]:
             # Range/Chop: Use mean reversion - RELAXED thresholds for more signals
+            # JAN 2026 FIX: Check for momentum breakout risk even in chop/range
+            breakout_bullish = macd_hist > 0.5
+            breakout_bearish = macd_hist < -0.5
+
             if rsi < 48:  # RELAXED from 45 - slight oversold
                 pts = self.trend_weight * 0.4  # INCREASED from 0.3
+                if breakout_bearish:
+                    pts *= 0.2 # Penalty for buying a bearish breakdown
+                    score_details.append(f"RANGE_RSI<48(BREAKDOWN_RISK):+{pts:.1f}")
+                else:
+                    score_details.append(f"RANGE_RSI<48:+{pts:.1f}")
                 buy_score += pts
-                score_details.append(f"RANGE_RSI<48:+{pts:.1f}")
             elif rsi > 52:  # RELAXED from 55 - slight overbought
                 pts = self.trend_weight * 0.4
+                if breakout_bullish:
+                    pts *= 0.2 # Penalty for selling a bullish breakout
+                    score_details.append(f"RANGE_RSI>52(BREAKOUT_RISK):+{pts:.1f}")
+                else:
+                    score_details.append(f"RANGE_RSI>52:+{pts:.1f}")
                 sell_score += pts
-                score_details.append(f"RANGE_RSI>52:+{pts:.1f}")
             else:
                 score_details.append(f"RANGE_NEUTRAL(RSI={rsi:.1f})")
             result.filters_passed.append("RANGE_REVERSION")
@@ -751,7 +862,19 @@ class RuleEngine:
             score_details.append(f"NO_TREND({result.market_trend})")
         
         # Momentum component (RSI + MACD) - MORE GRANULAR
-        # RSI: Award points more progressively
+        # JAN 2026 FIX: RSI scoring now respects acceptance vs exhaustion
+        # High RSI in uptrend = CONTINUATION (don't short)
+        # High RSI in downtrend = potential reversal (sell signal)
+        
+        # First determine if we're in an EMA stack up condition (acceptance)
+        ema_stack_up = result.market_trend in ["UPTREND", "MICRO_UP", "WEAK_UP"]
+        ema_stack_down = result.market_trend in ["DOWNTREND", "MICRO_DOWN", "WEAK_DOWN"]
+        macd_positive = macd_hist > 0.2  # Strong positive MACD
+        
+        # ACCEPTANCE condition: bullish continuation setup
+        is_bullish_acceptance = ema_stack_up and macd_positive
+        
+        # RSI: Award points based on trend context, not just absolute levels
         if rsi < self.rsi_oversold:  # < 40
             pts = self.momentum_weight * 0.6
             buy_score += pts
@@ -762,14 +885,31 @@ class RuleEngine:
             buy_score += pts
             score_details.append(f"RSI_LOW({rsi:.1f}):+{pts:.1f}")
         elif rsi > self.rsi_overbought:  # > 60
-            pts = self.momentum_weight * 0.6
-            sell_score += pts
-            result.filters_passed.append("RSI_OVERBOUGHT")
-            score_details.append(f"RSI_OVERBOUGHT({rsi:.1f}):+{pts:.1f}")
-        elif rsi > 55:  # 55-60: somewhat overbought
-            pts = self.momentum_weight * 0.3
-            sell_score += pts
-            score_details.append(f"RSI_HIGH({rsi:.1f}):+{pts:.1f}")
+            # JAN 2026 FIX: High RSI in bullish acceptance = CONTINUATION, not reversal!
+            # Only add to sell_score if NOT in bullish acceptance
+            if is_bullish_acceptance:
+                # Bullish acceptance with high RSI = momentum is strong, don't short
+                pts = self.momentum_weight * 0.2  # Small boost to buy for strong momentum
+                buy_score += pts
+                result.filters_warned.append("RSI_HIGH_IN_ACCEPTANCE")
+                score_details.append(f"RSI_HIGH_ACCEPTANCE({rsi:.1f}):BUY+{pts:.1f}")
+            else:
+                # Not in acceptance - high RSI can trigger mean reversion sell
+                pts = self.momentum_weight * 0.6
+                sell_score += pts
+                result.filters_passed.append("RSI_OVERBOUGHT")
+                score_details.append(f"RSI_OVERBOUGHT({rsi:.1f}):+{pts:.1f}")
+        elif rsi > 55:  # 55-60: ideal continuation zone for bulls
+            if is_bullish_acceptance:
+                # In bullish acceptance, RSI 55-60 is the sweet spot for continuation
+                pts = self.momentum_weight * 0.3
+                buy_score += pts
+                score_details.append(f"RSI_BULLISH_ZONE({rsi:.1f}):BUY+{pts:.1f}")
+            else:
+                # Not in acceptance - somewhat overbought for mean reversion
+                pts = self.momentum_weight * 0.3
+                sell_score += pts
+                score_details.append(f"RSI_HIGH({rsi:.1f}):+{pts:.1f}")
         else:
             score_details.append(f"RSI_NEUTRAL({rsi:.1f})")
         
@@ -814,12 +954,27 @@ class RuleEngine:
             elif pdh_dist_pct < level_proximity_pct:
                 # Near PDH - potential rejection sell
                 # BOOST: Near PDH with overbought RSI = strong mean reversion sell
+                
+                # JAN 2026 FIX: Check for momentum breakout risk
+                # If MACD is strong positive, fading PDH is dangerous (Breakout Risk)
+                breakout_risk = False
+                if macd_hist > 0.5: # Strong momentum
+                     breakout_risk = True
+                     
                 if rsi > 50:  # RSI supporting sell at PDH
                     pts = self.level_weight * 1.2  # BOOSTED for confluence
-                    score_details.append(f"NEAR_PDH+RSI_SUPPORT({pdh_dist_pct:.2f}%):+{pts:.1f}")
+                    if breakout_risk:
+                         pts *= 0.2 # Penalty for fading breakout momentum
+                         score_details.append(f"NEAR_PDH+RSI_SUPPORT(BREAKOUT_RISK):+{pts:.1f}")
+                    else:
+                         score_details.append(f"NEAR_PDH+RSI_SUPPORT({pdh_dist_pct:.2f}%):+{pts:.1f}")
                 else:
                     pts = self.level_weight * 0.7
-                    score_details.append(f"NEAR_PDH({pdh_dist_pct:.2f}%):+{pts:.1f}")
+                    if breakout_risk:
+                         pts *= 0.2
+                         score_details.append(f"NEAR_PDH(BREAKOUT_RISK):+{pts:.1f}")
+                    else:
+                         score_details.append(f"NEAR_PDH({pdh_dist_pct:.2f}%):+{pts:.1f}")
                 sell_score += pts
                 result.filters_warned.append("NEAR_PDH")
             else:
@@ -841,26 +996,41 @@ class RuleEngine:
         if daily_bias == "BEARISH":
             # On bearish days, boost sell signals and penalize buy signals
             sell_score *= 1.3  # 30% boost to sell
-            buy_score *= 0.6   # 40% penalty to buy (don't buy falling knives)
-            score_details.append(f"DAILY_BEARISH(SELL*1.3,BUY*0.6)")
+            # JAN 2026 FIX: Don't penalize mean reversion buys if deeply oversold
+            if rsi < 35:
+                buy_score *= 0.95 # minimal penalty for contrarian play
+                score_details.append(f"BEARISH_BUT_OVERSOLD(BUY*0.95)")
+            else:
+                buy_score *= 0.6   # 40% penalty to buy (don't buy falling knives)
+                score_details.append(f"DAILY_BEARISH(SELL*1.3,BUY*0.6)")
         elif daily_bias == "BULLISH":
             # On bullish days, boost buy signals and penalize sell signals
             buy_score *= 1.3   # 30% boost to buy
-            sell_score *= 0.6  # 40% penalty to sell (don't short strength)
-            score_details.append(f"DAILY_BULLISH(BUY*1.3,SELL*0.6)")
+            # JAN 2026 FIX: In bullish acceptance, NEVER boost sell signals
+            # High RSI in bullish acceptance = continuation, not reversal
+            if is_bullish_acceptance:
+                sell_score *= 0.4  # Strong penalty - don't short acceptance
+                score_details.append(f"BULLISH_ACCEPTANCE(BUY*1.3,SELL*0.4)")
+            elif rsi > 65:
+                # Not in acceptance but overbought - small penalty for contrarian
+                sell_score *= 0.95
+                score_details.append(f"BULLISH_BUT_OVERBOUGHT(SELL*0.95)")
+            else:
+                sell_score *= 0.6  # 40% penalty to sell (don't short strength)
+                score_details.append(f"DAILY_BULLISH(BUY*1.3,SELL*0.6)")
         else:
             score_details.append("DAILY_NEUTRAL")
         
-        # ===== JAN 8 2026 FIX: MEAN-REVERSION OVERRIDE =====
-        # When price is at PDL/PDH with extreme RSI, OVERRIDE trend-following
-        # and force mean-reversion logic. This prevents selling at support
-        # or buying at resistance when RSI confirms reversal.
+        # ===== JAN 2026 FIX: MEAN-REVERSION OVERRIDE =====
+        # Only apply mean reversion when NOT in acceptance phase
+        # Fading strength in acceptance = losing trade
         mean_reversion_override = False
         if pdh > 0 and pdl > 0:
             pdh_dist_pct = abs(price - pdh) / price * 100
             pdl_dist_pct = abs(price - pdl) / price * 100
             
             # Near PDL (support) with oversold RSI → FORCE BUY
+            # This is safe - buying support with oversold RSI
             if pdl_dist_pct < 0.3 and rsi < 35:
                 if sell_score > buy_score:
                     logger.warning(
@@ -874,9 +1044,17 @@ class RuleEngine:
                     mean_reversion_override = True
                     score_details.append(f"MEAN_REV_OVERRIDE(PDL+RSI{rsi:.0f})")
             
-            # Near PDH (resistance) with overbought RSI → FORCE SELL
+            # Near PDH (resistance) with overbought RSI → ONLY force SELL if NOT in acceptance
+            # JAN 2026 FIX: Never flip to SELL during bullish acceptance - could break out
             elif pdh_dist_pct < 0.3 and rsi > 65:
-                if buy_score > sell_score:
+                if is_bullish_acceptance:
+                    # In acceptance, high RSI near PDH = potential breakout, NOT reversal
+                    logger.info(
+                        f"📈 ACCEPTANCE PROTECTION: Near PDH but in bullish acceptance - "
+                        f"NOT forcing mean reversion (could breakout)"
+                    )
+                    score_details.append(f"PDH_BUT_ACCEPTANCE(NO_FLIP)")
+                elif buy_score > sell_score:
                     logger.warning(
                         f"🔄 MEAN-REVERSION OVERRIDE: Near PDH ({pdh_dist_pct:.2f}%) "
                         f"+ overbought RSI ({rsi:.1f}) → Flipping BUY→SELL"
@@ -914,8 +1092,11 @@ class RuleEngine:
         # ===== MANDATORY FIX #2: Don't Sell the Hole =====
         if result.signal in [TradeAction.SELL, TradeAction.SCALP_SELL]:
             dist_to_ema20 = abs(price - ema_20) / ema_20 if ema_20 > 0 else 0
-            if rsi < 40:
-                 result.filters_blocked.append(f"BLOCKED: OVERSOLD_EXTENSION (RSI {rsi:.1f} < 40)")
+            if rsi < self.oversold_extension_rsi_min:
+                 result.filters_blocked.append(
+                     "BLOCKED: OVERSOLD_EXTENSION (RSI "
+                     f"{rsi:.1f} < {self.oversold_extension_rsi_min:.1f})"
+                 )
                  result.signal = TradeAction.HOLD
             elif price < bb_lower and bb_lower > 0:
                  result.filters_blocked.append(f"BLOCKED: OVERSOLD_EXTENSION (Price < BB Low)")
@@ -1009,8 +1190,17 @@ class RAGRetriever:
         # Get similar historical trades
         if self.storage_manager:
             try:
+                # Determine action for retrieval (map SCALP_X to X, default to BUY)
+                action_str = rule_result.signal.value
+                if "SELL" in action_str:
+                    retrieval_action = "SELL"
+                elif "BUY" in action_str:
+                    retrieval_action = "BUY"
+                else:
+                    retrieval_action = "BUY"
+
                 similar_trades = self.storage_manager.get_similar_trades(
-                    action=rule_result.signal.value if rule_result.signal in [TradeAction.BUY, TradeAction.SELL] else "BUY",
+                    action=retrieval_action,
                     market_trend=rule_result.market_trend,
                     volatility_regime=rule_result.volatility_regime,
                     price_near_pdh="NEAR_PDH" in rule_result.filters_warned,
@@ -1597,12 +1787,22 @@ REASONING: [2-3 sentences explaining your decision]
         # Adjust based on historical win rate
         if rag_result.similar_trade_count > 0:
             if rag_result.historical_win_rate > 0.6:
-                confidence *= 1.1
+                               confidence *= 1.1
             elif rag_result.historical_win_rate < 0.4:
                 confidence *= 0.8
         
         return LLMDecisionResult(
-            action=rule_result.signal if rule_result.signal in [TradeAction.BUY, TradeAction.SELL] else TradeAction.HOLD,
+            action=(
+                rule_result.signal
+                if rule_result.signal
+                in [
+                    TradeAction.BUY,
+                    TradeAction.SELL,
+                    TradeAction.SCALP_BUY,
+                    TradeAction.SCALP_SELL,
+                ]
+                else TradeAction.HOLD
+            ),
             confidence=min(confidence, 100),
             reasoning=f"Rule-based decision: {rule_result.signal.value} with score {rule_result.score:.1f}",
         )
@@ -1705,6 +1905,9 @@ class HybridRAGPipeline:
         # Circuit breaker for consecutive blocks
         self._consecutive_blocks = 0
         self._max_consecutive_blocks = int(config.get("max_consecutive_blocks", 5))
+        no_signal_cfg = config.get("no_signal_gate", {}) or {}
+        self._no_signal_allow_weak = bool(no_signal_cfg.get("allow_weak_signals", False))
+        self._no_signal_allow_chop = bool(no_signal_cfg.get("allow_chop_bias", False))
         
         logger.info("HybridRAGPipeline initialized")
 
@@ -1742,6 +1945,9 @@ class HybridRAGPipeline:
         if rule_result.filters_blocked or rule_result.signal != TradeAction.HOLD:
             return None
 
+        if not self._no_signal_allow_weak:
+            return None
+
         trend = rule_result.market_trend
         volatility = rule_result.volatility_regime
 
@@ -1749,6 +1955,12 @@ class HybridRAGPipeline:
             return TradeAction.SCALP_BUY
         if trend in ["DOWNTREND", "MICRO_DOWN", "WEAK_DOWN"] and volatility in ["MEDIUM", "HIGH"]:
             return TradeAction.SCALP_SELL
+
+        if self._no_signal_allow_chop and trend in ["CHOP", "RANGE", "CHOP_RANGE"] and volatility in ["MEDIUM", "HIGH"]:
+            if rule_result.daily_bias == "BULLISH":
+                return TradeAction.SCALP_BUY
+            if rule_result.daily_bias == "BEARISH":
+                return TradeAction.SCALP_SELL
 
         return None
 

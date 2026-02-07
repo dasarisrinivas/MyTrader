@@ -120,6 +120,37 @@ class TradeRecord:
     volatility_regime: str = ""  # HIGH, MEDIUM, LOW
     time_of_day: str = ""  # OPEN, MIDDAY, CLOSE
     day_of_week: str = ""
+    
+    # Scoring system data
+    scoring_total: float = 0.0  # Total score (0-105)
+    scoring_trend: float = 0.0  # Trend component
+    scoring_momentum: float = 0.0  # Momentum component
+    scoring_regime: float = 0.0  # Regime component
+    scoring_entry: float = 0.0  # Entry quality component
+    scoring_penalty: float = 0.0  # Penalties applied
+    scoring_decision: str = ""  # FULL_SIZE/HALF_SIZE/NO_TRADE
+    scoring_threshold: float = 0.0  # Threshold used (50/55/65/70)
+    
+    # Confidence tracking
+    confidence_original: float = 0.0  # Before modifiers
+    confidence_final: float = 0.0  # After all modifiers
+    confidence_sentiment_mult: float = 1.0  # Sentiment multiplier
+    confidence_lowvol_mult: float = 1.0  # Low volume multiplier
+    confidence_counter_trend_mult: float = 1.0  # Counter-trend multiplier
+    
+    # Session information
+    trading_session: str = ""  # RTH/EVENING/OVERNIGHT/PRE_MARKET
+    session_threshold_full: float = 0.0  # Full size threshold used
+    session_threshold_half: float = 0.0  # Half size threshold used
+    session_sentiment_threshold: float = 0.0  # Sentiment block threshold
+    
+    # Sentiment data
+    sentiment_combined: float = 0.0  # Combined multi-source sentiment
+    sentiment_stocktwits: float = 0.0  # Stocktwits score
+    sentiment_reddit: float = 0.0  # Reddit score
+    sentiment_decision: str = ""  # PROCEED/BLOCK/REDUCE_SIZE
+    sentiment_reason: str = ""  # Why decision was made
+    
     # Provenance and diagnostics
     entry_levels_provenance: Dict[str, Any] = field(default_factory=dict)
     exit_levels_provenance: Dict[str, Any] = field(default_factory=dict)

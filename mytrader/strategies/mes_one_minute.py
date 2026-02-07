@@ -1,9 +1,21 @@
-"""MES 1-minute close strategy with minimal indicator stack."""
+"""MES 1-minute close strategy with minimal indicator stack.
+
+JAN 2026 REFACTOR:
+- Fixed SELL-side bias: No longer shorts bullish acceptance (EMA_STACK_UP + MACD+)
+- Added BUY continuation module for pullback entries
+- Separated ACCEPTANCE vs EXHAUSTION logic
+- Hard blocks prevent shorting strength
+
+CORE PRINCIPLES:
+1. NEVER short acceptance (bullish continuation setup)
+2. ONLY short exhaustion (confirmed reversal signals)
+3. BUY pullbacks in acceptance for high-probability trades
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import time, timedelta, datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
@@ -13,6 +25,22 @@ from ..config import OneMinuteStrategyConfig
 from ..features.feature_engineer import _adx, _atr, _ema, _rsi
 from ..utils.structured_logging import log_structured_event
 from .base import BaseStrategy, Signal
+
+# JAN 2026: Import new market state and entry modules
+from .market_state import (
+    MarketStateDetector,
+    MarketStateResult,
+    MarketPhase,
+    TrendDirection,
+    create_market_state_detector
+)
+from .entry_modules import (
+    IntegratedEntryManager,
+    BuyContinuationModule,
+    SellExhaustionModule,
+    EntrySignal,
+    create_entry_manager
+)
 
 
 @dataclass
@@ -26,7 +54,14 @@ class StrategyDecision:
 
 
 class MesOneMinuteTrendStrategy(BaseStrategy):
-    """Single-instrument MES strategy evaluated strictly on 1-minute closes."""
+    """Single-instrument MES strategy evaluated strictly on 1-minute closes.
+    
+    JAN 2026 REFACTOR:
+    - Integrated MarketStateDetector for acceptance/exhaustion detection
+    - Uses BuyContinuationModule for pullback entries
+    - Uses SellExhaustionModule for reversal entries (exhaustion only)
+    - Hard blocks prevent shorting bullish acceptance
+    """
 
     name = "mes_one_minute_trend"
 
@@ -34,6 +69,43 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         self.config = config
         self._trade_log: list[pd.Timestamp] = []
         self._hourly_log: list[pd.Timestamp] = []
+        
+        # JAN 2026: Initialize entry manager with acceptance/exhaustion modules
+        self._entry_manager = self._create_entry_manager()
+        
+        # Track previous bar for slope calculations
+        self._prev_bar_data: Optional[Dict[str, Any]] = None
+
+    def _create_entry_manager(self) -> IntegratedEntryManager:
+        """Create entry manager with configuration from strategy config."""
+        entry_config = {
+            "state_config": {
+                # Acceptance thresholds
+                "macd_acceptance_threshold": getattr(self.config, 'macd_acceptance_threshold', 0.20),
+                "rsi_acceptance_min": getattr(self.config, 'rsi_acceptance_min', 55),
+                "rsi_acceptance_max": getattr(self.config, 'rsi_acceptance_max', 70),
+                # Exhaustion thresholds
+                "rsi_exhaustion_threshold": getattr(self.config, 'rsi_exhaustion_threshold', 65),
+                # Morning protection (CST)
+                "morning_protection_hour": 10,
+                "morning_protection_minute": 15,
+            },
+            "buy_config": {
+                "rsi_min": getattr(self.config, 'rsi_buy_min', 55),
+                "rsi_max": getattr(self.config, 'rsi_buy_max', 70),
+                "stop_atr_mult": self.config.stop_atr_multiplier,
+                "target_risk_mult": self.config.take_profit_multiple,
+                "min_stop_points": getattr(self.config, 'min_stop_points', 3.25),
+            },
+            "sell_config": {
+                "rsi_exhaustion_min": getattr(self.config, 'rsi_exhaustion_threshold', 65),
+                "stop_atr_mult": self.config.stop_atr_multiplier,
+                "target_risk_mult": self.config.take_profit_multiple,
+                "min_stop_points": getattr(self.config, 'min_stop_points', 3.25),
+                "avoid_strong_trend": True,
+            }
+        }
+        return create_entry_manager(entry_config)
 
     def _is_rth(self, timestamp: pd.Timestamp) -> bool:
         """Check if timestamp is within RTH (Regular Trading Hours)."""
@@ -54,6 +126,33 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         rth_end = time(self.config.rth_end_hour, self.config.rth_end_minute)
         
         return rth_start <= t < rth_end
+
+    def _is_in_rth_no_trade_window(self, timestamp: pd.Timestamp) -> bool:
+        """Check if timestamp falls within an optional RTH no-trade window."""
+        start_hour = self.config.rth_no_trade_start_hour
+        start_minute = self.config.rth_no_trade_start_minute
+        end_hour = self.config.rth_no_trade_end_hour
+        end_minute = self.config.rth_no_trade_end_minute
+
+        if None in (start_hour, start_minute, end_hour, end_minute):
+            return False
+
+        if timestamp.tz is not None:
+            try:
+                local_ts = timestamp.tz_convert("America/Chicago")
+            except Exception:
+                local_ts = timestamp
+        else:
+            local_ts = timestamp
+
+        t = local_ts.time() if hasattr(local_ts, "time") else time(0, 0)
+        window_start = time(int(start_hour), int(start_minute))
+        window_end = time(int(end_hour), int(end_minute))
+
+        if window_start < window_end:
+            return window_start <= t < window_end
+
+        return t >= window_start or t < window_end
 
     def _is_overnight_session(self, timestamp: pd.Timestamp) -> bool:
         """
@@ -211,9 +310,16 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         
         # RTH session: use original filters
         elif session_type == "RTH":
+            if self._is_in_rth_no_trade_window(current_time):
+                return Signal("HOLD", 0.0, {"reason": "RTH_NO_TRADE_WINDOW"})
             # Standard RTH volume filter
             bar_volume = float(latest.get("volume", 0))
-            if bar_volume < self.config.min_bar_volume:
+            min_volume = (
+                self.config.rth_min_bar_volume
+                if self.config.rth_min_bar_volume is not None
+                else self.config.min_bar_volume
+            )
+            if bar_volume < min_volume:
                 filters_block = True
                 reasons.append("LOW_VOLUME")
         else:
@@ -228,9 +334,14 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         # JAN 11 2026: High ATR regime filter - only trade when volatility is elevated
         # Backtest showed: Low ATR 27% WR, Med ATR 20% WR, High ATR 63.6% WR
         require_high_atr = getattr(self.config, 'require_high_atr', False)
+        if session_type == "RTH" and self.config.rth_require_high_atr is not None:
+            require_high_atr = self.config.rth_require_high_atr
+
         if require_high_atr and not filters_block:
             # TUNING (Jan 17 2026): Lowered from 0.67 (top 33%) to 0.50 (median) to increase trade frequency
             high_atr_pct = getattr(self.config, 'high_atr_percentile', 0.50)
+            if session_type == "RTH" and self.config.rth_high_atr_percentile is not None:
+                high_atr_pct = self.config.rth_high_atr_percentile
             lookback = getattr(self.config, 'high_atr_lookback', 200)
             
             # JAN 17 2026: Check 15m ATR for regime if available
@@ -247,22 +358,30 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
                     filters_block = True
                     reasons.append("LOW_ATR_REGIME")  # Not in top tercile
         
-        # Soft warnings (logged but don't block) for ATR percentile extremes
-        # These inform the decision but don't prevent trading
+        # ATR percentile extremes
         if atr_value < atr_low:
-            reasons.append("ATR_LOW_WARN")  # Changed from hard block
+            if getattr(self.config, "atr_bounds_blocking", True):
+                filters_block = True
+                reasons.append("ATR_TOO_LOW")
+            else:
+                reasons.append("ATR_LOW_WARN")
         elif atr_value > atr_high:
-            reasons.append("ATR_HIGH_WARN")  # Changed from hard block
+            if getattr(self.config, "atr_bounds_blocking", True):
+                filters_block = True
+                reasons.append("ATR_TOO_HIGH")
+            else:
+                reasons.append("ATR_HIGH_WARN")
 
-        # TINY_CANDLE: Only block if candle range is 0 AND we would trade
-        # Non-zero small candles are fine - the market is just quiet
+        # TINY_CANDLE: Optional blocking depending on configuration
         if candle_range == 0:
-            # Zero range = no price movement, can't trade this bar
             filters_block = True
             reasons.append("ZERO_RANGE")
         elif candle_range < self.config.tiny_candle_atr_factor * atr_value:
-            # Small candle - warn but allow trading on valid setups
-            reasons.append("SMALL_CANDLE_WARN")
+            if getattr(self.config, "tiny_candle_blocking", True):
+                filters_block = True
+                reasons.append("TINY_CANDLE")
+            else:
+                reasons.append("SMALL_CANDLE_WARN")
 
         metadata: Dict[str, float | str] = {
             "market_state": market_state,
@@ -309,38 +428,171 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
 
         decision = StrategyDecision(action="HOLD", confidence=0.0, reason="INIT", metadata=metadata)
 
+        if session_type == "RTH" and self.config.rth_trend_adx_threshold is not None:
+            adx_threshold = self.config.rth_trend_adx_threshold
+        else:
+            adx_threshold = self.config.trend_adx_threshold
+
+        market_state = "TRENDING" if adx_value >= adx_threshold else "RANGING"
+        if market_state != "TRENDING":
+            trend_label = "CHOP"
+        elif not use_mtf:
+            trend_label = self._classify_trend(latest, adx_threshold)
+        metadata["market_state"] = market_state
+
         if filters_block or trend_label == "CHOP":
             decision = StrategyDecision("HOLD", 0.0, ",".join(reasons) or "CHOP", metadata=metadata)
         else:
-            pullback_ok, pull_reason = self._pullback_confirmation(enriched)
-            # JAN 11 2026: Disable extensions if configured
-            breakout_decision = None
-            if self.config.breakout_enabled and getattr(self.config, 'enable_trend_extensions', True):
-                breakout_decision = self._breakout_check(latest, adx_value, metadata)
+            # =========================================================================
+            # JAN 2026 REFACTOR: Use IntegratedEntryManager for BUY/SELL decisions
+            # =========================================================================
+            # The new entry manager uses:
+            # 1. MarketStateDetector - determines ACCEPTANCE vs EXHAUSTION
+            # 2. BuyContinuationModule - BUY pullbacks in acceptance
+            # 3. SellExhaustionModule - SELL only when exhaustion confirmed
+            #
+            # This fixes the sell-side bias by:
+            # - NEVER shorting acceptance (EMA_STACK_UP + MACD+)
+            # - Requiring exhaustion confirmation for any SHORT
+            # - Morning RTH protection (no shorts before 10:15 CST)
+            # - Squeeze protection (no shorts when RSI>75 + MACD>0.30)
+            # =========================================================================
+            
+            # Prepare data dict for entry manager
+            entry_data = self._prepare_entry_data(latest)
+            entry_data["trend_label"] = trend_label
 
-            if breakout_decision:
-                decision = breakout_decision
-                decision.metadata.update(metadata)
-            elif trend_label == "UPTREND" and pullback_ok:
-                decision = self._enter_with_brackets(
-                    direction="BUY",
-                    close=float(latest["close"]),
-                    atr=atr_value,
-                    reason=pull_reason or "PULLBACK_LONG",
-                    base_conf=0.68,
-                    extra_meta=metadata,
-                )
-            elif trend_label == "DOWNTREND" and pullback_ok:
-                decision = self._enter_with_brackets(
-                    direction="SELL",
-                    close=float(latest["close"]),
-                    atr=atr_value,
-                    reason=pull_reason or "PULLBACK_SHORT",
-                    base_conf=0.68,
-                    extra_meta=metadata,
-                )
+            # Prefer higher-timeframe regime for alignment filtering
+            htf_regime = "UNKNOWN"
+            if is_overnight:
+                htf_regime = str(latest.get("30m_regime", "UNKNOWN"))
             else:
-                decision = StrategyDecision("HOLD", 0.0, "NO_SETUP", metadata=metadata)
+                htf_regime = str(latest.get("15m_regime", "UNKNOWN"))
+
+            if htf_regime == "UPTREND":
+                entry_data["trend_label_htf"] = "UPTREND"
+            elif htf_regime == "DOWNTREND":
+                entry_data["trend_label_htf"] = "DOWNTREND"
+            elif htf_regime == "RANGING":
+                entry_data["trend_label_htf"] = "CHOP"
+            else:
+                entry_data["trend_label_htf"] = trend_label
+            
+            # Prepare previous bar data for slope calculations
+            prev_data = self._prepare_entry_data(prev) if len(enriched) >= 2 else None
+            
+            # Get recent bars for pullback detection
+            recent_bars = enriched.tail(10)
+            
+            # Use legacy behavior if explicitly disabled
+            use_new_entry_logic = getattr(self.config, 'use_acceptance_exhaustion_logic', True)
+            
+            if use_new_entry_logic:
+                # === NEW ENTRY LOGIC ===
+                entry_signal, market_state_result = self._entry_manager.evaluate(
+                    data=entry_data,
+                    timestamp=current_time.to_pydatetime() if hasattr(current_time, 'to_pydatetime') else current_time,
+                    prev_data=prev_data,
+                    recent_bars=recent_bars,
+                    session_type=session_type
+                )
+                
+                # Add market state info to metadata
+                metadata["is_acceptance"] = market_state_result.is_acceptance
+                metadata["is_exhaustion"] = market_state_result.is_exhaustion
+                metadata["allow_buy"] = market_state_result.allow_buy
+                metadata["allow_short"] = market_state_result.allow_short
+                metadata["market_phase"] = market_state_result.phase.value
+                metadata["trend_direction"] = market_state_result.trend.value
+                metadata["trend_score"] = market_state_result.trend_score
+                metadata["exhaustion_score"] = market_state_result.exhaustion_score
+                metadata["continuation_score"] = market_state_result.continuation_score
+                
+                if entry_signal.is_actionable:
+                    decision = StrategyDecision(
+                        action=entry_signal.action,
+                        confidence=entry_signal.confidence,
+                        reason=entry_signal.reason,
+                        stop_loss=entry_signal.stop_loss,
+                        take_profit=entry_signal.take_profit,
+                        metadata=metadata
+                    )
+                    if entry_signal.metadata:
+                        decision.metadata.update(entry_signal.metadata)
+                else:
+                    decision = StrategyDecision(
+                        "HOLD",
+                        0.0,
+                        entry_signal.reason,
+                        metadata=metadata
+                    )
+                
+                # Store current bar as previous for next iteration
+                self._prev_bar_data = entry_data
+            
+            else:
+                # === LEGACY ENTRY LOGIC (kept for comparison/fallback) ===
+                pullback_ok, pull_reason = self._pullback_confirmation(
+                    enriched,
+                    rth=session_type == "RTH",
+                )
+                pullback_required = self.config.require_pullback_confirmation
+                if session_type == "RTH" and self.config.rth_require_pullback_confirmation is not None:
+                    pullback_required = self.config.rth_require_pullback_confirmation
+                if session_type == "RTH" and pullback_required:
+                    adx_bypass = self.config.rth_pullback_adx_bypass
+                    if adx_bypass is not None and adx_value >= adx_bypass:
+                        pullback_required = False
+                # JAN 11 2026: Disable extensions if configured
+                breakout_decision = None
+                if self.config.breakout_enabled and getattr(self.config, 'enable_trend_extensions', True):
+                    breakout_decision = self._breakout_check(latest, adx_value, metadata)
+
+                # RTH open mean-reversion/momentum capture
+                if (
+                    session_type == "RTH"
+                    and self.config.rth_open_mean_reversion_enabled
+                    and self._is_rth_open_window(current_time)
+                ):
+                    open_decision = self._rth_open_entry(
+                        latest,
+                        atr_value,
+                        metadata,
+                        adx_value=adx_value,
+                        bar_volume=bar_volume,
+                    )
+                    if open_decision:
+                        decision = open_decision
+                        decision.metadata.update(metadata)
+                    else:
+                        decision = StrategyDecision("HOLD", 0.0, "RTH_OPEN_NO_SETUP", metadata=metadata)
+                elif breakout_decision:
+                    decision = breakout_decision
+                    decision.metadata.update(metadata)
+                elif trend_label == "UPTREND" and (pullback_ok or not pullback_required):
+                    decision = self._enter_with_brackets(
+                        direction="BUY",
+                        close=float(latest["close"]),
+                        atr=atr_value,
+                        reason=pull_reason if pullback_ok else "TREND_CONTINUATION_LONG",
+                        base_conf=0.68,
+                        extra_meta=metadata,
+                        stop_mult=self._session_stop_multiplier(session_type),
+                        tp_mult=self._session_tp_multiplier(session_type),
+                    )
+                elif trend_label == "DOWNTREND" and (pullback_ok or not pullback_required):
+                    decision = self._enter_with_brackets(
+                        direction="SELL",
+                        close=float(latest["close"]),
+                        atr=atr_value,
+                        reason=pull_reason if pullback_ok else "TREND_CONTINUATION_SHORT",
+                        base_conf=0.68,
+                        extra_meta=metadata,
+                        stop_mult=self._session_stop_multiplier(session_type),
+                        tp_mult=self._session_tp_multiplier(session_type),
+                    )
+                else:
+                    decision = StrategyDecision("HOLD", 0.0, "NO_SETUP", metadata=metadata)
 
         self._log_decision(enriched.index[-1], decision, latest)
         meta = decision.metadata or {}
@@ -350,6 +602,84 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         meta["trend_label"] = trend_label
 
         return Signal(action=decision.action, confidence=decision.confidence, metadata=meta)
+
+    def _prepare_entry_data(self, bar: pd.Series) -> Dict[str, Any]:
+        """Prepare data dictionary for entry manager evaluation.
+        
+        Extracts and normalizes indicator values from a DataFrame row
+        for use by the MarketStateDetector and entry modules.
+        
+        Args:
+            bar: Single row from enriched DataFrame
+            
+        Returns:
+            Dict with standardized indicator names
+        """
+        # Helper to safely get float value
+        def safe_float(val, default=0.0):
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return default
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return default
+        
+        return {
+            # Price data
+            "close": safe_float(bar.get("close", 0)),
+            "price": safe_float(bar.get("close", 0)),
+            "open": safe_float(bar.get("open", bar.get("close", 0))),
+            "high": safe_float(bar.get("high", bar.get("close", 0))),
+            "low": safe_float(bar.get("low", bar.get("close", 0))),
+            
+            # EMAs - 1m timeframe
+            "ema_9": safe_float(bar.get("EMA_9", bar.get("close", 0))),
+            "ema_21": safe_float(bar.get("EMA_21", bar.get("close", 0))),
+            "ema_50": safe_float(bar.get("EMA_50", bar.get("EMA_21", bar.get("close", 0)))),
+            "EMA_9": safe_float(bar.get("EMA_9", bar.get("close", 0))),
+            "EMA_21": safe_float(bar.get("EMA_21", bar.get("close", 0))),
+            "EMA_50": safe_float(bar.get("EMA_50", bar.get("EMA_21", bar.get("close", 0)))),
+            
+            # EMAs - 5m timeframe (for DAILY_TREND_GATE)
+            "5m_ema21": safe_float(bar.get("5m_EMA_21", bar.get("EMA_21", 0))),
+            "5m_ema50": safe_float(bar.get("5m_EMA_50", bar.get("EMA_50", 0))),
+            "5m_EMA_21": safe_float(bar.get("5m_EMA_21", bar.get("EMA_21", 0))),
+            "5m_EMA_50": safe_float(bar.get("5m_EMA_50", bar.get("EMA_50", 0))),
+            
+            # EMAs - 15m timeframe (for DAILY_TREND_GATE)
+            "15m_ema21": safe_float(bar.get("15m_EMA_21", bar.get("EMA_21", 0))),
+            "15m_ema50": safe_float(bar.get("15m_EMA_50", bar.get("EMA_50", 0))),
+            "15m_EMA_21": safe_float(bar.get("15m_EMA_21", bar.get("EMA_21", 0))),
+            "15m_EMA_50": safe_float(bar.get("15m_EMA_50", bar.get("EMA_50", 0))),
+            
+            # VWAP
+            "vwap": safe_float(bar.get("SESSION_VWAP", bar.get("close", 0))),
+            "SESSION_VWAP": safe_float(bar.get("SESSION_VWAP", bar.get("close", 0))),
+            
+            # Momentum
+            "rsi": safe_float(bar.get("RSI_14", 50)),
+            "RSI_14": safe_float(bar.get("RSI_14", 50)),
+            "macd_hist": safe_float(bar.get("MACD_hist", bar.get("macd_hist", 0))),
+            "MACD_hist": safe_float(bar.get("MACD_hist", bar.get("macd_hist", 0))),
+            
+            # ADX - CRITICAL for DAILY_TREND_GATE (was missing!)
+            "adx": safe_float(bar.get("ADX_14", 0)),
+            "ADX": safe_float(bar.get("ADX_14", 0)),
+            "ADX_14": safe_float(bar.get("ADX_14", 0)),
+            
+            # Volatility
+            "atr": safe_float(bar.get("ATR_14", 1.0)),
+            "ATR_14": safe_float(bar.get("ATR_14", 1.0)),
+            
+            # Levels
+            "pdh": safe_float(bar.get("PDH", 0)) if pd.notna(bar.get("PDH")) else 0,
+            "pdl": safe_float(bar.get("PDL", 0)) if pd.notna(bar.get("PDL")) else 0,
+            "PDH": safe_float(bar.get("PDH", 0)) if pd.notna(bar.get("PDH")) else 0,
+            "PDL": safe_float(bar.get("PDL", 0)) if pd.notna(bar.get("PDL")) else 0,
+            
+            # Volume
+            "volume": safe_float(bar.get("volume", 0)),
+        }
 
     def _ensure_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         enriched = df.copy()
@@ -424,18 +754,20 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         pdl = days.map(lambda d: daily_low.get(d - timedelta(days=1), np.nan))
         return pdh, pdl
 
-    def _classify_trend(self, latest) -> str:
+    def _classify_trend(self, latest, adx_threshold: Optional[float] = None) -> str:
         adx = float(latest["ADX_14"])
-        market_state = "TRENDING" if adx >= self.config.trend_adx_threshold else "RANGING"
+        threshold = adx_threshold if adx_threshold is not None else self.config.trend_adx_threshold
+        market_state = "TRENDING" if adx >= threshold else "RANGING"
         if market_state != "TRENDING":
             return "CHOP"
         close = float(latest["close"])
         vwap = float(latest["SESSION_VWAP"])
         ema9 = float(latest["EMA_9"])
         ema21 = float(latest["EMA_21"])
-        if close > vwap and ema9 > ema21 and close > ema9:
+        tolerance = close * getattr(self.config, "trend_close_tolerance_pct", 0.0)
+        if close > vwap and ema9 > ema21 and close >= ema9 - tolerance:
             return "UPTREND"
-        if close < vwap and ema9 < ema21 and close < ema9:
+        if close < vwap and ema9 < ema21 and close <= ema9 + tolerance:
             return "DOWNTREND"
         return "CHOP"
 
@@ -446,7 +778,7 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         high = float(atr_series.quantile(self.config.atr_percentile_high))
         return low, high
 
-    def _pullback_confirmation(self, df: pd.DataFrame) -> Tuple[bool, str]:
+    def _pullback_confirmation(self, df: pd.DataFrame, rth: bool = False) -> Tuple[bool, str]:
         if len(df) < 5:
             return False, "INSUFFICIENT_HISTORY"
         recent = df.tail(max(4, self.config.pullback_lookback + 1))
@@ -457,10 +789,15 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         ema9_now = float(recent["EMA_9"].iloc[-1])
         ema9_prev = float(recent["EMA_9"].iloc[-2])
 
+        long_min = self.config.rth_rsi_long_min if rth and self.config.rth_rsi_long_min is not None else 40
+        long_max = self.config.rth_rsi_long_max if rth and self.config.rth_rsi_long_max is not None else 55
+        short_min = self.config.rth_rsi_short_min if rth and self.config.rth_rsi_short_min is not None else 45
+        short_max = self.config.rth_rsi_short_max if rth and self.config.rth_rsi_short_max is not None else 60
+
         # RSI pullback long/short windows
-        if 40 <= rsi_now <= 55 and rsi_now > rsi_prev:
+        if long_min <= rsi_now <= long_max and rsi_now > rsi_prev:
             return True, "RSI_PULLBACK_LONG"
-        if 45 <= rsi_now <= 60 and rsi_now < rsi_prev:
+        if short_min <= rsi_now <= short_max and rsi_now < rsi_prev:
             return True, "RSI_PULLBACK_SHORT"
 
         # EMA reclaim across last few bars
@@ -482,6 +819,83 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
             return True, "EMA_RECLAIM_SHORT"
         return False, "NO_PULLBACK"
 
+    def _is_rth_open_window(self, timestamp: pd.Timestamp) -> bool:
+        if not self._is_rth(timestamp):
+            return False
+        if timestamp.tz is not None:
+            try:
+                local_ts = timestamp.tz_convert("America/Chicago")
+            except Exception:
+                local_ts = timestamp
+        else:
+            local_ts = timestamp
+        open_time = time(self.config.rth_start_hour, self.config.rth_start_minute)
+        minutes_since_open = (
+            datetime.combine(local_ts.date(), local_ts.time())
+            - datetime.combine(local_ts.date(), open_time)
+        ).total_seconds() / 60.0
+        return 0 <= minutes_since_open <= max(0, self.config.rth_open_minutes)
+
+    def _rth_open_entry(
+        self,
+        latest: pd.Series,
+        atr_value: float,
+        metadata: Dict[str, float | str],
+        adx_value: float,
+        bar_volume: float,
+    ) -> Optional[StrategyDecision]:
+        rsi_now = float(latest.get("RSI_14", np.nan))
+        vwap = float(latest.get("SESSION_VWAP", np.nan))
+        close = float(latest.get("close", np.nan))
+        if not np.isfinite(rsi_now) or not np.isfinite(vwap) or not np.isfinite(close):
+            return None
+
+        max_adx = self.config.rth_open_max_adx
+        if max_adx is not None and adx_value > max_adx:
+            return None
+
+        min_volume = self.config.rth_open_min_volume
+        if min_volume is not None and bar_volume < min_volume:
+            return None
+
+        atr_buffer = max(0.1, atr_value * self.config.rth_open_vwap_atr_mult)
+        oversold = self.config.rth_open_rsi_oversold
+        overbought = self.config.rth_open_rsi_overbought
+
+        if rsi_now <= oversold and close < vwap - atr_buffer:
+            return self._enter_with_brackets(
+                direction="BUY",
+                close=close,
+                atr=atr_value,
+                reason="RTH_OPEN_MEAN_REVERT_LONG",
+                base_conf=0.60,
+                extra_meta=metadata,
+                stop_mult=self._session_stop_multiplier("RTH"),
+                tp_mult=self._session_tp_multiplier("RTH"),
+            )
+        if rsi_now >= overbought and close > vwap + atr_buffer:
+            return self._enter_with_brackets(
+                direction="SELL",
+                close=close,
+                atr=atr_value,
+                reason="RTH_OPEN_MEAN_REVERT_SHORT",
+                base_conf=0.60,
+                extra_meta=metadata,
+                stop_mult=self._session_stop_multiplier("RTH"),
+                tp_mult=self._session_tp_multiplier("RTH"),
+            )
+        return None
+
+    def _session_stop_multiplier(self, session_type: str) -> float:
+        if session_type == "RTH" and self.config.rth_stop_atr_multiplier is not None:
+            return self.config.rth_stop_atr_multiplier
+        return self.config.stop_atr_multiplier
+
+    def _session_tp_multiplier(self, session_type: str) -> float:
+        if session_type == "RTH" and self.config.rth_take_profit_multiple is not None:
+            return self.config.rth_take_profit_multiple
+        return self.config.take_profit_multiple
+
     def _enter_with_brackets(
         self,
         direction: str,
@@ -490,16 +904,19 @@ class MesOneMinuteTrendStrategy(BaseStrategy):
         reason: str,
         base_conf: float,
         extra_meta: Dict[str, float | str],
+        stop_mult: Optional[float] = None,
+        tp_mult: Optional[float] = None,
     ) -> StrategyDecision:
-        stop_dist = atr * self.config.stop_atr_multiplier
+        stop_multiplier = stop_mult if stop_mult is not None else self.config.stop_atr_multiplier
+        take_profit_multiplier = tp_mult if tp_mult is not None else self.config.take_profit_multiple
+        stop_dist = atr * stop_multiplier
         
         # JAN 11 2026: Enforce minimum stop distance to pass RiskGate
         # RiskGate requires min_stop_points=6.0 (now tuned to 3.0), so ensure stop_dist >= 3.25 points
         min_stop_points = 3.25  # Slightly above RiskGate minimum to ensure passage
         if stop_dist < min_stop_points:
             stop_dist = min_stop_points
-        
-        take_profit_dist = stop_dist * self.config.take_profit_multiple
+        take_profit_dist = stop_dist * take_profit_multiplier
         if stop_dist <= 0 or take_profit_dist <= 0:
             return StrategyDecision("HOLD", 0.0, "INVALID_STOPS", metadata=extra_meta)
         if direction == "BUY":

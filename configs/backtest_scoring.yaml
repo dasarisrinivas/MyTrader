@@ -1,0 +1,130 @@
+# =============================================================================
+# Backtest Configuration - SCORING-BASED ENTRY SYSTEM
+# =============================================================================
+# This config runs the new scoring-based entry strategy for comparison
+# with the baseline hard filter approach.
+# =============================================================================
+
+# Data Configuration
+data:
+  symbol: "ES"  # Using ES (full contract) for better data quality
+  bar_size: "1 min"
+  secondary_bar: "15 min"  # Using 15m for MTF regime detection
+  session: "rth"  # RTH only for cleaner signals
+  
+  # Roll configuration for continuous futures
+  roll:
+    method: "volume_oi_crossover"
+    days_before_expiry: 5
+    adjustment: "back_adjust"
+  
+  # Data source priority
+  sources:
+    - "file"        # Use local data if available
+    - "ib"          # Interactive Brokers
+    - "proxy_spy"   # SPY proxy (fallback, labeled)
+
+# Backtest Period
+backtest:
+  start_date: "2025-02-01"  # One year backtest
+  end_date: "2026-02-01"
+  initial_capital: 50000.0
+  
+  # Cost Modeling (per contract)
+  slippage_ticks: 1.0        # 1 tick = $12.50 for ES
+  commission: 2.40           # Round-trip commission
+  
+  # Session windows
+  sessions:
+    rth_start: "09:30"
+    rth_end: "16:00"
+
+# Strategy Configuration - SCORING SYSTEM
+strategy:
+  # ========== SCORING SYSTEM CONFIGURATION ==========
+  use_scoring_system: true  # ✅ Enable scoring-based entry
+  scoring_full_size_threshold: 60.0  # Score >= 60 → full position
+  scoring_half_size_threshold: 45.0  # Score >= 45 → half position
+  
+  # ========== CORE PARAMETERS ==========
+  # EMA periods
+  ema_fast: 9
+  ema_slow: 21
+  ema_filter: 50
+  
+  # RSI settings
+  rsi_period: 14
+  
+  # ATR settings
+  atr_period: 14
+  stop_atr_multiplier: 1.5     # Stop loss = 1.5 x ATR (scoring system)
+  take_profit_multiple: 2.0    # Target = 2.0 x Stop Distance
+  
+  # ADX trend filter
+  adx_period: 14
+  trend_adx_threshold: 18.0    # Used for metadata, not hard filter
+  
+  # Multi-timeframe
+  use_mtf_regime: true         # Use 15m for regime detection
+  regime_timeframe: "15m"
+  require_regime_trend: false  # Scoring handles this, not hard filter
+  
+  # ========== SESSION CONFIGURATION ==========
+  rth_only: true
+  rth_start_hour: 9
+  rth_start_minute: 30
+  rth_end_hour: 16
+  rth_end_minute: 0
+  
+  # RTH no-trade window (lunch hour)
+  rth_no_trade_start_hour: 12
+  rth_no_trade_start_minute: 0
+  rth_no_trade_end_hour: 13
+  rth_no_trade_end_minute: 30
+  
+  # ========== VOLUME & QUALITY FILTERS ==========
+  min_bar_volume: 50
+  
+  # ========== RISK GATES (HARD - ALWAYS ENFORCED) ==========
+  max_loss_per_trade: 100.0
+  max_daily_loss: 500.0
+  max_trades_per_day: 20       # Allow more trades with scoring
+  max_trades_per_hour: 5       # Increased from 3
+  cooldown_minutes: 2          # Shorter cooldown
+  
+  # ========== DISABLED FEATURES ==========
+  # These are handled by scoring system, not hard filters
+  require_pullback_confirmation: false
+  rth_require_pullback_confirmation: false
+  breakout_enabled: false
+  enable_trend_extensions: false
+  rth_open_mean_reversion_enabled: false
+  require_high_atr: false      # Scoring system handles ATR
+  atr_bounds_blocking: false   # No hard ATR bounds
+  tiny_candle_blocking: false  # Scoring system handles candle quality
+  
+  # Warmup
+  warmup_bars: 100
+  window_bars: 400
+
+# Risk Management
+risk:
+  max_position_size: 1         # 1 contract
+  max_daily_loss: 500.0
+  max_open_risk: 300.0
+  
+  # Position sizing handled by scoring system
+  # Full size (1.0x) or half size (0.5x) based on score
+
+# Execution
+execution:
+  fill_type: "market"          # Market orders for backtest
+  validate_liquidity: false    # Not applicable in backtest
+
+# Output
+output:
+  report_format: "html"
+  save_trades: true
+  save_equity: true
+  save_diagnostics: true       # Important for scoring analysis
+  include_score_breakdown: true  # ✅ Include scoring details in output

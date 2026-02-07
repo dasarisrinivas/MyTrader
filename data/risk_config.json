@@ -31,7 +31,7 @@
   "limits": {
     "max_daily_loss": 150.0,
     "max_daily_trades": 100,
-    "max_consecutive_losses": 3,
+    "max_consecutive_losses": 10,
     "max_position_size": 1,
     "max_total_exposure": 0.5,
     "no_trade_hours": [],

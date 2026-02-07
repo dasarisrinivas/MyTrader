@@ -557,15 +557,44 @@ class EnhancedSignalEngine:
         elif result.momentum_score < -30:
             sell_score += self.momentum_weight * (abs(result.momentum_score) / 100)
         
-        # RSI extremes
-        if rsi < self.rsi_oversold:
-            buy_score += 10
-            result.filters_passed.append("RSI_OVERSOLD")
-        elif rsi > self.rsi_overbought:
-            sell_score += 10
-            result.filters_passed.append("RSI_OVERBOUGHT")
+        # JAN 2026 FIX: RSI extremes should NOT trigger counter-trend signals
+        # High RSI = BULLISH continuation signal (don't short)
+        # Low RSI = BEARISH continuation signal (don't buy)
+        # The old logic incorrectly treated high RSI as a SHORT signal
         
-        # MACD
+        # RSI extremes - only for CONTINUATION, not reversal
+        if rsi < self.rsi_oversold:
+            # Oversold in downtrend = potential bounce (buy signal)
+            # But only if trend is also turning
+            if result.trend_1m in [TrendType.MICRO_DOWNTREND, TrendType.WEAK_DOWNTREND]:
+                buy_score += 5  # Reduced from 10 - potential reversal
+                result.filters_passed.append("RSI_OVERSOLD_BOUNCE")
+            else:
+                buy_score += 10  # Trend aligned
+                result.filters_passed.append("RSI_OVERSOLD")
+        elif rsi > self.rsi_overbought:
+            # JAN 2026 FIX: High RSI in uptrend = CONTINUATION, not reversal
+            # Only add to sell_score if trend is also bearish
+            if result.trend_1m in [TrendType.STRONG_DOWNTREND, TrendType.MICRO_DOWNTREND]:
+                sell_score += 10  # Trend aligned with overbought
+                result.filters_passed.append("RSI_OVERBOUGHT_BEARISH")
+            else:
+                # High RSI in uptrend = don't short! Just a warning
+                result.filters_warned.append("RSI_OVERBOUGHT_IN_UPTREND")
+                # Actually boost buy score slightly - momentum is strong
+                if result.trend_1m in [TrendType.STRONG_UPTREND, TrendType.MICRO_UPTREND]:
+                    buy_score += 3  # Small boost for momentum
+        
+        # RSI in continuation zone (55-70 for bullish, 30-45 for bearish)
+        # This is the ideal entry zone for trend following
+        if 55 <= rsi <= 70 and result.trend_1m in [TrendType.STRONG_UPTREND, TrendType.MICRO_UPTREND]:
+            buy_score += 8
+            result.filters_passed.append("RSI_BULLISH_ZONE")
+        elif 30 <= rsi <= 45 and result.trend_1m in [TrendType.STRONG_DOWNTREND, TrendType.MICRO_DOWNTREND]:
+            sell_score += 8
+            result.filters_passed.append("RSI_BEARISH_ZONE")
+        
+        # MACD - directional confirmation
         if macd_hist > 0:
             buy_score += 5
         elif macd_hist < 0:
@@ -578,8 +607,13 @@ class EnhancedSignalEngine:
             buy_score += self.level_weight * 0.7
             result.filters_passed.append("NEAR_SUPPORT")
         if result.near_resistance:
-            sell_score += self.level_weight * 0.5
-            result.filters_warned.append("NEAR_RESISTANCE")
+            # JAN 2026 FIX: Near resistance in uptrend = caution, not short signal
+            if result.trend_1m in [TrendType.STRONG_UPTREND, TrendType.MICRO_UPTREND]:
+                result.filters_warned.append("NEAR_RESISTANCE_IN_UPTREND")
+                # Don't add to sell_score - could break through
+            else:
+                sell_score += self.level_weight * 0.5
+                result.filters_warned.append("NEAR_RESISTANCE")
         
         # VWAP
         if result.vwap_position == "ABOVE" and result.momentum_score > 0:

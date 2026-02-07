@@ -353,6 +353,13 @@ class LiveTradingManager:
                 max_consecutive_losses=getattr(settings_gate, "max_consecutive_losses", 3),
                 avoid_close_window_minutes=getattr(settings_gate, "avoid_close_window_minutes", 60),
                 avoid_close_enabled=getattr(settings_gate, "avoid_close_enabled", True),
+                peak_drawdown_enabled=getattr(settings_gate, "peak_drawdown_enabled", False),
+                peak_drawdown_pct=getattr(settings_gate, "peak_drawdown_pct", 4.0),
+                peak_drawdown_action=getattr(settings_gate, "peak_drawdown_action", "halt"),
+                peak_drawdown_tighten_multiplier=getattr(settings_gate, "peak_drawdown_tighten_multiplier", 0.5),
+                peak_drawdown_stop_buffer_points=getattr(settings_gate, "peak_drawdown_stop_buffer_points", 0.5),
+                peak_drawdown_flatten_on_trigger=getattr(settings_gate, "peak_drawdown_flatten_on_trigger", True),
+                peak_drawdown_reset_on_new_day=getattr(settings_gate, "peak_drawdown_reset_on_new_day", False),
             )
         gate_cfg.tick_size = getattr(settings.trading, "tick_size", gate_cfg.tick_size)
         self.risk_gate = RiskGate(gate_cfg)
@@ -441,6 +448,10 @@ class LiveTradingManager:
         
         # JAN 12, 2026: Position state tracking for MTF gate notifications
         self._last_known_position_qty: int = 0  # Track previous position for transition detection
+        
+        # FEB 5, 2026: Profit protection tracking for MES wave behavior
+        self._breakeven_stop_set: bool = False  # Track if we've moved stop to breakeven
+        self._partial_profit_taken: bool = False  # Track if we've taken partial profits (for 2+ contracts)
         
         # NEW: Cooldown tracking
         self._last_trade_time: Optional[datetime] = None
@@ -986,15 +997,20 @@ TRADING GUIDANCE:
             self._compute_fallback_trend()
 
     def _compute_fallback_trend(self) -> None:
-        """Compute trend from price history when hybrid pipeline hasn't set it."""
+        """Compute trend from price history when hybrid pipeline hasn't set it.
+        
+        FEB 2026 FIX: Use 30 bars and steeper threshold (0.10 vs 0.05) to avoid
+        classifying normal MES noise as trend. A slope of 0.05 over 20 bars is
+        just ~1 point, which MES moves on a single tick.
+        """
         try:
-            closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-20:] if isinstance(bar, dict)]
-            if len(closes) >= 5:
+            closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-30:] if isinstance(bar, dict)]
+            if len(closes) >= 10:
                 slope = np.polyfit(np.arange(len(closes)), closes, 1)[0]
                 # Use threshold to avoid noise in flat markets
-                if slope < -0.05:
+                if slope < -0.10:
                     trend = "DOWNTREND"
-                elif slope > 0.05:
+                elif slope > 0.10:
                     trend = "UPTREND"
                 else:
                     trend = "NEUTRAL"
@@ -1206,17 +1222,194 @@ TRADING GUIDANCE:
             f"pnl/ct={pnl_per_contract:.2f} total={total_pnl:.2f}"
         )
 
+        # PROFIT PROTECTION: Check if price has reached TP level and force market exit
+        # This works around IB Paper Trading LIMIT order fill issues
+        if self.executor and hasattr(self.executor, 'get_active_bracket_levels'):
+            try:
+                bracket_levels = self.executor.get_active_bracket_levels()
+                if bracket_levels:
+                    take_profit = bracket_levels.get('take_profit')
+                    stop_loss = bracket_levels.get('stop_loss')
+                    
+                    if take_profit is not None:
+                        # For long positions: check if current price >= take profit
+                        if qty > 0 and current_price >= take_profit:
+                            logger.warning(
+                                f"🎯 PROFIT PROTECTION TRIGGERED: Price {current_price:.2f} >= TP {take_profit:.2f} "
+                                f"(+${total_pnl:.2f}). Forcing MARKET exit to capture profit."
+                            )
+                            return {
+                                "reason": "PROFIT_PROTECTION", 
+                                "action": "SELL", 
+                                "quantity": contracts, 
+                                "pnl": total_pnl
+                            }
+                        # For short positions: check if current price <= take profit
+                        elif qty < 0 and current_price <= take_profit:
+                            logger.warning(
+                                f"🎯 PROFIT PROTECTION TRIGGERED: Price {current_price:.2f} <= TP {take_profit:.2f} "
+                                f"(+${total_pnl:.2f}). Forcing MARKET exit to capture profit."
+                            )
+                            return {
+                                "reason": "PROFIT_PROTECTION", 
+                                "action": "BUY", 
+                                "quantity": contracts, 
+                                "pnl": total_pnl
+                            }
+                    
+                    # BREAKEVEN PROTECTION: Move stop to breakeven when 60%+ to TP
+                    # FEB 2026 FIX: Raised from 50% to 60% and from $30 to $50 threshold.
+                    # MES regularly retraces 3-5 points; moving to BE too early causes
+                    # the trade to be stopped at breakeven before reaching TP.
+                    # PARTIAL PROFIT TAKING: Exit 50% when 60%+ to TP (for 2+ contracts)
+                    if take_profit is not None and stop_loss is not None:
+                        # Calculate distance to TP
+                        if qty > 0:  # Long position
+                            tp_distance = take_profit - entry_price
+                            current_distance = current_price - entry_price
+                            percent_to_tp = (current_distance / tp_distance) * 100 if tp_distance > 0 else 0
+                            
+                            # Check if we're 60-100% to TP and meaningfully profitable
+                            if 60 <= percent_to_tp < 100 and total_pnl > 50:
+                                if not hasattr(self, '_breakeven_stop_set') or not self._breakeven_stop_set:
+                                    # For 2+ contracts: Partial profit taking
+                                    if contracts >= 2:
+                                        partial_qty = contracts // 2  # Exit 50%
+                                        logger.warning(
+                                            f"💰 PARTIAL PROFIT TAKING: {percent_to_tp:.1f}% to TP "
+                                            f"({current_price:.2f}/{take_profit:.2f}). "
+                                            f"Exiting {partial_qty} contracts, keeping {contracts - partial_qty}."
+                                        )
+                                        self._breakeven_stop_set = True
+                                        return {
+                                            "reason": "PARTIAL_PROFIT",
+                                            "action": "SELL",
+                                            "quantity": partial_qty,
+                                            "pnl": (total_pnl / contracts) * partial_qty,
+                                            "move_stop_to_breakeven": True
+                                        }
+                                    # For 1 contract: Just move stop to breakeven
+                                    else:
+                                        breakeven_stop = entry_price + 1.0  # +1 point buffer
+                                        if breakeven_stop > stop_loss:
+                                            logger.warning(
+                                                f"🔒 BREAKEVEN PROTECTION: {percent_to_tp:.1f}% to TP "
+                                                f"({current_price:.2f}/{take_profit:.2f}). "
+                                                f"Moving stop to breakeven +1: {breakeven_stop:.2f}"
+                                            )
+                                            self._breakeven_stop_set = True
+                                            return {
+                                                "reason": "BREAKEVEN_STOP_UPDATE",
+                                                "action": None,
+                                                "new_stop_loss": breakeven_stop,
+                                                "quantity": 0
+                                            }
+                        
+                        elif qty < 0:  # Short position
+                            tp_distance = entry_price - take_profit
+                            current_distance = entry_price - current_price
+                            percent_to_tp = (current_distance / tp_distance) * 100 if tp_distance > 0 else 0
+                            
+                            if 60 <= percent_to_tp < 100 and total_pnl > 50:
+                                if not hasattr(self, '_breakeven_stop_set') or not self._breakeven_stop_set:
+                                    # For 2+ contracts: Partial profit taking
+                                    if contracts >= 2:
+                                        partial_qty = contracts // 2
+                                        logger.warning(
+                                            f"💰 PARTIAL PROFIT TAKING: {percent_to_tp:.1f}% to TP "
+                                            f"({current_price:.2f}/{take_profit:.2f}). "
+                                            f"Exiting {partial_qty} contracts, keeping {contracts - partial_qty}."
+                                        )
+                                        self._breakeven_stop_set = True
+                                        return {
+                                            "reason": "PARTIAL_PROFIT",
+                                            "action": "BUY",
+                                            "quantity": partial_qty,
+                                            "pnl": (total_pnl / contracts) * partial_qty,
+                                            "move_stop_to_breakeven": True
+                                        }
+                                    # For 1 contract: Just move stop to breakeven
+                                    else:
+                                        breakeven_stop = entry_price - 1.0  # -1 point buffer
+                                        if breakeven_stop < stop_loss:
+                                            logger.warning(
+                                                f"🔒 BREAKEVEN PROTECTION: {percent_to_tp:.1f}% to TP "
+                                                f"({current_price:.2f}/{take_profit:.2f}). "
+                                                f"Moving stop to breakeven -1: {breakeven_stop:.2f}"
+                                            )
+                                            self._breakeven_stop_set = True
+                                            return {
+                                                "reason": "BREAKEVEN_STOP_UPDATE",
+                                                "action": None,
+                                                "new_stop_loss": breakeven_stop,
+                                                "quantity": 0
+                                            }
+                    
+                    # TRAILING STOP: ATR-based trailing once solidly profitable
+                    # FEB 2026 FIX: Use ATR-based trail distance instead of fixed 5pt.
+                    # MES regularly retraces 3-5 points on any move; a fixed 5pt trail
+                    # gets stopped out by normal wave behavior, killing the winner.
+                    # Now: trail = max(ATR * 1.5, 6.0) and require $50+ profit before trailing.
+                    if stop_loss is not None and total_pnl > 50:
+                        # Get current ATR for adaptive trailing
+                        _trail_atr = 0.0
+                        if self.price_history:
+                            _trail_atr = float(self.price_history[-1].get("ATR_14", 0.0) or 0.0)
+                        # Trail at 1.5x ATR, minimum 6 points, maximum 12 points
+                        trailing_distance = max(6.0, min(12.0, _trail_atr * 1.5)) if _trail_atr > 0 else 8.0
+                        
+                        if qty > 0:  # Long position
+                            # Calculate new trailing stop
+                            new_stop = current_price - trailing_distance
+                            
+                            # Only move stop up (never down)
+                            if new_stop > stop_loss and new_stop > entry_price:
+                                logger.info(
+                                    f"📈 TRAILING STOP: Moving stop from {stop_loss:.2f} → {new_stop:.2f} "
+                                    f"(price={current_price:.2f}, P&L=${total_pnl:.2f}, trail={trailing_distance:.1f}pts)"
+                                )
+                                return {
+                                    "reason": "TRAILING_STOP_UPDATE",
+                                    "action": None,  # Don't exit, just update stop
+                                    "new_stop_loss": new_stop,
+                                    "quantity": 0
+                                }
+                        
+                        elif qty < 0:  # Short position
+                            # Calculate new trailing stop
+                            new_stop = current_price + trailing_distance
+                            
+                            # Only move stop down (never up)
+                            if new_stop < stop_loss and new_stop < entry_price:
+                                logger.info(
+                                    f"📉 TRAILING STOP: Moving stop from {stop_loss:.2f} → {new_stop:.2f} "
+                                    f"(price={current_price:.2f}, P&L=${total_pnl:.2f}, trail={trailing_distance:.1f}pts)"
+                                )
+                                return {
+                                    "reason": "TRAILING_STOP_UPDATE",
+                                    "action": None,
+                                    "new_stop_loss": new_stop,
+                                    "quantity": 0
+                                }
+                    
+            except Exception as e:
+                logger.debug(f"Profit protection/partial profit check skipped: {e}")
+
         # Trend-based exit: if trend flips against position
+        # FEB 2026 FIX: Use longer lookback (40 bars) and steeper slope threshold
+        # to avoid premature exits on normal MES retracements (3-5 points).
+        # A 20-bar slope flips too easily on noise; 40 bars smooths it out.
         trend = getattr(self.status, "hybrid_market_trend", "") or getattr(self.status, "last_trend", "")
         trend = str(trend).upper()
         if trend:
             logger.info(f"Trend-based exit check: current trend={trend} qty={qty}")
         else:
-            # Compute trend from price history as fallback
-            closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-20:] if isinstance(bar, dict)]
-            if len(closes) >= 5:
+            # Compute trend from price history as fallback — use 40 bars for stability
+            closes = [float(bar.get("close", 0.0)) for bar in self.price_history[-40:] if isinstance(bar, dict)]
+            if len(closes) >= 10:
                 slope = np.polyfit(np.arange(len(closes)), closes, 1)[0]
-                trend = "DOWNTREND" if slope < -0.01 else "UPTREND" if slope > 0.01 else "NEUTRAL"
+                # Require a steeper slope to declare trend change (was 0.01, now 0.03)
+                trend = "DOWNTREND" if slope < -0.03 else "UPTREND" if slope > 0.03 else "NEUTRAL"
                 # Also update status so subsequent checks have it
                 self.status.hybrid_market_trend = trend
                 logger.info(f"Trend-based exit: computed from price slope={slope:.5f} -> {trend}")
@@ -1231,9 +1424,6 @@ TRADING GUIDANCE:
         # Time-based exit check
         max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_exit", None)
         max_hold_hours = getattr(max_hold_hours, "max_hold_time_hours", None) if max_hold_hours else None
-        if max_hold_hours is None:
-            max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_management", None)
-            max_hold_hours = getattr(max_hold_hours, "force_exits_after_hours", None) if max_hold_hours else None
         entry_ts = getattr(position, "timestamp", None)
         if entry_ts and max_hold_hours:
             try:
@@ -1276,13 +1466,32 @@ TRADING GUIDANCE:
         """Execute position exit order honoring exit signal payload."""
         if not self.executor:
             return False
+        
+        reason = exit_signal.get("reason", "EXIT")
+        
+        # Handle trailing stop updates and breakeven stop updates (no exit, just update stop)
+        if reason in ("TRAILING_STOP_UPDATE", "BREAKEVEN_STOP_UPDATE"):
+            new_stop = exit_signal.get("new_stop_loss")
+            if new_stop and hasattr(self.executor, 'update_bracket_stop_loss'):
+                try:
+                    await self.executor.update_bracket_stop_loss(new_stop)
+                    action_name = "Trailing stop" if reason == "TRAILING_STOP_UPDATE" else "Breakeven stop"
+                    logger.info(f"✅ {action_name} updated to {new_stop:.2f}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to update stop: {e}")
+                    return False
+            return False
+        
         action = exit_signal.get("action")
         quantity = int(exit_signal.get("quantity", 0))
-        reason = exit_signal.get("reason", "EXIT")
         pnl = exit_signal.get("pnl", 0.0)
+        move_stop_to_breakeven = exit_signal.get("move_stop_to_breakeven", False)
+        
         if quantity <= 0 or action not in {"BUY", "SELL"}:
             logger.warning("Invalid exit signal payload: {}", exit_signal)
             return False
+        
         price = current_price
         if price is None:
             try:
@@ -1292,6 +1501,15 @@ TRADING GUIDANCE:
                 return False
         logger.info("🔄 Executing position exit: {} {} (reason={}, pnl={:.2f})", action, quantity, reason, pnl)
         try:
+            # If this is a profit protection exit, cancel the TP bracket order first
+            if reason == "PROFIT_PROTECTION" and self.executor:
+                try:
+                    logger.info("🚫 Cancelling TP bracket order before profit protection exit")
+                    # Cancel all active orders for this symbol (will cancel TP and SL)
+                    await self.executor.cancel_all_orders()
+                except Exception as cancel_exc:
+                    logger.warning(f"⚠️ Error cancelling bracket orders: {cancel_exc}")
+            
             # Determine position direction (LONG if qty > 0, SHORT if qty < 0)
             position_direction = "LONG" if position.quantity > 0 else "SHORT"
 
@@ -1319,6 +1537,23 @@ TRADING GUIDANCE:
                     "trade_cycle_id": trade_cycle_id,
                 },
             )
+            
+            # If partial profit taking, move stop to breakeven
+            if move_stop_to_breakeven and hasattr(self.executor, 'get_active_bracket_levels'):
+                try:
+                    logger.info("🔒 Moving stop to breakeven after partial profit exit")
+                    entry_price_val = getattr(position, "avg_cost", 0.0) or 0.0
+                    entry_normalized = self._normalize_entry_price(entry_price_val, price)
+                    
+                    # Add small buffer (1-2 points) to ensure breakeven + small profit
+                    buffer = 1.0
+                    breakeven_stop = entry_normalized + buffer if position.quantity > 0 else entry_normalized - buffer
+                    
+                    if hasattr(self.executor, 'update_bracket_stop_loss'):
+                        await self.executor.update_bracket_stop_loss(breakeven_stop)
+                        logger.info(f"✅ Stop moved to breakeven: {breakeven_stop:.2f} (entry={entry_normalized:.2f})")
+                except Exception as be_exc:
+                    logger.warning(f"⚠️ Failed to move stop to breakeven: {be_exc}")
             
             # === JAN 12, 2026: Notify MTF gate about position close ===
             self._notify_position_closed(
@@ -1367,6 +1602,10 @@ TRADING GUIDANCE:
         Args:
             direction: "LONG" or "SHORT"
         """
+        # Reset profit protection flags for new position
+        self._breakeven_stop_set = False
+        self._partial_profit_taken = False
+        
         if hasattr(self, "signal_processor") and self.signal_processor:
             self.signal_processor.notify_position_opened(direction)
             logger.info(f"📊 MTF Gate notified of position open: {direction}")
@@ -1387,9 +1626,7 @@ TRADING GUIDANCE:
             remaining = self._startup_grace_period_seconds - elapsed
             if remaining > 0:
                 logger.info(
-                    "Entry blocked: startup grace %.0fs remaining (elapsed=%.0fs)",
-                    remaining,
-                    elapsed,
+                    f"Entry blocked: startup grace {remaining:.0f}s remaining (elapsed={elapsed:.0f}s)"
                 )
                 return True
 
@@ -1477,16 +1714,37 @@ TRADING GUIDANCE:
         return False
 
     def _normalize_entry_price(self, entry_price: float, current_price: float) -> float:
-        """Normalize notional entry costs (e.g., futures multiplier embedded)."""
+        """Normalize notional entry costs (e.g., futures multiplier embedded).
+        
+        IB sometimes reports avg_cost in different formats:
+        - Actual price: 6896.25
+        - Notional (price * multiplier): 34481.25 (needs / 5)
+        - Half notional: 3448.19 (needs * 2 for some reason)
+        """
         if current_price <= 0:
             return entry_price
+        
         ratio = entry_price / current_price
         configured_trading = getattr(getattr(self, "settings", None), "trading", None)
         custom_multipliers = getattr(configured_trading, "notional_multipliers", None) if configured_trading else None
         multipliers = tuple(custom_multipliers) if custom_multipliers else (5, 10, 20, 25, 50, 100, 200)
+        
+        # Check if entry_price is a multiple of current_price (notional value)
         for multiplier in multipliers:
             if abs(ratio - multiplier) <= 0.25:
                 return entry_price / multiplier
+        
+        # FEB 5 2026 FIX: Check if entry_price is a fraction of current_price (half notional, etc)
+        # This happens when IB reports avg_cost in a strange format
+        for divisor in (0.5, 0.4, 0.6, 2.0, 2.5):  # Common fractions
+            if abs(ratio - divisor) <= 0.05:
+                # Entry price is much smaller than current - likely divided incorrectly
+                normalized = entry_price / divisor
+                # Verify the normalized value is reasonable (within 20% of current_price)
+                if 0.80 <= (normalized / current_price) <= 1.20:
+                    logger.warning(f"📊 Normalized entry price: {entry_price:.2f} → {normalized:.2f} (divisor={divisor})")
+                    return normalized
+        
         return entry_price
 
     def _get_max_exit_price_gap(self, current_price: float) -> float:
@@ -1807,6 +2065,14 @@ TRADING GUIDANCE:
         except Exception:
             self.status.last_atr = 0.0
         
+        # Enforce minimum confidence threshold (Safety Floor)
+        # This prevents the pipeline from executing low-confidence signals (e.g. 0.24) even if deemed "valid" by internal logic
+        if signal.action != "HOLD" and signal.confidence < self._min_confidence_for_trade:
+            logger.info(
+                f"  ↳ BLOCKED: Signal confidence {signal.confidence:.2f} < threshold {self._min_confidence_for_trade:.2f}"
+            )
+            return
+
         # Broadcast signal
         await self._broadcast_signal(signal, current_price)
         
@@ -1995,6 +2261,16 @@ TRADING GUIDANCE:
             logger.info(f"  ↳ {active_orders} active orders pending, waiting for completion")
             return
         
+        # FINAL SAFETY: Re-check confidence after all adjustments (sentiment, AWS, etc.)
+        # If adjustments (like sentiment REDUCE_SIZE) dropped it below the floor, we must ABORT.
+        min_conf = self._min_confidence_for_trade
+        if signal.confidence < min_conf:
+            logger.warning(
+                f"🛑 Trade ABORTED: Weighted confidence {signal.confidence:.3f} dropped below floor {min_conf:.2f} "
+                f"after adjustments (Sentiment/AWS)"
+            )
+            return
+
         # Check if we should exit existing position
         if current_position and current_position.quantity != 0:
             is_buy_signal = signal.action in ["BUY", "SCALP_BUY"]
@@ -2595,6 +2871,7 @@ TRADING GUIDANCE:
             direction = 1 if is_buy else -1
             is_scalp = signal.action in ["SCALP_BUY", "SCALP_SELL"]
             row = features.iloc[-1]
+            atr = row.get("atr", row.get("ATR", 0.0))
             
             # Use pipeline's calculated stop/target
             fallback_used = False
@@ -2605,22 +2882,8 @@ TRADING GUIDANCE:
             if pipeline_result and pipeline_result.stop_loss > 0:
                 stop_offset = pipeline_result.stop_loss
                 target_offset = pipeline_result.take_profit
-                # Tighter stops for scalps, but NEVER below minimum
-                if is_scalp:
-                    scalp_stop = stop_offset * 0.6  # 60% of normal stop
-                    scalp_target = target_offset * 0.5  # 50% of normal target
-                    # Enforce minimum stop even for scalps
-                    if scalp_stop < min_stop_pts:
-                        logger.info(f"🎯 Scalp stop {scalp_stop:.2f} below min {min_stop_pts:.2f}, using minimum")
-                        scalp_stop = min_stop_pts
-                        scalp_target = min_stop_pts * 1.5  # Maintain reasonable R:R
-                    stop_offset = scalp_stop
-                    target_offset = scalp_target
-                    logger.info(f"🎯 Using SCALP risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
-                else:
-                    logger.info(f"🎯 Using HYBRID risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
+                logger.info(f"🎯 Using SCALP risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
             else:
-                atr = float(row.get("ATR_14", 0.0))
                 offsets = compute_protective_offsets(
                     atr_value=atr,
                     tick_size=self.settings.trading.tick_size,
@@ -2724,6 +2987,74 @@ TRADING GUIDANCE:
                 "pdh": float(row.get("PDH", 0)),
                 "pdl": float(row.get("PDL", 0)),
             }
+            
+            # Add scoring data if available
+            if "score_breakdown" in metadata:
+                market_data["score_breakdown"] = metadata["score_breakdown"]
+            
+            # Add confidence tracking data
+            if hasattr(signal, "confidence"):
+                confidence_data = {
+                    "final": signal.confidence,
+                    "original": signal.confidence,  # Will be overridden if we have modifiers
+                }
+                
+                # Extract confidence modifiers from metadata
+                if "sentiment_modifier" in metadata:
+                    confidence_data["sentiment_mult"] = metadata["sentiment_modifier"]
+                    # Back-calculate original confidence
+                    sentiment_mult = metadata.get("sentiment_modifier", 1.0)
+                    lowvol_mult = metadata.get("low_volume_penalty", 1.0)
+                    total_mult = sentiment_mult * lowvol_mult
+                    if total_mult != 0:
+                        confidence_data["original"] = signal.confidence / total_mult
+                
+                if "low_volume_penalty" in metadata:
+                    confidence_data["lowvol_mult"] = metadata["low_volume_penalty"]
+                
+                market_data["confidence_data"] = confidence_data
+            
+            # Add session data
+            session_data = {}
+            current_session = metadata.get("session", "")
+            if current_session:
+                session_data["session"] = current_session
+                
+                # Get session-specific thresholds from config
+                if hasattr(self, "config") and self.config:
+                    if current_session == "RTH":
+                        session_data["threshold_full"] = self.config.get("scoring_full_size_threshold", 65.0)
+                        session_data["threshold_half"] = self.config.get("scoring_half_size_threshold", 50.0)
+                        session_data["sentiment_threshold"] = self.config.get("sentiment_block_threshold_rth", 0.4)
+                    elif current_session in ["EVENING", "OVERNIGHT"]:
+                        session_data["threshold_full"] = self.config.get("scoring_evening_full_threshold", 70.0)
+                        session_data["threshold_half"] = self.config.get("scoring_evening_half_threshold", 55.0)
+                        session_data["sentiment_threshold"] = self.config.get("sentiment_block_threshold_overnight", 0.25)
+                
+                market_data["session_data"] = session_data
+            
+            # Add sentiment data
+            if "combined_sentiment" in metadata or "source_breakdown" in metadata:
+                sentiment_data = {
+                    "combined": metadata.get("combined_sentiment", 0.0),
+                    "reason": metadata.get("sentiment_reason", ""),
+                }
+                
+                # Extract individual source scores from breakdown
+                source_breakdown = metadata.get("source_breakdown", {})
+                if source_breakdown:
+                    sentiment_data["stocktwits"] = source_breakdown.get("stocktwits", {}).get("score", 0.0)
+                    sentiment_data["reddit"] = source_breakdown.get("reddit", {}).get("score", 0.0)
+                
+                # Determine sentiment decision
+                if metadata.get("sentiment_blocked"):
+                    sentiment_data["decision"] = "BLOCK"
+                elif metadata.get("sentiment_modifier", 1.0) < 1.0:
+                    sentiment_data["decision"] = "REDUCE_SIZE"
+                else:
+                    sentiment_data["decision"] = "PROCEED"
+                
+                market_data["sentiment_data"] = sentiment_data
             
             # Broadcast order intent
             await self._broadcast_order_update({
@@ -2918,6 +3249,14 @@ TRADING GUIDANCE:
                 realized_pnl = float(getattr(self.tracker, "daily_pnl", 0.0))
         except Exception:
             realized_pnl = 0.0
+        equity = (
+            balances.get("net_liquidation")
+            or balances.get("equity")
+            or balances.get("available_funds")
+            or balances.get("excess_liquidity")
+        )
+        if equity is not None:
+            balances["account_equity"] = equity
         balances["realized_pnl_today"] = realized_pnl
         return balances
 

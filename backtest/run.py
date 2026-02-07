@@ -445,7 +445,7 @@ async def download_data(args: argparse.Namespace) -> tuple:
                 raise ValueError(f"IB returned no data for {args.symbol} (likely due to contract expiration/stitching issues)")
             
             data_mode = "ib"
-            return df_1m, df_5m, data_mode
+            return df_1m, df_5m, df_15m, df_30m, data_mode
             
         except Exception as e:
             logger.error(f"IB download failed: {e}")

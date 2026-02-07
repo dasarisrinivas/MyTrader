@@ -42,6 +42,22 @@ class RiskGateConfig:
     maintenance_start: time = time(16, 0)  # CME maintenance start CT
     maintenance_end: time = time(17, 0)    # CME maintenance end CT
     tick_size: float = 0.25
+    # Peak-to-trough drawdown guard (high-water mark trailing stop for equity)
+    peak_drawdown_enabled: bool = field(default_factory=lambda: _env_bool("PEAK_DRAWDOWN_ENABLED", False))
+    peak_drawdown_pct: float = field(default_factory=lambda: float(os.environ.get("PEAK_DRAWDOWN_PCT", "4.0")))
+    peak_drawdown_action: str = field(default_factory=lambda: os.environ.get("PEAK_DRAWDOWN_ACTION", "halt"))
+    peak_drawdown_tighten_multiplier: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DRAWDOWN_TIGHTEN_MULT", "0.5"))
+    )
+    peak_drawdown_stop_buffer_points: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DRAWDOWN_STOP_BUFFER_POINTS", "0.5"))
+    )
+    peak_drawdown_flatten_on_trigger: bool = field(
+        default_factory=lambda: _env_bool("PEAK_DRAWDOWN_FLATTEN", True)
+    )
+    peak_drawdown_reset_on_new_day: bool = field(
+        default_factory=lambda: _env_bool("PEAK_DRAWDOWN_RESET_ON_NEW_DAY", False)
+    )
 
     def bounded_risk_usd(self) -> float:
         raw = self.risk_per_trade_usd
@@ -61,6 +77,11 @@ class RiskGate:
     def __init__(self, config: RiskGateConfig):
         self.config = config
         self._consecutive_losses: int = 0
+        self._equity_high_water: Optional[float] = None
+        self._equity_base: Optional[float] = None
+        self._drawdown_active: bool = False
+        self._drawdown_trigger_ts: Optional[datetime] = None
+        self._last_equity: Optional[float] = None
 
     @staticmethod
     def _is_valid_number(val: Optional[float]) -> bool:
@@ -69,6 +90,85 @@ class RiskGate:
     def _round_to_tick(self, value: float) -> float:
         tick = max(self.config.tick_size, 1e-6)
         return round(value / tick) * tick
+
+    def _extract_equity(self, account_state: Dict[str, float]) -> Optional[float]:
+        for key in (
+            "account_equity",
+            "net_liquidation",
+            "equity",
+            "available_funds",
+            "excess_liquidity",
+        ):
+            value = account_state.get(key)
+            if self._is_valid_number(value):
+                return float(value)
+        return None
+
+    def update_equity(self, equity: Optional[float], timestamp: Optional[datetime] = None) -> None:
+        if not self.config.peak_drawdown_enabled:
+            return
+        if equity is None or not self._is_valid_number(equity):
+            return
+
+        equity = float(equity)
+        self._last_equity = equity
+        if self._equity_high_water is None:
+            self._equity_high_water = equity
+            self._equity_base = equity
+            self._drawdown_active = False
+            self._drawdown_trigger_ts = None
+            return
+
+        if equity >= self._equity_high_water:
+            self._equity_high_water = equity
+            self._equity_base = equity
+            self._drawdown_active = False
+            self._drawdown_trigger_ts = None
+            return
+
+        threshold = -abs(self.config.peak_drawdown_pct) / 100.0
+        drawdown_pct = (equity - self._equity_high_water) / self._equity_high_water
+
+        if drawdown_pct <= threshold and not self._drawdown_active:
+            self._drawdown_active = True
+            self._drawdown_trigger_ts = timestamp or now_cst()
+            logger.warning(
+                "🚫 Peak drawdown triggered: equity {:.2f} vs high water {:.2f} ({:.2f}%)",
+                equity,
+                self._equity_high_water,
+                drawdown_pct * 100.0,
+            )
+
+    @property
+    def drawdown_active(self) -> bool:
+        return self._drawdown_active
+
+    @property
+    def high_water_equity(self) -> Optional[float]:
+        return self._equity_high_water
+
+    @property
+    def base_equity(self) -> Optional[float]:
+        return self._equity_base
+
+    def drawdown_status(self) -> Dict[str, Optional[float]]:
+        if self._equity_high_water is None:
+            return {"high_water": None, "base": None, "drawdown_pct": None}
+        drawdown_pct = None
+        if self._equity_high_water and self._last_equity is not None:
+            drawdown_pct = (self._last_equity - self._equity_high_water) / self._equity_high_water
+        return {
+            "high_water": self._equity_high_water,
+            "base": self._equity_base,
+            "drawdown_pct": drawdown_pct,
+        }
+
+    def reset_drawdown(self) -> None:
+        self._equity_high_water = None
+        self._equity_base = None
+        self._drawdown_active = False
+        self._drawdown_trigger_ts = None
+        self._last_equity = None
 
     def _check_close_window(self, now: datetime) -> bool:
         if not self.config.avoid_close_enabled:
@@ -130,6 +230,14 @@ class RiskGate:
             logger.warning("🚫 RiskGate block: {}", reason)
             return RiskGateResult(False, reason, levels)
 
+        # 0.75) Peak drawdown guard (high-water mark trailing)
+        equity = self._extract_equity(account_state)
+        self.update_equity(equity, now)
+        if self.config.peak_drawdown_enabled and self._drawdown_active:
+            action_mode = (self.config.peak_drawdown_action or "halt").lower()
+            if action_mode == "halt":
+                return RiskGateResult(False, "PEAK_DRAWDOWN_LOCKOUT", levels)
+
         # 1) Position cap (no pyramiding)
         projected = current_position + (quantity if action.upper().startswith("BUY") else -quantity)
         if abs(projected) > self.config.max_contracts:
@@ -154,13 +262,28 @@ class RiskGate:
             if not (take_profit < entry_price < stop_loss):
                 return RiskGateResult(False, "BRACKET_DIRECTION", levels)
 
-        # 3) Tick alignment
+        # 3) Peak drawdown tighten mode (reduce stop distance before validation)
+        if self.config.peak_drawdown_enabled and self._drawdown_active:
+            action_mode = (self.config.peak_drawdown_action or "halt").lower()
+            if action_mode == "tighten":
+                stop_distance = abs(entry_price - stop_loss)
+                tighten_mult = max(0.1, min(1.0, self.config.peak_drawdown_tighten_multiplier))
+                tightened_distance = stop_distance * tighten_mult
+                tightened_distance = max(self.config.min_stop_points, tightened_distance)
+                new_distance = min(stop_distance, tightened_distance)
+                if is_buy:
+                    stop_loss = entry_price - new_distance
+                else:
+                    stop_loss = entry_price + new_distance
+                levels["drawdown_tighten_distance"] = new_distance
+
+        # 4) Tick alignment
         stop_loss = self._round_to_tick(stop_loss)
         take_profit = self._round_to_tick(take_profit)
         levels["stop_loss"] = stop_loss
         levels["take_profit"] = take_profit
 
-        # 4) Risk per trade sizing vs stop distance
+    # 5) Risk per trade sizing vs stop distance
         # Calculate maximum allowed stop based on risk budget
         max_stop_points_from_risk = self.config.bounded_risk_usd() / 5.0  # $5 per point for MES
         levels["max_stop_from_risk"] = max_stop_points_from_risk
@@ -198,7 +321,7 @@ class RiskGate:
         levels["stop_points"] = actual_points
         levels["tp_points"] = abs(take_profit - entry_price)
 
-        # 5) Margin buffer
+        # 6) Margin buffer
         available = account_state.get("available_funds") or account_state.get("excess_liquidity")
         if available is None:
             return RiskGateResult(False, "ACCOUNT_UNAVAILABLE", levels)
@@ -212,13 +335,23 @@ class RiskGate:
         levels["required_margin"] = required_margin
         levels["available_funds"] = available
 
-        # 6) Daily kill switch
+        # 7) Daily kill switch
         realized_today = account_state.get("realized_pnl_today", 0.0)
         if realized_today <= -abs(self.config.daily_max_loss_usd):
             return RiskGateResult(False, "DAILY_LOSS_LIMIT", levels)
 
-        # 7) Avoid close window
+        # 8) Avoid close window
         if now and self._check_close_window(now):
             return RiskGateResult(False, "NEAR_SESSION_CLOSE", levels)
+
+        if self.config.peak_drawdown_enabled:
+            drawdown_pct = None
+            if self._equity_high_water:
+                drawdown_pct = (equity - self._equity_high_water) / self._equity_high_water if equity is not None else None
+            levels["drawdown_active"] = float(self._drawdown_active)
+            if self._equity_high_water is not None:
+                levels["drawdown_high_water"] = float(self._equity_high_water)
+            if drawdown_pct is not None:
+                levels["drawdown_pct"] = float(drawdown_pct)
 
         return RiskGateResult(True, "OK", levels)

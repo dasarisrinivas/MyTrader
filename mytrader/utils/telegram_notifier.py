@@ -5,6 +5,7 @@ Sends trade execution alerts via Telegram Bot API
 from __future__ import annotations
 
 import asyncio
+import html
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
@@ -176,6 +177,7 @@ class TelegramNotifier:
         market_trend: Optional[str] = None,
         volatility_regime: Optional[str] = None,
         session: Optional[str] = None,
+        account_value: Optional[float] = None,  # FEB 5 2026: Add account value
     ) -> str:
         """
         Format a trade execution alert message.
@@ -277,6 +279,11 @@ class TelegramNotifier:
         if risk_reward is not None:
             lines.append(f"R:R Ratio: {risk_reward:.2f}")
         
+        # FEB 5 2026: Add account value
+        if account_value is not None:
+            lines.append("")
+            lines.append(f"💼 <b>Account Value: ${account_value:,.2f}</b>")
+        
         # Market context section
         if market_trend or volatility_regime or session:
             lines.append("")
@@ -296,7 +303,9 @@ class TelegramNotifier:
             lines.append("")
             lines.append("<b>🧠 Decision Factors:</b>")
             for reason in decision_reasoning[:5]:  # Limit to 5 reasons to keep message concise
-                lines.append(f"  • {reason}")
+                # Escape HTML entities to prevent parsing errors (e.g., RSI<48 becomes RSI&lt;48)
+                safe_reason = html.escape(str(reason))
+                lines.append(f"  • {safe_reason}")
         
         # Risk management levels
         if stop_loss is not None or take_profit is not None:
@@ -307,11 +316,13 @@ class TelegramNotifier:
             if take_profit is not None:
                 lines.append(f"🎯 Take Profit: ${take_profit:.2f}")
             if protection_note:
-                lines.append(f"ℹ️ {protection_note}")
+                safe_note = html.escape(str(protection_note))
+                lines.append(f"ℹ️ {safe_note}")
         elif protection_note:
             lines.append("")
             lines.append("<b>Risk Management:</b>")
-            lines.append(f"⚠️ {protection_note}")
+            safe_note = html.escape(str(protection_note))
+            lines.append(f"⚠️ {safe_note}")
         
         return "\n".join(lines)
     

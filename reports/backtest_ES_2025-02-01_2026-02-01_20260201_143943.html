@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtest Report: ES</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #1a1a2e;
+            border-bottom: 3px solid #4a90d9;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #16213e;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4a90d9;
+            padding-left: 15px;
+        }
+        h3 {
+            color: #1a1a2e;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        .summary-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .summary-box h2 {
+            color: white;
+            border-left-color: rgba(255,255,255,0.5);
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4a90d9;
+        }
+        .metric-value.positive { color: #27ae60; }
+        .metric-value.negative { color: #e74c3c; }
+        .metric-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #4a90d9;
+            color: white;
+            font-weight: 600;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .positive { color: #27ae60; }
+        .negative { color: #e74c3c; }
+        .warning { color: #f39c12; }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .learning-box {
+            background: #fff3cd;
+            border-left: 4px solid #f0ad4e;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .recommendation-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .block-reason {
+            display: inline-block;
+            background: #f8f9fa;
+            padding: 5px 10px;
+            margin: 3px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            border: 1px solid #dee2e6;
+        }
+        .timestamp {
+            color: #888;
+            font-size: 0.85em;
+        }
+        ul {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Backtest Report: ES</h1>
+    <p class="timestamp">Generated: 2026-02-01 14:39:44 UTC</p>
+    <p><strong>Strategy:</strong> MES 1-Minute Trend Strategy | <strong>Symbol:</strong> ES</p>
+
+    <div class="summary-box">
+        <h2>📊 Executive Summary</h2>
+        <div class="metrics-grid" style="margin-top: 15px;">
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value negative">-1.8%</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Total Return</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value negative">$-898</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Total P&L</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value">-8.64</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Sharpe Ratio</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value negative">-1.8%</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Max Drawdown</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value">8.1%</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Win Rate</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value">37</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Total Trades</div>
+            </div>
+        </div>
+        <p style="margin-top: 15px; font-size: 1.1em;">MARGINAL: Strategy is near breakeven. Significant tuning needed.</p>
+    </div>
+
+    <h2>📈 Performance Metrics</h2>
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-value">-0.5%</div>
+            <div class="metric-label">CAGR</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">-0.52</div>
+            <div class="metric-label">Sortino Ratio</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.28</div>
+            <div class="metric-label">Calmar Ratio</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.12</div>
+            <div class="metric-label">Profit Factor</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.3%</div>
+            <div class="metric-label">Ann. Volatility</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">$-21.39</div>
+            <div class="metric-label">Expectancy</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">18m</div>
+            <div class="metric-label">Avg Duration</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">$0</div>
+            <div class="metric-label">Total Commission</div>
+        </div>
+    </div>
+
+    <h2>💹 Equity Curve</h2>
+    <div class="chart-container">
+        <svg width="800" height="400" style="display: block; margin: 0 auto;">
+            <!-- Grid lines -->
+            <defs>
+                <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+                    <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#eee" stroke-width="1"/>
+                </pattern>
+            </defs>
+            <rect x="50" y="50" width="700" height="300" fill="url(#grid)"/>
+            
+            <!-- Drawdown area -->
+            <path d="M 50.0,50.0 L 51.4,50.0 L 52.8,50.0 L 54.2,50.0 L 55.6,50.0 L 57.0,50.0 L 58.4,50.0 L 59.8,50.0 L 61.2,50.0 L 62.6,50.0 L 64.0,50.0 L 65.4,50.0 L 66.8,50.0 L 68.2,50.0 L 69.6,50.0 L 71.0,50.0 L 72.4,50.0 L 73.8,50.0 L 75.2,50.0 L 76.6,50.0 L 78.0,50.0 L 79.4,50.0 L 80.8,50.0 L 82.2,50.0 L 83.6,50.0 L 85.0,50.0 L 86.4,50.0 L 87.8,50.0 L 89.2,50.0 L 90.6,50.0 L 92.0,50.0 L 93.4,50.0 L 94.8,50.0 L 96.2,50.0 L 97.6,50.0 L 99.0,50.0 L 100.4,50.0 L 101.8,50.0 L 103.2,50.0 L 104.6,50.0 L 106.0,50.0 L 107.4,50.0 L 108.8,50.0 L 110.2,50.0 L 111.6,50.0 L 113.0,50.0 L 114.4,50.0 L 115.8,50.0 L 117.2,50.0 L 118.6,50.0 L 120.0,50.0 L 121.4,50.0 L 122.8,50.0 L 124.2,50.0 L 125.6,50.0 L 127.0,50.0 L 128.4,50.0 L 129.8,50.0 L 131.2,50.0 L 132.6,50.0 L 134.0,50.0 L 135.4,50.0 L 136.8,50.0 L 138.2,50.0 L 139.6,50.0 L 141.0,50.0 L 142.4,50.0 L 143.8,50.0 L 145.2,50.0 L 146.6,50.0 L 148.0,50.0 L 149.4,50.0 L 150.8,50.0 L 152.2,50.0 L 153.6,50.0 L 155.0,50.0 L 156.4,50.0 L 157.8,50.0 L 159.2,50.0 L 160.6,50.0 L 162.0,50.0 L 163.4,50.0 L 164.8,50.0 L 166.2,50.0 L 167.6,50.0 L 169.0,50.0 L 170.4,50.0 L 171.8,50.0 L 173.2,50.0 L 174.6,50.0 L 176.0,50.0 L 177.4,50.0 L 178.8,50.0 L 180.2,50.0 L 181.6,50.0 L 183.0,50.0 L 184.4,50.0 L 185.8,50.0 L 187.2,50.0 L 188.6,50.0 L 190.0,50.0 L 191.4,50.0 L 192.8,50.0 L 194.2,50.0 L 195.6,50.0 L 197.0,50.0 L 198.4,50.0 L 199.8,50.0 L 201.2,50.0 L 202.6,50.0 L 204.0,50.0 L 205.4,50.0 L 206.8,50.0 L 208.2,50.0 L 209.6,50.0 L 211.0,50.0 L 212.4,50.0 L 213.8,50.0 L 215.2,50.0 L 216.6,50.0 L 218.0,50.0 L 219.4,50.0 L 220.8,50.0 L 222.2,50.0 L 223.6,50.0 L 225.0,50.0 L 226.4,50.0 L 227.8,50.0 L 229.2,50.0 L 230.6,50.0 L 232.0,50.0 L 233.4,50.0 L 234.8,50.0 L 236.2,50.0 L 237.6,50.0 L 239.0,50.0 L 240.4,50.0 L 241.8,50.0 L 243.2,50.0 L 244.6,50.0 L 246.0,50.0 L 247.4,50.0 L 248.8,50.0 L 250.2,50.0 L 251.6,50.0 L 253.0,50.0 L 254.4,50.0 L 255.8,50.0 L 257.2,50.0 L 258.6,50.0 L 260.0,50.0 L 261.4,50.0 L 262.8,50.0 L 264.2,50.0 L 265.6,50.0 L 267.0,50.0 L 268.4,50.0 L 269.8,50.0 L 271.2,50.0 L 272.6,50.0 L 274.0,50.0 L 275.4,50.0 L 276.8,50.0 L 278.2,50.0 L 279.6,50.0 L 281.0,50.0 L 282.4,50.0 L 283.8,50.0 L 285.2,50.0 L 286.6,50.0 L 288.0,50.0 L 289.4,50.0 L 290.8,50.0 L 292.2,50.0 L 293.6,50.0 L 295.0,50.0 L 296.4,50.0 L 297.8,50.0 L 299.2,50.0 L 300.6,50.0 L 302.0,50.0 L 303.4,50.0 L 304.8,50.0 L 306.2,50.0 L 307.6,50.0 L 309.0,50.0 L 310.4,50.0 L 311.8,50.0 L 313.2,50.0 L 314.6,50.0 L 316.0,50.0 L 317.4,50.0 L 318.8,50.0 L 320.2,50.0 L 321.6,50.0 L 323.0,50.0 L 324.4,50.0 L 325.8,50.0 L 327.2,50.0 L 328.6,50.0 L 330.0,50.0 L 331.4,50.0 L 332.8,50.0 L 334.2,50.0 L 335.6,50.0 L 337.0,50.0 L 338.4,50.0 L 339.8,50.0 L 341.2,50.0 L 342.6,50.0 L 344.0,50.0 L 345.4,50.0 L 346.8,50.0 L 348.2,50.0 L 349.6,50.0 L 351.0,50.0 L 352.4,50.0 L 353.8,50.0 L 355.2,50.0 L 356.6,50.0 L 358.0,50.0 L 359.4,50.0 L 360.8,50.0 L 362.2,50.0 L 363.6,50.0 L 365.0,50.0 L 366.4,50.0 L 367.8,50.0 L 369.2,50.0 L 370.6,50.0 L 372.0,50.0 L 373.4,50.0 L 374.8,50.0 L 376.2,50.0 L 377.6,50.0 L 379.0,50.0 L 380.4,50.0 L 381.8,50.0 L 383.2,50.0 L 384.6,50.0 L 386.0,50.0 L 387.4,50.0 L 388.8,50.0 L 390.2,50.0 L 391.6,50.0 L 393.0,50.0 L 394.4,50.0 L 395.8,50.0 L 397.2,50.0 L 398.6,50.0 L 400.0,50.0 L 401.4,50.0 L 402.8,50.0 L 404.2,50.0 L 405.6,50.0 L 407.0,50.0 L 408.4,50.0 L 409.8,50.0 L 411.2,50.0 L 412.6,50.0 L 414.0,50.0 L 415.4,50.0 L 416.8,50.0 L 418.2,50.0 L 419.6,50.0 L 421.0,50.0 L 422.4,50.0 L 423.8,50.0 L 425.2,50.0 L 426.6,50.0 L 428.0,50.0 L 429.4,50.0 L 430.8,50.0 L 432.2,50.0 L 433.6,50.0 L 435.0,50.0 L 436.4,50.0 L 437.8,50.0 L 439.2,50.0 L 440.6,50.0 L 442.0,50.0 L 443.4,50.0 L 444.8,50.0 L 446.2,50.0 L 447.6,50.0 L 449.0,50.0 L 450.4,50.0 L 451.8,50.0 L 453.2,50.0 L 454.6,50.0 L 456.0,50.0 L 457.4,50.0 L 458.8,50.0 L 460.2,50.0 L 461.6,50.0 L 463.0,50.0 L 464.4,50.0 L 465.8,50.0 L 467.2,50.0 L 468.6,50.0 L 470.0,50.0 L 471.4,50.0 L 472.8,50.0 L 474.2,50.0 L 475.6,50.0 L 477.0,50.0 L 478.4,50.0 L 479.8,50.0 L 481.2,50.0 L 482.6,50.0 L 484.0,50.0 L 485.4,50.0 L 486.8,50.0 L 488.2,50.0 L 489.6,50.0 L 491.0,50.0 L 492.4,50.0 L 493.8,50.0 L 495.2,50.0 L 496.6,50.0 L 498.0,50.0 L 499.4,50.0 L 500.8,50.0 L 502.2,50.0 L 503.6,50.0 L 505.0,50.0 L 506.4,50.0 L 507.8,50.0 L 509.2,50.0 L 510.6,50.0 L 512.0,50.0 L 513.4,50.0 L 514.8,50.0 L 516.2,50.0 L 517.6,50.0 L 519.0,50.0 L 520.4,50.0 L 521.8,50.0 L 523.2,50.0 L 524.6,50.0 L 526.0,50.0 L 527.4,50.0 L 528.8,50.0 L 530.2,50.0 L 531.6,50.0 L 533.0,50.0 L 534.4,50.0 L 535.8,50.0 L 537.2,50.0 L 538.6,50.0 L 540.0,50.0 L 541.4,50.0 L 542.8,50.0 L 544.2,50.0 L 545.6,50.0 L 547.0,50.0 L 548.4,50.0 L 549.8,50.0 L 551.2,50.0 L 552.6,50.0 L 554.0,50.0 L 555.4,50.0 L 556.8,50.0 L 558.2,50.0 L 559.6,50.0 L 561.0,50.0 L 562.4,50.0 L 563.8,50.0 L 565.2,50.0 L 566.6,50.0 L 568.0,50.0 L 569.4,50.0 L 570.8,50.0 L 572.2,50.0 L 573.6,50.0 L 575.0,50.0 L 576.4,50.0 L 577.8,50.0 L 579.2,50.0 L 580.6,50.0 L 582.0,50.0 L 583.4,50.0 L 584.8,50.0 L 586.2,50.0 L 587.6,50.0 L 589.0,50.0 L 590.4,50.0 L 591.8,50.0 L 593.2,50.0 L 594.6,50.0 L 596.0,50.0 L 597.4,50.0 L 598.8,50.0 L 600.2,50.0 L 601.6,50.0 L 603.0,50.0 L 604.4,50.0 L 605.8,50.0 L 607.2,50.0 L 608.6,50.0 L 610.0,50.0 L 611.4,50.0 L 612.8,50.0 L 614.2,50.0 L 615.6,50.0 L 617.0,50.0 L 618.4,50.0 L 619.8,50.0 L 621.2,50.0 L 622.6,50.0 L 624.0,50.0 L 625.4,50.0 L 626.8,50.0 L 628.2,50.0 L 629.6,50.0 L 631.0,50.0 L 632.4,50.0 L 633.8,50.0 L 635.2,50.0 L 636.6,50.0 L 638.0,50.0 L 639.4,50.0 L 640.8,50.0 L 642.2,50.0 L 643.6,50.0 L 645.0,50.0 L 646.4,50.0 L 647.8,50.0 L 649.2,50.0 L 650.6,50.0 L 652.0,50.0 L 653.4,50.0 L 654.8,50.0 L 656.2,50.0 L 657.6,50.0 L 659.0,50.0 L 660.4,50.0 L 661.8,50.0 L 663.2,50.0 L 664.6,50.0 L 666.0,50.0 L 667.4,50.0 L 668.8,50.0 L 670.2,50.0 L 671.6,50.0 L 673.0,50.0 L 674.4,50.0 L 675.8,50.0 L 677.2,50.0 L 678.6,50.0 L 680.0,50.0 L 681.4,50.0 L 682.8,50.0 L 684.2,50.0 L 685.6,50.0 L 687.0,50.0 L 688.4,50.0 L 689.8,50.0 L 691.2,50.0 L 692.6,50.0 L 694.0,50.0 L 695.4,50.0 L 696.8,50.0 L 698.2,50.0 L 699.6,50.0 L 701.0,50.0 L 702.4,50.0 L 703.8,50.0 L 705.2,50.0 L 706.6,50.0 L 708.0,50.0 L 709.4,50.0 L 710.8,50.0 L 712.2,50.0 L 713.6,50.0 L 715.0,50.0 L 716.4,50.0 L 717.8,50.0 L 719.2,50.0 L 720.6,50.0 L 722.0,50.0 L 723.4,50.0 L 724.8,50.0 L 726.2,50.0 L 727.6,50.0 L 729.0,50.0 L 730.4,50.0 L 731.8,50.0 L 733.2,50.0 L 734.6,50.0 L 736.0,50.0 L 737.4,50.0 L 738.8,50.0 L 740.2,50.0 L 741.6,50.0 L 743.0,50.0 L 744.4,50.0 L 745.8,50.0 L 747.2,50.0 L 748.6,50.0 L 750.0,50.0 L 750.0,350.0 L 748.6,350.0 L 747.2,350.0 L 745.8,350.0 L 744.4,350.0 L 743.0,350.0 L 741.6,350.0 L 740.2,350.0 L 738.8,350.0 L 737.4,350.0 L 736.0,350.0 L 734.6,350.0 L 733.2,350.0 L 731.8,350.0 L 730.4,350.0 L 729.0,342.5 L 727.6,342.5 L 726.2,334.6 L 724.8,334.6 L 723.4,334.6 L 722.0,334.6 L 720.6,334.6 L 719.2,334.6 L 717.8,334.6 L 716.4,334.6 L 715.0,334.6 L 713.6,334.6 L 712.2,327.1 L 710.8,327.1 L 709.4,327.1 L 708.0,327.1 L 706.6,327.1 L 705.2,327.1 L 703.8,327.1 L 702.4,327.1 L 701.0,327.1 L 699.6,327.1 L 698.2,327.1 L 696.8,327.1 L 695.4,327.1 L 694.0,327.1 L 692.6,327.1 L 691.2,327.1 L 689.8,327.1 L 688.4,327.1 L 687.0,327.1 L 685.6,327.1 L 684.2,327.1 L 682.8,327.1 L 681.4,327.1 L 680.0,327.1 L 678.6,327.1 L 677.2,327.1 L 675.8,327.1 L 674.4,327.1 L 673.0,327.1 L 671.6,327.1 L 670.2,327.1 L 668.8,327.1 L 667.4,327.1 L 666.0,327.1 L 664.6,327.1 L 663.2,327.1 L 661.8,327.1 L 660.4,327.1 L 659.0,319.2 L 657.6,319.2 L 656.2,319.2 L 654.8,319.2 L 653.4,319.2 L 652.0,319.2 L 650.6,319.2 L 649.2,319.2 L 647.8,319.2 L 646.4,319.2 L 645.0,319.2 L 643.6,319.2 L 642.2,319.2 L 640.8,319.2 L 639.4,319.2 L 638.0,319.2 L 636.6,319.2 L 635.2,319.2 L 633.8,319.2 L 632.4,319.2 L 631.0,319.2 L 629.6,319.2 L 628.2,319.2 L 626.8,319.2 L 625.4,319.2 L 624.0,319.2 L 622.6,319.2 L 621.2,319.2 L 619.8,319.2 L 618.4,319.2 L 617.0,319.2 L 615.6,319.2 L 614.2,319.2 L 612.8,319.2 L 611.4,319.2 L 610.0,319.2 L 608.6,319.2 L 607.2,319.2 L 605.8,319.2 L 604.4,319.2 L 603.0,315.9 L 601.6,294.7 L 600.2,294.7 L 598.8,294.7 L 597.4,294.7 L 596.0,282.2 L 594.6,282.2 L 593.2,282.2 L 591.8,282.2 L 590.4,282.2 L 589.0,282.2 L 587.6,282.2 L 586.2,282.2 L 584.8,282.2 L 583.4,282.2 L 582.0,282.2 L 580.6,282.2 L 579.2,282.2 L 577.8,282.2 L 576.4,274.3 L 575.0,274.3 L 573.6,274.3 L 572.2,274.3 L 570.8,244.3 L 569.4,244.3 L 568.0,244.3 L 566.6,244.3 L 565.2,244.3 L 563.8,244.3 L 562.4,244.3 L 561.0,244.3 L 559.6,244.3 L 558.2,244.3 L 556.8,235.5 L 555.4,235.5 L 554.0,235.5 L 552.6,235.5 L 551.2,235.5 L 549.8,235.5 L 548.4,235.5 L 547.0,235.5 L 545.6,235.5 L 544.2,235.5 L 542.8,235.5 L 541.4,235.5 L 540.0,235.5 L 538.6,235.5 L 537.2,235.5 L 535.8,235.5 L 534.4,235.5 L 533.0,225.6 L 531.6,225.6 L 530.2,225.6 L 528.8,225.6 L 527.4,225.6 L 526.0,225.6 L 524.6,225.6 L 523.2,225.6 L 521.8,225.6 L 520.4,225.6 L 519.0,225.6 L 517.6,225.6 L 516.2,225.6 L 514.8,225.6 L 513.4,218.5 L 512.0,218.5 L 510.6,218.5 L 509.2,218.5 L 507.8,218.5 L 506.4,218.5 L 505.0,218.5 L 503.6,218.5 L 502.2,218.5 L 500.8,218.5 L 499.4,218.5 L 498.0,218.5 L 496.6,218.5 L 495.2,218.5 L 493.8,211.4 L 492.4,211.4 L 491.0,211.4 L 489.6,211.4 L 488.2,211.4 L 486.8,211.4 L 485.4,211.4 L 484.0,211.4 L 482.6,211.4 L 481.2,211.4 L 479.8,211.4 L 478.4,211.4 L 477.0,211.4 L 475.6,211.4 L 474.2,211.4 L 472.8,211.4 L 471.4,211.4 L 470.0,211.4 L 468.6,211.4 L 467.2,211.4 L 465.8,211.4 L 464.4,211.4 L 463.0,211.4 L 461.6,211.4 L 460.2,211.4 L 458.8,211.4 L 457.4,211.4 L 456.0,211.4 L 454.6,211.4 L 453.2,211.4 L 451.8,211.4 L 450.4,211.4 L 449.0,211.4 L 447.6,211.4 L 446.2,211.4 L 444.8,211.4 L 443.4,211.4 L 442.0,211.4 L 440.6,211.4 L 439.2,211.4 L 437.8,211.4 L 436.4,211.4 L 435.0,211.4 L 433.6,211.4 L 432.2,211.4 L 430.8,211.4 L 429.4,211.4 L 428.0,211.4 L 426.6,211.4 L 425.2,211.4 L 423.8,211.4 L 422.4,211.4 L 421.0,211.4 L 419.6,211.4 L 418.2,211.4 L 416.8,211.4 L 415.4,211.4 L 414.0,204.8 L 412.6,204.8 L 411.2,204.8 L 409.8,204.8 L 408.4,204.8 L 407.0,204.8 L 405.6,204.8 L 404.2,204.8 L 402.8,204.8 L 401.4,204.8 L 400.0,204.8 L 398.6,204.8 L 397.2,204.8 L 395.8,204.8 L 394.4,197.3 L 393.0,197.3 L 391.6,197.3 L 390.2,197.3 L 388.8,197.3 L 387.4,197.3 L 386.0,197.3 L 384.6,197.3 L 383.2,197.3 L 381.8,197.3 L 380.4,197.3 L 379.0,197.3 L 377.6,197.3 L 376.2,197.3 L 374.8,197.3 L 373.4,197.3 L 372.0,187.7 L 370.6,183.2 L 369.2,183.2 L 367.8,183.2 L 366.4,183.2 L 365.0,183.2 L 363.6,183.2 L 362.2,168.2 L 360.8,168.2 L 359.4,168.2 L 358.0,168.2 L 356.6,168.2 L 355.2,168.2 L 353.8,168.2 L 352.4,168.2 L 351.0,168.2 L 349.6,168.2 L 348.2,168.2 L 346.8,168.2 L 345.4,168.2 L 344.0,168.2 L 342.6,168.2 L 341.2,168.2 L 339.8,168.2 L 338.4,168.2 L 337.0,168.2 L 335.6,168.2 L 334.2,168.2 L 332.8,168.2 L 331.4,168.2 L 330.0,168.2 L 328.6,168.2 L 327.2,168.2 L 325.8,168.2 L 324.4,168.2 L 323.0,168.2 L 321.6,168.2 L 320.2,168.2 L 318.8,168.2 L 317.4,168.2 L 316.0,168.2 L 314.6,168.2 L 313.2,161.1 L 311.8,161.1 L 310.4,161.1 L 309.0,161.1 L 307.6,161.1 L 306.2,161.1 L 304.8,161.1 L 303.4,161.1 L 302.0,161.1 L 300.6,161.1 L 299.2,136.5 L 297.8,146.9 L 296.4,146.9 L 295.0,146.9 L 293.6,146.9 L 292.2,146.9 L 290.8,146.9 L 289.4,146.9 L 288.0,146.9 L 286.6,140.3 L 285.2,140.3 L 283.8,140.3 L 282.4,140.3 L 281.0,140.3 L 279.6,140.3 L 278.2,140.3 L 276.8,140.3 L 275.4,140.3 L 274.0,140.3 L 272.6,130.3 L 271.2,130.3 L 269.8,130.3 L 268.4,130.3 L 267.0,123.2 L 265.6,123.2 L 264.2,123.2 L 262.8,123.2 L 261.4,123.2 L 260.0,123.2 L 258.6,123.2 L 257.2,123.2 L 255.8,116.2 L 254.4,116.2 L 253.0,116.2 L 251.6,116.2 L 250.2,116.2 L 248.8,116.2 L 247.4,108.7 L 246.0,108.7 L 244.6,108.7 L 243.2,108.7 L 241.8,108.7 L 240.4,108.7 L 239.0,108.7 L 237.6,108.7 L 236.2,108.7 L 234.8,108.7 L 233.4,108.7 L 232.0,108.7 L 230.6,108.7 L 229.2,108.7 L 227.8,108.7 L 226.4,108.7 L 225.0,108.7 L 223.6,108.7 L 222.2,108.7 L 220.8,108.7 L 219.4,108.7 L 218.0,108.7 L 216.6,108.7 L 215.2,108.7 L 213.8,108.7 L 212.4,108.7 L 211.0,108.7 L 209.6,108.7 L 208.2,108.7 L 206.8,108.7 L 205.4,108.7 L 204.0,108.7 L 202.6,108.7 L 201.2,108.7 L 199.8,108.7 L 198.4,101.6 L 197.0,101.6 L 195.6,92.9 L 194.2,92.9 L 192.8,92.9 L 191.4,92.9 L 190.0,92.9 L 188.6,92.9 L 187.2,92.9 L 185.8,92.9 L 184.4,92.9 L 183.0,92.9 L 181.6,92.9 L 180.2,92.9 L 178.8,92.9 L 177.4,92.9 L 176.0,92.9 L 174.6,92.9 L 173.2,92.9 L 171.8,92.9 L 170.4,92.9 L 169.0,92.9 L 167.6,92.9 L 166.2,92.9 L 164.8,92.9 L 163.4,92.9 L 162.0,92.9 L 160.6,92.9 L 159.2,92.9 L 157.8,92.9 L 156.4,92.9 L 155.0,92.9 L 153.6,92.9 L 152.2,92.9 L 150.8,92.9 L 149.4,92.9 L 148.0,92.9 L 146.6,92.9 L 145.2,92.9 L 143.8,92.9 L 142.4,92.9 L 141.0,92.9 L 139.6,92.9 L 138.2,92.9 L 136.8,92.9 L 135.4,64.6 L 134.0,64.6 L 132.6,64.6 L 131.2,64.6 L 129.8,64.6 L 128.4,64.6 L 127.0,64.6 L 125.6,64.6 L 124.2,64.6 L 122.8,64.6 L 121.4,64.6 L 120.0,64.6 L 118.6,64.6 L 117.2,64.6 L 115.8,64.6 L 114.4,64.6 L 113.0,64.6 L 111.6,64.6 L 110.2,64.6 L 108.8,64.6 L 107.4,64.6 L 106.0,64.6 L 104.6,64.6 L 103.2,64.6 L 101.8,64.6 L 100.4,64.6 L 99.0,64.6 L 97.6,64.6 L 96.2,64.6 L 94.8,64.6 L 93.4,64.6 L 92.0,64.6 L 90.6,64.6 L 89.2,64.6 L 87.8,64.6 L 86.4,64.6 L 85.0,64.6 L 83.6,64.6 L 82.2,57.5 L 80.8,57.5 L 79.4,57.5 L 78.0,57.5 L 76.6,50.0 L 75.2,50.0 L 73.8,50.0 L 72.4,50.0 L 71.0,50.0 L 69.6,50.0 L 68.2,50.0 L 66.8,50.0 L 65.4,50.0 L 64.0,50.0 L 62.6,50.0 L 61.2,50.0 L 59.8,50.0 L 58.4,50.0 L 57.0,50.0 L 55.6,50.0 L 54.2,50.0 L 52.8,50.0 L 51.4,50.0 L 50.0,50.0 Z" fill="rgba(231, 76, 60, 0.1)"/>
+            
+            <!-- Equity line -->
+            <path d="M 50.0,50.0 L 51.4,50.0 L 52.8,50.0 L 54.2,50.0 L 55.6,50.0 L 57.0,50.0 L 58.4,50.0 L 59.8,50.0 L 61.2,50.0 L 62.6,50.0 L 64.0,50.0 L 65.4,50.0 L 66.8,50.0 L 68.2,50.0 L 69.6,50.0 L 71.0,50.0 L 72.4,50.0 L 73.8,50.0 L 75.2,50.0 L 76.6,50.0 L 78.0,57.5 L 79.4,57.5 L 80.8,57.5 L 82.2,57.5 L 83.6,64.6 L 85.0,64.6 L 86.4,64.6 L 87.8,64.6 L 89.2,64.6 L 90.6,64.6 L 92.0,64.6 L 93.4,64.6 L 94.8,64.6 L 96.2,64.6 L 97.6,64.6 L 99.0,64.6 L 100.4,64.6 L 101.8,64.6 L 103.2,64.6 L 104.6,64.6 L 106.0,64.6 L 107.4,64.6 L 108.8,64.6 L 110.2,64.6 L 111.6,64.6 L 113.0,64.6 L 114.4,64.6 L 115.8,64.6 L 117.2,64.6 L 118.6,64.6 L 120.0,64.6 L 121.4,64.6 L 122.8,64.6 L 124.2,64.6 L 125.6,64.6 L 127.0,64.6 L 128.4,64.6 L 129.8,64.6 L 131.2,64.6 L 132.6,64.6 L 134.0,64.6 L 135.4,64.6 L 136.8,92.9 L 138.2,92.9 L 139.6,92.9 L 141.0,92.9 L 142.4,92.9 L 143.8,92.9 L 145.2,92.9 L 146.6,92.9 L 148.0,92.9 L 149.4,92.9 L 150.8,92.9 L 152.2,92.9 L 153.6,92.9 L 155.0,92.9 L 156.4,92.9 L 157.8,92.9 L 159.2,92.9 L 160.6,92.9 L 162.0,92.9 L 163.4,92.9 L 164.8,92.9 L 166.2,92.9 L 167.6,92.9 L 169.0,92.9 L 170.4,92.9 L 171.8,92.9 L 173.2,92.9 L 174.6,92.9 L 176.0,92.9 L 177.4,92.9 L 178.8,92.9 L 180.2,92.9 L 181.6,92.9 L 183.0,92.9 L 184.4,92.9 L 185.8,92.9 L 187.2,92.9 L 188.6,92.9 L 190.0,92.9 L 191.4,92.9 L 192.8,92.9 L 194.2,92.9 L 195.6,92.9 L 197.0,101.6 L 198.4,101.6 L 199.8,108.7 L 201.2,108.7 L 202.6,108.7 L 204.0,108.7 L 205.4,108.7 L 206.8,108.7 L 208.2,108.7 L 209.6,108.7 L 211.0,108.7 L 212.4,108.7 L 213.8,108.7 L 215.2,108.7 L 216.6,108.7 L 218.0,108.7 L 219.4,108.7 L 220.8,108.7 L 222.2,108.7 L 223.6,108.7 L 225.0,108.7 L 226.4,108.7 L 227.8,108.7 L 229.2,108.7 L 230.6,108.7 L 232.0,108.7 L 233.4,108.7 L 234.8,108.7 L 236.2,108.7 L 237.6,108.7 L 239.0,108.7 L 240.4,108.7 L 241.8,108.7 L 243.2,108.7 L 244.6,108.7 L 246.0,108.7 L 247.4,108.7 L 248.8,116.2 L 250.2,116.2 L 251.6,116.2 L 253.0,116.2 L 254.4,116.2 L 255.8,116.2 L 257.2,123.2 L 258.6,123.2 L 260.0,123.2 L 261.4,123.2 L 262.8,123.2 L 264.2,123.2 L 265.6,123.2 L 267.0,123.2 L 268.4,130.3 L 269.8,130.3 L 271.2,130.3 L 272.6,130.3 L 274.0,140.3 L 275.4,140.3 L 276.8,140.3 L 278.2,140.3 L 279.6,140.3 L 281.0,140.3 L 282.4,140.3 L 283.8,140.3 L 285.2,140.3 L 286.6,140.3 L 288.0,146.9 L 289.4,146.9 L 290.8,146.9 L 292.2,146.9 L 293.6,146.9 L 295.0,146.9 L 296.4,146.9 L 297.8,146.9 L 299.2,136.5 L 300.6,161.1 L 302.0,161.1 L 303.4,161.1 L 304.8,161.1 L 306.2,161.1 L 307.6,161.1 L 309.0,161.1 L 310.4,161.1 L 311.8,161.1 L 313.2,161.1 L 314.6,168.2 L 316.0,168.2 L 317.4,168.2 L 318.8,168.2 L 320.2,168.2 L 321.6,168.2 L 323.0,168.2 L 324.4,168.2 L 325.8,168.2 L 327.2,168.2 L 328.6,168.2 L 330.0,168.2 L 331.4,168.2 L 332.8,168.2 L 334.2,168.2 L 335.6,168.2 L 337.0,168.2 L 338.4,168.2 L 339.8,168.2 L 341.2,168.2 L 342.6,168.2 L 344.0,168.2 L 345.4,168.2 L 346.8,168.2 L 348.2,168.2 L 349.6,168.2 L 351.0,168.2 L 352.4,168.2 L 353.8,168.2 L 355.2,168.2 L 356.6,168.2 L 358.0,168.2 L 359.4,168.2 L 360.8,168.2 L 362.2,168.2 L 363.6,183.2 L 365.0,183.2 L 366.4,183.2 L 367.8,183.2 L 369.2,183.2 L 370.6,183.2 L 372.0,187.7 L 373.4,197.3 L 374.8,197.3 L 376.2,197.3 L 377.6,197.3 L 379.0,197.3 L 380.4,197.3 L 381.8,197.3 L 383.2,197.3 L 384.6,197.3 L 386.0,197.3 L 387.4,197.3 L 388.8,197.3 L 390.2,197.3 L 391.6,197.3 L 393.0,197.3 L 394.4,197.3 L 395.8,204.8 L 397.2,204.8 L 398.6,204.8 L 400.0,204.8 L 401.4,204.8 L 402.8,204.8 L 404.2,204.8 L 405.6,204.8 L 407.0,204.8 L 408.4,204.8 L 409.8,204.8 L 411.2,204.8 L 412.6,204.8 L 414.0,204.8 L 415.4,211.4 L 416.8,211.4 L 418.2,211.4 L 419.6,211.4 L 421.0,211.4 L 422.4,211.4 L 423.8,211.4 L 425.2,211.4 L 426.6,211.4 L 428.0,211.4 L 429.4,211.4 L 430.8,211.4 L 432.2,211.4 L 433.6,211.4 L 435.0,211.4 L 436.4,211.4 L 437.8,211.4 L 439.2,211.4 L 440.6,211.4 L 442.0,211.4 L 443.4,211.4 L 444.8,211.4 L 446.2,211.4 L 447.6,211.4 L 449.0,211.4 L 450.4,211.4 L 451.8,211.4 L 453.2,211.4 L 454.6,211.4 L 456.0,211.4 L 457.4,211.4 L 458.8,211.4 L 460.2,211.4 L 461.6,211.4 L 463.0,211.4 L 464.4,211.4 L 465.8,211.4 L 467.2,211.4 L 468.6,211.4 L 470.0,211.4 L 471.4,211.4 L 472.8,211.4 L 474.2,211.4 L 475.6,211.4 L 477.0,211.4 L 478.4,211.4 L 479.8,211.4 L 481.2,211.4 L 482.6,211.4 L 484.0,211.4 L 485.4,211.4 L 486.8,211.4 L 488.2,211.4 L 489.6,211.4 L 491.0,211.4 L 492.4,211.4 L 493.8,211.4 L 495.2,218.5 L 496.6,218.5 L 498.0,218.5 L 499.4,218.5 L 500.8,218.5 L 502.2,218.5 L 503.6,218.5 L 505.0,218.5 L 506.4,218.5 L 507.8,218.5 L 509.2,218.5 L 510.6,218.5 L 512.0,218.5 L 513.4,218.5 L 514.8,225.6 L 516.2,225.6 L 517.6,225.6 L 519.0,225.6 L 520.4,225.6 L 521.8,225.6 L 523.2,225.6 L 524.6,225.6 L 526.0,225.6 L 527.4,225.6 L 528.8,225.6 L 530.2,225.6 L 531.6,225.6 L 533.0,225.6 L 534.4,235.5 L 535.8,235.5 L 537.2,235.5 L 538.6,235.5 L 540.0,235.5 L 541.4,235.5 L 542.8,235.5 L 544.2,235.5 L 545.6,235.5 L 547.0,235.5 L 548.4,235.5 L 549.8,235.5 L 551.2,235.5 L 552.6,235.5 L 554.0,235.5 L 555.4,235.5 L 556.8,235.5 L 558.2,244.3 L 559.6,244.3 L 561.0,244.3 L 562.4,244.3 L 563.8,244.3 L 565.2,244.3 L 566.6,244.3 L 568.0,244.3 L 569.4,244.3 L 570.8,244.3 L 572.2,274.3 L 573.6,274.3 L 575.0,274.3 L 576.4,274.3 L 577.8,282.2 L 579.2,282.2 L 580.6,282.2 L 582.0,282.2 L 583.4,282.2 L 584.8,282.2 L 586.2,282.2 L 587.6,282.2 L 589.0,282.2 L 590.4,282.2 L 591.8,282.2 L 593.2,282.2 L 594.6,282.2 L 596.0,282.2 L 597.4,294.7 L 598.8,294.7 L 600.2,294.7 L 601.6,294.7 L 603.0,315.9 L 604.4,319.2 L 605.8,319.2 L 607.2,319.2 L 608.6,319.2 L 610.0,319.2 L 611.4,319.2 L 612.8,319.2 L 614.2,319.2 L 615.6,319.2 L 617.0,319.2 L 618.4,319.2 L 619.8,319.2 L 621.2,319.2 L 622.6,319.2 L 624.0,319.2 L 625.4,319.2 L 626.8,319.2 L 628.2,319.2 L 629.6,319.2 L 631.0,319.2 L 632.4,319.2 L 633.8,319.2 L 635.2,319.2 L 636.6,319.2 L 638.0,319.2 L 639.4,319.2 L 640.8,319.2 L 642.2,319.2 L 643.6,319.2 L 645.0,319.2 L 646.4,319.2 L 647.8,319.2 L 649.2,319.2 L 650.6,319.2 L 652.0,319.2 L 653.4,319.2 L 654.8,319.2 L 656.2,319.2 L 657.6,319.2 L 659.0,319.2 L 660.4,327.1 L 661.8,327.1 L 663.2,327.1 L 664.6,327.1 L 666.0,327.1 L 667.4,327.1 L 668.8,327.1 L 670.2,327.1 L 671.6,327.1 L 673.0,327.1 L 674.4,327.1 L 675.8,327.1 L 677.2,327.1 L 678.6,327.1 L 680.0,327.1 L 681.4,327.1 L 682.8,327.1 L 684.2,327.1 L 685.6,327.1 L 687.0,327.1 L 688.4,327.1 L 689.8,327.1 L 691.2,327.1 L 692.6,327.1 L 694.0,327.1 L 695.4,327.1 L 696.8,327.1 L 698.2,327.1 L 699.6,327.1 L 701.0,327.1 L 702.4,327.1 L 703.8,327.1 L 705.2,327.1 L 706.6,327.1 L 708.0,327.1 L 709.4,327.1 L 710.8,327.1 L 712.2,327.1 L 713.6,334.6 L 715.0,334.6 L 716.4,334.6 L 717.8,334.6 L 719.2,334.6 L 720.6,334.6 L 722.0,334.6 L 723.4,334.6 L 724.8,334.6 L 726.2,334.6 L 727.6,342.5 L 729.0,342.5 L 730.4,350.0 L 731.8,350.0 L 733.2,350.0 L 734.6,350.0 L 736.0,350.0 L 737.4,350.0 L 738.8,350.0 L 740.2,350.0 L 741.6,350.0 L 743.0,350.0 L 744.4,350.0 L 745.8,350.0 L 747.2,350.0 L 748.6,350.0 L 750.0,350.0" fill="none" stroke="#4a90d9" stroke-width="2"/>
+            
+            <!-- Axes -->
+            <line x1="50" y1="350" x2="750" y2="350" stroke="#333" stroke-width="1"/>
+            <line x1="50" y1="50" x2="50" y2="350" stroke="#333" stroke-width="1"/>
+            
+            <!-- Labels -->
+            <text x="400.0" y="390" text-anchor="middle" fill="#666" font-size="12">Time</text>
+            <text x="40" y="365" text-anchor="end" fill="#666" font-size="11">$49,102</text>
+            <text x="40" y="55" text-anchor="end" fill="#666" font-size="11">$50,000</text>
+        </svg>
+    </div>
+
+    <h2>📊 Trade Analysis</h2>
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Value</th>
+        </tr>
+        <tr>
+            <td>Total Trades</td>
+            <td>37</td>
+        </tr>
+        <tr>
+            <td>Winning Trades</td>
+            <td class="positive">3</td>
+        </tr>
+        <tr>
+            <td>Losing Trades</td>
+            <td class="negative">34</td>
+        </tr>
+        <tr>
+            <td>Win Rate</td>
+            <td>8.1%</td>
+        </tr>
+        <tr>
+            <td>Average Win</td>
+            <td class="positive">$35.52</td>
+        </tr>
+        <tr>
+            <td>Average Loss</td>
+            <td class="negative">$-26.41</td>
+        </tr>
+        <tr>
+            <td>Largest Win</td>
+            <td class="positive">$73.85</td>
+        </tr>
+        <tr>
+            <td>Largest Loss</td>
+            <td class="negative">$-46.15</td>
+        </tr>
+    </table>
+
+    <h2>🌡️ Performance by Market Regime</h2>
+    
+    <h3>ATR Volatility Buckets</h3>
+    <table>
+        <tr>
+            <th>Regime</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Total P&L</th>
+        </tr>
+        <tr>
+            <td>Low ATR</td>
+            <td>12</td>
+            <td>8.3%</td>
+            <td class="negative">$-216</td>
+        </tr>
+        <tr>
+            <td>Medium ATR</td>
+            <td>13</td>
+            <td>7.7%</td>
+            <td class="negative">$-274</td>
+        </tr>
+        <tr>
+            <td>High ATR</td>
+            <td>12</td>
+            <td>8.3%</td>
+            <td class="negative">$-301</td>
+        </tr>
+    </table>
+    
+    <h3>ADX Trend Strength</h3>
+    <table>
+        <tr>
+            <th>Regime</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Total P&L</th>
+        </tr>
+        <tr>
+            <td>Trending (ADX ≥ 20)</td>
+            <td>28</td>
+            <td>7.1%</td>
+            <td class="negative">$-563</td>
+        </tr>
+        <tr>
+            <td>Ranging (ADX < 20)</td>
+            <td>9</td>
+            <td>11.1%</td>
+            <td class="negative">$-228</td>
+        </tr>
+    </table>
+
+    <h2>🕐 Performance by Session</h2>
+    <table>
+        <tr>
+            <th>Session</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Total P&L</th>
+            <th>Avg Trade</th>
+        </tr>
+        <tr>
+            <td>RTH (9:30 AM - 4:00 PM ET)</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+            <td>$0.00</td>
+        </tr>
+        <tr>
+            <td>Overnight</td>
+            <td>37</td>
+            <td>8.1%</td>
+            <td class="negative">$-791</td>
+            <td>$-21.39</td>
+        </tr>
+    </table>
+
+    <h2>⚙️ Trend Continuation Optimizer</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Near-TP Events</td><td>0</td></tr>
+        <tr><td>Extensions Approved</td><td>0</td></tr>
+        <tr><td>Approval Rate</td><td>0.0%</td></tr>
+        <tr><td>Extension Win Rate</td><td>0.0%</td></tr>
+        <tr><td>Avg Extended Trade P&L</td><td>$0.00</td></tr>
+        <tr><td>Avg Non-Extended Trade P&L</td><td>$-21.39</td></tr>
+    </table>
+
+    <h2>🚫 Trade Block Reasons (Top 15)</h2>
+    <p>Total blocks analyzed: 284206</p>
+    <div style="margin: 15px 0;">
+        <span class="block-reason">MARKET_CLOSED: 232691</span>
+<span class="block-reason">TINY_CANDLE: 15558</span>
+<span class="block-reason">ATR_TOO_HIGH: 10070</span>
+<span class="block-reason">CHOP: 8836</span>
+<span class="block-reason">ATR_TOO_LOW: 6124</span>
+<span class="block-reason">ATR_TOO_LOW,TINY_CANDLE: 3914</span>
+<span class="block-reason">BUY: DAILY_TREND_GATE_BLOCKED | SHORT: DAILY_TREND_GATE_SHORT_BLOCKED | RANGE: STRONG_TREND: trend=TREND_UP (need RANGE/CHOP) | SELL: NO_EXHAUSTION: Wait for momentum loss signals: 2059</span>
+<span class="block-reason">BUY: DAILY_TREND_GATE_BLOCKED | SHORT: DAILY_TREND_GATE_SHORT_BLOCKED | RANGE: STRONG_TREND: trend=TREND_DOWN (need RANGE/CHOP) | SELL: NO_EXHAUSTION: Wait for momentum loss signals: 1664</span>
+<span class="block-reason">MISSING_STOPS: 539</span>
+<span class="block-reason">WARMUP: 419</span>
+<span class="block-reason">ATR_TOO_HIGH,TINY_CANDLE: 390</span>
+<span class="block-reason">BUY: HTF_DOWNTREND: 15m EMA21 < EMA50 | SHORT: NOT_ACCEPTANCE: phase=CHOP, trend=TREND_UP | RANGE: STRONG_TREND: trend=TREND_UP (need RANGE/CHOP) | SELL: NO_EXHAUSTION: Wait for momentum loss signals: 346</span>
+<span class="block-reason">BUY: NOT_ACCEPTANCE: phase=CHOP, trend=TREND_DOWN | SHORT: HTF_UPTREND: 15m EMA21 > EMA50 | RANGE: STRONG_TREND: trend=TREND_DOWN (need RANGE/CHOP) | SELL: NO_EXHAUSTION: Wait for momentum loss signals: 324</span>
+<span class="block-reason">BUY: BUY_TIME_CUTOFF: BUY_CUTOFF_REACHED: 14:54 > 10:45 CST (RANGE/REVERSION only) | SHORT: SHORT_TIME_CUTOFF: SHORT_CUTOFF_REACHED: 14:54 > 10:45 CST (RANGE/REVERSION only) | EVE_BUY: NOT_ACCEPTANCE: phase=CHOP | EVE_SELL: WRONG_PHASE: need EXHAUSTION_DOWN, got CHOP | RANGE: TOO_LATE: 14:54:00 >= 14:30:00 | SELL: NO_EXHAUSTION: Wait for momentum loss signals: 186</span>
+<span class="block-reason">BUY: BUY_TIME_CUTOFF: BUY_CUTOFF_REACHED: 14:55 > 10:45 CST (RANGE/REVERSION only) | SHORT: SHORT_TIME_CUTOFF: SHORT_CUTOFF_REACHED: 14:55 > 10:45 CST (RANGE/REVERSION only) | EVE_BUY: NOT_ACCEPTANCE: phase=CHOP | EVE_SELL: WRONG_PHASE: need EXHAUSTION_DOWN, got CHOP | RANGE: TOO_LATE: 14:55:00 >= 14:30:00 | SELL: NO_EXHAUSTION: Wait for momentum loss signals: 185</span>
+
+    </div>
+
+    <h2>📚 Key Learnings & Recommendations</h2>
+
+    <h3>Market Regime Insights</h3>
+<div class="learning-box">📊 Surprisingly performs better in ranging markets: 11.1% win rate</div>
+
+    <h3>Session Insights</h3>
+<div class="learning-box">🕐 RTH outperforms: $0 vs $-791 overnight</div>
+
+    <h3>Filters to Review</h3>
+    <ul>
+<li class="warning">⚠️ MARKET_CLOSED (81.9% of blocks) - review if too restrictive</li>
+</ul>
+
+    <h3>Recommendations</h3>
+<div class="recommendation-box">💡 Win rate below 40% - tighten entry criteria or improve signal quality</div>
+<div class="recommendation-box">💡 Profit factor < 1 - strategy is unprofitable, needs fundamental changes</div>
+
+    <h2>📋 Recent Trades (Last 50)</h2>
+    <table>
+        <tr>
+            <th>Entry Time</th>
+            <th>Direction</th>
+            <th>Qty</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>P&L</th>
+            <th>Reason</th>
+        </tr>
+        
+        <tr>
+            <td>2025-02-14 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6136.75</td>
+            <td>$6140.75</td>
+            <td class="negative">$-22.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-02-18 09:59:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6138.75</td>
+            <td>$6135.00</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-03-17 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$5704.75</td>
+            <td>$5713.25</td>
+            <td class="negative">$-44.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-03-17 09:55:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$5706.50</td>
+            <td>$5714.00</td>
+            <td class="negative">$-39.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-04-15 09:38:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$5454.00</td>
+            <td>$5458.75</td>
+            <td class="negative">$-26.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-04-16 09:37:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$5364.75</td>
+            <td>$5361.00</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-05-12 09:56:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$5833.00</td>
+            <td>$5829.00</td>
+            <td class="negative">$-22.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-05-15 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$5890.00</td>
+            <td>$5893.75</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-05-21 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$5925.25</td>
+            <td>$5929.00</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-05-23 09:31:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$5806.25</td>
+            <td>$5800.75</td>
+            <td class="negative">$-29.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-05-30 10:07:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$5908.50</td>
+            <td>$5912.00</td>
+            <td class="negative">$-19.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-06-05 09:39:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$5978.25</td>
+            <td>$5970.25</td>
+            <td class="negative">$-42.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-06-05 09:43:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$5986.25</td>
+            <td>$6001.50</td>
+            <td class="positive">$73.85</td>
+            <td>unknown</td>
+        </tr>
+
+        <tr>
+            <td>2025-06-12 10:30:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6037.75</td>
+            <td>$6041.50</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-07-08 09:42:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6279.00</td>
+            <td>$6275.50</td>
+            <td class="negative">$-19.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-07-08 10:11:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6278.50</td>
+            <td>$6274.00</td>
+            <td class="negative">$-24.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-07-11 10:11:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6296.75</td>
+            <td>$6300.25</td>
+            <td class="negative">$-19.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-07-11 10:24:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6297.00</td>
+            <td>$6301.00</td>
+            <td class="negative">$-22.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-07-23 10:07:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6364.00</td>
+            <td>$6360.00</td>
+            <td class="negative">$-22.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-08-01 09:39:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6280.50</td>
+            <td>$6277.00</td>
+            <td class="negative">$-19.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-09-10 09:39:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6551.50</td>
+            <td>$6555.25</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-09-10 09:52:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6551.75</td>
+            <td>$6546.25</td>
+            <td class="positive">$25.10</td>
+            <td>unknown</td>
+        </tr>
+
+        <tr>
+            <td>2025-09-19 09:41:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6699.00</td>
+            <td>$6702.75</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-09-30 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6700.00</td>
+            <td>$6705.50</td>
+            <td class="negative">$-29.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-10-10 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6789.75</td>
+            <td>$6794.50</td>
+            <td class="negative">$-26.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-10-17 09:41:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6661.25</td>
+            <td>$6669.50</td>
+            <td class="negative">$-43.65</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-10-17 09:45:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6662.75</td>
+            <td>$6671.50</td>
+            <td class="negative">$-46.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-10-21 09:41:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6775.50</td>
+            <td>$6771.25</td>
+            <td class="negative">$-23.65</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-10-30 09:38:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6901.00</td>
+            <td>$6894.00</td>
+            <td class="negative">$-37.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-11-03 10:00:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6874.50</td>
+            <td>$6869.50</td>
+            <td class="negative">$-27.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-11-03 10:15:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6875.25</td>
+            <td>$6871.50</td>
+            <td class="negative">$-21.15</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-11-03 10:19:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6876.75</td>
+            <td>$6872.25</td>
+            <td class="negative">$-24.90</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-12-01 09:37:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6822.50</td>
+            <td>$6826.75</td>
+            <td class="negative">$-23.65</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2025-12-29 09:37:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6957.25</td>
+            <td>$6953.25</td>
+            <td class="negative">$-22.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2026-01-06 09:53:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6962.75</td>
+            <td>$6967.00</td>
+            <td class="negative">$-23.65</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2026-01-07 09:40:00</td>
+            <td>SHORT</td>
+            <td>1</td>
+            <td>$6984.75</td>
+            <td>$6988.75</td>
+            <td class="negative">$-22.40</td>
+            <td>stop_loss</td>
+        </tr>
+
+        <tr>
+            <td>2026-01-16 10:09:00</td>
+            <td>LONG</td>
+            <td>1</td>
+            <td>$6983.75</td>
+            <td>$6985.75</td>
+            <td class="positive">$7.60</td>
+            <td>unknown</td>
+        </tr>
+
+    </table>
+
+</body>
+</html>

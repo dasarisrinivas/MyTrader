@@ -39,6 +39,7 @@ class EntryFilterConfig:
     # ADX trend strength filter (Jan 2026)
     require_adx_confirmation: bool = True
     min_adx_threshold: float = 15.0  # Minimum ADX for trend trades
+    min_adx_threshold_low_volume: Optional[float] = None  # Optional override for evening/overnight
     adx_period: int = 14
     # ATR volatility filters
     atr_period: int = 14
@@ -63,11 +64,15 @@ class OneMinuteStrategyConfig:
     breakout_enabled: bool = False
     breakout_strength_filter: bool = True
     pullback_lookback: int = 3
+    require_pullback_confirmation: bool = False
     # JAN 11 2026 FIX: Relaxed ATR/candle filters - were blocking 99%+ of bars
     # Old values: 0.10, 0.90, 0.4 - too strict for 1-min data
     atr_percentile_low: float = 0.05   # Was 0.10 - allow more low-volatility periods
     atr_percentile_high: float = 0.95  # Was 0.90 - allow more high-volatility periods  
     tiny_candle_atr_factor: float = 0.15  # Was 0.4 - 1-min bars often have small ranges
+    atr_bounds_blocking: bool = True
+    tiny_candle_blocking: bool = True
+    trend_close_tolerance_pct: float = 0.0002
     cooldown_minutes: int = 3
     max_trades_per_hour: int = 3
     max_trades_per_day: int = 8
@@ -77,6 +82,8 @@ class OneMinuteStrategyConfig:
     stop_atr_multiplier: float = 3.0  # Was 6.5. Optimized for RTH trading.
     take_profit_multiple: float = 1.0  # Was 2.0. Quick scalps in RTH.
     trailing_atr_multiple: float = 1.0
+    profit_lock_trigger_r: float = 0.75  # Tighten stop after 0.75R in favor
+    profit_lock_stop_buffer_points: float = 0.5  # Buffer beyond breakeven when locking profits
     breakout_adx_threshold: float = 18.0
     trend_adx_threshold: float = 18.0 # Was 20.0. Lower threshold to enter trends earlier.
     allow_runner: bool = False
@@ -88,6 +95,7 @@ class OneMinuteStrategyConfig:
     window_bars: int = 400
     # JAN 8 2026: Multi-timeframe trend confirmation
     require_5m_trend_alignment: bool = True  # Check 5-min trend before 1-min entry
+    mtf_gate_enabled: bool = True  # Enable 15m/30m MTF gate
     mtf_ema_period: int = 20  # EMA period for 5-min trend calculation
     
     # JAN 11 2026: Enhanced MTF structure - 15m regime, 5m setup, 1m execution
@@ -126,6 +134,39 @@ class OneMinuteStrategyConfig:
     require_high_atr: bool = False  # Was True. Disabled to increase valid RTH trades.
     high_atr_percentile: float = 0.20  # Lowered from 0.67 to 0.20 (unused if require_high_atr=False)
     high_atr_lookback: int = 200  # Bars to use for ATR percentile calculation
+
+    # RTH session-specific overrides
+    rth_min_bar_volume: Optional[int] = None
+    rth_trend_adx_threshold: Optional[float] = None
+    rth_stop_atr_multiplier: Optional[float] = None
+    rth_take_profit_multiple: Optional[float] = None
+    rth_require_high_atr: Optional[bool] = None
+    rth_high_atr_percentile: Optional[float] = None
+    rth_rsi_long_min: Optional[float] = None
+    rth_rsi_long_max: Optional[float] = None
+    rth_rsi_short_min: Optional[float] = None
+    rth_rsi_short_max: Optional[float] = None
+
+    # RTH open (first N minutes) mean-reversion/momentum capture
+    rth_open_minutes: int = 90
+    rth_open_mean_reversion_enabled: bool = False
+    rth_open_rsi_oversold: float = 35.0
+    rth_open_rsi_overbought: float = 65.0
+    rth_open_vwap_atr_mult: float = 0.40
+    rth_open_max_adx: Optional[float] = 18.0
+    rth_open_min_volume: Optional[int] = None
+    rth_require_pullback_confirmation: Optional[bool] = None
+    rth_pullback_adx_bypass: Optional[float] = 22.0
+
+    # RTH close protection
+    rth_close_tighten_minutes: int = 20
+    rth_close_stop_buffer_points: float = 0.5
+
+    # RTH midday no-trade window (optional)
+    rth_no_trade_start_hour: Optional[int] = None
+    rth_no_trade_start_minute: Optional[int] = None
+    rth_no_trade_end_hour: Optional[int] = None
+    rth_no_trade_end_minute: Optional[int] = None
     
     # JAN 11 2026: Overnight/Evening session support with 30m timeframe
     # 1m data is noisy overnight - use 30m for cleaner signals
@@ -140,6 +181,14 @@ class OneMinuteStrategyConfig:
     overnight_min_volume: int = 100  # Stricter volume threshold for overnight
     overnight_adx_threshold: float = 30.0  # Much stronger trend required overnight
     overnight_atr_percentile: float = 0.80  # Top 20% volatility only overnight
+
+    # FEB 2026: Scoring-based entry system parameters
+    # Replaces hard filters with weighted scoring for increased trade frequency
+    use_scoring_system: bool = False  # Enable scoring-based entry (experimental)
+    scoring_full_size_threshold: float = 60.0  # Score >= 60 → full position
+    scoring_half_size_threshold: float = 45.0  # Score >= 45 → half position
+    # Score < 45 → no trade
+    # Risk gates (max loss, daily loss, open risk) remain HARD regardless of score
 
 
 @dataclass
@@ -246,6 +295,13 @@ class RiskGateConfig:
     tick_size: float = 0.25
     max_stop_points: float = 50.0  # Increased from 12.0 to 50.0 for RTH volatility
     max_consecutive_losses: int = 3
+    peak_drawdown_enabled: bool = False
+    peak_drawdown_pct: float = 4.0
+    peak_drawdown_action: str = "halt"  # "halt" or "tighten"
+    peak_drawdown_tighten_multiplier: float = 0.5
+    peak_drawdown_stop_buffer_points: float = 0.5
+    peak_drawdown_flatten_on_trigger: bool = True
+    peak_drawdown_reset_on_new_day: bool = False
 
     def bounded_risk_usd(self) -> float:
         """Clamp risk-per-trade to a safe range."""
@@ -677,6 +733,7 @@ class HybridConfig:
     candidate_threshold: float = 0.55  # Minimum D-engine score to proceed to RAG
     atr_min: float = 0.15  # Minimum ATR threshold (lowered for low-vol markets)
     atr_max: float = 20.0  # Maximum ATR threshold (Increased for ES volatility)
+    chop_ema_spread_min_pct: float = 0.0005  # EMA spread % threshold for CHOP_RANGE filter
     
     # H-Engine (LLM + RAG) settings  
     max_calls_per_hour: int = 10
@@ -693,6 +750,9 @@ class HybridConfig:
     # Confidence thresholds
     min_confidence_threshold: float = 0.60
     signal_threshold: int = 40
+    oversold_extension_rsi_min: float = 40.0
+    no_signal_allow_weak_signals: bool = False
+    no_signal_allow_chop_bias: bool = False
     min_confidence_for_trade: int = 25  # ADDED: Minimum confidence % for trade execution (25 = 25%)
     
     # RAG data paths

@@ -1,0 +1,31 @@
+{
+  "trade_cycle_id": "12c26d2641a6",
+  "symbol": "MES",
+  "contract": "MES",
+  "quantity": 1,
+  "side": "SCALP_BUY",
+  "entry_time": "2026-02-03T19:24:14.258514-06:00",
+  "entry_price": 6945.5,
+  "exit_time": "2026-02-04T02:09:12.980188+00:00",
+  "exit_price": 6951.0,
+  "stop_loss": 6941.75,
+  "take_profit": 6953.75,
+  "signal_type": null,
+  "signal_confidence": null,
+  "regime": null,
+  "volatility": null,
+  "advisory": null,
+  "risk_parameters": {
+    "distance_points": 3.75,
+    "target_points": 8.25
+  },
+  "features": {},
+  "execution_metrics": {
+    "slippage": 0.0,
+    "latency_ms": null,
+    "immediate_fill": false
+  },
+  "reason_codes": [],
+  "outcome": "BREAKEVEN",
+  "pnl": 0.0
+}

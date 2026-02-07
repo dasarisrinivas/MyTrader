@@ -35,6 +35,7 @@ from mytrader.config import (
     EntryFilterConfig,
 )
 from mytrader.strategies.mes_one_minute import MesOneMinuteTrendStrategy, StrategyDecision
+from mytrader.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
 from mytrader.strategies.base import Signal
 from mytrader.risk.manager import RiskManager
 from mytrader.risk.risk_gate import RiskGate, RiskGateConfig, RiskGateResult
@@ -158,6 +159,11 @@ class BacktestState:
     account_equity: float = 0.0
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
+    peak_equity: float = 0.0
+    base_equity: float = 0.0
+    drawdown_active: bool = False
+    profit_lock_active: bool = False
+    rth_close_tightened: bool = False
 
 
 class BacktestEngine:
@@ -203,8 +209,16 @@ class BacktestEngine:
         """Initialize strategy using existing bot classes."""
         # Use provided config or create default
         strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
-        self.strategy = MesOneMinuteTrendStrategy(strategy_cfg)
-        logger.info(f"Initialized strategy: {self.strategy.name}")
+        
+        # Check if scoring system should be used
+        use_scoring = getattr(strategy_cfg, 'use_scoring_system', False)
+        
+        if use_scoring:
+            self.strategy = MesOneMinuteScoringStrategy(strategy_cfg)
+            logger.info(f"Initialized SCORING strategy: {self.strategy.name}")
+        else:
+            self.strategy = MesOneMinuteTrendStrategy(strategy_cfg)
+            logger.info(f"Initialized strategy: {self.strategy.name}")
     
     def _init_risk(self) -> None:
         """Initialize risk management using existing bot classes."""
@@ -508,6 +522,9 @@ class BacktestEngine:
             
             # Update equity curve
             self._update_equity(timestamp, float(bar["close"]))
+
+            # Enforce peak drawdown guard (flatten/tighten)
+            self._apply_drawdown_guard(bar, timestamp)
             
             # Progress logging
             if bar_idx % 10000 == 0:
@@ -568,6 +585,9 @@ class BacktestEngine:
             
             # Update equity curve
             self._update_equity(timestamp, float(bar["close"]))
+
+            # Enforce peak drawdown guard (flatten/tighten)
+            self._apply_drawdown_guard(bar, timestamp)
             
             # Progress logging
             if bar_idx % 100 == 0:
@@ -893,6 +913,9 @@ class BacktestEngine:
             self.state.daily_trades = 0
             self.risk_manager.reset()
             self.risk_gate.reset_consecutive_losses()
+            if getattr(self.risk_gate.config, "peak_drawdown_reset_on_new_day", False):
+                self.risk_gate.reset_drawdown()
+                self.state.drawdown_active = False
             logger.debug(f"New trading day: {current_date}")
     
     def _is_valid_session(self, timestamp: datetime) -> bool:
@@ -932,6 +955,15 @@ class BacktestEngine:
         # Check cooldown
         if self.state.cooldown_until and timestamp < self.state.cooldown_until:
             return False
+
+        # Peak drawdown lockout
+        gate_cfg = getattr(self.risk_gate, "config", None)
+        if gate_cfg and getattr(gate_cfg, "peak_drawdown_enabled", False):
+            if getattr(self.risk_gate, "drawdown_active", False):
+                action_mode = getattr(gate_cfg, "peak_drawdown_action", "halt").lower()
+                if action_mode == "halt":
+                    self._record_block("PEAK_DRAWDOWN_LOCKOUT")
+                    return False
         
         # Check daily trade limit
         strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
@@ -998,6 +1030,7 @@ class BacktestEngine:
             "available_funds": self.state.account_equity,
             "excess_liquidity": self.state.account_equity,
             "realized_pnl_today": self.state.daily_pnl,
+            "account_equity": self.state.account_equity,
         }
         
         gate_result = self.risk_gate.evaluate_entry(
@@ -1037,11 +1070,15 @@ class BacktestEngine:
             metadata={
                 "signal_confidence": signal.confidence,
                 "signal_reason": signal.metadata.get("reason", ""),
+                "entry_module": signal.metadata.get("entry_module", ""),
+                "entry_reason": signal.metadata.get("entry_reason", getattr(signal, "reason", "")),
+                "entry_type": signal.metadata.get("entry_type", getattr(signal, "entry_type", "")),
                 "atr": atr_value,
                 "atr_value": atr_value,  # For regime analytics compatibility
                 "adx_value": adx_value,  # For regime analytics
                 "market_state": signal.metadata.get("market_state", ""),
                 "trend_label": signal.metadata.get("trend_label", ""),
+                "trend_label_htf": signal.metadata.get("trend_label_htf", ""),
                 "session_type": signal.metadata.get("session_type", "RTH"),  # JAN 11 2026
                 "entry_bar_index": self.state.bar_index,
             }
@@ -1121,14 +1158,87 @@ class BacktestEngine:
         timestamp: datetime
     ) -> None:
         """Check for position management actions (trailing stops, extensions)."""
+        self._apply_rth_close_tighten(bar, timestamp)
         if not self.config.enable_trend_optimizer:
             return
+
+    def _is_rth_close_window(self, timestamp: datetime, minutes: int) -> bool:
+        if minutes <= 0:
+            return False
+        try:
+            et_time = timestamp.astimezone(timezone(timedelta(hours=-5)))
+        except Exception:
+            et_time = timestamp
+        t = et_time.time()
+        strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
+        close_time = time(strategy_cfg.rth_end_hour, strategy_cfg.rth_end_minute)
+        close_dt = datetime.combine(et_time.date(), close_time, tzinfo=et_time.tzinfo)
+        window_start = close_dt - timedelta(minutes=minutes)
+        return window_start.time() <= t <= close_time
+
+    def _apply_rth_close_tighten(self, bar: pd.Series, timestamp: datetime) -> None:
+        """Tighten stops into RTH close to avoid late-day giveback/gap risk."""
+        position = self.broker.get_position(self.config.symbol)
+        if position.is_flat or self.state.rth_close_tightened:
+            return
+
+        strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
+        minutes = getattr(strategy_cfg, "rth_close_tighten_minutes", 0)
+        if minutes <= 0:
+            return
+
+        if not self._is_rth_close_window(timestamp, minutes):
+            return
+
+        buffer_points = float(getattr(strategy_cfg, "rth_close_stop_buffer_points", 0.5))
+        if not self.state.entry_price:
+            return
+
+        if position.is_long:
+            new_stop = max(self.state.stop_loss or 0.0, self.state.entry_price + buffer_points)
+        else:
+            new_stop = min(self.state.stop_loss or float(bar["close"]), self.state.entry_price - buffer_points)
+
+        self._modify_bracket(new_stop, None, timestamp)
+        self.state.rth_close_tightened = True
+        logger.debug("RTH close tighten applied: new SL={:.2f}", new_stop)
         
         close_price = float(bar["close"])
         position = self.broker.get_position(self.config.symbol)
         
         if position.is_flat:
             return
+
+        # Profit lock: tighten stop after partial R reached
+        strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
+        stop_distance = None
+        if self.state.entry_price and self.state.original_stop:
+            stop_distance = abs(self.state.entry_price - self.state.original_stop)
+
+        if (
+            stop_distance
+            and not self.state.profit_lock_active
+            and getattr(strategy_cfg, "profit_lock_trigger_r", 0.0) > 0
+        ):
+            trigger_r = float(getattr(strategy_cfg, "profit_lock_trigger_r", 0.75))
+            buffer_points = float(getattr(strategy_cfg, "profit_lock_stop_buffer_points", 0.5))
+            if position.is_long:
+                unrealized_points = close_price - self.state.entry_price
+            else:
+                unrealized_points = self.state.entry_price - close_price
+
+            if unrealized_points >= stop_distance * trigger_r:
+                if position.is_long:
+                    new_stop = max(self.state.stop_loss or 0.0, self.state.entry_price + buffer_points)
+                else:
+                    new_stop = min(self.state.stop_loss or close_price, self.state.entry_price - buffer_points)
+                self._modify_bracket(new_stop, None, timestamp)
+                self.state.profit_lock_active = True
+                logger.debug(
+                    "Profit lock activated: new SL={:.2f} (unrealized {:.2f} pts)",
+                    new_stop,
+                    unrealized_points,
+                )
         
         # Check if near take profit
         if self.state.take_profit is not None:
@@ -1305,6 +1415,8 @@ class BacktestEngine:
             self.state.take_profit = None
             self.state.original_stop = None
             self.state.original_tp = None
+            self.state.profit_lock_active = False
+            self.state.rth_close_tightened = False
     
     def _update_equity(self, timestamp: datetime, close_price: float) -> None:
         """Update equity curve."""
@@ -1318,8 +1430,62 @@ class BacktestEngine:
         equity = self.config.initial_capital + self.state.realized_pnl + unrealized
         self.state.unrealized_pnl = unrealized
         self.state.account_equity = equity
+
+        # Update peak drawdown tracking
+        self.risk_gate.update_equity(equity, timestamp)
+        if self.risk_gate.high_water_equity is not None:
+            self.state.peak_equity = float(self.risk_gate.high_water_equity)
+        if self.risk_gate.base_equity is not None:
+            self.state.base_equity = float(self.risk_gate.base_equity)
+        self.state.drawdown_active = bool(self.risk_gate.drawdown_active)
         
         self.equity_curve.append((timestamp, equity))
+
+    def _apply_drawdown_guard(self, bar: pd.Series, timestamp: datetime) -> None:
+        """Enforce peak drawdown guard actions (halt or tighten)."""
+        gate_cfg = getattr(self.risk_gate, "config", None)
+        if not gate_cfg or not getattr(gate_cfg, "peak_drawdown_enabled", False):
+            return
+        if not self.risk_gate.drawdown_active:
+            return
+
+        if not self.state.drawdown_active:
+            self.state.drawdown_active = True
+            self._record_block("PEAK_DRAWDOWN_TRIGGER")
+
+        action_mode = getattr(gate_cfg, "peak_drawdown_action", "halt").lower()
+        position = self.broker.get_position(self.config.symbol)
+        if position.is_flat:
+            return
+
+        close_price = float(bar["close"])
+
+        if action_mode == "halt" and getattr(gate_cfg, "peak_drawdown_flatten_on_trigger", True):
+            logger.warning(
+                "🚫 Peak drawdown flatten: closing position at {:.2f}",
+                close_price,
+            )
+            self.broker.cancel_all_orders(self.config.symbol)
+            side = OrderSide.SELL if position.is_long else OrderSide.BUY
+            self.broker.submit_market_order(
+                symbol=self.config.symbol,
+                side=side,
+                quantity=abs(position.quantity),
+                timestamp=timestamp,
+                metadata={"reason": "PEAK_DRAWDOWN_FLATTEN"},
+            )
+            fills = self.broker.process_bar(self.config.symbol, bar, timestamp)
+            for fill in fills:
+                self._process_fill(fill)
+            return
+
+        if action_mode == "tighten" and self.state.entry_price:
+            buffer_points = float(getattr(gate_cfg, "peak_drawdown_stop_buffer_points", 0.5))
+            if position.is_long:
+                new_stop = max(self.state.stop_loss or 0.0, self.state.entry_price + buffer_points)
+            else:
+                new_stop = min(self.state.stop_loss or close_price, self.state.entry_price - buffer_points)
+            self._modify_bracket(new_stop, None, timestamp)
     
     def _record_block(self, reason: str) -> None:
         """Record a block reason."""
