@@ -1,4 +1,13 @@
-"""Entry point for MyTrader."""
+"""LEGACY entry point — DO NOT USE FOR PRODUCTION.
+
+.. deprecated:: 2025-07
+   Use ``run_bot.py`` instead, which delegates to
+   :class:`mytrader.execution.live_trading_manager.LiveTradingManager`.
+
+This file contains the original monolithic ``run_live()`` function.
+It is kept for reference and backward compatibility with ad-hoc scripts;
+production deploys use ``start_bot.sh`` → ``run_bot.py``.
+"""
 from __future__ import annotations
 
 import argparse

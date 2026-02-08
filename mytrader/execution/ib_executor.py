@@ -46,43 +46,7 @@ if TYPE_CHECKING:
     from .reconcile import ReconcileManager, ReconcileLock
     from ..data.live_data_manager import LiveDataManager
 
-
-@dataclass
-class OrderResult:
-    trade: Trade
-    status: str
-    message: Optional[str] = None
-    fill_price: Optional[float] = None
-    filled_quantity: int = 0
-
-
-@dataclass
-class PositionInfo:
-    symbol: str
-    quantity: int
-    avg_cost: float
-    market_value: float
-    unrealized_pnl: float
-    realized_pnl: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
-    trailing_atr_multiplier: Optional[float] = None
-    trailing_percent: Optional[float] = None
-    atr_value: Optional[float] = None
-    entry_metadata: Optional[Dict] = None
-
-
-@dataclass
-class CloseFill:
-    """Represents the result of closing part of a position."""
-
-    contracts: float
-    entry_price: float
-    exit_price: float
-    direction: int  # +1 for closing long, -1 for closing short
-    gross_pnl: float
-    points: float
+from .models import CloseFill, OrderResult, PositionInfo
 
 
 class TradeExecutor:
