@@ -16,6 +16,7 @@ and the live trading logic from mytrader/.
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
@@ -36,6 +37,8 @@ from mytrader.config import (
 )
 from mytrader.strategies.mes_one_minute import MesOneMinuteTrendStrategy, StrategyDecision
 from mytrader.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
+from mytrader.strategies.mes_structural_reversion import MesStructuralReversionStrategy
+from mytrader.strategies.es_fifteen_min import EsFifteenMinStrategy
 from mytrader.strategies.base import Signal
 from mytrader.risk.manager import RiskManager
 from mytrader.risk.risk_gate import RiskGate, RiskGateConfig, RiskGateResult
@@ -210,10 +213,18 @@ class BacktestEngine:
         # Use provided config or create default
         strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
         
-        # Check if scoring system should be used
+        # Check which strategy to use
+        use_15m_strategy = getattr(strategy_cfg, 'use_15m_strategy', False)
+        use_structural_reversion = getattr(strategy_cfg, 'use_structural_reversion', False)
         use_scoring = getattr(strategy_cfg, 'use_scoring_system', False)
         
-        if use_scoring:
+        if use_15m_strategy:
+            self.strategy = EsFifteenMinStrategy(strategy_cfg)
+            logger.info(f"Initialized 15-MIN strategy: {self.strategy.name}")
+        elif use_structural_reversion:
+            self.strategy = MesStructuralReversionStrategy(strategy_cfg)
+            logger.info(f"Initialized STRUCTURAL REVERSION strategy: {self.strategy.name}")
+        elif use_scoring:
             self.strategy = MesOneMinuteScoringStrategy(strategy_cfg)
             logger.info(f"Initialized SCORING strategy: {self.strategy.name}")
         else:
@@ -510,6 +521,9 @@ class BacktestEngine:
         total_bars = len(features_df)
         logger.info(f"Processing {total_bars} bars...")
         
+        import time as _time
+        _last_progress = _time.time()
+        
         for bar_idx in range(self.config.warmup_bars, total_bars):
             timestamp = features_df.index[bar_idx]
             bar = features_df.iloc[bar_idx]
@@ -526,9 +540,18 @@ class BacktestEngine:
             # Enforce peak drawdown guard (flatten/tighten)
             self._apply_drawdown_guard(bar, timestamp)
             
-            # Progress logging
-            if bar_idx % 10000 == 0:
-                logger.info(f"Processed {bar_idx}/{total_bars} bars ({bar_idx/total_bars*100:.1f}%)")
+            # Real-time progress — print every 2 seconds
+            _now = _time.time()
+            if (_now - _last_progress) >= 2.0:
+                _pct = (bar_idx - self.config.warmup_bars) / max(total_bars - self.config.warmup_bars, 1) * 100
+                _trades = len(self.broker.trade_log)
+                _pnl = self.state.realized_pnl
+                logger.info(
+                    f"⏳ {bar_idx}/{total_bars} bars ({_pct:.0f}%) | "
+                    f"date: {timestamp.strftime('%Y-%m-%d %H:%M')} | "
+                    f"trades: {_trades} | PnL: ${_pnl:+,.0f}"
+                )
+                _last_progress = _now
         
         # Close any open position at end
         self._close_final_position()
@@ -573,6 +596,9 @@ class BacktestEngine:
         warmup = min(50, total_bars // 4)  # 50 bars warmup for 30m
         logger.info(f"Processing {total_bars} 30m bars (warmup={warmup})...")
         
+        import time as _time
+        _last_progress = _time.time()
+        
         for bar_idx in range(warmup, total_bars):
             timestamp = features_df.index[bar_idx]
             bar = features_df.iloc[bar_idx]
@@ -589,9 +615,18 @@ class BacktestEngine:
             # Enforce peak drawdown guard (flatten/tighten)
             self._apply_drawdown_guard(bar, timestamp)
             
-            # Progress logging
-            if bar_idx % 100 == 0:
-                logger.info(f"Processed {bar_idx}/{total_bars} 30m bars")
+            # Real-time progress — print every 2 seconds
+            _now = _time.time()
+            if (_now - _last_progress) >= 2.0:
+                _pct = (bar_idx - warmup) / max(total_bars - warmup, 1) * 100
+                _trades = len(self.broker.trade_log)
+                _pnl = self.state.realized_pnl
+                logger.info(
+                    f"⏳ {bar_idx}/{total_bars} 30m bars ({_pct:.0f}%) | "
+                    f"date: {timestamp.strftime('%Y-%m-%d %H:%M')} | "
+                    f"trades: {_trades} | PnL: ${_pnl:+,.0f}"
+                )
+                _last_progress = _now
         
         # Close any open position at end
         self._close_final_position()
@@ -633,6 +668,177 @@ class BacktestEngine:
         
         logger.info(f"Loaded {len(self.df_30m)} 30m bars for overnight backtest")
         logger.info(f"Date range: {self.df_30m.index.min()} to {self.df_30m.index.max()}")
+
+    def run_15m_only(self) -> Dict:
+        """
+        FEB 2026: Run backtest using 15m bars as the primary timeframe.
+        
+        This replaces the 1m loop entirely. The strategy receives 15m
+        bars directly — no resampling or overlay. Much cleaner signal
+        and dramatically better results than 1m.
+        
+        Returns:
+            Dict with results including trades, metrics, equity curve
+        """
+        if self.df_15m is None or self.df_15m.empty:
+            raise ValueError("No 15m data loaded. Call load_data() or load_15m_only() first.")
+        
+        logger.info(f"Starting 15m-only backtest: {self.config.symbol}")
+        logger.info(f"Date range: {self.df_15m.index.min()} to {self.df_15m.index.max()}")
+        
+        # Reset state
+        self.state = BacktestState(account_equity=self.config.initial_capital)
+        self.broker.reset()
+        self.risk_manager.reset_stats()
+        self.decision_traces.clear()
+        self.equity_curve.clear()
+        self.block_reasons.clear()
+        
+        # Simulated agents (keep for compatibility)
+        self.learning_agent_enabled = True
+        self.rag_agent_enabled = True
+        
+        # ──────────────────────────────────────────────────────────────
+        # FEB 7 2026: SESSION-ISOLATED INDICATOR ARCHITECTURE
+        #
+        # Problem: When --session full, overnight bars flow through the
+        # strategy's generate() method. Although the strategy returns
+        # HOLD for OUTSIDE_RTH, it still updates internal state:
+        #   - _prev_close is set to overnight close prices
+        #   - _session_date may reset at midnight
+        # This causes 48 extra false signals during RTH, dropping PnL
+        # from +$3,031 (PF 1.67) to +$1,410 (PF 1.21).
+        #
+        # Solution: Split the loop into two modes:
+        #   1. RTH bars: compute indicators + call strategy (same as before)
+        #   2. Non-RTH bars: only process fills on open positions
+        #
+        # Indicators are computed on the FULL DataFrame (all sessions)
+        # because the validated backtest (193 trades, PF 1.67) used
+        # this exact approach. The key is to prevent overnight bars
+        # from reaching the strategy's generate() method.
+        # ──────────────────────────────────────────────────────────────
+        from mytrader.utils.session_utils import classify_session, TradingSession
+        
+        # Compute indicators on full 15m data (same as validated backtest)
+        logger.info("Computing 15m indicators...")
+        features_df = engineer_features(self.df_15m[["open", "high", "low", "close", "volume"]])
+        
+        # Tag each bar with its session type
+        session_tags = [classify_session(ts) for ts in features_df.index]
+        
+        # Main backtest loop
+        total_bars = len(features_df)
+        warmup = min(60, total_bars // 4)
+        
+        # Count RTH bars for progress
+        rth_count = sum(1 for s in session_tags if s == TradingSession.RTH)
+        logger.info(
+            f"Processing {total_bars} 15m bars ({rth_count} RTH, "
+            f"{total_bars - rth_count} overnight/maintenance, warmup={warmup})..."
+        )
+        
+        import time as _time
+        _last_progress = _time.time()
+        
+        # FEB 7 2026: Fill processing mode
+        #
+        # Fills (stop-loss, take-profit, max-hold-exit) are ALWAYS processed
+        # on every bar, including overnight. This matches the live bot where
+        # IB executes bracket orders 24/7.
+        #
+        # The --session flag controls ONLY whether the strategy can evaluate
+        # new entries during overnight:
+        #   --session rth:  Strategy called ONLY during RTH (prevents _prev_close pollution)
+        #   --session full: Strategy called for ALL bars (old behavior, 48 extra bad trades)
+        #
+        # NOTE: The strategy itself already gates entries to RTH via OUTSIDE_RTH,
+        # but calling generate() during overnight pollutes _prev_close and _session_date.
+        # The new session-aware loop prevents this by never calling the strategy overnight.
+        
+        # With this architecture, --session rth and --session full produce
+        # IDENTICAL results because the strategy is always RTH-only.
+        # The flag is kept for API compatibility.
+        logger.info("✅ Session-aware 15m loop: fills on all bars, strategy on RTH only")
+        
+        for bar_idx in range(warmup, total_bars):
+            timestamp = features_df.index[bar_idx]
+            bar = features_df.iloc[bar_idx]
+            session = session_tags[bar_idx]
+            history = features_df.iloc[:bar_idx + 1]
+            
+            if session == TradingSession.RTH:
+                # ── RTH bar: full _process_bar flow ──
+                # This calls broker.process_bar() for fills, _is_valid_session(),
+                # _check_max_hold_time_exit, strategy.generate(), etc.
+                # Exactly the same as the validated backtest.
+                self._process_bar(bar_idx, timestamp, bar, history)
+            else:
+                # ── Non-RTH bar: only process fills + daily reset ──
+                # Stops and targets can fire overnight. Strategy is NOT called.
+                # This prevents _prev_close pollution that caused 48 extra
+                # bad trades in the old --session full code path.
+                self._check_daily_reset(timestamp)
+                fills = self.broker.process_bar(self.config.symbol, bar, timestamp)
+                for fill in fills:
+                    self._process_fill(fill)
+            
+            # Update equity curve on every bar
+            self._update_equity(timestamp, float(bar["close"]))
+            
+            # Enforce peak drawdown guard
+            self._apply_drawdown_guard(bar, timestamp)
+            
+            # Progress reporting
+            _now = _time.time()
+            if (_now - _last_progress) >= 2.0 or bar_idx % 2000 == 0:
+                _pct = (bar_idx - warmup) / max(total_bars - warmup, 1) * 100
+                _trades = len(self.broker.trade_log)
+                _pnl = self.state.realized_pnl
+                logger.info(
+                    f"⏳ {bar_idx}/{total_bars} bars ({_pct:.0f}%) | "
+                    f"date: {timestamp.strftime('%Y-%m-%d %H:%M')} | "
+                    f"trades: {_trades} | PnL: ${_pnl:+,.0f}"
+                )
+                _last_progress = _now
+        
+        # Close any open position at end
+        self._close_final_position()
+        
+        # Compile results
+        results = self._compile_results()
+        
+        logger.info(f"15m backtest complete. Total trades: {len(self.broker.trade_log)}")
+        
+        return results
+    
+    def load_15m_only(self, df_15m: pd.DataFrame) -> None:
+        """
+        FEB 2026: Load only 15m data for 15m-primary backtesting.
+        
+        Args:
+            df_15m: 15-minute OHLCV data with UTC datetime index
+        """
+        required_cols = ["open", "high", "low", "close", "volume"]
+        missing = [c for c in required_cols if c not in df_15m.columns]
+        if missing:
+            raise ValueError(f"15m data missing columns: {missing}")
+        
+        if not isinstance(df_15m.index, pd.DatetimeIndex):
+            raise ValueError("Data must have DatetimeIndex")
+        
+        self.df_15m = df_15m[
+            (df_15m.index >= self.config.start_date) & 
+            (df_15m.index <= self.config.end_date)
+        ].copy()
+        
+        # Set other dataframes to empty (not needed for 15m-only)
+        self.df_1m = pd.DataFrame()
+        self.df_5m = None
+        self.df_30m = None
+        
+        logger.info(f"Loaded {len(self.df_15m)} 15m bars for backtest")
+        logger.info(f"Date range: {self.df_15m.index.min()} to {self.df_15m.index.max()}")
 
     def _compute_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -919,17 +1125,29 @@ class BacktestEngine:
             logger.debug(f"New trading day: {current_date}")
     
     def _is_valid_session(self, timestamp: datetime) -> bool:
-        """Check if timestamp is within valid trading session."""
+        """Check if timestamp is within valid trading session.
+        
+        FEB 7 2026: Fixed DST bug — was using fixed -5h offset (EST) which
+        mis-classified early RTH bars during EDT (Mar-Nov). Now uses
+        ZoneInfo('US/Eastern') for correct DST handling, consistent with
+        session_utils.classify_session().
+        """
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        
+        et = timestamp.astimezone(ZoneInfo("US/Eastern"))
+        t = et.time()
+        dow = et.weekday()  # Mon=0 … Sun=6
+        
         if self.config.session_type == "full":
             # 24h futures session - exclude maintenance window
-            t = timestamp.astimezone(timezone(timedelta(hours=-5))).time()  # Convert to ET
-            
             # CME maintenance: 5:00 PM - 6:00 PM ET daily
             if time(17, 0) <= t < time(18, 0):
                 return False
             
             # Weekend check (Sat-Sun before 6 PM)
-            dow = timestamp.weekday()
             if dow == 5:  # Saturday
                 return False
             if dow == 6 and t < time(18, 0):  # Sunday before 6 PM
@@ -939,10 +1157,7 @@ class BacktestEngine:
         
         elif self.config.session_type == "rth":
             # Regular trading hours: 9:30 AM - 4:00 PM ET
-            t = timestamp.astimezone(timezone(timedelta(hours=-5))).time()
-            
             if time(9, 30) <= t < time(16, 0):
-                dow = timestamp.weekday()
                 if dow < 5:  # Mon-Fri
                     return True
             
@@ -1139,7 +1354,7 @@ class BacktestEngine:
                 side=side,
                 quantity=abs(position.quantity),
                 timestamp=timestamp,
-                metadata={"reason": "MAX_HOLD_EXIT", "hold_minutes": hold_duration}
+                metadata={"type": "flatten", "reason": "MAX_HOLD_EXIT", "hold_minutes": hold_duration}
             )
             
             # Process immediately to get fill
@@ -1166,7 +1381,11 @@ class BacktestEngine:
         if minutes <= 0:
             return False
         try:
-            et_time = timestamp.astimezone(timezone(timedelta(hours=-5)))
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        try:
+            et_time = timestamp.astimezone(ZoneInfo("US/Eastern"))
         except Exception:
             et_time = timestamp
         t = et_time.time()
@@ -1472,7 +1691,7 @@ class BacktestEngine:
                 side=side,
                 quantity=abs(position.quantity),
                 timestamp=timestamp,
-                metadata={"reason": "PEAK_DRAWDOWN_FLATTEN"},
+                metadata={"type": "flatten", "reason": "PEAK_DRAWDOWN_FLATTEN"},
             )
             fills = self.broker.process_bar(self.config.symbol, bar, timestamp)
             for fill in fills:
@@ -1526,25 +1745,35 @@ class BacktestEngine:
         """Close any open position at end of backtest."""
         position = self.broker.get_position(self.config.symbol)
         
-        if not position.is_flat and self.df_1m is not None:
+        if position.is_flat:
+            return
+        
+        # Determine the final bar source (1m or 15m)
+        if self.df_1m is not None:
             final_timestamp = self.df_1m.index[-1]
             final_bar = self.df_1m.iloc[-1]
-            
-            self.broker.flatten_position(
-                self.config.symbol,
-                final_timestamp,
-                reason="backtest_end"
-            )
-            
-            # Process the flatten order
-            fills = self.broker.process_bar(
-                self.config.symbol,
-                final_bar,
-                final_timestamp
-            )
-            
-            for fill in fills:
-                self._process_fill(fill)
+        elif self.df_15m is not None:
+            final_timestamp = self.df_15m.index[-1]
+            final_bar = self.df_15m.iloc[-1]
+        else:
+            logger.warning("No data available to close final position")
+            return
+        
+        self.broker.flatten_position(
+            self.config.symbol,
+            final_timestamp,
+            reason="flatten"  # Use "flatten" so _process_fill recognizes as exit
+        )
+        
+        # Process the flatten order
+        fills = self.broker.process_bar(
+            self.config.symbol,
+            final_bar,
+            final_timestamp
+        )
+        
+        for fill in fills:
+            self._process_fill(fill)
     
     def _compile_results(self) -> Dict:
         """Compile backtest results."""

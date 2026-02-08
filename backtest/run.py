@@ -22,14 +22,22 @@ from typing import Optional
 import yaml
 from loguru import logger
 
+# Force unbuffered output so progress is visible in real-time
+import os
+os.environ["PYTHONUNBUFFERED"] = "1"
+
 # Configure logging
 logger.remove()
-logger.add(sys.stdout, level="INFO", format="<level>{time:HH:mm:ss}</level> | <level>{message}</level>")
+logger.add(sys.stderr, level="INFO", format="{time:HH:mm:ss} | {message}")
 
 # Add file logging
 log_path = Path("logs/backtest.log")
 log_path.parent.mkdir(exist_ok=True)
 logger.add(log_path, level="DEBUG", rotation="10 MB")
+
+print("=" * 60, flush=True)
+print("  BACKTEST RUNNER STARTING", flush=True)
+print("=" * 60, flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -237,12 +245,41 @@ async def download_data(args: argparse.Namespace) -> tuple:
                 args.data_source = "file"
                 args.data_file = str(p)
                 break
+        
+        # FEB 2026: If no 1m file found, try 15m file directly
+        if not args.data_file:
+            potential_15m = [
+                Path(f"data/ib/{args.symbol}_15m_1y.parquet"),
+                Path(f"data/ib/{args.symbol}_15m.parquet"),
+            ]
+            for p in potential_15m:
+                if p.exists():
+                    logger.info(f"📂 Auto-detected 15m data file: {p}")
+                    args.data_source = "file"
+                    args.data_file = str(p)
+                    break
 
     # Load from file
     if args.data_source == "file" and args.data_file:
         data_path = Path(args.data_file)
         if data_path.suffix == ".parquet":
-            df_1m = pd.read_parquet(data_path)
+            raw = pd.read_parquet(data_path)
+            
+            # FEB 2026: Detect if the loaded file is 15m data (not 1m)
+            if "15m" in data_path.name:
+                # This IS 15m data — load directly, don't treat as 1m
+                df_15m = raw
+                if "timestamp" in df_15m.columns:
+                    df_15m["timestamp"] = pd.to_datetime(df_15m["timestamp"])
+                    df_15m.set_index("timestamp", inplace=True)
+                if df_15m.index.tzinfo is None:
+                    df_15m.index = df_15m.index.tz_localize("UTC")
+                # df_1m stays None — engine.load_15m_only will handle it
+                logger.info(f"Loaded {len(df_15m)} 15m bars from {data_path}")
+                return df_1m, df_5m, df_15m, df_30m, data_mode
+            
+            # Otherwise treat as 1m data (legacy path)
+            df_1m = raw
             
             # JAN 17 2026: Try to load matching 15m/30m files if available
             # Pattern: ES_1m_1y.parquet -> ES_15m_1y.parquet
@@ -484,23 +521,29 @@ def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config:
         for key, value in config["strategy"].items():
             if hasattr(strategy_config, key):
                 setattr(strategy_config, key, value)
-                
-    # TUNING (Jan 18 2026): Defaults for RTH Trading per user request (More Trades)
-    # FEB 6 2026 FIX: Only set these if NOT already configured via YAML.
-    # Previously these hardcoded values clobbered the config file, e.g. scoring
-    # config specifies stop_atr_multiplier=1.5 but this forced 3.0.
-    if "strategy" not in config or "stop_atr_multiplier" not in config.get("strategy", {}):
-        strategy_config.stop_atr_multiplier = 3.0
-    if "strategy" not in config or "take_profit_multiple" not in config.get("strategy", {}):
-        strategy_config.take_profit_multiple = 1.0
-    if "strategy" not in config or "trend_adx_threshold" not in config.get("strategy", {}):
-        strategy_config.trend_adx_threshold = 18.0
-    # Ensure MTF is enabled to use wider 15m ATR for stops (avoid RiskGate minimums)
-    strategy_config.use_mtf_regime = True
     
-    # JAN 17 2026 FIX: WARMUP LOCK
-    # window_bars must be >= warmup_bars (800) otherwise generation exits with "WARMUP"
-    strategy_config.window_bars = 1000
+    # FEB 2026: Only apply 1m-specific tuning when NOT using 15m strategy
+    if not getattr(strategy_config, 'use_15m_strategy', False):
+        # TUNING (Jan 18 2026): Defaults for RTH Trading per user request (More Trades)
+        # FEB 6 2026 FIX: Only set these if NOT already configured via YAML.
+        if "strategy" not in config or "stop_atr_multiplier" not in config.get("strategy", {}):
+            strategy_config.stop_atr_multiplier = 3.0
+        if "strategy" not in config or "take_profit_multiple" not in config.get("strategy", {}):
+            strategy_config.take_profit_multiple = 1.0
+        if "strategy" not in config or "trend_adx_threshold" not in config.get("strategy", {}):
+            strategy_config.trend_adx_threshold = 18.0
+        # Ensure MTF is enabled to use wider 15m ATR for stops (avoid RiskGate minimums)
+        strategy_config.use_mtf_regime = True
+        
+        # JAN 17 2026 FIX: WARMUP LOCK
+        # window_bars must be >= warmup_bars (800) otherwise generation exits with "WARMUP"
+        strategy_config.window_bars = 1000
+    else:
+        # FEB 7 2026: Wire ft_max_hold_bars → max_hold_minutes for 15m strategy
+        # ft_max_hold_bars is in 15m bars, so multiply by 15 to get minutes
+        ft_bars = getattr(strategy_config, 'ft_max_hold_bars', 6)
+        strategy_config.max_hold_minutes = ft_bars * 15
+        logger.info(f"15m max_hold: {ft_bars} bars × 15 min = {strategy_config.max_hold_minutes} min")
     
     # Ensure Risk Gate allows this - configured below in RiskGateConfig section
     
@@ -514,13 +557,13 @@ def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config:
     # Build risk gate config
     risk_gate_config = RiskGateConfig()
     
-    # TUNING (Jan 18 2026): Increase hard caps to allow High ATR strategy to breathe
-    # The default 12pt cap was colliding with the strategy's 2xATR stops in 2025 volatility
-    risk_gate_config.max_stop_points = 50.0      # Increased to 50.0 to prevent rejection of volatile RTH moves
-    risk_gate_config.risk_per_trade_max = 250.0  # Allow $250 risk for wider stops (50pts * $5)
-    risk_gate_config.risk_per_trade_usd = 250.0  # Increase base risk budget to match max
-    # TUNING (Jan 17 2026): Lower floor to allow scalping in lower vol
-    risk_gate_config.min_stop_points = 3.0       # Allow 3pt stops (prev 6pt)
+    # FEB 2026: Only apply 1m-specific risk tuning when NOT using 15m strategy
+    if not getattr(strategy_config, 'use_15m_strategy', False):
+        # TUNING (Jan 18 2026): Increase hard caps for 1m High ATR strategy
+        risk_gate_config.max_stop_points = 50.0
+        risk_gate_config.risk_per_trade_max = 250.0
+        risk_gate_config.risk_per_trade_usd = 250.0
+        risk_gate_config.min_stop_points = 3.0
     
     if "risk_gate" in config:
         for key, value in config["risk_gate"].items():
@@ -545,10 +588,18 @@ def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config:
     
     # Run backtest
     engine = BacktestEngine(bt_config)
-    engine.load_data(df_1m, df_5m, df_15m, df_30m)
     
-    logger.info("Running backtest...")
-    results = engine.run()
+    # FEB 2026: 15m-only path — skip 1m entirely
+    if strategy_config.use_15m_strategy:
+        if df_15m is None or df_15m.empty:
+            raise ValueError("15m data required for use_15m_strategy but none loaded")
+        engine.load_15m_only(df_15m)
+        logger.info("Running 15m-only backtest...")
+        results = engine.run_15m_only()
+    else:
+        engine.load_data(df_1m, df_5m, df_15m, df_30m)
+        logger.info("Running backtest...")
+        results = engine.run()
     
     return results
 
@@ -666,11 +717,18 @@ async def main():
     logger.info("Loading data...")
     df_1m, df_5m, df_15m, df_30m, data_mode = await download_data(args)
     
-    if df_1m is None or df_1m.empty:
-        logger.error("No data available. Exiting.")
+    # FEB 2026: 15m-only mode — df_1m may be None when loading 15m directly
+    has_1m = df_1m is not None and not df_1m.empty
+    has_15m = df_15m is not None and not df_15m.empty
+    
+    if not has_1m and not has_15m:
+        logger.error("No data available (neither 1m nor 15m). Exiting.")
         sys.exit(1)
     
-    logger.info(f"Data loaded: {len(df_1m)} bars ({data_mode} mode)")
+    if has_1m:
+        logger.info(f"Data loaded: {len(df_1m)} 1m bars ({data_mode} mode)")
+    if has_15m:
+        logger.info(f"Data loaded: {len(df_15m)} 15m bars ({data_mode} mode)")
     
     # Run backtest
     results = run_backtest(df_1m, df_5m, df_15m, df_30m, args, config)

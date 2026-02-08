@@ -190,6 +190,48 @@ class OneMinuteStrategyConfig:
     # Score < 45 → no trade
     # Risk gates (max loss, daily loss, open risk) remain HARD regardless of score
 
+    # FEB 2026: Structural reversion strategy (replaces scoring system)
+    # Data-driven redesign: mean reversion from VWAP/PDH/PDL after opening range
+    use_structural_reversion: bool = False
+    sr_min_atr: float = 4.0           # Minimum ATR to trade (88% of losses were ATR < 4)
+    sr_max_trades: int = 2            # Max trades per session (data: 3rd+ trades lose money)
+    sr_cooldown_minutes: int = 15     # Minutes between trades
+    sr_target_mode: str = "vwap"      # 'vwap' = target VWAP, 'atr' = fixed ATR multiple
+    sr_target_atr_mult: float = 1.5   # If target_mode='atr'
+    sr_time_stop_minutes: int = 45    # Max hold time (data: 10-45 min is profitable window)
+    sr_rsi_long_max: float = 38.0     # RSI must be below this for longs
+    sr_rsi_short_min: float = 62.0    # RSI must be above this for shorts
+    sr_min_volume: int = 100          # Minimum volume on entry bar
+    sr_or_minutes: int = 30           # Opening range duration (minutes after RTH open)
+    sr_overextension_atr_mult: float = 0.5  # How far from VWAP = "overextended"
+    sr_breakeven_r: float = 1.0       # Move stop to breakeven after this R-multiple
+    sr_trade_start_hour: int = 10     # Trade window start (CST)
+    sr_trade_start_minute: int = 0
+    sr_trade_end_hour: int = 11       # Trade window end (CST)
+    sr_trade_end_minute: int = 30
+
+    # FEB 2026: 15-minute strategy — NOW THE DEFAULT
+    # Replaces all 1m approaches (scoring, structural reversion, trend)
+    # Data-driven: EMA21 pullback + OR breakout, long-only
+    # Backtested: PF 1.75, Sharpe 4.05, +$6,700 on 277 days
+    use_15m_strategy: bool = True  # DEFAULT ON — 1m strategies are sunset
+    ft_pb_stop_mult: float = 1.5      # Pullback stop = 1.5 × ATR_14
+    ft_pb_target_mult: float = 2.0    # Pullback target = 2.0 × ATR_14 (optimized from 2.5)
+    ft_or_target_r: float = 1.3       # OR breakout target = 1.3 × risk (optimized from 1.5)
+    ft_adx_min: float = 20.0          # Minimum ADX for any entry
+    ft_ema_touch_pct: float = 0.001   # How close low must be to EMA21 (0.1%)
+    ft_or_minutes: int = 30           # Opening range window (minutes)
+    ft_max_hold_bars: int = 6         # Max hold = 6 × 15m = 90 minutes
+
+    # FEB 7 2026: Entry time filter (ET) — skip negative-expectancy hours
+    # 10:xx entries: -$1,208 (87 trades, poor R:R)
+    # 15:xx entries: -$397 (22 trades, 9% WR)
+    # Default window: 11:00-14:59 ET
+    ft_entry_start_hour: int = 11     # Earliest entry hour (ET)
+    ft_entry_start_minute: int = 0
+    ft_entry_end_hour: int = 15       # Latest entry hour (ET, exclusive)
+    ft_entry_end_minute: int = 0
+
 
 @dataclass
 class ThirtyMinuteStrategyConfig:

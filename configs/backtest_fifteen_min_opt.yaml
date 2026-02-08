@@ -1,0 +1,47 @@
+# =============================================================================
+# ES 15-Minute Strategy — OPTIMIZED Configuration
+# =============================================================================
+# FEB 2026: Tuned from baseline that showed +$2,900 / 5.8% / Sharpe 4.25
+#
+# Changes from baseline:
+#   ft_pb_target_mult: 2.5 → 2.0  (TP hit rate was only 13%, lower target)
+#   ft_or_target_r: 1.5 → 1.3     (OR breakout has limited follow-through)
+#   ft_max_hold_bars: 6 → 8       (120 min — give trades more time to develop)
+#
+# Baseline results (191 trades, fixed accounting):
+#   Total PnL: +$2,900, WR 48.2%, PF 1.64, Sharpe 4.25, MaxDD -1.2%
+#   Exit mix: 38% SL (-$3,923), 13% TP (+$3,780), 49% MAX_HOLD (+$3,043)
+#   MAX_HOLD WR 71% — best exit type, target was too aggressive
+# =============================================================================
+
+strategy:
+  use_15m_strategy: true
+  use_structural_reversion: false
+  use_scoring_system: false
+
+  # ─── OPTIMIZED EMA21 Pullback parameters ───
+  ft_pb_stop_mult: 1.5       # Stop = 1.5 × ATR_14 (keep — good risk control)
+  ft_pb_target_mult: 2.0     # Target = 2.0 × ATR_14 (was 2.5 — too ambitious)
+  ft_or_target_r: 1.3        # OR breakout target = 1.3 × risk (was 1.5)
+  ft_adx_min: 20.0           # ADX filter (keep — validated)
+  ft_ema_touch_pct: 0.001    # EMA21 touch tolerance (keep)
+  ft_or_minutes: 30          # Opening range = first 30 min (keep)
+  ft_max_hold_bars: 6        # Max hold = 6 bars = 90 minutes (120min tested — worse)
+
+  max_trades_per_day: 10
+  cooldown_minutes: 0
+
+risk_gate:
+  max_stop_points: 200.0
+  min_stop_points: 3.0
+  risk_per_trade_usd: 1000.0
+  risk_per_trade_max: 1000.0
+  max_daily_loss: 2000.0
+  max_position_risk_pct: 0.05
+  max_consecutive_losses: 10
+
+trading:
+  max_daily_loss: 1000.0
+  max_daily_trades: 10
+  initial_capital: 50000.0
+  contract_multiplier: 50.0

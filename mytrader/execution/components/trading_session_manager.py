@@ -11,6 +11,7 @@ from ...monitoring.live_tracker import LivePerformanceTracker
 from ...strategies.engine import StrategyEngine
 from ...strategies.mes_one_minute import MesOneMinuteTrendStrategy
 from ...strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy  # FEB 2026: Scoring system
+from ...strategies.es_fifteen_min import EsFifteenMinStrategy  # FEB 2026: 15m strategy (replaces 1m)
 from ...risk.manager import RiskManager
 from ...utils.telegram_notifier import TelegramNotifier
 # Use S3 RAGStorageManager instead of local SQLite RAGStorage
@@ -49,16 +50,41 @@ class TradingSessionManager:
                 point_value=m.contract_spec.point_value,
             )
 
-            # FEB 2026: Conditionally use scoring-based strategy if enabled
+            # FEB 2026: Strategy selection — 15m strategy is now the default
             one_min_cfg = m.one_minute_cfg or m.settings.one_minute
+            use_15m = getattr(one_min_cfg, "use_15m_strategy", False)
             use_scoring = getattr(one_min_cfg, "use_scoring_system", False)
-            
-            if use_scoring:
+
+            if use_15m:
+                strategy = EsFifteenMinStrategy(one_min_cfg)
+                m._active_timeframe = "15m"
+                m._bar_size_setting = "15 mins"
+                m._candle_period_seconds = 15 * 60  # 900 seconds
+                # Adjust warmup and bar window for 15m bars
+                # 60 bars × 15min = 15 hours of warmup data
+                m.status.min_bars_needed = max(60, getattr(one_min_cfg, "warmup_bars", 60))
+                m._bar_window = max(200, getattr(one_min_cfg, "window_bars", 200))
+                # Max hold tracking for 15m time-stop
+                ft_hold_bars = getattr(one_min_cfg, "ft_max_hold_bars", 6)
+                m._ft_max_hold_minutes = ft_hold_bars * 15
+                logger.info("=" * 60)
+                logger.info("📊 STRATEGY: ES 15-Minute (EMA21 Pullback + OR Breakout)")
+                logger.info(f"   Timeframe: 15m | Max hold: {m._ft_max_hold_minutes} min")
+                logger.info(f"   Warmup: {m.status.min_bars_needed} bars | Window: {m._bar_window} bars")
+                logger.info("   Mode: LONG-ONLY (shorts disabled)")
+                logger.info("=" * 60)
+            elif use_scoring:
                 strategy = MesOneMinuteScoringStrategy(one_min_cfg)
-                logger.info("✅ Using SCORING-BASED entry system (experimental)")
+                m._active_timeframe = "1m"
+                m._bar_size_setting = "1 min"
+                m._candle_period_seconds = 60
+                logger.info("✅ Using SCORING-BASED entry system (1m experimental)")
             else:
                 strategy = MesOneMinuteTrendStrategy(one_min_cfg)
-                logger.info("ℹ️  Using traditional hard-filter entry system")
+                m._active_timeframe = "1m"
+                m._bar_size_setting = "1 min"
+                m._candle_period_seconds = 60
+                logger.info("ℹ️  Using traditional hard-filter entry system (1m)")
             
             m.engine = StrategyEngine([strategy])
             m.signal_processor.engine = m.engine
@@ -196,14 +222,21 @@ class TradingSessionManager:
         m.running = True
         m.stop_requested = False
 
-        poll_interval = 5
+        # FEB 2026: Adjust poll interval based on active timeframe
+        active_tf = getattr(m, "_active_timeframe", "1m")
+        if active_tf == "15m":
+            poll_interval = 30  # Poll every 30s for 15m bars (less frequent)
+            tf_label = "15m"
+        else:
+            poll_interval = 5
+            tf_label = "1m"
 
         try:
             while m.running and not m.stop_requested:
                 try:
-                    new_bar = await m._fetch_latest_minute_bar()
+                    new_bar = await m._fetch_latest_bar()
                     if not new_bar:
-                        m.status.message = "Waiting for completed 1m bar..."
+                        m.status.message = f"Waiting for completed {tf_label} bar..."
                         await m._broadcast_status()
                         await asyncio.sleep(poll_interval)
                         continue
@@ -213,7 +246,7 @@ class TradingSessionManager:
                     m.status.current_price = current_price
 
                     if len(m.price_history) < m.status.min_bars_needed:
-                        m.status.message = f"Collecting data: {len(m.price_history)}/{m.status.min_bars_needed} bars"
+                        m.status.message = f"Collecting {tf_label} data: {len(m.price_history)}/{m.status.min_bars_needed} bars"
                         logger.info(m.status.message)
                         await m._broadcast_status()
                         await asyncio.sleep(poll_interval)

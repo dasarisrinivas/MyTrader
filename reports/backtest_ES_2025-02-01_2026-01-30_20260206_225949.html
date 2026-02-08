@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtest Report: ES</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #1a1a2e;
+            border-bottom: 3px solid #4a90d9;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #16213e;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4a90d9;
+            padding-left: 15px;
+        }
+        h3 {
+            color: #1a1a2e;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        .summary-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .summary-box h2 {
+            color: white;
+            border-left-color: rgba(255,255,255,0.5);
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4a90d9;
+        }
+        .metric-value.positive { color: #27ae60; }
+        .metric-value.negative { color: #e74c3c; }
+        .metric-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #4a90d9;
+            color: white;
+            font-weight: 600;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .positive { color: #27ae60; }
+        .negative { color: #e74c3c; }
+        .warning { color: #f39c12; }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .learning-box {
+            background: #fff3cd;
+            border-left: 4px solid #f0ad4e;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .recommendation-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .block-reason {
+            display: inline-block;
+            background: #f8f9fa;
+            padding: 5px 10px;
+            margin: 3px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            border: 1px solid #dee2e6;
+        }
+        .timestamp {
+            color: #888;
+            font-size: 0.85em;
+        }
+        ul {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Backtest Report: ES</h1>
+    <p class="timestamp">Generated: 2026-02-06 22:59:49 UTC</p>
+    <p><strong>Strategy:</strong> MES 1-Minute Trend Strategy | <strong>Symbol:</strong> ES</p>
+
+    <div class="summary-box">
+        <h2>📊 Executive Summary</h2>
+        <div class="metrics-grid" style="margin-top: 15px;">
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value negative">+0.0%</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Total Return</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value negative">$0</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Total P&L</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value">0.00</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Sharpe Ratio</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value negative">0.0%</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Max Drawdown</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value">0.0%</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Win Rate</div>
+            </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.1);">
+                <div class="metric-value">0</div>
+                <div class="metric-label" style="color: rgba(255,255,255,0.8);">Total Trades</div>
+            </div>
+        </div>
+        <p style="margin-top: 15px; font-size: 1.1em;">MARGINAL: Strategy is near breakeven. Significant tuning needed.</p>
+    </div>
+
+    <h2>📈 Performance Metrics</h2>
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-value">0.0%</div>
+            <div class="metric-label">CAGR</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.00</div>
+            <div class="metric-label">Sortino Ratio</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.00</div>
+            <div class="metric-label">Calmar Ratio</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.00</div>
+            <div class="metric-label">Profit Factor</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0.0%</div>
+            <div class="metric-label">Ann. Volatility</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">$0.00</div>
+            <div class="metric-label">Expectancy</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">0m</div>
+            <div class="metric-label">Avg Duration</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">$0</div>
+            <div class="metric-label">Total Commission</div>
+        </div>
+    </div>
+
+    <h2>📊 Trade Analysis</h2>
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Value</th>
+        </tr>
+        <tr>
+            <td>Total Trades</td>
+            <td>0</td>
+        </tr>
+        <tr>
+            <td>Winning Trades</td>
+            <td class="positive">0</td>
+        </tr>
+        <tr>
+            <td>Losing Trades</td>
+            <td class="negative">0</td>
+        </tr>
+        <tr>
+            <td>Win Rate</td>
+            <td>0.0%</td>
+        </tr>
+        <tr>
+            <td>Average Win</td>
+            <td class="positive">$0.00</td>
+        </tr>
+        <tr>
+            <td>Average Loss</td>
+            <td class="negative">$0.00</td>
+        </tr>
+        <tr>
+            <td>Largest Win</td>
+            <td class="positive">$0.00</td>
+        </tr>
+        <tr>
+            <td>Largest Loss</td>
+            <td class="negative">$0.00</td>
+        </tr>
+    </table>
+
+    <h2>🌡️ Performance by Market Regime</h2>
+    
+    <h3>ATR Volatility Buckets</h3>
+    <table>
+        <tr>
+            <th>Regime</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Total P&L</th>
+        </tr>
+        <tr>
+            <td>Low ATR</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+        </tr>
+        <tr>
+            <td>Medium ATR</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+        </tr>
+        <tr>
+            <td>High ATR</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+        </tr>
+    </table>
+    
+    <h3>ADX Trend Strength</h3>
+    <table>
+        <tr>
+            <th>Regime</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Total P&L</th>
+        </tr>
+        <tr>
+            <td>Trending (ADX ≥ 20)</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+        </tr>
+        <tr>
+            <td>Ranging (ADX < 20)</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+        </tr>
+    </table>
+
+    <h2>🕐 Performance by Session</h2>
+    <table>
+        <tr>
+            <th>Session</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Total P&L</th>
+            <th>Avg Trade</th>
+        </tr>
+        <tr>
+            <td>RTH (9:30 AM - 4:00 PM ET)</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+            <td>$0.00</td>
+        </tr>
+        <tr>
+            <td>Overnight</td>
+            <td>0</td>
+            <td>0.0%</td>
+            <td class="negative">$0</td>
+            <td>$0.00</td>
+        </tr>
+    </table>
+
+    <h2>⚙️ Trend Continuation Optimizer</h2>
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><td>Near-TP Events</td><td>0</td></tr>
+        <tr><td>Extensions Approved</td><td>0</td></tr>
+        <tr><td>Approval Rate</td><td>0.0%</td></tr>
+        <tr><td>Extension Win Rate</td><td>0.0%</td></tr>
+        <tr><td>Avg Extended Trade P&L</td><td>$0.00</td></tr>
+        <tr><td>Avg Non-Extended Trade P&L</td><td>$0.00</td></tr>
+    </table>
+
+    <h2>📚 Key Learnings & Recommendations</h2>
+
+    <h3>Market Regime Insights</h3>
+<div class="learning-box">📊 Surprisingly performs better in ranging markets: 0.0% win rate</div>
+
+    <h3>Session Insights</h3>
+<div class="learning-box">🕐 Overnight session is more profitable - consider focusing here</div>
+
+    <h3>Recommendations</h3>
+<div class="recommendation-box">💡 Win rate below 40% - tighten entry criteria or improve signal quality</div>
+<div class="recommendation-box">💡 Profit factor < 1 - strategy is unprofitable, needs fundamental changes</div>
+
+</body>
+</html>

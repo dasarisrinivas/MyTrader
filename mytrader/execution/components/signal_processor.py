@@ -871,7 +871,9 @@ class SignalProcessor:
                 staleness_seconds = float("inf")
 
             # Configurable threshold (one_minute.live_bar_stale_seconds) default to 120s
-            live_threshold = 120
+            # FEB 2026: Scale default by active timeframe (15m bars have 900s period)
+            active_tf = getattr(m, "_active_timeframe", "1m")
+            live_threshold = 1200 if active_tf == "15m" else 120
             try:
                 one_min_cfg = getattr(self.settings, "one_minute", None) or {}
                 if isinstance(one_min_cfg, dict):
@@ -879,7 +881,7 @@ class SignalProcessor:
                 else:
                     live_threshold = int(getattr(one_min_cfg, "live_bar_stale_seconds", live_threshold))
             except Exception:
-                live_threshold = 120
+                pass  # keep timeframe-derived default
 
             if staleness_seconds > live_threshold:
                 # Block new entries; allow exits (exit logic runs elsewhere).
@@ -1542,9 +1544,15 @@ class SignalProcessor:
         m.status.order_lock_reason = ""
 
         ts = bar_timestamp or now_cst()
-        current_candle_start = ts.replace(second=0, microsecond=0)
+        # FEB 2026: Align candle dedup boundary to active timeframe
+        active_tf = getattr(m, "_active_timeframe", "1m")
+        if active_tf == "15m":
+            # Align to 15-minute boundary for dedup
+            current_candle_start = ts.replace(second=0, microsecond=0, minute=(ts.minute // 15) * 15)
+        else:
+            current_candle_start = ts.replace(second=0, microsecond=0)
         if m._last_candle_processed == current_candle_start:
-            logger.debug("⏳ Waiting for next candle close (current minute already processed)")
+            logger.debug(f"⏳ Waiting for next candle close (current {active_tf} bar already processed)")
             return
         m._last_candle_processed = current_candle_start
         logger.info("🕐 New candle close at {} CST", current_candle_start.strftime("%H:%M:%S"))

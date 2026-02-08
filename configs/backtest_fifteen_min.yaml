@@ -1,0 +1,75 @@
+# =============================================================================
+# MES 15-Minute Strategy Backtest Configuration
+# =============================================================================
+# FEB 2026: Replaces ALL 1-minute strategies (scoring, structural reversion, trend)
+#
+# Instrument: MES (Micro E-mini S&P 500) — $5/point, $1.25/tick
+# Strategy: EMA21 Pullback (primary) + OR Breakout (secondary)
+# Direction: Long-only (shorts consistently negative on ES/MES)
+# Timeframe: 15-minute bars
+# Account: $5,000 initial capital
+#
+# DST-CORRECT backtest results (Feb 2025 - Jan 2026, 241 trading days):
+#   Entry window: 11:00-14:59 ET (midday sweet spot)
+#   Total trades:   130 (103 EMA21_PB + 27 OR_BREAK)
+#   Profit Factor:  1.91
+#   Total PnL:      +$2,523 (+50.5%)
+#   Sharpe Ratio:   9.40
+#   Max Drawdown:   -8.33%
+#   Win Rate:       50.8%
+#
+# Key insight (FEB 7 2026): Previous 193-trade/PF 1.67 result had a DST bug
+# in _is_valid_session (fixed -5h offset instead of US/Eastern). This skipped
+# 10:00-10:15 ET bars during EDT months (Mar-Nov), accidentally avoiding the
+# worst entry window. The entry time filter replaces this with an intentional,
+# data-driven restriction.
+# =============================================================================
+
+strategy:
+  # ─── Core flag: use 15m strategy ───
+  use_15m_strategy: true
+  use_structural_reversion: false
+  use_scoring_system: false
+
+  # ─── EMA21 Pullback parameters ───
+  ft_pb_stop_mult: 1.5       # Stop = 1.5 × ATR_14 (~15 pts on avg)
+  ft_pb_target_mult: 2.0     # Target = 2.0 × ATR_14 (optimized from 2.5 → +4.5% more PnL)
+  ft_or_target_r: 1.3        # OR breakout target = 1.3 × risk (optimized from 1.5)
+  ft_adx_min: 20.0           # ADX filter (PF 1.53 → 1.75 with this)
+  ft_ema_touch_pct: 0.001    # EMA21 touch tolerance (0.1%)
+  ft_or_minutes: 30          # Opening range = first 30 min
+  ft_max_hold_bars: 6        # Max hold = 6 bars = 90 minutes
+
+  # ─── Entry time filter (ET) ───
+  # FEB 7 2026: DST-correct backtest analysis shows:
+  #   10:xx entries: -$1,208 (87 trades, terrible R:R despite 55% WR)
+  #   15:xx entries: -$397 (22 trades, 9% WR)
+  # Restricting to 11:00-14:59 ET recovers +$1,479 on fewer trades.
+  ft_entry_start_hour: 11    # Earliest entry (ET)
+  ft_entry_start_minute: 0
+  ft_entry_end_hour: 15      # Latest entry (ET, exclusive)
+  ft_entry_end_minute: 0
+
+  # ─── General (inherited, not used by 15m but must be present) ───
+  max_trades_per_day: 10     # Data shows max 10/day, avg 3.5
+  cooldown_minutes: 0        # No cooldown — 15m bars are already slow
+
+risk_gate:
+  # ─── Sized for 15m ATR (~10 pt avg → 15 pt stops) ───
+  # In high vol (Apr 2025), ATR can reach 80pts → 1.5×ATR=120pts
+  # We MUST allow these or the strategy can't trade during the recovery
+  max_stop_points: 200.0     # Allow very wide stops (risk gate still caps $ risk)
+  min_stop_points: 3.0       # Floor for very low vol days
+  risk_per_trade_usd: 1000.0 # 15pt stop × $5/pt = $75 typical; 120pt × $5 = $600 worst case
+  risk_per_trade_max: 1000.0 # Hard cap — allow high vol trades
+  max_daily_loss: 2000.0     # Allow recovery after losses
+  max_position_risk_pct: 0.05  # 5% of capital per trade (allows larger stops)
+  # FEB 2026: CRITICAL — consecutive loss lockout at 3 killed 319 signals!
+  # Simulation shows max 7 consecutive losses. Set to 10 for safety.
+  max_consecutive_losses: 10
+
+trading:
+  max_daily_loss: 1000.0
+  max_daily_trades: 10
+  initial_capital: 5000.0
+  contract_multiplier: 5.0     # MES = $5/point (broker_sim hardcoded to 5.0 anyway)

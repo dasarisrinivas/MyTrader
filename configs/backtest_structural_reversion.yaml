@@ -1,0 +1,95 @@
+# =============================================================================
+# Backtest Configuration — STRUCTURAL REVERSION STRATEGY V2
+# =============================================================================
+# FEB 2026 REDESIGN: Mean-reversion from VWAP/PDH/PDL after opening range.
+#
+# V2 CHANGES (from V1 67-trade backtest):
+#   - Multi-bar confirmation: require price to breach level 2-3 bars ago
+#     and be PULLING BACK now (prevents entering into momentum moves)
+#   - Wider stop: 2.5× ATR (V1 had 2×, still 57% stop-loss exits)
+#   - Better targets: min(0.6× dist_to_vwap, 1.5× ATR) — faster profit take
+#   - Wider trade window: 10:00–12:00 CST (V1 only 67 trades in 11 months)
+#   - Relaxed RSI: 40/60 (V1's 38/62 was too strict, filtered too many)
+#   - Wider daily loss limit: $500 (V1's $300 + 3 consec loss was too tight)
+#
+# DATA-DRIVEN PARAMETERS (all derived from 1,552-trade analysis):
+#   - ATR gate: ≥ 4 (88% of losses in ATR < 4)
+#   - Max 2 trades/day (3rd+ trades = -$4,593)
+#   - 45-min time stop (10-45 min hold = profitable window)
+# =============================================================================
+
+# Data Configuration
+data:
+  symbol: "ES"
+  bar_size: "1 min"
+  secondary_bar: "15 min"
+  session: "rth"
+  sources:
+    - "file"
+    - "ib"
+
+# Backtest Period
+backtest:
+  start_date: "2025-02-01"
+  end_date: "2026-01-30"
+  initial_capital: 50000.0
+  slippage_ticks: 1.0
+  commission: 2.40
+
+# Strategy Configuration — STRUCTURAL REVERSION V2
+strategy:
+  # ===== STRATEGY SELECTION =====
+  use_structural_reversion: true   # ✅ Enable new strategy
+  use_scoring_system: false        # ❌ Disable old scoring system
+  
+  # ===== REVERSION PARAMETERS =====
+  sr_min_atr: 4.0                  # Only trade when ATR ≥ 4
+  sr_max_trades: 2                 # Max 2 trades per session
+  sr_cooldown_minutes: 15          # 15 min between trades
+  sr_target_mode: "vwap"           # Target VWAP (structural mean)
+  sr_target_atr_mult: 1.5          # Capped target at 1.5× ATR
+  sr_time_stop_minutes: 45         # Exit after 45 min max
+  sr_rsi_long_max: 40.0            # RSI ≤ 40 for longs (relaxed from 38)
+  sr_rsi_short_min: 60.0           # RSI ≥ 60 for shorts (relaxed from 62)
+  sr_min_volume: 100               # Minimum volume on entry bar
+  sr_or_minutes: 30                # Opening range = first 30 min of RTH
+  sr_overextension_atr_mult: 0.5   # Price must be 0.5× ATR from VWAP
+  sr_breakeven_r: 1.0              # Move to breakeven after 1R profit
+  sr_trade_start_hour: 10          # Trade window start (CST)
+  sr_trade_start_minute: 0
+  sr_trade_end_hour: 12            # Trade window end (CST) — WIDENED from 11:30
+  sr_trade_end_minute: 0
+
+  # ===== STOP/TARGET =====
+  stop_atr_multiplier: 1.25        # 1.25× ATR stop — cut losers fast!
+  take_profit_multiple: 1.5        # Not used by vwap mode, kept for engine
+
+  # ===== SESSION =====
+  rth_only: true
+  rth_start_hour: 9
+  rth_start_minute: 30
+  rth_end_hour: 16
+  rth_end_minute: 0
+  
+  # ===== DISABLED / PASSTHROUGH =====
+  use_mtf_regime: true
+  warmup_bars: 200
+  window_bars: 500
+  max_trades_per_day: 2
+  max_trades_per_hour: 2
+  cooldown_minutes: 15
+  max_hold_minutes: 45             # Engine-level time stop
+  min_bar_volume: 100
+  trend_adx_threshold: 18.0
+  enable_trend_extensions: false
+  require_pullback_confirmation: false
+  breakout_enabled: false
+
+# Risk Gate — matched to 1.25× ATR stops
+risk_gate:
+  max_stop_points: 30.0            # Tighter for 1.25× ATR stops
+  min_stop_points: 2.0
+  risk_per_trade_max: 200.0        # ~$40 per trade max risk (8 pts × $5/pt + $2.40)
+  risk_per_trade_usd: 200.0
+  max_consecutive_losses: 5        # Allow more consecutive losses with smaller losses
+  daily_max_loss_usd: 400.0        # More headroom but smaller per-trade

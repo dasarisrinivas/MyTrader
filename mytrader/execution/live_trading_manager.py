@@ -841,29 +841,60 @@ TRADING GUIDANCE:
         if not contract:
             logger.warning("Cannot bootstrap price history - contract unavailable")
             return
-        duration_seconds = max(min_bars * self.CANDLE_PERIOD_SECONDS, 900)
+
+        # FEB 2026: Dynamic bar size based on active timeframe
+        active_tf = getattr(self, "_active_timeframe", "1m")
+        bar_size_setting = getattr(self, "_bar_size_setting", "1 min")
+        candle_seconds = getattr(self, "_candle_period_seconds", self.CANDLE_PERIOD_SECONDS)
+
+        # FEB 7 2026: 15m strategy uses ALL bars for indicator computation.
+        # The validated backtest (130 trades, PF 1.91) computes EMA/ATR/ADX
+        # on the full 24/7 DataFrame (including overnight). RTH-only indicators
+        # give different values (EMA differs ~2.75pts, ATR 7.69 vs 8.50) and
+        # produce worse results (135 trades, PF 0.66).
+        #
+        # Session isolation is done in the strategy itself:
+        #   - generate() only runs during RTH entry window (11:00-14:59 ET)
+        #   - _prev_close is never updated during overnight
+        #   - OR is only computed from RTH opening bars
+        #
+        # Therefore: useRTH=False for all timeframes to match backtest.
+        use_rth_bootstrap = False
+
+        if active_tf == "15m":
+            # 15m bars: request enough duration for min_bars candles
+            # IB max for seconds is 86400; for larger, use days
+            needed_seconds = min_bars * candle_seconds  # e.g., 60 * 900 = 54000
+            if needed_seconds > 86400:
+                duration_str = f"{max(2, needed_seconds // 86400 + 1)} D"
+            else:
+                duration_str = f"{max(needed_seconds, 1800)} S"
+        else:
+            duration_seconds = max(min_bars * self.CANDLE_PERIOD_SECONDS, 900)
+            duration_str = f"{duration_seconds} S"
+
         try:
             bars = await self.executor.ib.reqHistoricalDataAsync(
                 contract,
                 endDateTime='',
-                durationStr=f"{duration_seconds} S",
-                barSizeSetting='1 min',
+                durationStr=duration_str,
+                barSizeSetting=bar_size_setting,
                 whatToShow='TRADES',
-                useRTH=False,
+                useRTH=use_rth_bootstrap,
                 formatDate=2,
             )
         except AttributeError:
             bars = self.executor.ib.reqHistoricalData(
                 contract,
                 endDateTime='',
-                durationStr=f"{duration_seconds} S",
-                barSizeSetting='1 min',
+                durationStr=duration_str,
+                barSizeSetting=bar_size_setting,
                 whatToShow='TRADES',
-                useRTH=False,
+                useRTH=use_rth_bootstrap,
                 formatDate=2,
             )
         except Exception as exc:
-            logger.warning(f"Failed to bootstrap minute bars: {exc}")
+            logger.warning(f"Failed to bootstrap {active_tf} bars: {exc}")
             return
         if not bars:
             logger.warning("Historical bootstrap returned no bars")
@@ -902,17 +933,19 @@ TRADING GUIDANCE:
             staleness_seconds = (current_time - last_bar_ts).total_seconds() if isinstance(last_bar_ts, datetime) else 999
             
             logger.info(
-                f"📚 Bootstrapped {len(self.price_history)} historical 1-min bars for structural context"
+                f"📚 Bootstrapped {len(self.price_history)} historical {active_tf} bars for structural context"
             )
             logger.info(
                 f"   ⏱️  First bar: {first_bar_ts}, Last bar: {last_bar_ts}, Now: {current_time.isoformat()}"
             )
+            # Staleness threshold scales with bar size
+            default_stale = 1200 if active_tf == "15m" else 120
             logger.info(
-                f"   ⏱️  Data age: {staleness_seconds:.0f}s (acceptable if <120s)"
+                f"   ⏱️  Data age: {staleness_seconds:.0f}s (acceptable if <{default_stale}s)"
             )
             
             # Staleness behavior is configurable via one_minute config
-            stale_threshold = 120
+            stale_threshold = default_stale
             fail_on_stale = False
             if getattr(self, "one_minute_cfg", None):
                 stale_threshold = int(getattr(self.one_minute_cfg, "bootstrap_stale_seconds", stale_threshold))
@@ -972,6 +1005,65 @@ TRADING GUIDANCE:
             logger.debug(f"Latest minute bar fetch failed: {exc}")
             return None
 
+    async def _fetch_latest_15m_bar(self) -> Optional[Dict[str, Any]]:
+        """Fetch the most recent completed 15-minute bar from IBKR.
+        
+        FEB 2026: Added for live 15m strategy support. Requests 30 min of
+        15-min bars to ensure we get at least one completed bar.
+        
+        FEB 7 2026: Uses useRTH=False — the validated backtest (130 trades,
+        PF 1.91) computes indicators on ALL bars. RTH-only indicators give
+        different EMA/ATR values. Session filtering is done in the strategy.
+        """
+        if not self.executor or not self.executor.ib:
+            return None
+        try:
+            contract = await self.executor.get_qualified_contract()
+            bars = await self.executor.ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime="",
+                durationStr="1800 S",  # 30 min of data to get at least 1 completed 15m bar
+                barSizeSetting="15 mins",
+                whatToShow="TRADES",
+                useRTH=False,  # ALL bars — matches backtest indicator computation
+                formatDate=2,
+            )
+            if not bars:
+                return None
+            last_bar = bars[-1]
+            ts = getattr(last_bar, "date", None)
+            if isinstance(ts, datetime):
+                bar_ts = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+            elif isinstance(ts, str):
+                bar_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            else:
+                bar_ts = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            if self._last_price_bar_ts and bar_ts <= self._last_price_bar_ts:
+                return None
+            candle = {
+                "timestamp": utc_to_cst(bar_ts),
+                "open": float(getattr(last_bar, "open", 0.0)),
+                "high": float(getattr(last_bar, "high", 0.0)),
+                "low": float(getattr(last_bar, "low", 0.0)),
+                "close": float(getattr(last_bar, "close", 0.0)),
+                "volume": int(getattr(last_bar, "volume", 0)),
+            }
+            return candle
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Latest 15m bar fetch failed: {exc}")
+            return None
+
+    async def _fetch_latest_bar(self) -> Optional[Dict[str, Any]]:
+        """Fetch latest bar using the active timeframe (1m or 15m).
+        
+        FEB 2026: Dispatcher that routes to the correct bar fetcher based on
+        the _active_timeframe attribute set during initialization.
+        """
+        active_tf = getattr(self, "_active_timeframe", "1m")
+        if active_tf == "15m":
+            return await self._fetch_latest_15m_bar()
+        return await self._fetch_latest_minute_bar()
+
     def _ingest_completed_bar(self, bar: Dict[str, Any]) -> None:
         """Append a completed bar and maintain rolling window."""
         self.price_history.append(bar)
@@ -989,8 +1081,10 @@ TRADING GUIDANCE:
         
         # === JAN 8 2026 FIX: Feed 1m bar to 5m aggregator ===
         # This enables the 5-minute trend filter to actually work
-        if hasattr(self, 'signal_processor') and self.signal_processor:
-            self.signal_processor.update_mtf_candle(bar)
+        # FEB 2026: Skip MTF aggregation for 15m bars (already higher timeframe)
+        if getattr(self, "_active_timeframe", "1m") == "1m":
+            if hasattr(self, 'signal_processor') and self.signal_processor:
+                self.signal_processor.update_mtf_candle(bar)
         
         # Update trend if not set by hybrid pipeline (ensures trend is always available)
         if not self.status.hybrid_market_trend and len(self.price_history) >= 10:
@@ -1420,6 +1514,26 @@ TRADING GUIDANCE:
             return {"reason": "TREND_CHANGE", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
         if qty < 0 and trend == "UPTREND":
             return {"reason": "TREND_CHANGE", "action": "BUY", "quantity": contracts, "pnl": total_pnl}
+
+        # FEB 2026: 15m strategy max-hold time-stop
+        # The 15m backtest uses ft_max_hold_bars (default 6 bars = 90 min).
+        # This mirrors that logic for live trading using _ft_max_hold_minutes.
+        ft_max_hold_min = getattr(self, "_ft_max_hold_minutes", 0)
+        if ft_max_hold_min and ft_max_hold_min > 0:
+            entry_ts_ft = getattr(position, "timestamp", None)
+            if entry_ts_ft:
+                try:
+                    now_utc = datetime.now(timezone.utc)
+                    entry_utc = entry_ts_ft if entry_ts_ft.tzinfo else entry_ts_ft.replace(tzinfo=timezone.utc)
+                    hold_minutes = (now_utc - entry_utc).total_seconds() / 60.0
+                    if hold_minutes >= ft_max_hold_min:
+                        action = "SELL" if qty > 0 else "BUY"
+                        logger.warning(
+                            f"⏳ 15m MAX_HOLD_EXIT triggered: held {hold_minutes:.1f} min >= {ft_max_hold_min} min"
+                        )
+                        return {"reason": "MAX_HOLD_EXIT", "action": action, "quantity": contracts, "pnl": total_pnl}
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(f"15m max-hold check skipped: {exc}")
 
         # Time-based exit check
         max_hold_hours = getattr(getattr(self.settings, "trading", None), "position_exit", None)
