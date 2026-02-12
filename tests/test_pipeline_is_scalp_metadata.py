@@ -9,7 +9,7 @@ def test_pipeline_sets_is_scalp_metadata_when_final_action_scalp(monkeypatch):
     - emits HybridSignal action normalized to BUY/SELL
     """
 
-    from mytrader.rag.pipeline_integration import HybridPipelineIntegration
+    from shree.rag.pipeline_integration import HybridPipelineIntegration
 
     # Create instance without running heavy init
     pipeline = HybridPipelineIntegration.__new__(HybridPipelineIntegration)

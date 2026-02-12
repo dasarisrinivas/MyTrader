@@ -25,7 +25,7 @@ import pandas as pd
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.utils.logger import configure_logging, logger
+from shree.utils.logger import configure_logging, logger
 
 
 class TradingMonitor:
@@ -55,7 +55,7 @@ class TradingMonitor:
         print("\033[2J\033[H")  # ANSI clear screen
         
         print("=" * 100)
-        print(f"{'MyTrader - Live Trading Monitor':^100}")
+        print(f"{'Shree - Live Trading Monitor':^100}")
         print("=" * 100)
         print(f"Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 100)

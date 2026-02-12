@@ -5,8 +5,8 @@ import os
 sys.path.append(os.getcwd())
 from datetime import datetime
 print("Imports starting...")
-from mytrader.rag.hybrid_rag_pipeline import RuleEngine, TradeAction
-from mytrader.utils.session_manager import TradingSession
+from shree.rag.hybrid_rag_pipeline import RuleEngine, TradeAction
+from shree.utils.session_manager import TradingSession
 print("Imports done.")
 
 # Configuration matching the environment

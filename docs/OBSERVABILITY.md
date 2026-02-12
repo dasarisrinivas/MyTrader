@@ -1,4 +1,4 @@
-Observability: Prometheus metrics for MyTrader
+Observability: Prometheus metrics for Shree
 
 Overview
 --------
@@ -18,26 +18,26 @@ Environment
 Behavior
 --------
 - SignalProcessor emits staleness-related metrics:
-  - mytrader_live_bar_age_seconds{symbol,timeframe,env}
-  - mytrader_stale_live_bars_blocks_total{symbol,env}
-  - mytrader_stale_episode_active{symbol,env}
-  - mytrader_decisions_total{symbol,env,action}
+  - shree_live_bar_age_seconds{symbol,timeframe,env}
+  - shree_stale_live_bars_blocks_total{symbol,env}
+  - shree_stale_episode_active{symbol,env}
+  - shree_decisions_total{symbol,env,action}
 
 - TradeExecutor emits cancellation metrics (single source of truth for cancels):
-  - mytrader_pending_entry_orders_canceled_total{symbol,env,reason}
-  - mytrader_cancel_entries_calls_total{symbol,env,reason,outcome}
+  - shree_pending_entry_orders_canceled_total{symbol,env,reason}
+  - shree_cancel_entries_calls_total{symbol,env,reason,outcome}
 
 Deployment (Kubernetes)
 -----------------------
 Example manifests are provided:
-- `deploy/k8s/deployment.yaml` — Pod with app: mytrader label and containerPort 8000
+- `deploy/k8s/deployment.yaml` — Pod with app: shree label and containerPort 8000
 - `deploy/prometheus/service.yaml` — Service exposing metrics port
 - `deploy/prometheus/servicemonitor.yaml` — ServiceMonitor for Prometheus Operator
 
 Basic deployment steps:
 ```bash
 # Build your Docker image
-docker build -t mytrader:latest .
+docker build -t shree:latest .
 
 # Apply k8s manifests
 kubectl apply -f deploy/k8s/deployment.yaml
@@ -45,21 +45,21 @@ kubectl apply -f deploy/prometheus/service.yaml
 kubectl apply -f deploy/prometheus/servicemonitor.yaml
 
 # Verify pod is running and metrics port exposed
-kubectl get pods -l app=mytrader
-kubectl port-forward svc/mytrader-metrics 8000:8000
+kubectl get pods -l app=shree
+kubectl port-forward svc/shree-metrics 8000:8000
 curl http://localhost:8000/metrics
 ```
 
 Prometheus Operator (ServiceMonitor) example
 -------------------------------------------
-Make sure your pod has label `app: mytrader` and exposes containerPort 8000. The provided Service and ServiceMonitor will allow Prometheus Operator to discover the metrics endpoint.
+Make sure your pod has label `app: shree` and exposes containerPort 8000. The provided Service and ServiceMonitor will allow Prometheus Operator to discover the metrics endpoint.
 
 If you don't use Prometheus Operator, manually add a Prometheus scrape config:
 ```yaml
 scrape_configs:
-  - job_name: 'mytrader'
+  - job_name: 'shree'
     static_configs:
-      - targets: ['mytrader-metrics.default.svc.cluster.local:8000']
+      - targets: ['shree-metrics.default.svc.cluster.local:8000']
 ```
 
 Alert rules

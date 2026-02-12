@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mytrader.data.stocktwits_sentiment import (
+from shree.data.stocktwits_sentiment import (
     SentimentCache,
     SentimentResult,
     calculate_sentiment_score_from_messages,
@@ -149,7 +149,7 @@ class TestSentimentCache:
 class TestEvaluateSentimentForEntry:
     """Test sentiment evaluation for new trade entries."""
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_bullish_sentiment_allows_long(self, mock_sentiment):
         """Bullish sentiment should allow long entry."""
         mock_sentiment.return_value = 0.5
@@ -159,7 +159,7 @@ class TestEvaluateSentimentForEntry:
         assert result.confidence_modifier >= 1.0  # Should boost confidence
         assert "supports long" in result.reason.lower()
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_bearish_sentiment_blocks_long(self, mock_sentiment):
         """Strongly bearish sentiment should block long entry."""
         mock_sentiment.return_value = -0.5  # Below -0.4 threshold
@@ -169,7 +169,7 @@ class TestEvaluateSentimentForEntry:
         assert result.action_recommendation == "BLOCK"
         assert "blocking long" in result.reason.lower()
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_moderately_bearish_reduces_long_confidence(self, mock_sentiment):
         """Moderately bearish sentiment should reduce long confidence."""
         mock_sentiment.return_value = -0.3  # Between -0.4 and -0.2
@@ -179,7 +179,7 @@ class TestEvaluateSentimentForEntry:
         assert result.confidence_modifier < 1.0  # Should reduce confidence
         assert result.action_recommendation == "REDUCE_SIZE"
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_bullish_sentiment_blocks_short(self, mock_sentiment):
         """Strongly bullish sentiment should block short entry."""
         mock_sentiment.return_value = 0.5  # Above +0.4 threshold
@@ -189,7 +189,7 @@ class TestEvaluateSentimentForEntry:
         assert result.action_recommendation == "BLOCK"
         assert "blocking short" in result.reason.lower()
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_bearish_sentiment_allows_short(self, mock_sentiment):
         """Bearish sentiment should allow short entry."""
         mock_sentiment.return_value = -0.5
@@ -199,7 +199,7 @@ class TestEvaluateSentimentForEntry:
         assert result.confidence_modifier >= 1.0  # Should boost confidence
         assert "supports short" in result.reason.lower()
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_neutral_sentiment_allows_trade(self, mock_sentiment):
         """Neutral sentiment should allow trade with no modifier."""
         mock_sentiment.return_value = 0.1  # Within neutral zone
@@ -213,7 +213,7 @@ class TestEvaluateSentimentForEntry:
 class TestEvaluateSentimentForPosition:
     """Test sentiment evaluation for existing positions."""
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_extremely_bearish_warns_for_long(self, mock_sentiment):
         """Extremely bearish sentiment should warn about long position."""
         mock_sentiment.return_value = -0.7  # Below -0.6 threshold
@@ -223,7 +223,7 @@ class TestEvaluateSentimentForPosition:
         assert result.confidence_modifier < 1.0
         assert "tightening stop" in result.reason.lower() or "exiting" in result.reason.lower()
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_extremely_bullish_warns_for_short(self, mock_sentiment):
         """Extremely bullish sentiment should warn about short position."""
         mock_sentiment.return_value = 0.7  # Above +0.6 threshold
@@ -232,7 +232,7 @@ class TestEvaluateSentimentForPosition:
         assert result.action_recommendation == "REDUCE_SIZE"
         assert result.confidence_modifier < 1.0
 
-    @patch('mytrader.data.stocktwits_sentiment.get_mes_sentiment')
+    @patch('shree.data.stocktwits_sentiment.get_mes_sentiment')
     def test_neutral_sentiment_ok_for_position(self, mock_sentiment):
         """Neutral sentiment should be OK for existing position."""
         mock_sentiment.return_value = 0.1
@@ -245,7 +245,7 @@ class TestEvaluateSentimentForPosition:
 class TestMesSentiment:
     """Test combined MES sentiment calculation."""
 
-    @patch('mytrader.data.stocktwits_sentiment._fetch_stocktwits_symbol')
+    @patch('shree.data.stocktwits_sentiment._fetch_stocktwits_symbol')
     def test_combines_es_and_spy_sentiment(self, mock_fetch):
         """MES sentiment should average ES_F and SPY scores."""
         reset_sentiment_cache()
@@ -263,7 +263,7 @@ class TestMesSentiment:
         # (0.6 + 0.4) / 2 = 0.5
         assert result == 0.5
 
-    @patch('mytrader.data.stocktwits_sentiment._fetch_stocktwits_symbol')
+    @patch('shree.data.stocktwits_sentiment._fetch_stocktwits_symbol')
     def test_handles_missing_symbol_as_zero(self, mock_fetch):
         """Missing symbol should be treated as 0.0."""
         reset_sentiment_cache()
@@ -285,7 +285,7 @@ class TestMesSentiment:
 class TestCacheIntegration:
     """Test cache behavior with the main functions."""
 
-    @patch('mytrader.data.stocktwits_sentiment._fetch_stocktwits_symbol')
+    @patch('shree.data.stocktwits_sentiment._fetch_stocktwits_symbol')
     def test_uses_cache_when_fresh(self, mock_fetch):
         """Should use cached data when fresh."""
         reset_sentiment_cache()
@@ -301,7 +301,7 @@ class TestCacheIntegration:
         get_stocktwits_sentiment(["ES_F"], force_refresh=False)
         assert mock_fetch.call_count == 1  # No additional calls
 
-    @patch('mytrader.data.stocktwits_sentiment._fetch_stocktwits_symbol')
+    @patch('shree.data.stocktwits_sentiment._fetch_stocktwits_symbol')
     def test_refreshes_when_stale(self, mock_fetch):
         """Should refresh data when cache is stale."""
         reset_sentiment_cache()

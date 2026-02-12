@@ -67,7 +67,7 @@ Resources:
                 Resource: '*'
                 Condition:
                   StringEquals:
-                    cloudwatch:namespace: 'MyTrader/LearningAgent'
+                    cloudwatch:namespace: 'Shree/LearningAgent'
         - PolicyName: BedrockInvokePolicy
           PolicyDocument:
             Version: '2012-10-17'

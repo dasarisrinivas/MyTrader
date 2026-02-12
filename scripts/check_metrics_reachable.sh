@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to check if MyTrader metrics endpoint is reachable
+# Script to check if Shree metrics endpoint is reachable
 # Usage: ./check_metrics_reachable.sh [MAC_MINI_IP] [PORT]
 
 set -e
@@ -8,7 +8,7 @@ MAC_IP="${1:-localhost}"
 PORT="${2:-8000}"
 ENDPOINT="http://${MAC_IP}:${PORT}/metrics"
 
-echo "🔍 Checking MyTrader metrics endpoint..."
+echo "🔍 Checking Shree metrics endpoint..."
 echo "   Endpoint: ${ENDPOINT}"
 echo ""
 
@@ -38,14 +38,14 @@ else
     exit 1
 fi
 
-# Test 3: MyTrader-specific metrics present
+# Test 3: Shree-specific metrics present
 echo ""
-echo "Test 3: MyTrader metrics present"
+echo "Test 3: Shree metrics present"
 EXPECTED_METRICS=(
-    "mytrader_live_bar_age_seconds"
-    "mytrader_stale_episode_active"
-    "mytrader_stale_live_bars_blocks_total"
-    "mytrader_decisions_total"
+    "shree_live_bar_age_seconds"
+    "shree_stale_episode_active"
+    "shree_stale_live_bars_blocks_total"
+    "shree_decisions_total"
 )
 
 MISSING=0
@@ -60,7 +60,7 @@ done
 
 if [ $MISSING -eq ${#EXPECTED_METRICS[@]} ]; then
     echo ""
-    echo "   ❌ FAIL: No MyTrader metrics found at all"
+    echo "   ❌ FAIL: No Shree metrics found at all"
     echo "   This likely means PROMETHEUS_ENABLED=false or bot hasn't started metrics yet"
     exit 1
 fi
@@ -68,7 +68,7 @@ fi
 # Test 4: Sample metric values
 echo ""
 echo "Test 4: Sample metric values"
-echo "$METRICS" | grep "^mytrader_" | head -10
+echo "$METRICS" | grep "^shree_" | head -10
 
 echo ""
 echo "✅ All checks passed! Metrics endpoint is healthy."

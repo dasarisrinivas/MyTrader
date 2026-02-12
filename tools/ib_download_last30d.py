@@ -23,8 +23,8 @@ nest_asyncio.apply()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from mytrader.utils.logger import configure_logging, logger
-from mytrader.utils.settings_loader import load_settings
+from shree.utils.logger import configure_logging, logger
+from shree.utils.settings_loader import load_settings
 
 
 def get_qualified_contract(ib: IB, symbol: str, exchange: str, currency: str) -> Future:
@@ -208,7 +208,7 @@ def main():
             args.use_rth,
         )
         
-        # Convert to MyTrader format (timestamp, open, high, low, close, volume)
+        # Convert to Shree format (timestamp, open, high, low, close, volume)
         df_clean = pd.DataFrame({
             'timestamp': pd.to_datetime(df['date']),
             'open': df['open'],

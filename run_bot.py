@@ -1,17 +1,17 @@
-"""Entry point for RAG-enhanced MyTrader bot."""
+"""Entry point for RAG-enhanced Shree bot."""
 import argparse
 import asyncio
 import os
 import signal
-from mytrader.config import Settings
-from mytrader.execution.live_trading_manager import LiveTradingManager
-from mytrader.utils.logger import configure_logging, logger
-from mytrader.utils.settings_loader import load_settings
+from shree.config import Settings
+from shree.execution.live_trading_manager import LiveTradingManager
+from shree.utils.logger import configure_logging, logger
+from shree.utils.settings_loader import load_settings
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="MyTrader RAG-Enhanced Trading Bot")
+    parser = argparse.ArgumentParser(description="Shree RAG-Enhanced Trading Bot")
     parser.add_argument(
         "--simulation", "-s",
         action="store_true",
@@ -46,7 +46,7 @@ async def main():
     configure_logging(log_file="logs/bot.log", level="INFO", serialize=False)
     
     mode_str = "SIMULATION" if args.simulation else "LIVE"
-    logger.info(f"🚀 Starting MyTrader RAG-Enhanced Bot ({mode_str} MODE)")
+    logger.info(f"🚀 Starting Shree RAG-Enhanced Bot ({mode_str} MODE)")
     
     if args.simulation:
         logger.warning("=" * 60)
@@ -93,5 +93,12 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
-    except Exception as e:
+    except BaseException as e:
+        import sys, traceback
         logger.critical(f"Fatal error: {e}")
+        logger.critical(traceback.format_exc())
+        # Ensure the error makes it to disk even if loguru hasn't flushed
+        print(f"FATAL: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)

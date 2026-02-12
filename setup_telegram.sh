@@ -1,11 +1,11 @@
 #!/bin/bash
 # Quick Setup Script for Telegram Notifications
-# This script helps you set up Telegram notifications for MyTrader
+# This script helps you set up Telegram notifications for Shree
 
 set -e
 
 echo "================================================"
-echo "MyTrader - Telegram Notifications Setup"
+echo "Shree - Telegram Notifications Setup"
 echo "================================================"
 echo ""
 
@@ -71,7 +71,7 @@ echo ""
 # Create test script
 cat > /tmp/test_telegram.py << EOF
 import asyncio
-from mytrader.utils.telegram_notifier import TelegramNotifier
+from shree.utils.telegram_notifier import TelegramNotifier
 
 async def test():
     notifier = TelegramNotifier(
@@ -81,7 +81,7 @@ async def test():
     )
     
     print("Sending test message...")
-    success = await notifier.send_message("🎉 <b>MyTrader</b> connected successfully!")
+    success = await notifier.send_message("🎉 <b>Shree</b> connected successfully!")
     
     if success:
         print("✅ Telegram notifications working!")
@@ -122,7 +122,7 @@ if python3 /tmp/test_telegram.py; then
             if [ -f .env ]; then
                 echo "# Telegram Configuration (added by setup script)" >> .env
             else
-                echo "# MyTrader Environment Variables" > .env
+                echo "# Shree Environment Variables" > .env
                 echo "" >> .env
                 echo "# Telegram Configuration" >> .env
             fi

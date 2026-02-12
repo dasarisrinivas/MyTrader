@@ -1,11 +1,11 @@
-# MyTrader Kubernetes Deployment - Ready to Deploy
+# Shree Kubernetes Deployment - Ready to Deploy
 
 ## ✅ Files Created
 
 All deployment files are ready in your repository:
 
 ```
-MyTrader/
+Shree/
 ├── Dockerfile                                    # Container image definition
 ├── deploy/
 │   ├── k8s/
@@ -30,7 +30,7 @@ MyTrader/
 ### Option 1: Automated Script (Recommended for Testing)
 
 ```bash
-cd /Users/svss/Documents/code/MyTrader
+cd /Users/svss/Documents/code/Shree
 
 # Run interactive deployment
 ./deploy/k8s/deploy.sh
@@ -47,18 +47,18 @@ This will:
 
 ```bash
 # 1. Build Docker image
-docker build -t mytrader:latest .
+docker build -t shree:latest .
 
 # 2. Test locally first
-docker run -e PROMETHEUS_ENABLED=true -p 8000:8000 mytrader:latest &
-curl http://localhost:8000/metrics | grep mytrader
-docker stop $(docker ps -q --filter ancestor=mytrader:latest)
+docker run -e PROMETHEUS_ENABLED=true -p 8000:8000 shree:latest &
+curl http://localhost:8000/metrics | grep shree
+docker stop $(docker ps -q --filter ancestor=shree:latest)
 
 # 3. Create ConfigMap
 kubectl apply -f deploy/k8s/configmap.yaml
 
 # 4. Create Secrets (update values)
-kubectl create secret generic mytrader-secrets \
+kubectl create secret generic shree-secrets \
   --from-literal=IBKR_HOST='127.0.0.1' \
   --from-literal=IBKR_PORT='4002' \
   --from-literal=IBKR_CLIENT_ID='1' \
@@ -75,8 +75,8 @@ kubectl apply -f deploy/prometheus/service.yaml
 kubectl apply -f deploy/prometheus/servicemonitor.yaml
 
 # 8. Check status
-kubectl get pods -l app=mytrader
-kubectl logs -f deployment/mytrader
+kubectl get pods -l app=shree
+kubectl logs -f deployment/shree
 ```
 
 ### Option 3: Quick Test (No Secrets)
@@ -87,26 +87,26 @@ kubectl apply -f deploy/k8s/deployment.yaml
 kubectl apply -f deploy/prometheus/service.yaml
 
 # Port-forward and test
-kubectl port-forward svc/mytrader-metrics 8000:8000 &
-curl http://localhost:8000/metrics | grep mytrader
+kubectl port-forward svc/shree-metrics 8000:8000 &
+curl http://localhost:8000/metrics | grep shree
 ```
 
 ## 📊 Verify Prometheus Metrics
 
 ```bash
 # Port-forward metrics endpoint
-kubectl port-forward svc/mytrader-metrics 8000:8000
+kubectl port-forward svc/shree-metrics 8000:8000
 
 # In another terminal, query metrics
-curl http://localhost:8000/metrics | grep mytrader_
+curl http://localhost:8000/metrics | grep shree_
 
 # You should see:
-# mytrader_live_bar_age_seconds{symbol="MES",timeframe="1m",env="prod"} 15.3
-# mytrader_stale_episode_active{symbol="MES",env="prod"} 0
-# mytrader_stale_live_bars_blocks_total{symbol="MES",env="prod"} 2
-# mytrader_decisions_total{symbol="MES",env="prod",action="HOLD"} 45
-# mytrader_pending_entry_orders_canceled_total{symbol="MES",env="prod",reason="STALE_LIVE_BARS"} 1
-# mytrader_cancel_entries_calls_total{symbol="MES",env="prod",reason="STALE_LIVE_BARS",outcome="canceled"} 1
+# shree_live_bar_age_seconds{symbol="MES",timeframe="1m",env="prod"} 15.3
+# shree_stale_episode_active{symbol="MES",env="prod"} 0
+# shree_stale_live_bars_blocks_total{symbol="MES",env="prod"} 2
+# shree_decisions_total{symbol="MES",env="prod",action="HOLD"} 45
+# shree_pending_entry_orders_canceled_total{symbol="MES",env="prod",reason="STALE_LIVE_BARS"} 1
+# shree_cancel_entries_calls_total{symbol="MES",env="prod",reason="STALE_LIVE_BARS",outcome="canceled"} 1
 
 ## 🧾 Trade closure audit trail (orders.db)
 
@@ -127,32 +127,32 @@ This makes post-trade forensics queryable without relying on log retention.
 
 ### 1. Live Bar Age
 ```promql
-mytrader_live_bar_age_seconds{timeframe="1m"}
+shree_live_bar_age_seconds{timeframe="1m"}
 ```
 
 ### 2. Stale Episode Active
 ```promql
-mytrader_stale_episode_active{symbol="MES"}
+shree_stale_episode_active{symbol="MES"}
 ```
 
 ### 3. Stale Blocks Rate (Last 5min)
 ```promql
-rate(mytrader_stale_live_bars_blocks_total[5m])
+rate(shree_stale_live_bars_blocks_total[5m])
 ```
 
 ### 4. Canceled Entries Rate
 ```promql
-rate(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[5m])
+rate(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[5m])
 ```
 
 ### 5. Decision Actions Distribution
 ```promql
-sum by (action) (rate(mytrader_decisions_total[5m]))
+sum by (action) (rate(shree_decisions_total[5m]))
 ```
 
 ### 6. Total Stale Blocks (Last Hour)
 ```promql
-increase(mytrader_stale_live_bars_blocks_total[1h])
+increase(shree_stale_live_bars_blocks_total[1h])
 ```
 
 ## 📈 Setup Grafana Dashboard
@@ -180,9 +180,9 @@ kubectl port-forward -n monitoring svc/grafana 3000:3000
 # Add this scrape config:
 #
 # scrape_configs:
-#   - job_name: 'mytrader'
+#   - job_name: 'shree'
 #     static_configs:
-#       - targets: ['mytrader-metrics.default.svc.cluster.local:8000']
+#       - targets: ['shree-metrics.default.svc.cluster.local:8000']
 
 # 2. Reload Prometheus
 kubectl exec -n monitoring prometheus-0 -- kill -HUP 1
@@ -190,7 +190,7 @@ kubectl exec -n monitoring prometheus-0 -- kill -HUP 1
 # 3. Verify target
 kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
 # Visit http://localhost:9090/targets
-# Look for 'mytrader' job
+# Look for 'shree' job
 ```
 
 ## 🔔 Setup Alerts
@@ -208,40 +208,40 @@ kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
 
 ### Pod not starting?
 ```bash
-kubectl describe pod -l app=mytrader
-kubectl logs -l app=mytrader --tail=50
+kubectl describe pod -l app=shree
+kubectl logs -l app=shree --tail=50
 ```
 
 ### Metrics not appearing?
 ```bash
 # Test from inside cluster
 kubectl run curl --image=curlimages/curl -it --rm -- \
-  curl http://mytrader-metrics:8000/metrics
+  curl http://shree-metrics:8000/metrics
 
 # Check service
-kubectl get svc mytrader-metrics
-kubectl describe svc mytrader-metrics
+kubectl get svc shree-metrics
+kubectl describe svc shree-metrics
 ```
 
 ### Image pull issues?
 ```bash
 # For local testing with minikube
 eval $(minikube docker-env)
-docker build -t mytrader:latest .
+docker build -t shree:latest .
 
 # For local testing with kind
-kind load docker-image mytrader:latest
+kind load docker-image shree:latest
 ```
 
 ## 📦 Push to Registry (Production)
 
 ### Docker Hub
 ```bash
-docker tag mytrader:latest YOUR_USERNAME/mytrader:latest
-docker push YOUR_USERNAME/mytrader:latest
+docker tag shree:latest YOUR_USERNAME/shree:latest
+docker push YOUR_USERNAME/shree:latest
 
 # Update deployment.yaml:
-# image: YOUR_USERNAME/mytrader:latest
+# image: YOUR_USERNAME/shree:latest
 ```
 
 ### AWS ECR
@@ -252,14 +252,14 @@ aws ecr get-login-password --region us-east-1 | \
   YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com
 
 # Create repo
-aws ecr create-repository --repository-name mytrader
+aws ecr create-repository --repository-name shree
 
 # Push
-docker tag mytrader:latest YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
-docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
+docker tag shree:latest YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/shree:latest
+docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/shree:latest
 
 # Update deployment.yaml:
-# image: YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
+# image: YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/shree:latest
 ```
 
 ## 📚 Documentation
@@ -285,7 +285,7 @@ docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
 
 ## 🎯 Next Steps
 
-1. **Monitor the deployment**: `kubectl logs -f deployment/mytrader`
+1. **Monitor the deployment**: `kubectl logs -f deployment/shree`
 2. **Check metrics**: Port-forward and curl /metrics
 3. **Import Grafana dashboard**: Use `deploy/grafana/dashboard.json`
 4. **Setup alerts**: Configure notification channels in AlertManager

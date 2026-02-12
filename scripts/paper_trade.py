@@ -24,13 +24,13 @@ import pandas as pd
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.utils.settings_loader import load_settings
-from mytrader.data.ibkr import IBKRCollector
-from mytrader.strategies.engine import StrategyEngine
-from mytrader.risk.manager import RiskManager
-from mytrader.execution.ib_executor import TradeExecutor
-from mytrader.monitoring.live_tracker import LivePerformanceTracker
-from mytrader.utils.logger import configure_logging, logger
+from shree.utils.settings_loader import load_settings
+from shree.data.ibkr import IBKRCollector
+from shree.strategies.engine import StrategyEngine
+from shree.risk.manager import RiskManager
+from shree.execution.ib_executor import TradeExecutor
+from shree.monitoring.live_tracker import LivePerformanceTracker
+from shree.utils.logger import configure_logging, logger
 
 
 class PaperTradingSession:
@@ -257,8 +257,8 @@ class PaperTradingSession:
         print("\n🔧 Setting up trading components...")
         
         # Strategy engine
-        from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
-        from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
+        from shree.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+        from shree.strategies.momentum_reversal import MomentumReversalStrategy
         
         strategies = []
         for strat_config in self.config.strategies:
@@ -355,7 +355,7 @@ class PaperTradingSession:
                         df['sentiment_news'] = 0.0
                         
                         # Engineer features
-                        from mytrader.features.feature_engineer import engineer_features
+                        from shree.features.feature_engineer import engineer_features
                         df_features = engineer_features(df)
                         
                         # Generate signals
@@ -474,7 +474,7 @@ def main():
     configure_logging(level="INFO")
     
     print("\n" + "=" * 80)
-    print("MyTrader - Paper Trading Session")
+    print("Shree - Paper Trading Session")
     print("=" * 80)
     
     # Create session

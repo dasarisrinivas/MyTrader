@@ -15,7 +15,7 @@ import yfinance as yf
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.utils.logger import logger
+from shree.utils.logger import logger
 
 
 def download_es_data(start_date: str, end_date: str, output_file: str = None) -> pd.DataFrame:

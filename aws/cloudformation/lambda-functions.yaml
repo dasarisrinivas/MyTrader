@@ -259,7 +259,7 @@ Resources:
     Properties:
       AlarmName: !Sub '${ProjectName}-${Environment}-agent4-no-success'
       AlarmDescription: 'No successful Agent 4 runs detected in the last 24h'
-      Namespace: 'MyTrader/LearningAgent'
+      Namespace: 'Shree/LearningAgent'
       MetricName: 'Agent4Success'
       Dimensions:
         - Name: Environment
@@ -290,7 +290,7 @@ Resources:
         - Id: updates
           MetricStat:
             Metric:
-              Namespace: 'MyTrader/LearningAgent'
+              Namespace: 'Shree/LearningAgent'
               MetricName: 'Agent4UpdatesWritten'
               Dimensions:
                 - Name: Environment
@@ -302,7 +302,7 @@ Resources:
         - Id: invokes
           MetricStat:
             Metric:
-              Namespace: 'MyTrader/LearningAgent'
+              Namespace: 'Shree/LearningAgent'
               MetricName: 'Agent4Invocations'
               Dimensions:
                 - Name: Environment

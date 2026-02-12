@@ -7,7 +7,7 @@ import pytest
 async def test_order_coordinator_maps_is_scalp_metadata_to_scalp_action():
     """Option B (Strict): BUY/SELL stays primary, but metadata.is_scalp opt-in triggers SCALP_* logic."""
 
-    from mytrader.execution.components.order_coordinator import OrderCoordinator
+    from shree.execution.components.order_coordinator import OrderCoordinator
 
     class DummyManager:
         def __init__(self):
@@ -47,7 +47,7 @@ async def test_order_coordinator_maps_is_scalp_metadata_to_scalp_action():
 
 @pytest.mark.asyncio
 async def test_order_coordinator_does_not_map_without_is_scalp():
-    from mytrader.execution.components.order_coordinator import OrderCoordinator
+    from shree.execution.components.order_coordinator import OrderCoordinator
 
     class DummyManager:
         def __init__(self):

@@ -1,13 +1,13 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: mytrader
+  name: shree
   labels:
     release: prometheus
 spec:
   selector:
     matchLabels:
-      app: mytrader
+      app: shree
   endpoints:
     - port: metrics
       path: /metrics

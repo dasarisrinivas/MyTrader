@@ -196,8 +196,8 @@ python scripts/init_s3_folders.py
    - Expect matching START/END pairs per date/run_id. Missing END events or statuses other than `SUCCESS/SKIPPED` indicate failures.
 
 2. **CloudWatch Metrics / Alarms**
-   - Namespace `MyTrader/LearningAgent` holds the four metrics. The alarms defined in `lambda-functions.yaml` raise SNS notifications when no success is recorded in 24h or when invocations repeatedly write zero updates.
-   - Use the console or `aws cloudwatch get-metric-statistics --namespace MyTrader/LearningAgent --metric-name Agent4Success ...` for ad-hoc checks.
+   - Namespace `Shree/LearningAgent` holds the four metrics. The alarms defined in `lambda-functions.yaml` raise SNS notifications when no success is recorded in 24h or when invocations repeatedly write zero updates.
+   - Use the console or `aws cloudwatch get-metric-statistics --namespace Shree/LearningAgent --metric-name Agent4Success ...` for ad-hoc checks.
 
 3. **S3 Validation**
    ```bash
@@ -219,10 +219,10 @@ python scripts/init_s3_folders.py
 
 ## Local Integration
 
-The `mytrader/aws/` module provides Python integration with the local trading bot:
+The `shree/aws/` module provides Python integration with the local trading bot:
 
 ```python
-from mytrader.aws import TradingAgentOrchestrator, MarketSnapshotBuilder, PnLUpdater
+from shree.aws import TradingAgentOrchestrator, MarketSnapshotBuilder, PnLUpdater
 
 # Initialize orchestrator
 orchestrator = TradingAgentOrchestrator(

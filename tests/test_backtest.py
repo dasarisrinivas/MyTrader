@@ -21,7 +21,7 @@ def test_backtest_root_orders_persist_feature_snapshots(tmp_path):
     This protects forensic attribution: <5m losers were dominated by missing snapshots.
     """
 
-    from mytrader.monitoring.order_tracker import OrderTracker
+    from shree.monitoring.order_tracker import OrderTracker
 
     db_path = tmp_path / "orders.db"
     tracker = OrderTracker(db_path=str(db_path))
@@ -118,7 +118,7 @@ class TestNoLookahead:
     
     def test_indicator_uses_only_past_data(self, sample_ohlcv_data):
         """Verify indicators don't use future data."""
-        from mytrader.features.feature_engineer import FeatureEngineer
+        from shree.features.feature_engineer import FeatureEngineer
         
         df = sample_ohlcv_data.copy()
         engineer = FeatureEngineer()
@@ -148,8 +148,8 @@ class TestNoLookahead:
     
     def test_signal_generation_no_future_bars(self, sample_ohlcv_data):
         """Verify signal generation only sees current and past bars."""
-        from mytrader.strategies.mes_one_minute import MesOneMinuteTrendStrategy
-        from mytrader.config import OneMinuteStrategyConfig
+        from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy
+        from shree.config import OneMinuteStrategyConfig
         
         config = OneMinuteStrategyConfig()
         strategy = MesOneMinuteTrendStrategy(config)
@@ -500,7 +500,7 @@ class TestBacktestIntegration:
     def test_full_backtest_pipeline(self, sample_ohlcv_data, sample_5m_data):
         """Test running a complete backtest."""
         from backtest.engine import BacktestEngine, BacktestConfig
-        from mytrader.config import OneMinuteStrategyConfig, TradingConfig, RiskGateConfig
+        from shree.config import OneMinuteStrategyConfig, TradingConfig, RiskGateConfig
         
         config = BacktestConfig(
             symbol="MES",
@@ -571,7 +571,7 @@ class TestEdgeCases:
     def test_empty_data_handling(self):
         """Test graceful handling of empty data."""
         from backtest.engine import BacktestEngine, BacktestConfig
-        from mytrader.config import OneMinuteStrategyConfig, TradingConfig, RiskGateConfig
+        from shree.config import OneMinuteStrategyConfig, TradingConfig, RiskGateConfig
         
         config = BacktestConfig(
             symbol="MES",
@@ -597,7 +597,7 @@ class TestEdgeCases:
         df = sample_ohlcv_data.copy()
         df.iloc[100:105, df.columns.get_loc("close")] = np.nan
         
-        from mytrader.features.feature_engineer import FeatureEngineer
+        from shree.features.feature_engineer import FeatureEngineer
         
         engineer = FeatureEngineer()
         

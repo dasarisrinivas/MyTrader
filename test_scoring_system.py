@@ -21,14 +21,14 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, time
 
-from mytrader.strategies.scoring_entry import (
+from shree.strategies.scoring_entry import (
     calculate_signal_score,
     should_enter_trade,
     check_risk_gates,
     PositionSize
 )
-from mytrader.strategies.scoring_integration import create_scoring_evaluator
-from mytrader.config import OneMinuteStrategyConfig
+from shree.strategies.scoring_integration import create_scoring_evaluator
+from shree.config import OneMinuteStrategyConfig
 
 
 def create_test_data_bullish():

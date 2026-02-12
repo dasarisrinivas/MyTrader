@@ -34,7 +34,7 @@ tracer = Tracer()
 S3_BUCKET = os.environ.get('S3_BUCKET', 'trading-bot-data')
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-METRIC_NAMESPACE = 'MyTrader/LearningAgent'
+METRIC_NAMESPACE = 'Shree/LearningAgent'
 
 # Analysis configuration
 MIN_PATTERN_OCCURRENCES = 3

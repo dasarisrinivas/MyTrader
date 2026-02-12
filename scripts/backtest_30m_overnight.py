@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from backtest.engine import BacktestEngine, BacktestConfig
 from backtest.analysis import BacktestAnalyzer
 from backtest.report import ReportGenerator, ReportConfig
-from mytrader.config import OneMinuteStrategyConfig, RiskGateConfig, TradingConfig
+from shree.config import OneMinuteStrategyConfig, RiskGateConfig, TradingConfig
 from loguru import logger
 
 

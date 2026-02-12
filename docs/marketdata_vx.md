@@ -156,7 +156,7 @@ When VX affects a trade decision:
 ### Programmatic Usage
 
 ```python
-from mytrader.data.vx_futures_feed import VxFuturesFeed, init_vx_feed, get_vx_feed
+from shree.data.vx_futures_feed import VxFuturesFeed, init_vx_feed, get_vx_feed
 
 # Initialize (typically done automatically by SignalProcessor)
 vx_feed = init_vx_feed(
@@ -194,7 +194,7 @@ vx_feed.stop_background()
 ### Using the Global Singleton
 
 ```python
-from mytrader.data.vx_futures_feed import get_vx_feed, shutdown_vx_feed
+from shree.data.vx_futures_feed import get_vx_feed, shutdown_vx_feed
 
 # Get the global instance (after initialization)
 vx_feed = get_vx_feed()
@@ -302,7 +302,7 @@ When VX multiplier affects a trade, it's included in the Telegram alert metadata
 
 ## Related Files
 
-- `mytrader/data/vx_futures_feed.py` - VX feed implementation
-- `mytrader/execution/components/signal_processor.py` - Integration point
+- `shree/data/vx_futures_feed.py` - VX feed implementation
+- `shree/execution/components/signal_processor.py` - Integration point
 - `config.yaml` - Configuration (`vix_feed` section)
 - `tests/test_vx_futures_feed.py` - Unit tests

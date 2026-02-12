@@ -1,0 +1,73 @@
+# ============================================================
+# 30-Minute Overnight/Globex Strategy Backtest Configuration
+# ============================================================
+# Strategy: MesThirtyMinuteStrategy (TREND_CONTINUATION only)
+# Session:  Full (24h — Globex + RTH)
+# Previous results: 68 trades, +$64.85, PF 1.04, WR 38.2%
+#
+# Usage:
+#   python3 -u -m backtest.run --symbol ES --start 2025-02-01 --end 2026-01-30 \
+#     --config configs/backtest_thirty_min.yaml --session full \
+#     --data-source auto --capital 5000 --output-dir reports
+# ============================================================
+
+strategy:
+  # Dispatch to 30m strategy (not 15m or 1m)
+  use_15m_strategy: false
+  use_30m_strategy: true
+  use_scoring_system: false
+
+  # 30m strategy params (mapped to ThirtyMinuteStrategyConfig)
+  warmup_bars: 50           # 50 bars × 30min = 25 hours warmup
+
+  # EMA settings
+  ema_fast: 9
+  ema_slow: 21
+  ema_trend: 50
+
+  # ATR / Stops
+  atr_period: 14
+  stop_atr_multiplier: 1.0   # 1× ATR ≈ 6-8 pts
+  take_profit_multiplier: 2.0 # 2R target
+  max_stop_points: 15.0
+  min_stop_points: 4.0
+
+  # ADX — need strong trend for overnight
+  adx_period: 14
+  adx_trend_threshold: 30.0
+  adx_strong_trend: 40.0
+
+  # RSI
+  rsi_period: 14
+  rsi_oversold: 35.0
+  rsi_overbought: 65.0
+
+  # Signal types
+  enable_ema_reclaim: false        # 28% WR, -$176 → disabled
+  enable_trend_continuation: true  # Profitable signal type
+  enable_breakout: false
+
+  # Trade management
+  max_trades_per_day: 4
+  cooldown_bars: 2           # 2 bars = 1 hour cooldown
+  max_hold_bars: 16          # 16 bars = 8 hours
+
+  # Session — trade all sessions (RTH + Globex)
+  trade_all_sessions: true
+  avoid_first_bar: true
+  avoid_last_bar: true
+
+  # Risk
+  require_trend_alignment: true
+  require_higher_tf_trend: false
+  min_bar_range: 1.0
+  skip_zero_range: true
+  min_entry_confidence: 0.60
+
+risk_gate:
+  max_stop_points: 20.0      # 30m has wider stops
+  risk_per_trade_max: 150.0
+  risk_per_trade_usd: 150.0
+  min_stop_points: 3.0
+  max_daily_loss: 500.0
+  max_consecutive_losses: 4

@@ -31,13 +31,13 @@
 ## 2. Bugs Found & Fixed
 
 ### Bug 1 (CRITICAL): Direction Inversion — 20.7% of Trades Inverted
-**File:** `mytrader/strategies/scoring_entry.py`, lines 669-679  
+**File:** `shree/strategies/scoring_entry.py`, lines 669-679  
 **Root cause:** The HTF (15-minute) direction override ran AFTER scoring components were computed. When 1m EMAs said SHORT but 15m regime said UPTREND, the code flipped the direction to LONG — but the score components (EMA_STACK_DOWN, EMA_SLOPE_DOWN, BELOW_VWAP) had already been computed for the SHORT direction. This created incoherent signals: SHORT-quality components used to justify LONG trades. 334 out of 1,614 trades (20.7%) were direction-inverted.
 
 **Fix:** Replaced the direction override with a -30 point HTF_CONFLICT penalty. When 1m and 15m timeframes disagree, the trade is filtered out by the score threshold instead of being force-flipped. Post-fix: 0% direction-inverted trades.
 
 ### Bug 2 (SIGNIFICANT): `datetime.now()` in Backtest
-**File:** `mytrader/strategies/scoring_integration.py`, line 171  
+**File:** `shree/strategies/scoring_integration.py`, line 171  
 **Root cause:** The lunch/evening session threshold adjustment used `datetime.now()` (wall clock) instead of the backtest's simulated timestamp. Running the backtest at 10 PM would apply evening thresholds (full=65, half=50) to ALL trades regardless of their simulated time, incorrectly filtering out valid RTH signals.
 
 **Fix:** Use the `current_time` parameter already passed through the evaluation chain.
@@ -153,8 +153,8 @@ At 1,552 trades over 256 days (6.1/day), slippage and commission consume signifi
 
 | File | Change |
 |------|--------|
-| `mytrader/strategies/scoring_entry.py` | HTF direction override → HTF_CONFLICT -30pt penalty |
-| `mytrader/strategies/scoring_integration.py` | `datetime.now()` → `current_time` parameter |
+| `shree/strategies/scoring_entry.py` | HTF direction override → HTF_CONFLICT -30pt penalty |
+| `shree/strategies/scoring_integration.py` | `datetime.now()` → `current_time` parameter |
 | `backtest/run.py` | Hardcoded overrides → respect config file values |
 
 ---

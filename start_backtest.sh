@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#          🤖 MyTrader - Backtest Runner 🤖                      
+#          🤖 Shree - Backtest Runner 🤖                      
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
 # Usage: ./start_backtest.sh [OPTIONS]
@@ -22,7 +22,7 @@ NC='\033[0m' # No Color
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BLUE}          🤖 MyTrader - Backtest Runner 🤖${NC}"
+echo -e "${BLUE}          🤖 Shree - Backtest Runner 🤖${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -131,7 +131,7 @@ if [ "$DATA_SOURCE" = "local" ] && [ ! -f "$DATA_FILE_PARQUET" ] && [ ! -f "$DAT
 fi
 
 # Build Python command
-PYTHON_CMD="$PYTHON_BIN -m mytrader.backtest.runner"
+PYTHON_CMD="$PYTHON_BIN -m shree.backtest.runner"
 
 if [ -n "$START_DATE" ]; then
     PYTHON_CMD="$PYTHON_CMD --start-date $START_DATE"

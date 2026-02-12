@@ -1,59 +1,59 @@
-# MyTrader Kubernetes Quick Reference
+# Shree Kubernetes Quick Reference
 
 ## 🚀 Quick Start (Local Testing)
 
 ```bash
 # 1. Build image
-docker build -t mytrader:latest .
+docker build -t shree:latest .
 
 # 2. Test locally
-docker run -e PROMETHEUS_ENABLED=true -p 8000:8000 mytrader:latest
-curl http://localhost:8000/metrics | grep mytrader
+docker run -e PROMETHEUS_ENABLED=true -p 8000:8000 shree:latest
+curl http://localhost:8000/metrics | grep shree
 
 # 3. Deploy to k8s (automated)
 cd deploy/k8s
 ./deploy.sh
 
 # 4. Check status
-kubectl get pods -l app=mytrader
-kubectl logs -f deployment/mytrader
+kubectl get pods -l app=shree
+kubectl logs -f deployment/shree
 ```
 
 ## 📊 Prometheus Queries (PromQL)
 
 ### Live Bar Age
 ```promql
-mytrader_live_bar_age_seconds{timeframe="1m"}
+shree_live_bar_age_seconds{timeframe="1m"}
 ```
 
 ### Stale Episode Active
 ```promql
-mytrader_stale_episode_active{symbol="MES"}
+shree_stale_episode_active{symbol="MES"}
 ```
 
 ### Stale Blocks Rate (5min)
 ```promql
-rate(mytrader_stale_live_bars_blocks_total[5m])
+rate(shree_stale_live_bars_blocks_total[5m])
 ```
 
 ### Canceled Entries Rate
 ```promql
-rate(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[5m])
+rate(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[5m])
 ```
 
 ### Decision Distribution
 ```promql
-sum by (action) (rate(mytrader_decisions_total[5m]))
+sum by (action) (rate(shree_decisions_total[5m]))
 ```
 
 ### Total Stale Blocks (1h)
 ```promql
-increase(mytrader_stale_live_bars_blocks_total[1h])
+increase(shree_stale_live_bars_blocks_total[1h])
 ```
 
 ### Cancellation Outcomes
 ```promql
-sum by (outcome) (rate(mytrader_cancel_entries_calls_total[5m]))
+sum by (outcome) (rate(shree_cancel_entries_calls_total[5m]))
 ```
 
 ## 🔧 Common Commands
@@ -67,70 +67,70 @@ kubectl apply -f deploy/prometheus/service.yaml
 kubectl apply -f deploy/prometheus/servicemonitor.yaml
 
 # Check status
-kubectl get all -l app=mytrader
-kubectl rollout status deployment/mytrader
+kubectl get all -l app=shree
+kubectl rollout status deployment/shree
 
 # View logs
-kubectl logs -f deployment/mytrader
-kubectl logs deployment/mytrader --tail=100
+kubectl logs -f deployment/shree
+kubectl logs deployment/shree --tail=100
 ```
 
 ### Debugging
 ```bash
 # Pod details
-kubectl describe pod -l app=mytrader
+kubectl describe pod -l app=shree
 
 # Execute into pod
-kubectl exec -it deployment/mytrader -- /bin/bash
+kubectl exec -it deployment/shree -- /bin/bash
 
 # Port-forward metrics
-kubectl port-forward svc/mytrader-metrics 8000:8000
+kubectl port-forward svc/shree-metrics 8000:8000
 
 # Test metrics from inside cluster
 kubectl run curl --image=curlimages/curl -it --rm -- \
-  curl http://mytrader-metrics:8000/metrics
+  curl http://shree-metrics:8000/metrics
 ```
 
 ### Updates
 ```bash
 # Update image
-kubectl set image deployment/mytrader mytrader=mytrader:v2
+kubectl set image deployment/shree shree=shree:v2
 
 # Watch rollout
-kubectl rollout status deployment/mytrader
+kubectl rollout status deployment/shree
 
 # Rollback
-kubectl rollout undo deployment/mytrader
+kubectl rollout undo deployment/shree
 
 # Restart pods
-kubectl rollout restart deployment/mytrader
+kubectl rollout restart deployment/shree
 ```
 
 ### Secrets Management
 ```bash
 # Create secret
-kubectl create secret generic mytrader-secrets \
+kubectl create secret generic shree-secrets \
   --from-literal=IBKR_HOST='127.0.0.1' \
   --from-literal=IBKR_PORT='4002'
 
 # View secret
-kubectl get secret mytrader-secrets -o yaml
+kubectl get secret shree-secrets -o yaml
 
 # Update secret
-kubectl delete secret mytrader-secrets
-kubectl create secret generic mytrader-secrets ...
+kubectl delete secret shree-secrets
+kubectl create secret generic shree-secrets ...
 
 # Or edit in place
-kubectl edit secret mytrader-secrets
+kubectl edit secret shree-secrets
 ```
 
 ### Scaling
 ```bash
 # Scale up/down
-kubectl scale deployment mytrader --replicas=2
+kubectl scale deployment shree --replicas=2
 
 # Autoscale (HPA)
-kubectl autoscale deployment mytrader --min=1 --max=3 --cpu-percent=80
+kubectl autoscale deployment shree --min=1 --max=3 --cpu-percent=80
 ```
 
 ## 🎯 Prometheus Setup
@@ -138,7 +138,7 @@ kubectl autoscale deployment mytrader --min=1 --max=3 --cpu-percent=80
 ### Using Prometheus Operator
 ```bash
 # ServiceMonitor auto-discovered
-kubectl get servicemonitor mytrader
+kubectl get servicemonitor shree
 
 # Check Prometheus targets
 kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
@@ -149,9 +149,9 @@ kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
 Add to `prometheus.yml`:
 ```yaml
 scrape_configs:
-  - job_name: 'mytrader'
+  - job_name: 'shree'
     static_configs:
-      - targets: ['mytrader-metrics.default.svc.cluster.local:8000']
+      - targets: ['shree-metrics.default.svc.cluster.local:8000']
 ```
 
 ## 📈 Grafana Dashboard
@@ -175,8 +175,8 @@ scrape_configs:
 
 ### Stale Bars Alert
 ```yaml
-- alert: MyTraderLiveBarsStale
-  expr: mytrader_live_bar_age_seconds{timeframe="1m"} > 120
+- alert: ShreeLiveBarsStale
+  expr: shree_live_bar_age_seconds{timeframe="1m"} > 120
   for: 5m
   labels: { severity: warning }
   annotations:
@@ -185,8 +185,8 @@ scrape_configs:
 
 ### Frequent Cancellations
 ```yaml
-- alert: MyTraderFrequentEntryCancels
-  expr: increase(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[15m]) > 3
+- alert: ShreeFrequentEntryCancels
+  expr: increase(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[15m]) > 3
   labels: { severity: warning }
 ```
 
@@ -198,10 +198,10 @@ kubectl delete -f deploy/k8s/deployment-with-secrets.yaml
 kubectl delete -f deploy/k8s/configmap.yaml
 kubectl delete -f deploy/prometheus/service.yaml
 kubectl delete -f deploy/prometheus/servicemonitor.yaml
-kubectl delete secret mytrader-secrets
+kubectl delete secret shree-secrets
 
 # Or delete by label
-kubectl delete all -l app=mytrader
+kubectl delete all -l app=shree
 ```
 
 ## 📝 Environment Variables
@@ -226,7 +226,7 @@ kubectl delete all -l app=mytrader
 ## 🏷️ Useful Labels
 
 ```yaml
-app: mytrader          # App selector
+app: shree          # App selector
 version: v1           # Version for canary
 environment: prod     # Environment
 ```
@@ -234,7 +234,7 @@ environment: prod     # Environment
 ## 🔍 Monitoring Checklist
 
 - [ ] Metrics endpoint accessible (/metrics)
-- [ ] Prometheus scraping MyTrader
+- [ ] Prometheus scraping Shree
 - [ ] Grafana dashboard imported
 - [ ] Alert rules configured
 - [ ] Notification channels setup

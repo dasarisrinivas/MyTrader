@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ################################################################################
-# MyTrader - All-in-One Startup Script
+# Shree - All-in-One Startup Script
 # 
 # This script starts everything needed for the trading system:
 # - Checks IB Gateway connection (optional, warns if not running)
@@ -68,7 +68,7 @@ error() {
 # Banner
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}          🚀 MyTrader - Automated Trading System 🚀              ${NC}"
+echo -e "${BLUE}          🚀 Shree - Automated Trading System 🚀              ${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
@@ -177,7 +177,7 @@ success "Node.js dependencies installed"
 ################################################################################
 
 echo ""
-log "START" "Starting MyTrader services..."
+log "START" "Starting Shree services..."
 echo ""
 
 # Create logs directory
@@ -258,7 +258,7 @@ if [ "$OPEN_BROWSER" = true ]; then
 fi
 
 echo ""
-echo -e "${GREEN}🎯 MyTrader is ready! Press Ctrl+C or run './stop.sh' to stop${NC}"
+echo -e "${GREEN}🎯 Shree is ready! Press Ctrl+C or run './stop.sh' to stop${NC}"
 echo ""
 
 # Save process info

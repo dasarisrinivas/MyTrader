@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from mytrader.monitoring.order_tracker import OrderTracker
+from shree.monitoring.order_tracker import OrderTracker
 
 
 def test_root_order_persists_features_and_rationale(tmp_path: Path):

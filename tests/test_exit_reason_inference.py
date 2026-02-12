@@ -1,6 +1,6 @@
 import sqlite3
 
-from mytrader.execution.live_trading_manager import LiveTradingManager
+from shree.execution.live_trading_manager import LiveTradingManager
 
 
 def _mk_db(tmp_path):
@@ -123,7 +123,7 @@ def test_infers_profit_target_from_limit_child(tmp_path, monkeypatch):
 
     # We monkeypatch a tiny helper onto the instance for test purposes.
     # Implementation lives in live_trading_manager.py and reads tracker DB.
-    from mytrader.monitoring.order_tracker import OrderTracker
+    from shree.monitoring.order_tracker import OrderTracker
 
     tracker = OrderTracker(db_path=db_path)
     # Avoid the tracker creating/migrating new tables in our scratch DB.

@@ -1,6 +1,6 @@
 import pytest
 
-from mytrader.risk.atr_module import compute_protective_offsets
+from shree.risk.atr_module import compute_protective_offsets
 
 
 def test_compute_protective_offsets_non_scalper_tighter_stop():

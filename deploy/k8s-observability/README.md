@@ -2,7 +2,7 @@
 
 ## What This Does
 
-Deploys **Prometheus monitoring stack** to Kubernetes to scrape metrics from your MyTrader bot running **locally** on Mac mini.
+Deploys **Prometheus monitoring stack** to Kubernetes to scrape metrics from your Shree bot running **locally** on Mac mini.
 
 **Important:** The bot itself does NOT run in Kubernetes. Only monitoring tools run in k8s.
 
@@ -12,7 +12,7 @@ Deploys **Prometheus monitoring stack** to Kubernetes to scrape metrics from you
 
 - ✅ Kubernetes cluster running (Docker Desktop, minikube, k3s, or cloud)
 - ✅ `kubectl` configured and working
-- ✅ MyTrader bot running locally on Mac mini
+- ✅ Shree bot running locally on Mac mini
 - ✅ Bot has environment variables set:
   ```bash
   export PROMETHEUS_ENABLED=true
@@ -37,9 +37,9 @@ curl http://localhost:8000/metrics
 
 Expected output should include lines like:
 ```
-# HELP mytrader_live_bar_age_seconds Age of the most recent live bar
-mytrader_live_bar_age_seconds{env="prod",symbol="MES",timeframe="1m"} 3.2
-mytrader_stale_episode_active{env="prod",symbol="MES",timeframe="1m"} 0.0
+# HELP shree_live_bar_age_seconds Age of the most recent live bar
+shree_live_bar_age_seconds{env="prod",symbol="MES",timeframe="1m"} 3.2
+shree_stale_episode_active{env="prod",symbol="MES",timeframe="1m"} 0.0
 ...
 ```
 
@@ -84,7 +84,7 @@ kubectl apply -f https://raw.githubusercontent.com/prometheus-operator/prometheu
 
 ---
 
-## Step 3: Deploy MyTrader Scrape Configuration
+## Step 3: Deploy Shree Scrape Configuration
 
 ### Update IP Address (if needed)
 
@@ -115,18 +115,18 @@ kubectl apply -f deploy/k8s-observability/prometheus-rules.yaml
 
 Expected output:
 ```
-endpoints/mytrader-external created
-service/mytrader-external created
-servicemonitor.monitoring.coreos.com/mytrader-external created
-prometheusrule.monitoring.coreos.com/mytrader-alerts created
+endpoints/shree-external created
+service/shree-external created
+servicemonitor.monitoring.coreos.com/shree-external created
+prometheusrule.monitoring.coreos.com/shree-alerts created
 ```
 
 Verify:
 ```bash
-kubectl get endpoints mytrader-external
-kubectl get svc mytrader-external
-kubectl get servicemonitor mytrader-external
-kubectl get prometheusrule mytrader-alerts
+kubectl get endpoints shree-external
+kubectl get svc shree-external
+kubectl get servicemonitor shree-external
+kubectl get prometheusrule shree-alerts
 ```
 
 ---
@@ -160,7 +160,7 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
 
 # Navigate to: Status → Targets
 
-# Look for: "mytrader-external" or "serviceMonitor/default/mytrader-external/0"
+# Look for: "shree-external" or "serviceMonitor/default/shree-external/0"
 # Status should be: UP (green)
 ```
 
@@ -175,16 +175,16 @@ In Prometheus UI, go to Graph tab and try these queries:
 
 ```promql
 # Check scrape is working
-up{job=~".*mytrader.*"}
+up{job=~".*shree.*"}
 
 # View bar age
-mytrader_live_bar_age_seconds
+shree_live_bar_age_seconds
 
 # View stale blocks
-rate(mytrader_stale_live_bars_blocks_total[5m])
+rate(shree_stale_live_bars_blocks_total[5m])
 
 # Decision distribution
-sum by (action) (mytrader_decisions_total)
+sum by (action) (shree_decisions_total)
 ```
 
 If metrics don't appear:
@@ -201,14 +201,14 @@ If metrics don't appear:
 # Navigate to: Alerts
 
 # You should see these rules:
-# - MyTraderStaleBarsCritical
-# - MyTraderStaleBarsWarning
-# - MyTraderFrequentStaleBlocks
-# - MyTraderStaleEpisodeLong
-# - MyTraderFrequentStaleCancellations
-# - MyTraderHighCancellationRate
-# - MyTraderMetricsDown
-# - MyTraderNoRecentDecisions
+# - ShreeStaleBarsCritical
+# - ShreeStaleBarsWarning
+# - ShreeFrequentStaleBlocks
+# - ShreeStaleEpisodeLong
+# - ShreeFrequentStaleCancellations
+# - ShreeHighCancellationRate
+# - ShreeMetricsDown
+# - ShreeNoRecentDecisions
 ```
 
 All should be in **Inactive** (green) state under normal conditions.
@@ -222,7 +222,7 @@ To test alerts work:
    # On Mac mini, stop the bot
    # Wait 2 minutes
    # Check Prometheus → Alerts
-   # "MyTraderMetricsDown" should fire
+   # "ShreeMetricsDown" should fire
    ```
 
 2. **Restart bot** - alert should clear within a scrape cycle
@@ -246,7 +246,7 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 # Password: (from above command)
 ```
 
-### Import MyTrader Dashboard
+### Import Shree Dashboard
 
 1. In Grafana, go to Dashboards → Import
 2. Upload `deploy/grafana/dashboard.json`
@@ -304,7 +304,7 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 **Verify bot is active:**
 ```bash
 # Check bot logs
-tail -f /path/to/bot/logs/mytrader.log
+tail -f /path/to/bot/logs/shree.log
 
 # Look for:
 # - "Live bar received"
@@ -318,7 +318,7 @@ tail -f /path/to/bot/logs/mytrader.log
 
 **Check 1: Alert rules loaded**
 ```bash
-kubectl get prometheusrule mytrader-alerts -o yaml
+kubectl get prometheusrule shree-alerts -o yaml
 ```
 
 **Check 2: Prometheus picked up rules**
@@ -330,7 +330,7 @@ kubectl get prometheusrule mytrader-alerts -o yaml
 **Check 3: Alert query works**
 ```bash
 # In Prometheus UI, run the alert query manually:
-mytrader_live_bar_age_seconds{timeframe="1m"} > 120
+shree_live_bar_age_seconds{timeframe="1m"} > 120
 
 # If this returns results, alert should fire after 'for' duration
 ```
@@ -354,7 +354,7 @@ kubectl get prometheus -n monitoring -o yaml | grep -A5 ruleSelector
 - ✅ (Optional) Grafana dashboard
 
 ### On Mac Mini:
-- ✅ MyTrader bot runs locally (unchanged)
+- ✅ Shree bot runs locally (unchanged)
 - ✅ Prometheus metrics exposed on `:8000/metrics`
 - ✅ No containers, no k8s deployments for the bot
 
@@ -402,7 +402,7 @@ Grafana (visualization) + Alertmanager (notifications)
 To remove everything:
 
 ```bash
-# Delete MyTrader monitoring resources
+# Delete Shree monitoring resources
 kubectl delete -f deploy/k8s-observability/
 
 # Delete Prometheus stack (if installed via Helm)

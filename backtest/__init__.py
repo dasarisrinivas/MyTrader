@@ -1,5 +1,5 @@
 """
-Backtest Framework for MyTrader
+Backtest Framework for Shree
 ===============================
 
 This module provides a comprehensive 2-year historical backtesting capability

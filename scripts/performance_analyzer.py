@@ -26,12 +26,12 @@ except ImportError:
     import matplotlib.pyplot as plt
     import seaborn as sns
 
-from mytrader.backtesting.engine import BacktestingEngine, BacktestResult
-from mytrader.config import BacktestConfig, TradingConfig
-from mytrader.strategies.enhanced_regime_strategy import EnhancedRegimeStrategy
-from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
-from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
-from mytrader.utils.logger import configure_logging, logger
+from shree.backtesting.engine import BacktestingEngine, BacktestResult
+from shree.config import BacktestConfig, TradingConfig
+from shree.strategies.enhanced_regime_strategy import EnhancedRegimeStrategy
+from shree.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+from shree.strategies.momentum_reversal import MomentumReversalStrategy
+from shree.utils.logger import configure_logging, logger
 
 # Set style for better-looking plots
 sns.set_style("darkgrid")

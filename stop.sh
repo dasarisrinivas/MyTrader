@@ -1,8 +1,8 @@
 #!/bin/bash
 
 ################################################################################
-# MyTrader - Stop Script
-# Gracefully stops all MyTrader services
+# Shree - Stop Script
+# Gracefully stops all Shree services
 ################################################################################
 
 # Colors
@@ -16,7 +16,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGS_DIR="$PROJECT_ROOT/logs"
 
 echo ""
-echo -e "${BLUE}🛑 Stopping MyTrader services...${NC}"
+echo -e "${BLUE}🛑 Stopping Shree services...${NC}"
 echo ""
 
 # Kill processes by PID if available
@@ -63,11 +63,11 @@ pkill -f "run_bot.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped run_bot.py${NC
 pkill -f "run_autonomous_trading.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped autonomous trading${NC}"
 pkill -f "run_llm_trading.py" 2>/dev/null && echo -e "${GREEN}✅ Stopped LLM trading${NC}"
 
-# Force kill any remaining Python processes related to MyTrader
-MYTRADER_PROCS=$(ps aux | grep -i "mytrader" | grep -v "grep" | awk '{print $2}')
-if [ ! -z "$MYTRADER_PROCS" ]; then
-    for PID in $MYTRADER_PROCS; do
-        kill -9 $PID 2>/dev/null && echo -e "${GREEN}✅ Stopped MyTrader process (PID: $PID)${NC}"
+# Force kill any remaining Python processes related to Shree
+SHREE_PROCS=$(ps aux | grep -i "shree" | grep -v "grep" | awk '{print $2}')
+if [ ! -z "$SHREE_PROCS" ]; then
+    for PID in $SHREE_PROCS; do
+        kill -9 $PID 2>/dev/null && echo -e "${GREEN}✅ Stopped Shree process (PID: $PID)${NC}"
     done
 fi
 

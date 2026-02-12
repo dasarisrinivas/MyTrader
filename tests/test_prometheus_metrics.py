@@ -1,7 +1,7 @@
 import time
 from prometheus_client import CollectorRegistry
 
-from mytrader.observability import prometheus_metrics as pm
+from shree.observability import prometheus_metrics as pm
 
 
 def test_metrics_init_and_increment():
@@ -28,6 +28,6 @@ def test_metrics_init_and_increment():
     # Verify some metrics present in registry
     # Look up by metric name (Counter base names without _total suffix)
     names = {m.name for m in registry.collect()}
-    assert "mytrader_live_bar_age_seconds" in names
-    assert "mytrader_stale_live_bars_blocks" in names
-    assert "mytrader_pending_entry_orders_canceled" in names
+    assert "shree_live_bar_age_seconds" in names
+    assert "shree_stale_live_bars_blocks" in names
+    assert "shree_pending_entry_orders_canceled" in names

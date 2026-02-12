@@ -30,7 +30,7 @@ def _create_orders_table(conn: sqlite3.Connection) -> None:
 
 def test_reconcile_insert_preserves_existing_snapshots():
     """Reconcile INSERT OR REPLACE must not wipe features/rationale/trade_cycle_id if already present."""
-    from mytrader.execution.reconcile import ReconcileManager, ReconcileAction, ReconcileConfig
+    from shree.execution.reconcile import ReconcileManager, ReconcileAction, ReconcileConfig
 
     conn = sqlite3.connect(":memory:")
     _create_orders_table(conn)

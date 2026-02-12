@@ -12,7 +12,7 @@ from loguru import logger
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from mytrader.strategies.scoring_entry import calculate_signal_score, should_enter_trade
+from shree.strategies.scoring_entry import calculate_signal_score, should_enter_trade
 
 logger.remove()
 logger.add(sys.stdout, level="INFO")
@@ -222,7 +222,7 @@ def run_backtest(data_file: str, full_size_threshold: float = 60.0, half_size_th
                 )
                 
                 # Only trade if score meets threshold
-                from mytrader.strategies.scoring_entry import PositionSize
+                from shree.strategies.scoring_entry import PositionSize
                 if position_size != PositionSize.NONE:
                     direction = score.direction  # LONG or SHORT
                     atr = data['ATR_14']

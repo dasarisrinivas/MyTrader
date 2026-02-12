@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from mytrader.risk.risk_gate import RiskGate, RiskGateConfig
+from shree.risk.risk_gate import RiskGate, RiskGateConfig
 
 
 def _base_gate():

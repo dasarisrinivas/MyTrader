@@ -14,7 +14,7 @@ NC='\033[0m'
 
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}          🧹 MyTrader - Clean Restart Script 🧹                  ${NC}"
+echo -e "${BLUE}          🧹 Shree - Clean Restart Script 🧹                  ${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 

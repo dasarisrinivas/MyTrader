@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 
 def test_trend_pullback_enhancer_turns_hold_into_buy_in_micro_up():
-    from mytrader.execution.components.signal_processor import SignalProcessor
+    from shree.execution.components.signal_processor import SignalProcessor
 
     sp = SignalProcessor.__new__(SignalProcessor)
     sp.settings = SimpleNamespace(trading=SimpleNamespace(entry_filters={"enable_trend_pullback": True}))
@@ -26,7 +26,7 @@ def test_trend_pullback_enhancer_turns_hold_into_buy_in_micro_up():
 
 
 def test_trend_pullback_enhancer_does_not_create_countertrend_trade():
-    from mytrader.execution.components.signal_processor import SignalProcessor
+    from shree.execution.components.signal_processor import SignalProcessor
 
     sp = SignalProcessor.__new__(SignalProcessor)
     sp.settings = SimpleNamespace(trading=SimpleNamespace(entry_filters={"enable_trend_pullback": True}))
@@ -46,7 +46,7 @@ def test_trend_pullback_enhancer_does_not_create_countertrend_trade():
 
 
 def test_trend_pullback_enhancer_turns_hold_into_sell_in_micro_down_flush():
-    from mytrader.execution.components.signal_processor import SignalProcessor
+    from shree.execution.components.signal_processor import SignalProcessor
 
     sp = SignalProcessor.__new__(SignalProcessor)
     sp.settings = SimpleNamespace(trading=SimpleNamespace(entry_filters={"enable_trend_pullback": True}))

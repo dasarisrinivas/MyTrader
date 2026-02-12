@@ -1,4 +1,4 @@
-# Kubernetes Deployment Guide for MyTrader
+# Kubernetes Deployment Guide for Shree
 
 ## Prerequisites
 
@@ -12,10 +12,10 @@
 ### Build locally
 ```bash
 # Build the image
-docker build -t mytrader:latest .
+docker build -t shree:latest .
 
 # Test locally first
-docker run -e PROMETHEUS_ENABLED=true -p 8000:8000 mytrader:latest
+docker run -e PROMETHEUS_ENABLED=true -p 8000:8000 shree:latest
 
 # Verify metrics endpoint
 curl http://localhost:8000/metrics
@@ -25,11 +25,11 @@ curl http://localhost:8000/metrics
 
 **Docker Hub:**
 ```bash
-docker tag mytrader:latest YOUR_DOCKERHUB_USERNAME/mytrader:latest
-docker push YOUR_DOCKERHUB_USERNAME/mytrader:latest
+docker tag shree:latest YOUR_DOCKERHUB_USERNAME/shree:latest
+docker push YOUR_DOCKERHUB_USERNAME/shree:latest
 
 # Update deploy/k8s/deployment.yaml:
-# image: YOUR_DOCKERHUB_USERNAME/mytrader:latest
+# image: YOUR_DOCKERHUB_USERNAME/shree:latest
 ```
 
 **AWS ECR:**
@@ -38,23 +38,23 @@ docker push YOUR_DOCKERHUB_USERNAME/mytrader:latest
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com
 
 # Create repository
-aws ecr create-repository --repository-name mytrader --region us-east-1
+aws ecr create-repository --repository-name shree --region us-east-1
 
 # Tag and push
-docker tag mytrader:latest YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
-docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
+docker tag shree:latest YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/shree:latest
+docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/shree:latest
 
 # Update deploy/k8s/deployment.yaml:
-# image: YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/mytrader:latest
+# image: YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/shree:latest
 ```
 
 **Google GCR:**
 ```bash
-docker tag mytrader:latest gcr.io/YOUR_PROJECT_ID/mytrader:latest
-docker push gcr.io/YOUR_PROJECT_ID/mytrader:latest
+docker tag shree:latest gcr.io/YOUR_PROJECT_ID/shree:latest
+docker push gcr.io/YOUR_PROJECT_ID/shree:latest
 
 # Update deploy/k8s/deployment.yaml:
-# image: gcr.io/YOUR_PROJECT_ID/mytrader:latest
+# image: gcr.io/YOUR_PROJECT_ID/shree:latest
 ```
 
 ## Step 2: Configure Secrets (IBKR Credentials)
@@ -62,7 +62,7 @@ docker push gcr.io/YOUR_PROJECT_ID/mytrader:latest
 Create a Kubernetes secret for sensitive configuration:
 
 ```bash
-kubectl create secret generic mytrader-secrets \
+kubectl create secret generic shree-secrets \
   --from-literal=IBKR_HOST='127.0.0.1' \
   --from-literal=IBKR_PORT='4002' \
   --from-literal=IBKR_CLIENT_ID='1' \
@@ -81,7 +81,7 @@ TELEGRAM_BOT_TOKEN=your-token-here
 TELEGRAM_CHAT_ID=your-chat-id
 EOF
 
-kubectl create secret generic mytrader-secrets --from-env-file=secrets.env
+kubectl create secret generic shree-secrets --from-env-file=secrets.env
 rm secrets.env  # Clean up
 ```
 
@@ -101,23 +101,23 @@ kubectl apply -f deploy/prometheus/service.yaml
 kubectl apply -f deploy/prometheus/servicemonitor.yaml
 
 # Check deployment status
-kubectl get pods -l app=mytrader
-kubectl get svc mytrader-metrics
+kubectl get pods -l app=shree
+kubectl get svc shree-metrics
 ```
 
 ### Verify deployment
 ```bash
 # Check pod logs
-kubectl logs -f deployment/mytrader
+kubectl logs -f deployment/shree
 
 # Check pod status
-kubectl describe pod -l app=mytrader
+kubectl describe pod -l app=shree
 
 # Port-forward to test metrics locally
-kubectl port-forward svc/mytrader-metrics 8000:8000
+kubectl port-forward svc/shree-metrics 8000:8000
 
 # Test metrics endpoint
-curl http://localhost:8000/metrics | grep mytrader
+curl http://localhost:8000/metrics | grep shree
 ```
 
 ## Step 4: Setup Prometheus Scraping
@@ -128,12 +128,12 @@ If you have Prometheus Operator installed:
 
 ```bash
 # ServiceMonitor is already applied in Step 3
-kubectl get servicemonitor mytrader
+kubectl get servicemonitor shree
 
 # Verify Prometheus is scraping
 kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
 # Visit http://localhost:9090/targets
-# Look for mytrader target
+# Look for shree target
 ```
 
 ### Option B: Manual Prometheus Configuration
@@ -142,7 +142,7 @@ Add to your `prometheus.yml`:
 
 ```yaml
 scrape_configs:
-  - job_name: 'mytrader'
+  - job_name: 'shree'
     kubernetes_sd_configs:
       - role: pod
         namespaces:
@@ -151,7 +151,7 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__meta_kubernetes_pod_label_app]
         action: keep
-        regex: mytrader
+        regex: shree
       - source_labels: [__meta_kubernetes_pod_ip]
         action: replace
         target_label: __address__
@@ -161,9 +161,9 @@ scrape_configs:
 Or use static config:
 ```yaml
 scrape_configs:
-  - job_name: 'mytrader'
+  - job_name: 'shree'
     static_configs:
-      - targets: ['mytrader-metrics.default.svc.cluster.local:8000']
+      - targets: ['shree-metrics.default.svc.cluster.local:8000']
 ```
 
 ## Step 5: Setup Alerting
@@ -190,49 +190,49 @@ kubectl port-forward -n monitoring svc/grafana 3000:3000
 
 **Live Bar Age:**
 ```promql
-mytrader_live_bar_age_seconds{timeframe="1m"}
+shree_live_bar_age_seconds{timeframe="1m"}
 ```
 
 **Stale Episode Active:**
 ```promql
-mytrader_stale_episode_active{symbol="MES"}
+shree_stale_episode_active{symbol="MES"}
 ```
 
 **Stale Blocks Rate (last 5 minutes):**
 ```promql
-rate(mytrader_stale_live_bars_blocks_total[5m])
+rate(shree_stale_live_bars_blocks_total[5m])
 ```
 
 **Canceled Entries Rate:**
 ```promql
-rate(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[5m])
+rate(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[5m])
 ```
 
 **Decision Actions Distribution:**
 ```promql
-sum by (action) (rate(mytrader_decisions_total[5m]))
+sum by (action) (rate(shree_decisions_total[5m]))
 ```
 
 **Total Stale Blocks (last hour):**
 ```promql
-increase(mytrader_stale_live_bars_blocks_total[1h])
+increase(shree_stale_live_bars_blocks_total[1h])
 ```
 
 ## Troubleshooting
 
 ### Pod not starting
 ```bash
-kubectl describe pod -l app=mytrader
-kubectl logs -l app=mytrader --tail=100
+kubectl describe pod -l app=shree
+kubectl logs -l app=shree --tail=100
 ```
 
 ### Metrics not appearing
 ```bash
 # Check if metrics port is exposed
-kubectl get svc mytrader-metrics
+kubectl get svc shree-metrics
 
 # Test from inside cluster
-kubectl run curl --image=curlimages/curl -it --rm -- curl http://mytrader-metrics:8000/metrics
+kubectl run curl --image=curlimages/curl -it --rm -- curl http://shree-metrics:8000/metrics
 
 # Check Prometheus targets
 kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
@@ -242,7 +242,7 @@ kubectl port-forward -n monitoring svc/prometheus-k8s 9090:9090
 ### Image pull errors
 ```bash
 # Check image pull policy
-kubectl describe pod -l app=mytrader | grep -A5 Events
+kubectl describe pod -l app=shree | grep -A5 Events
 
 # If using private registry, create image pull secret
 kubectl create secret docker-registry regcred \
@@ -273,16 +273,16 @@ kubectl create secret docker-registry regcred \
 ### Update the application
 ```bash
 # After pushing new image
-kubectl set image deployment/mytrader mytrader=mytrader:v2
-kubectl rollout status deployment/mytrader
+kubectl set image deployment/shree shree=shree:v2
+kubectl rollout status deployment/shree
 
 # Rollback if needed
-kubectl rollout undo deployment/mytrader
+kubectl rollout undo deployment/shree
 ```
 
 ### Scale replicas (if stateless)
 ```bash
-kubectl scale deployment mytrader --replicas=2
+kubectl scale deployment shree --replicas=2
 ```
 
 ## Clean Up
@@ -291,5 +291,5 @@ kubectl scale deployment mytrader --replicas=2
 kubectl delete -f deploy/k8s/deployment.yaml
 kubectl delete -f deploy/prometheus/service.yaml
 kubectl delete -f deploy/prometheus/servicemonitor.yaml
-kubectl delete secret mytrader-secrets
+kubectl delete secret shree-secrets
 ```

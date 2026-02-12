@@ -52,7 +52,7 @@ python3 test_scoring_system.py
 ### 2. Run Backtest
 
 ```bash
-python -m mytrader.backtest.run \
+python -m shree.backtest.run \
     --strategy mes_one_minute_scoring \
     --start-date 2025-01-01 \
     --end-date 2026-02-01 \

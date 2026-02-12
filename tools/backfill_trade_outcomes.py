@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 import sqlite3
 import json
 
-from mytrader.monitoring.order_tracker import OrderTracker
+from shree.monitoring.order_tracker import OrderTracker
 
 
 def _sum_executions_for_order_ids(conn: sqlite3.Connection, order_ids: list[int]) -> dict:

@@ -196,8 +196,8 @@ def main():
         print("-" * 60)
         
         # Import and configure the bot
-        from mytrader.aws.bedrock_agent_client import BedrockAgentClient
-        from mytrader.aws.agent_invoker import TradingAgentOrchestrator
+        from shree.aws.bedrock_agent_client import BedrockAgentClient
+        from shree.aws.agent_invoker import TradingAgentOrchestrator
         
         # Create client with deployed config
         client = BedrockAgentClient(

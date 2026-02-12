@@ -10,11 +10,11 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.backtesting.engine import BacktestingEngine
-from mytrader.config import BacktestConfig, TradingConfig
-from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
-from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
-from mytrader.utils.logger import configure_logging, logger
+from shree.backtesting.engine import BacktestingEngine
+from shree.config import BacktestConfig, TradingConfig
+from shree.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+from shree.strategies.momentum_reversal import MomentumReversalStrategy
+from shree.utils.logger import configure_logging, logger
 
 
 def run_backtest(data_path: Path, strategy_config: dict, label: str) -> dict:

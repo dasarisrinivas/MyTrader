@@ -32,7 +32,7 @@ async def test_config_loader():
     print("=" * 60)
     
     try:
-        from mytrader.aws import load_aws_config, get_aws_config
+        from shree.aws import load_aws_config, get_aws_config
         
         config = load_aws_config()
         
@@ -56,7 +56,7 @@ async def test_agent_invoker():
     print("=" * 60)
     
     try:
-        from mytrader.aws import AgentInvoker
+        from shree.aws import AgentInvoker
         
         invoker = AgentInvoker.from_deployed_config()
         
@@ -78,7 +78,7 @@ async def test_market_snapshot():
     print("=" * 60)
     
     try:
-        from mytrader.aws import MarketSnapshotBuilder
+        from shree.aws import MarketSnapshotBuilder
         
         builder = MarketSnapshotBuilder(symbol="ES")
         
@@ -120,7 +120,7 @@ async def test_decision_agent(invoker):
         return None
     
     try:
-        from mytrader.aws import MarketSnapshotBuilder
+        from shree.aws import MarketSnapshotBuilder
         
         builder = MarketSnapshotBuilder()
         snapshot = builder.build(
@@ -219,7 +219,7 @@ async def test_full_trading_decision(invoker):
         return None
     
     try:
-        from mytrader.aws import MarketSnapshotBuilder
+        from shree.aws import MarketSnapshotBuilder
         
         builder = MarketSnapshotBuilder()
         snapshot = builder.build(

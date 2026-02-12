@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 # Test imports
-from mytrader.data.candle_aggregator import MultiTimeframeCandleBuilder, AggregatedCandle
+from shree.data.candle_aggregator import MultiTimeframeCandleBuilder, AggregatedCandle
 
 
 CST = ZoneInfo("America/Chicago")
@@ -49,7 +49,7 @@ class TestNoTradeInRangeLowATR:
     def test_low_atr_blocks_signal(self):
         """Verify that low ATR (below threshold) blocks trading signals."""
         # This test verifies the ADX gate logic
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
         
         # Create a mock signal
         signal = SimpleNamespace(
@@ -84,7 +84,7 @@ class TestNoTradeInRangeLowATR:
     
     def test_normal_atr_allows_signal(self):
         """Verify that normal ADX (above threshold) allows signals."""
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
         
         signal = SimpleNamespace(
             action="BUY",
@@ -130,7 +130,7 @@ class TestCounterTrendBlock:
     
     def test_buy_in_downtrend_blocked(self):
         """Verify BUY signal is blocked when market is in DOWNTREND."""
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
         
         signal = SimpleNamespace(
             action="BUY",
@@ -161,7 +161,7 @@ class TestCounterTrendBlock:
     
     def test_sell_in_uptrend_blocked(self):
         """Verify SELL signal is blocked when market is in UPTREND."""
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
         
         signal = SimpleNamespace(
             action="SELL",
@@ -190,7 +190,7 @@ class TestCounterTrendBlock:
     
     def test_trend_aligned_trade_passes(self):
         """Verify trend-aligned trades pass through."""
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
         
         # BUY in UPTREND should pass
         signal = SimpleNamespace(
@@ -393,7 +393,7 @@ class TestRiskRewardValidation:
     
     def test_poor_rr_rejected(self):
         """Verify trades with R:R < 1.5 are rejected."""
-        from mytrader.risk.trade_math import compute_risk_reward
+        from shree.risk.trade_math import compute_risk_reward
         
         # BUY at 6900, SL at 6895 (5pt risk), TP at 6906 (6pt reward)
         # R:R = 6/5 = 1.2 - should be rejected if min is 1.5
@@ -415,7 +415,7 @@ class TestRiskRewardValidation:
     
     def test_good_rr_accepted(self):
         """Verify trades with R:R >= 1.5 are accepted."""
-        from mytrader.risk.trade_math import compute_risk_reward
+        from shree.risk.trade_math import compute_risk_reward
         
         # BUY at 6900, SL at 6895 (5pt risk), TP at 6910 (10pt reward)
         # R:R = 10/5 = 2.0 - should be accepted
@@ -437,7 +437,7 @@ class TestRiskRewardValidation:
 
     def test_scalp_buy_rr_calculated_correctly(self):
         """Verify SCALP_BUY computes R:R correctly (regression test for Jan 2026 bug)."""
-        from mytrader.risk.trade_math import compute_risk_reward
+        from shree.risk.trade_math import compute_risk_reward
         
         # Real blocked trade from logs: entry=6987.25 SL=6977.61 TP=7006.53
         # This was incorrectly returning R:R=0.00 because SCALP_BUY wasn't handled
@@ -458,7 +458,7 @@ class TestRiskRewardValidation:
 
     def test_scalp_sell_rr_calculated_correctly(self):
         """Verify SCALP_SELL computes R:R correctly (regression test for Jan 2026 bug)."""
-        from mytrader.risk.trade_math import compute_risk_reward
+        from shree.risk.trade_math import compute_risk_reward
         
         # SELL at 6987.25, SL at 6997.25 (10pt risk), TP at 6967.25 (20pt reward)
         entry = 6987.25
@@ -492,14 +492,14 @@ class TestHistoricalContextWiring:
         mock_settings.rag = MagicMock()
         
         # Patch out dependencies
-        with patch("mytrader.rag.pipeline_integration.get_rag_storage"), \
-             patch("mytrader.rag.pipeline_integration.get_trade_logger"), \
-             patch("mytrader.rag.pipeline_integration.get_mistake_analyzer"), \
-             patch("mytrader.rag.pipeline_integration.create_embedding_builder", return_value=None), \
-             patch("mytrader.rag.pipeline_integration.create_hybrid_pipeline", return_value=MagicMock()), \
-             patch("mytrader.rag.pipeline_integration.create_daily_updater"):
+        with patch("shree.rag.pipeline_integration.get_rag_storage"), \
+             patch("shree.rag.pipeline_integration.get_trade_logger"), \
+             patch("shree.rag.pipeline_integration.get_mistake_analyzer"), \
+             patch("shree.rag.pipeline_integration.create_embedding_builder", return_value=None), \
+             patch("shree.rag.pipeline_integration.create_hybrid_pipeline", return_value=MagicMock()), \
+             patch("shree.rag.pipeline_integration.create_daily_updater"):
             
-            from mytrader.rag.pipeline_integration import HybridPipelineIntegration
+            from shree.rag.pipeline_integration import HybridPipelineIntegration
             
             pipeline = HybridPipelineIntegration(mock_settings)
             
@@ -532,14 +532,14 @@ class TestHistoricalContextWiring:
         mock_settings.hybrid.rag_data_path = "rag_data"
         mock_settings.rag = MagicMock()
         
-        with patch("mytrader.rag.pipeline_integration.get_rag_storage"), \
-             patch("mytrader.rag.pipeline_integration.get_trade_logger"), \
-             patch("mytrader.rag.pipeline_integration.get_mistake_analyzer"), \
-             patch("mytrader.rag.pipeline_integration.create_embedding_builder", return_value=None), \
-             patch("mytrader.rag.pipeline_integration.create_hybrid_pipeline", return_value=MagicMock()), \
-             patch("mytrader.rag.pipeline_integration.create_daily_updater"):
+        with patch("shree.rag.pipeline_integration.get_rag_storage"), \
+             patch("shree.rag.pipeline_integration.get_trade_logger"), \
+             patch("shree.rag.pipeline_integration.get_mistake_analyzer"), \
+             patch("shree.rag.pipeline_integration.create_embedding_builder", return_value=None), \
+             patch("shree.rag.pipeline_integration.create_hybrid_pipeline", return_value=MagicMock()), \
+             patch("shree.rag.pipeline_integration.create_daily_updater"):
             
-            from mytrader.rag.pipeline_integration import HybridPipelineIntegration
+            from shree.rag.pipeline_integration import HybridPipelineIntegration
             
             pipeline = HybridPipelineIntegration(mock_settings)
             
@@ -590,14 +590,14 @@ class TestHistoricalContextWiring:
         mock_settings.hybrid.rag_data_path = "rag_data"
         mock_settings.rag = MagicMock()
         
-        with patch("mytrader.rag.pipeline_integration.get_rag_storage"), \
-             patch("mytrader.rag.pipeline_integration.get_trade_logger"), \
-             patch("mytrader.rag.pipeline_integration.get_mistake_analyzer"), \
-             patch("mytrader.rag.pipeline_integration.create_embedding_builder", return_value=None), \
-             patch("mytrader.rag.pipeline_integration.create_hybrid_pipeline", return_value=MagicMock()), \
-             patch("mytrader.rag.pipeline_integration.create_daily_updater"):
+        with patch("shree.rag.pipeline_integration.get_rag_storage"), \
+             patch("shree.rag.pipeline_integration.get_trade_logger"), \
+             patch("shree.rag.pipeline_integration.get_mistake_analyzer"), \
+             patch("shree.rag.pipeline_integration.create_embedding_builder", return_value=None), \
+             patch("shree.rag.pipeline_integration.create_hybrid_pipeline", return_value=MagicMock()), \
+             patch("shree.rag.pipeline_integration.create_daily_updater"):
             
-            from mytrader.rag.pipeline_integration import HybridPipelineIntegration
+            from shree.rag.pipeline_integration import HybridPipelineIntegration
             
             pipeline = HybridPipelineIntegration(mock_settings)
             
@@ -683,7 +683,7 @@ class TestLiveBarStalenessGate:
 
     def test_stale_live_bars_block_entries(self):
         from unittest.mock import MagicMock, patch
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
 
         # Create dummy manager with stale _last_price_bar_ts
         mock_manager = MagicMock()
@@ -716,7 +716,7 @@ class TestCancelPendingEntriesOnStale:
 
     def test_executor_cancels_only_entry_parents(self):
         from types import SimpleNamespace
-        from mytrader.execution.ib_executor import TradeExecutor
+        from shree.execution.ib_executor import TradeExecutor
         from unittest.mock import MagicMock
 
         # Minimal instantiation: IB and config can be MagicMocks; we will monkeypatch _cancel_trade
@@ -773,7 +773,7 @@ class TestCancelPendingEntriesOnStale:
 
     def test_signal_processor_triggers_cancellation(self):
         from unittest.mock import MagicMock
-        from mytrader.execution.components.signal_processor import SignalProcessor
+        from shree.execution.components.signal_processor import SignalProcessor
         import asyncio
 
         # Build manager with executor that has cancel_pending_entry_orders mocked
@@ -867,7 +867,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_gate_passes_with_all_conditions_met(self):
         """Gate should pass when all 3 conditions are met."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         
@@ -890,7 +890,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_gate_passes_with_two_conditions_met(self):
         """Gate should pass when 2 of 3 conditions are met."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         
@@ -913,7 +913,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_gate_fails_with_one_condition_met(self):
         """Gate should fail when only 1 condition is met."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         
@@ -936,7 +936,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_gate_fails_with_zero_conditions_met(self):
         """Gate should fail when no conditions are met."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         
@@ -959,7 +959,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_gate_cached_after_failure(self):
         """Once gate fails, it should stay failed for the session."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         now = datetime.now(CST)
@@ -991,7 +991,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_gate_resets_on_new_day(self):
         """Gate should reset when a new session/day starts."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         
@@ -1024,7 +1024,7 @@ class TestDailyTrendConfirmationGate:
     
     def test_ema_condition_passes_with_15m_only(self):
         """EMA condition should pass if only 15m shows bullish alignment."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         
@@ -1056,7 +1056,7 @@ class TestLowConfidenceFilter:
     
     def test_high_confidence_signal_passes(self):
         """Signals with confidence >= 0.78 should pass through."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         
@@ -1076,7 +1076,7 @@ class TestLowConfidenceFilter:
     
     def test_low_confidence_signal_blocked(self):
         """Signals with confidence < 0.78 should be blocked."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         
@@ -1100,7 +1100,7 @@ class TestLowConfidenceFilter:
     
     def test_boundary_confidence_passes(self):
         """Signals with confidence exactly 0.78 should pass."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         
@@ -1119,7 +1119,7 @@ class TestLowConfidenceFilter:
     
     def test_hold_signals_not_filtered(self):
         """HOLD signals (non-actionable) should pass through without filtering."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         
@@ -1138,7 +1138,7 @@ class TestLowConfidenceFilter:
     
     def test_custom_threshold_config(self):
         """Custom min_confidence_threshold from config should be respected."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         # Create manager with custom threshold
         manager = IntegratedEntryManager({"min_confidence_threshold": 0.90})
@@ -1159,7 +1159,7 @@ class TestLowConfidenceFilter:
     
     def test_filter_preserves_original_metadata(self):
         """Filtered signals should preserve original signal info in metadata."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         
@@ -1194,7 +1194,7 @@ class TestOneLossPerDirectionRule:
     
     def test_record_buy_stopout_blocks_buy_signals(self):
         """After BUY stopout, subsequent BUY signals should be blocked."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         now = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1221,7 +1221,7 @@ class TestOneLossPerDirectionRule:
     
     def test_record_sell_stopout_blocks_sell_signals(self):
         """After SELL stopout, subsequent SELL signals should be blocked."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         now = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1247,7 +1247,7 @@ class TestOneLossPerDirectionRule:
     
     def test_buy_stopout_allows_sell_signals(self):
         """After BUY stopout, SELL signals should still be allowed."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         now = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1272,7 +1272,7 @@ class TestOneLossPerDirectionRule:
     
     def test_stopout_resets_on_new_session(self):
         """Stopout state should reset when a new session/day starts."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         
@@ -1297,7 +1297,7 @@ class TestOneLossPerDirectionRule:
     
     def test_hold_signals_not_affected(self):
         """HOLD signals should not be blocked by stopout rules."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         now = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1322,7 +1322,7 @@ class TestOneLossPerDirectionRule:
     
     def test_scalp_buy_treated_as_buy_direction(self):
         """SCALP_BUY should be treated as BUY direction for stopout."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         manager = IntegratedEntryManager()
         now = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1336,7 +1336,7 @@ class TestOneLossPerDirectionRule:
     
     def test_multiple_stopouts_both_directions(self):
         """Both directions can be stopped out in same session."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager, EntrySignal
+        from shree.strategies.entry_modules import IntegratedEntryManager, EntrySignal
         
         manager = IntegratedEntryManager()
         now = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1385,7 +1385,7 @@ class TestSessionTimeManager:
     
     def test_morning_prime_window(self):
         """09:30-10:45 CST should be MORNING_PRIME."""
-        from mytrader.strategies.entry_modules import SessionTimeManager, SessionWindow
+        from shree.strategies.entry_modules import SessionTimeManager, SessionWindow
         
         # 09:30 - start of MORNING_PRIME
         ts_0930 = datetime(2026, 1, 29, 9, 30, tzinfo=CST)
@@ -1401,7 +1401,7 @@ class TestSessionTimeManager:
     
     def test_midday_window(self):
         """10:45-14:00 CST should be MIDDAY."""
-        from mytrader.strategies.entry_modules import SessionTimeManager, SessionWindow
+        from shree.strategies.entry_modules import SessionTimeManager, SessionWindow
         
         # 10:45 - start of MIDDAY
         ts_1045 = datetime(2026, 1, 29, 10, 45, tzinfo=CST)
@@ -1417,7 +1417,7 @@ class TestSessionTimeManager:
     
     def test_buy_continuation_allowed_during_morning_prime(self):
         """BUY_CONTINUATION should be allowed 09:30-10:45 CST."""
-        from mytrader.strategies.entry_modules import SessionTimeManager
+        from shree.strategies.entry_modules import SessionTimeManager
         
         # 09:30 - allowed
         ts_0930 = datetime(2026, 1, 29, 9, 30, tzinfo=CST)
@@ -1436,7 +1436,7 @@ class TestSessionTimeManager:
     
     def test_buy_continuation_blocked_after_cutoff(self):
         """BUY_CONTINUATION should be blocked after 10:45 CST."""
-        from mytrader.strategies.entry_modules import SessionTimeManager
+        from shree.strategies.entry_modules import SessionTimeManager
         
         # 10:46 - blocked
         ts_1046 = datetime(2026, 1, 29, 10, 46, tzinfo=CST)
@@ -1456,7 +1456,7 @@ class TestSessionTimeManager:
     
     def test_buy_continuation_blocked_pre_market(self):
         """BUY_CONTINUATION should be blocked before 09:30 CST."""
-        from mytrader.strategies.entry_modules import SessionTimeManager
+        from shree.strategies.entry_modules import SessionTimeManager
         
         # 09:00 - blocked (pre-market)
         ts_0900 = datetime(2026, 1, 29, 9, 0, tzinfo=CST)
@@ -1466,7 +1466,7 @@ class TestSessionTimeManager:
     
     def test_range_reversion_allowed_midday(self):
         """RANGE_REVERSION should be allowed during MIDDAY (10:45-14:00)."""
-        from mytrader.strategies.entry_modules import SessionTimeManager
+        from shree.strategies.entry_modules import SessionTimeManager
         
         # 11:00 - allowed
         ts_1100 = datetime(2026, 1, 29, 11, 0, tzinfo=CST)
@@ -1480,7 +1480,7 @@ class TestSessionTimeManager:
     
     def test_reversal_blocked_before_1015(self):
         """Reversals should be blocked before 10:15 CST."""
-        from mytrader.strategies.entry_modules import SessionTimeManager
+        from shree.strategies.entry_modules import SessionTimeManager
         
         # 10:00 - blocked
         ts_1000 = datetime(2026, 1, 29, 10, 0, tzinfo=CST)
@@ -1499,7 +1499,7 @@ class TestSessionTimeManager:
     
     def test_session_window_afternoon(self):
         """14:00-15:00 CST should be AFTERNOON."""
-        from mytrader.strategies.entry_modules import SessionTimeManager, SessionWindow
+        from shree.strategies.entry_modules import SessionTimeManager, SessionWindow
         
         ts_1400 = datetime(2026, 1, 29, 14, 0, tzinfo=CST)
         assert SessionTimeManager.get_session_window(ts_1400) == SessionWindow.AFTERNOON
@@ -1509,7 +1509,7 @@ class TestSessionTimeManager:
     
     def test_session_window_close(self):
         """15:00-16:00 CST should be CLOSE."""
-        from mytrader.strategies.entry_modules import SessionTimeManager, SessionWindow
+        from shree.strategies.entry_modules import SessionTimeManager, SessionWindow
         
         ts_1500 = datetime(2026, 1, 29, 15, 0, tzinfo=CST)
         assert SessionTimeManager.get_session_window(ts_1500) == SessionWindow.CLOSE
@@ -1530,7 +1530,7 @@ class TestRangeExpansionValidation:
     
     def _create_manager(self, config: dict = None):
         """Create IntegratedEntryManager with minimal config."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         base_config = {
             "symbol": "ES",
@@ -1704,7 +1704,7 @@ class TestRangeExpansionValidation:
     
     def test_filter_blocks_buy_continuation_with_low_range(self):
         """_apply_range_expansion_filter should block signal when range expansion fails."""
-        from mytrader.strategies.entry_modules import EntrySignal
+        from shree.strategies.entry_modules import EntrySignal
         
         manager = self._create_manager()
         
@@ -1737,7 +1737,7 @@ class TestRangeExpansionValidation:
     
     def test_filter_passes_valid_signal_with_range_expansion(self):
         """_apply_range_expansion_filter should pass signal when range expansion confirmed."""
-        from mytrader.strategies.entry_modules import EntrySignal
+        from shree.strategies.entry_modules import EntrySignal
         
         manager = self._create_manager()
         
@@ -1768,7 +1768,7 @@ class TestRangeExpansionValidation:
     
     def test_filter_skips_non_actionable_signal(self):
         """HOLD signals should not be filtered."""
-        from mytrader.strategies.entry_modules import EntrySignal
+        from shree.strategies.entry_modules import EntrySignal
         
         manager = self._create_manager()
         
@@ -1840,7 +1840,7 @@ class TestFailedTrendDayGuardrail:
     
     def _create_manager(self, config: dict = None):
         """Create IntegratedEntryManager with minimal config."""
-        from mytrader.strategies.entry_modules import IntegratedEntryManager
+        from shree.strategies.entry_modules import IntegratedEntryManager
         
         base_config = {
             "symbol": "ES",

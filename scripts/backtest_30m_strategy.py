@@ -19,8 +19,8 @@ import pandas as pd
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.config import ThirtyMinuteStrategyConfig
-from mytrader.strategies.mes_thirty_minute import MesThirtyMinuteStrategy, ThirtyMinuteSignal
+from shree.config import ThirtyMinuteStrategyConfig
+from shree.strategies.mes_thirty_minute import MesThirtyMinuteStrategy, ThirtyMinuteSignal
 from loguru import logger
 
 

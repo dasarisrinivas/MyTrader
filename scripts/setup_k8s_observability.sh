@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick setup script for MyTrader Kubernetes observability
+# Quick setup script for Shree Kubernetes observability
 # This script helps you deploy Prometheus monitoring for your locally-running bot
 
 set -e
@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${BOLD}MyTrader Kubernetes Observability Setup${NC}"
+echo -e "${BOLD}Shree Kubernetes Observability Setup${NC}"
 echo "=========================================="
 echo ""
 
@@ -144,10 +144,10 @@ echo ""
 echo -e "${BOLD}Step 6: Verifying deployment...${NC}"
 
 echo "Checking resources..."
-kubectl get endpoints mytrader-external
-kubectl get svc mytrader-external
-kubectl get servicemonitor mytrader-external 2>/dev/null || echo "(ServiceMonitor requires Prometheus Operator)"
-kubectl get prometheusrule mytrader-alerts 2>/dev/null || echo "(PrometheusRule requires Prometheus Operator)"
+kubectl get endpoints shree-external
+kubectl get svc shree-external
+kubectl get servicemonitor shree-external 2>/dev/null || echo "(ServiceMonitor requires Prometheus Operator)"
+kubectl get prometheusrule shree-alerts 2>/dev/null || echo "(PrometheusRule requires Prometheus Operator)"
 
 echo ""
 
@@ -179,16 +179,16 @@ echo "1. Access Prometheus UI:"
 echo "   kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090"
 echo "   Then open: http://localhost:9090"
 echo ""
-echo "2. Check Targets (should show 'mytrader-external' as UP):"
+echo "2. Check Targets (should show 'shree-external' as UP):"
 echo "   http://localhost:9090/targets"
 echo ""
-echo "3. Check Alerts (should show MyTrader alert rules):"
+echo "3. Check Alerts (should show Shree alert rules):"
 echo "   http://localhost:9090/alerts"
 echo ""
 echo "4. Try some queries:"
-echo "   up{job=~\".*mytrader.*\"}"
-echo "   mytrader_live_bar_age_seconds"
-echo "   rate(mytrader_decisions_total[5m])"
+echo "   up{job=~\".*shree.*\"}"
+echo "   shree_live_bar_age_seconds"
+echo "   rate(shree_decisions_total[5m])"
 echo ""
 echo "5. Access Grafana (if installed):"
 echo "   kubectl get secret -n monitoring prometheus-grafana -o jsonpath=\"{.data.admin-password}\" | base64 --decode"

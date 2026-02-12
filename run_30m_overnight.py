@@ -32,11 +32,11 @@ from ib_insync import IB, Contract, util
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from mytrader.config import Settings, ThirtyMinuteStrategyConfig
-from mytrader.strategies.mes_thirty_minute import MesThirtyMinuteStrategy
-from mytrader.utils.logger import configure_logging, logger
-from mytrader.utils.settings_loader import load_settings
-from mytrader.utils.timezone_utils import now_cst, CST
+from shree.config import Settings, ThirtyMinuteStrategyConfig
+from shree.strategies.mes_thirty_minute import MesThirtyMinuteStrategy
+from shree.utils.logger import configure_logging, logger
+from shree.utils.settings_loader import load_settings
+from shree.utils.timezone_utils import now_cst, CST
 
 
 class ThirtyMinuteOvernightBot:

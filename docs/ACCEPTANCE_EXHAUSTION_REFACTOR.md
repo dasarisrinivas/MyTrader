@@ -148,13 +148,13 @@ when pullbacks are unreliable and chop risk is elevated.
 
 ### Files Modified
 
-1. **NEW: `mytrader/strategies/market_state.py`**
+1. **NEW: `shree/strategies/market_state.py`**
    - `MarketStateDetector` class
    - `MarketStateResult` dataclass with boolean flags
    - Implements all acceptance/exhaustion detection
    - Hard block rules implementation
 
-2. **ENHANCED: `mytrader/strategies/entry_modules.py`**
+2. **ENHANCED: `shree/strategies/entry_modules.py`**
    - `SessionWindow` enum for session classification
    - `PullbackAnalysis` dataclass for pullback scoring
    - `EveningPatternAnalysis` dataclass for evening patterns
@@ -173,19 +173,19 @@ when pullbacks are unreliable and chop risk is elevated.
    - `SellExhaustionModule` - SELL only on exhaustion
    - `IntegratedEntryManager` - Unified interface with priority ordering
 
-3. **MODIFIED: `mytrader/strategies/mes_one_minute.py`**
+3. **MODIFIED: `shree/strategies/mes_one_minute.py`**
    - Added imports for new modules
    - Added `_entry_manager` initialization
    - Modified `generate()` to use new logic (config flag: `use_acceptance_exhaustion_logic`)
    - Added `_prepare_entry_data()` helper
    - Legacy code preserved with fallback option
 
-4. **MODIFIED: `mytrader/rag/enhanced_signal_engine.py`**
+4. **MODIFIED: `shree/rag/enhanced_signal_engine.py`**
    - Fixed RSI scoring to respect trend context
    - High RSI in uptrend now boosts buy, not sell
    - Added RSI continuation zone detection (55-70 bullish, 30-45 bearish)
 
-5. **MODIFIED: `mytrader/rag/hybrid_rag_pipeline.py`**
+5. **MODIFIED: `shree/rag/hybrid_rag_pipeline.py`**
    - Added `is_bullish_acceptance` detection
    - RSI > 60 in acceptance → boosts BUY, not SELL
    - RSI 55-60 in acceptance → RSI_BULLISH_ZONE boost
@@ -246,7 +246,7 @@ evening_config:
 
 Run the strategy with:
 ```bash
-cd /Users/svss/Documents/code/MyTrader
+cd /Users/svss/Documents/code/Shree
 ./start_bot.sh
 ```
 

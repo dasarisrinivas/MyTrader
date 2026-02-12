@@ -18,8 +18,8 @@ except ImportError:
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.llm.trade_logger import TradeLogger
-from mytrader.utils.logger import configure_logging, logger
+from shree.llm.trade_logger import TradeLogger
+from shree.utils.logger import configure_logging, logger
 
 
 class LLMTrainingPipeline:

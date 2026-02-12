@@ -11,7 +11,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.download_data import download_es_data
-from mytrader.utils.logger import logger
+from shree.utils.logger import logger
 
 def download_month_data(year: int, month: int, output_file: str):
     """

@@ -1,8 +1,8 @@
 #!/bin/bash
-# AWS CLI Configuration Helper for MyTrader LLM Integration
+# AWS CLI Configuration Helper for Shree LLM Integration
 
 echo "=========================================="
-echo "AWS CLI Configuration for MyTrader"
+echo "AWS CLI Configuration for Shree"
 echo "=========================================="
 echo ""
 
@@ -111,7 +111,7 @@ echo "   https://docs.aws.amazon.com/bedrock/latest/userguide/"
 echo ""
 
 echo "=========================================="
-echo "Step 5: Enable LLM in MyTrader"
+echo "Step 5: Enable LLM in Shree"
 echo "=========================================="
 echo ""
 echo "Edit config.yaml and set:"

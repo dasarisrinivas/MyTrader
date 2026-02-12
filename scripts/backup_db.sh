@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Database Backup Script for MyTrader
+# Database Backup Script for Shree
 # =============================================================================
 # This script creates timestamped backups of the orders database
 # Run before any reconciliation or destructive operations

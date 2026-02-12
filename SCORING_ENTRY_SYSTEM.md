@@ -118,7 +118,7 @@ scoring_half_size_threshold: float = 45.0  # Half position threshold
 ### Option 1: Use New Strategy Class
 
 ```python
-from mytrader.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
+from shree.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
 
 config = OneMinuteStrategyConfig(
     warmup_bars=50,
@@ -135,7 +135,7 @@ signal = strategy.generate(features_df)
 ### Option 2: Standalone Scoring
 
 ```python
-from mytrader.strategies.scoring_entry import calculate_signal_score, should_enter_trade
+from shree.strategies.scoring_entry import calculate_signal_score, should_enter_trade
 
 # Prepare data
 data = {
@@ -290,7 +290,7 @@ Every decision includes:
 
 ```bash
 # Run backtest with scoring strategy
-python -m mytrader.backtest.run \
+python -m shree.backtest.run \
     --strategy mes_one_minute_scoring \
     --start-date 2025-01-01 \
     --end-date 2026-02-01 \

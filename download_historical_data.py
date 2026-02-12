@@ -11,7 +11,7 @@ from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from mytrader.execution.ib_executor import IBExecutor
+from shree.execution.ib_executor import IBExecutor
 from ib_insync import IB, Contract, util
 
 logger.remove()

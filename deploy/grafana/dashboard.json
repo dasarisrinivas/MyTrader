@@ -1,7 +1,7 @@
 {
   "dashboard": {
-    "title": "MyTrader Monitoring",
-    "tags": ["trading", "mytrader"],
+    "title": "Shree Monitoring",
+    "tags": ["trading", "shree"],
     "timezone": "browser",
     "panels": [
       {
@@ -10,7 +10,7 @@
         "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
         "targets": [
           {
-            "expr": "mytrader_live_bar_age_seconds{timeframe=\"1m\"}",
+            "expr": "shree_live_bar_age_seconds{timeframe=\"1m\"}",
             "legendFormat": "{{symbol}} - {{timeframe}}"
           }
         ],
@@ -33,7 +33,7 @@
         "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
         "targets": [
           {
-            "expr": "mytrader_stale_episode_active",
+            "expr": "shree_stale_episode_active",
             "legendFormat": "{{symbol}}"
           }
         ],
@@ -63,7 +63,7 @@
         "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
         "targets": [
           {
-            "expr": "sum by (action) (rate(mytrader_decisions_total[5m]))",
+            "expr": "sum by (action) (rate(shree_decisions_total[5m]))",
             "legendFormat": "{{action}}"
           }
         ],
@@ -78,7 +78,7 @@
         "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
         "targets": [
           {
-            "expr": "rate(mytrader_stale_live_bars_blocks_total[5m])",
+            "expr": "rate(shree_stale_live_bars_blocks_total[5m])",
             "legendFormat": "{{symbol}}"
           }
         ],
@@ -93,7 +93,7 @@
         "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
         "targets": [
           {
-            "expr": "rate(mytrader_pending_entry_orders_canceled_total{reason=\"STALE_LIVE_BARS\"}[5m])",
+            "expr": "rate(shree_pending_entry_orders_canceled_total{reason=\"STALE_LIVE_BARS\"}[5m])",
             "legendFormat": "{{symbol}}"
           }
         ],
@@ -108,7 +108,7 @@
         "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
         "targets": [
           {
-            "expr": "increase(mytrader_stale_live_bars_blocks_total[1h])",
+            "expr": "increase(shree_stale_live_bars_blocks_total[1h])",
             "legendFormat": "{{symbol}}"
           }
         ],
@@ -127,7 +127,7 @@
         "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
         "targets": [
           {
-            "expr": "sum by (outcome) (rate(mytrader_cancel_entries_calls_total[5m]))",
+            "expr": "sum by (outcome) (rate(shree_cancel_entries_calls_total[5m]))",
             "legendFormat": "{{outcome}}"
           }
         ],

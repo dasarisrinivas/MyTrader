@@ -19,8 +19,8 @@ import uuid
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.rag.rag_storage_manager import RAGStorageManager, TradeRecord
-from mytrader.utils.timezone_utils import now_cst
+from shree.rag.rag_storage_manager import RAGStorageManager, TradeRecord
+from shree.utils.timezone_utils import now_cst
 
 
 def get_completed_trades(db_path: str, start_date: Optional[str] = None) -> List[Dict]:

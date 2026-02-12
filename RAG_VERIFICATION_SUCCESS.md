@@ -10,7 +10,7 @@ Previously, the pipeline was returning 0 trades due to overly strict volatility 
 ## Modifications Made
 To resolve the "0 trades" issue, the following adjustments were made:
 
-1.  **Engine Configuration (`mytrader/rag/hybrid_rag_pipeline.py`)**:
+1.  **Engine Configuration (`shree/rag/hybrid_rag_pipeline.py`)**:
     -   Increased default `atr_max` from `5.0` to `20.0`.
     -   *Reason:* The previous limit was too low for ES regular trading hours volatility.
 

@@ -13,12 +13,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from mytrader.execution.guards import (  # pylint: disable=wrong-import-position
+from shree.execution.guards import (  # pylint: disable=wrong-import-position
     WaitDecisionContext,
     should_block_on_wait,
     compute_trade_risk_dollars,
 )
-from mytrader.execution.order_builder import validate_bracket_prices  # pylint: disable=wrong-import-position
+from shree.execution.order_builder import validate_bracket_prices  # pylint: disable=wrong-import-position
 
 
 @dataclass

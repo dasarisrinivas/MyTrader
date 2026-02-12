@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from mytrader.config import OneMinuteStrategyConfig
-from mytrader.strategies.mes_one_minute import MesOneMinuteTrendStrategy
+from shree.config import OneMinuteStrategyConfig
+from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy
 
 
 def _base_df(atr_value: float = 1.0) -> pd.DataFrame:

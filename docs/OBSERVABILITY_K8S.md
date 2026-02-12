@@ -1,4 +1,4 @@
-# Kubernetes Observability for MyTrader (Bot runs locally)
+# Kubernetes Observability for Shree (Bot runs locally)
 
 ## Architecture Overview
 
@@ -7,7 +7,7 @@
 │                      Mac Mini (Local)                        │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │ MyTrader Bot (run_bot.py)                              │ │
+│  │ Shree Bot (run_bot.py)                              │ │
 │  │ - Runs as local process (launchd/terminal)             │ │
 │  │ - Connects to IBKR TWS/Gateway                        │ │
 │  │ - Executes trading logic                              │ │
@@ -75,8 +75,8 @@ After setting environment variables, restart your bot:
 
 ```bash
 # If using launchd
-launchctl stop com.mytrader.bot  # adjust service name
-launchctl start com.mytrader.bot
+launchctl stop com.shree.bot  # adjust service name
+launchctl start com.shree.bot
 
 # If running manually
 # Stop existing process (Ctrl+C or kill)
@@ -92,9 +92,9 @@ Test that metrics are exposed correctly:
 curl http://localhost:8000/metrics
 
 # You should see Prometheus metrics like:
-# # HELP mytrader_live_bar_age_seconds Age of the most recent live bar
-# mytrader_live_bar_age_seconds{env="prod",symbol="MES",timeframe="1m"} 2.5
-# mytrader_stale_episode_active{env="prod",symbol="MES",timeframe="1m"} 0.0
+# # HELP shree_live_bar_age_seconds Age of the most recent live bar
+# shree_live_bar_age_seconds{env="prod",symbol="MES",timeframe="1m"} 2.5
+# shree_stale_episode_active{env="prod",symbol="MES",timeframe="1m"} 0.0
 # ...
 ```
 
@@ -224,7 +224,7 @@ kubectl get configmap prometheus-config -n monitoring -o yaml > /tmp/prometheus-
 # Edit it and add this scrape_config:
 #
 # scrape_configs:
-#   - job_name: 'mytrader-mac-mini'
+#   - job_name: 'shree-mac-mini'
 #     static_configs:
 #       - targets:
 #           - '192.168.1.100:8000'  # Your Mac mini IP
@@ -253,7 +253,7 @@ kubectl rollout restart deployment prometheus -n monitoring
 
 2. Open browser: http://localhost:9090/targets
 
-3. Look for `mytrader-external` or `mytrader-mac-mini` target
+3. Look for `shree-external` or `shree-mac-mini` target
 
 4. Verify status is **UP** (green)
 
@@ -263,16 +263,16 @@ In Prometheus UI (http://localhost:9090/graph):
 
 ```promql
 # Check if metrics are being scraped
-up{job="mytrader-mac-mini"}
+up{job="shree-mac-mini"}
 
 # View bar age
-mytrader_live_bar_age_seconds
+shree_live_bar_age_seconds
 
 # View stale blocks
-mytrader_stale_live_bars_blocks_total
+shree_stale_live_bars_blocks_total
 
 # Decision rate
-rate(mytrader_decisions_total[5m])
+rate(shree_decisions_total[5m])
 ```
 
 ### 2.5 Verify Alerts
@@ -285,10 +285,10 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
 
 # Open browser: http://localhost:9090/alerts
 # You should see:
-#   - MyTraderStaleBarsCritical
-#   - MyTraderFrequentStaleBlocks
-#   - MyTraderFrequentStaleCancellations
-#   - MyTraderMetricsDown
+#   - ShreeStaleBarsCritical
+#   - ShreeFrequentStaleBlocks
+#   - ShreeFrequentStaleCancellations
+#   - ShreeMetricsDown
 #   - etc.
 ```
 
@@ -397,7 +397,7 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
    ```bash
    brew install cloudflare/cloudflare/cloudflared
    cloudflared tunnel login
-   cloudflared tunnel create mytrader
+   cloudflared tunnel create shree
    ```
 
 2. Create tunnel config:
@@ -406,22 +406,22 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
    tunnel: <tunnel-id>
    credentials-file: /path/to/credentials.json
    ingress:
-     - hostname: mytrader-metrics.example.com
+     - hostname: shree-metrics.example.com
        service: http://localhost:8000
      - service: http_status:404
    ```
 
 3. Run tunnel:
    ```bash
-   cloudflared tunnel run mytrader
+   cloudflared tunnel run shree
    ```
 
 4. Update Prometheus to scrape HTTPS endpoint:
    ```yaml
-   - job_name: 'mytrader-cloudflare'
+   - job_name: 'shree-cloudflare'
      static_configs:
        - targets:
-           - mytrader-metrics.example.com:443
+           - shree-metrics.example.com:443
      scheme: https
    ```
 
@@ -451,7 +451,7 @@ Run through this checklist to ensure everything works:
 - [ ] Bot is running: `ps aux | grep run_bot.py`
 - [ ] Local curl works: `curl http://localhost:8000/metrics`
 - [ ] Validation script passes: `./scripts/check_metrics_reachable.sh`
-- [ ] Metrics include `mytrader_live_bar_age_seconds`, `mytrader_stale_episode_active`, etc.
+- [ ] Metrics include `shree_live_bar_age_seconds`, `shree_stale_episode_active`, etc.
 
 ### ✅ Network Connectivity Checks
 
@@ -467,28 +467,28 @@ Run through this checklist to ensure everything works:
 - [ ] Prometheus is deployed (Operator or standalone)
 - [ ] Scrape config updated with correct Mac mini IP
 - [ ] `kubectl apply -f deploy/k8s-observability/` succeeded
-- [ ] Endpoints created: `kubectl get endpoints mytrader-external`
-- [ ] Service created: `kubectl get svc mytrader-external`
-- [ ] ServiceMonitor created: `kubectl get servicemonitor mytrader-external`
-- [ ] PrometheusRule created: `kubectl get prometheusrule mytrader-alerts`
+- [ ] Endpoints created: `kubectl get endpoints shree-external`
+- [ ] Service created: `kubectl get svc shree-external`
+- [ ] ServiceMonitor created: `kubectl get servicemonitor shree-external`
+- [ ] PrometheusRule created: `kubectl get prometheusrule shree-alerts`
 
 ### ✅ Prometheus Scraping Checks
 
 - [ ] Prometheus UI accessible (port-forward 9090)
-- [ ] Targets page shows `mytrader-external` or `mytrader-mac-mini`
+- [ ] Targets page shows `shree-external` or `shree-mac-mini`
 - [ ] Target status is **UP** (not DOWN)
 - [ ] Last scrape shows recent timestamp
-- [ ] Query `up{job="mytrader-mac-mini"}` returns `1`
-- [ ] Query `mytrader_live_bar_age_seconds` returns data
+- [ ] Query `up{job="shree-mac-mini"}` returns `1`
+- [ ] Query `shree_live_bar_age_seconds` returns data
 - [ ] Graph shows time-series data accumulating
 
 ### ✅ Alert Rules Checks
 
-- [ ] Alerts page shows MyTrader alert rules
+- [ ] Alerts page shows Shree alert rules
 - [ ] Rules are in **Inactive** state (green - no firing alerts)
 - [ ] Simulate stale condition (stop bot or disconnect IBKR)
-- [ ] After 5m, `MyTraderStaleBarsCritical` should fire
-- [ ] After 2m, `MyTraderMetricsDown` should fire (if bot stopped)
+- [ ] After 5m, `ShreeStaleBarsCritical` should fire
+- [ ] After 2m, `ShreeMetricsDown` should fire (if bot stopped)
 
 ### ✅ Optional: Grafana Dashboard
 
@@ -571,9 +571,9 @@ Run through this checklist to ensure everything works:
 3. **Check bot is actively updating metrics:**
    ```bash
    # Curl metrics twice with delay
-   curl http://localhost:8000/metrics | grep mytrader_live_bar_age_seconds
+   curl http://localhost:8000/metrics | grep shree_live_bar_age_seconds
    sleep 5
-   curl http://localhost:8000/metrics | grep mytrader_live_bar_age_seconds
+   curl http://localhost:8000/metrics | grep shree_live_bar_age_seconds
    # Values should change
    ```
 
@@ -591,19 +591,19 @@ Run through this checklist to ensure everything works:
 1. **Check alert rules loaded:**
    ```bash
    kubectl get prometheusrule -n monitoring
-   # Should show mytrader-alerts
+   # Should show shree-alerts
    ```
 
 2. **Check Prometheus picked up rules:**
    ```bash
    # Prometheus UI → Alerts
-   # Should see MyTrader* alerts listed
+   # Should see Shree* alerts listed
    ```
 
 3. **Check alert evaluation:**
    ```bash
    # Run the alert query manually:
-   mytrader_live_bar_age_seconds{timeframe="1m"} > 120
+   shree_live_bar_age_seconds{timeframe="1m"} > 120
    # If this returns results, alert should fire after 'for' duration
    ```
 
@@ -660,62 +660,62 @@ Use these queries in Prometheus or Grafana:
 
 ```promql
 # Current bar age
-mytrader_live_bar_age_seconds{timeframe="1m"}
+shree_live_bar_age_seconds{timeframe="1m"}
 
 # Bar age over time (graph)
-mytrader_live_bar_age_seconds{symbol="MES", timeframe="1m"}
+shree_live_bar_age_seconds{symbol="MES", timeframe="1m"}
 
 # Stale episode active (0 or 1)
-mytrader_stale_episode_active
+shree_stale_episode_active
 
 # Stale blocks rate (per minute)
-rate(mytrader_stale_live_bars_blocks_total[5m]) * 60
+rate(shree_stale_live_bars_blocks_total[5m]) * 60
 
 # Total stale blocks today
-increase(mytrader_stale_live_bars_blocks_total[24h])
+increase(shree_stale_live_bars_blocks_total[24h])
 ```
 
 ### Decision Monitoring
 
 ```promql
 # Decision rate (decisions per second)
-rate(mytrader_decisions_total[5m])
+rate(shree_decisions_total[5m])
 
 # Decisions by action type
-sum by (action) (mytrader_decisions_total)
+sum by (action) (shree_decisions_total)
 
 # HOLD vs BUY/SELL ratio
-sum(mytrader_decisions_total{action="HOLD"}) /
-sum(mytrader_decisions_total{action=~"BUY|SELL"})
+sum(shree_decisions_total{action="HOLD"}) /
+sum(shree_decisions_total{action=~"BUY|SELL"})
 ```
 
 ### Cancellation Monitoring
 
 ```promql
 # Cancellation rate (per minute)
-rate(mytrader_pending_entry_orders_canceled_total[5m]) * 60
+rate(shree_pending_entry_orders_canceled_total[5m]) * 60
 
 # Cancellations by reason
-sum by (reason) (mytrader_pending_entry_orders_canceled_total)
+sum by (reason) (shree_pending_entry_orders_canceled_total)
 
 # Stale bar cancellations (24h)
-increase(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[24h])
+increase(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[24h])
 
 # Cancel call outcomes
-sum by (outcome) (mytrader_cancel_entries_calls_total)
+sum by (outcome) (shree_cancel_entries_calls_total)
 ```
 
 ### Health Monitoring
 
 ```promql
 # Bot is up (1 = up, 0 = down)
-up{job="mytrader-mac-mini"}
+up{job="shree-mac-mini"}
 
 # Time since last successful scrape
-time() - timestamp(up{job="mytrader-mac-mini"})
+time() - timestamp(up{job="shree-mac-mini"})
 
 # Scrape duration
-scrape_duration_seconds{job="mytrader-mac-mini"}
+scrape_duration_seconds{job="shree-mac-mini"}
 ```
 
 ---

@@ -3,9 +3,9 @@ from datetime import datetime
 from types import SimpleNamespace
 import unittest
 
-from mytrader.config import TradingConfig
-from mytrader.execution.ib_executor import TradeExecutor
-from mytrader.execution.live_trading_manager import LiveTradingManager
+from shree.config import TradingConfig
+from shree.execution.ib_executor import TradeExecutor
+from shree.execution.live_trading_manager import LiveTradingManager
 
 
 class DummyPosition:

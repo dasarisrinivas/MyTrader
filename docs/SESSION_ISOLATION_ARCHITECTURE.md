@@ -404,7 +404,7 @@ def split_by_session(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 ### 6.2 Indicator Calculation Isolation
 
 ```python
-from mytrader.features.feature_engineer import engineer_features
+from shree.features.feature_engineer import engineer_features
 
 def compute_session_indicators(df_all: pd.DataFrame) -> dict:
     """Compute indicators separately per session.

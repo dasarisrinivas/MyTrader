@@ -24,12 +24,12 @@ except ImportError:
     from optuna.samplers import TPESampler
     from optuna.pruners import MedianPruner
 
-from mytrader.backtesting.engine import BacktestingEngine
-from mytrader.config import BacktestConfig, TradingConfig
-from mytrader.strategies.enhanced_regime_strategy import EnhancedRegimeStrategy
-from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
-from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
-from mytrader.utils.logger import configure_logging, logger
+from shree.backtesting.engine import BacktestingEngine
+from shree.config import BacktestConfig, TradingConfig
+from shree.strategies.enhanced_regime_strategy import EnhancedRegimeStrategy
+from shree.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+from shree.strategies.momentum_reversal import MomentumReversalStrategy
+from shree.utils.logger import configure_logging, logger
 
 
 class AdvancedStrategyOptimizer:

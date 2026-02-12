@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from mytrader.monitoring.order_tracker import OrderTracker
+from shree.monitoring.order_tracker import OrderTracker
 
 
 def _init_in_memory_schema(conn: sqlite3.Connection) -> None:

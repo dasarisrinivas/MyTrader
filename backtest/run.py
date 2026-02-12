@@ -259,6 +259,19 @@ async def download_data(args: argparse.Namespace) -> tuple:
                     args.data_file = str(p)
                     break
 
+        # FEB 2026: If no 1m/15m file found, try 30m file directly
+        if not args.data_file:
+            potential_30m = [
+                Path(f"data/ib/{args.symbol}_30m_1y.parquet"),
+                Path(f"data/ib/{args.symbol}_30m.parquet"),
+            ]
+            for p in potential_30m:
+                if p.exists():
+                    logger.info(f"📂 Auto-detected 30m data file: {p}")
+                    args.data_source = "file"
+                    args.data_file = str(p)
+                    break
+
     # Load from file
     if args.data_source == "file" and args.data_file:
         data_path = Path(args.data_file)
@@ -276,6 +289,17 @@ async def download_data(args: argparse.Namespace) -> tuple:
                     df_15m.index = df_15m.index.tz_localize("UTC")
                 # df_1m stays None — engine.load_15m_only will handle it
                 logger.info(f"Loaded {len(df_15m)} 15m bars from {data_path}")
+                return df_1m, df_5m, df_15m, df_30m, data_mode
+
+            # FEB 2026: Detect if the loaded file is 30m data
+            if "30m" in data_path.name:
+                df_30m = raw
+                if "timestamp" in df_30m.columns:
+                    df_30m["timestamp"] = pd.to_datetime(df_30m["timestamp"])
+                    df_30m.set_index("timestamp", inplace=True)
+                if df_30m.index.tzinfo is None:
+                    df_30m.index = df_30m.index.tz_localize("UTC")
+                logger.info(f"Loaded {len(df_30m)} 30m bars from {data_path}")
                 return df_1m, df_5m, df_15m, df_30m, data_mode
             
             # Otherwise treat as 1m data (legacy path)
@@ -509,8 +533,8 @@ async def download_data(args: argparse.Namespace) -> tuple:
 def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config: dict):
     """Run the backtest engine."""
     from .engine import BacktestEngine, BacktestConfig
-    from mytrader.config import OneMinuteStrategyConfig, TradingConfig
-    from mytrader.risk.risk_gate import RiskGateConfig  # Use the one from risk_gate module
+    from shree.config import OneMinuteStrategyConfig, TradingConfig
+    from shree.risk.risk_gate import RiskGateConfig  # Use the one from risk_gate module
     
     start_date = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_date = datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -589,8 +613,20 @@ def run_backtest(df_1m, df_5m, df_15m, df_30m, args: argparse.Namespace, config:
     # Run backtest
     engine = BacktestEngine(bt_config)
     
-    # FEB 2026: 15m-only path — skip 1m entirely
-    if strategy_config.use_15m_strategy:
+    # FEB 2026: Strategy dispatch — 30m, 15m, or legacy 1m
+    if getattr(strategy_config, 'use_30m_strategy', False):
+        if df_30m is None or df_30m.empty:
+            # Try to resample from 1m data if available
+            if df_1m is not None and not df_1m.empty:
+                logger.info("No 30m data found, resampling from 1m...")
+                engine.load_data(df_1m, df_5m, df_15m, df_30m)
+            else:
+                raise ValueError("30m data required for use_30m_strategy but none loaded")
+        else:
+            engine.load_30m_only(df_30m)
+        logger.info("Running 30m overnight backtest...")
+        results = engine.run_30m_only()
+    elif strategy_config.use_15m_strategy:
         if df_15m is None or df_15m.empty:
             raise ValueError("15m data required for use_15m_strategy but none loaded")
         engine.load_15m_only(df_15m)
@@ -717,18 +753,21 @@ async def main():
     logger.info("Loading data...")
     df_1m, df_5m, df_15m, df_30m, data_mode = await download_data(args)
     
-    # FEB 2026: 15m-only mode — df_1m may be None when loading 15m directly
+    # FEB 2026: Check available data — 1m, 15m, or 30m
     has_1m = df_1m is not None and not df_1m.empty
     has_15m = df_15m is not None and not df_15m.empty
+    has_30m = df_30m is not None and not df_30m.empty
     
-    if not has_1m and not has_15m:
-        logger.error("No data available (neither 1m nor 15m). Exiting.")
+    if not has_1m and not has_15m and not has_30m:
+        logger.error("No data available (neither 1m, 15m, nor 30m). Exiting.")
         sys.exit(1)
     
     if has_1m:
         logger.info(f"Data loaded: {len(df_1m)} 1m bars ({data_mode} mode)")
     if has_15m:
         logger.info(f"Data loaded: {len(df_15m)} 15m bars ({data_mode} mode)")
+    if has_30m:
+        logger.info(f"Data loaded: {len(df_30m)} 30m bars ({data_mode} mode)")
     
     # Run backtest
     results = run_backtest(df_1m, df_5m, df_15m, df_30m, args, config)

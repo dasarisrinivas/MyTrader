@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize root-order snapshot-missing warnings by callsite.
 
-This parses MyTrader logs for warnings emitted by OrderTracker when a ROOT order
+This parses Shree logs for warnings emitted by OrderTracker when a ROOT order
 is recorded with a trade_cycle_id but missing features/rationale snapshots.
 
 Expected log snippet (single line):

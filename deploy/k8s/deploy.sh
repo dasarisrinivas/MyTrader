@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick deployment script for MyTrader on Kubernetes
+# Quick deployment script for Shree on Kubernetes
 
 set -e
 
@@ -9,7 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}MyTrader Kubernetes Deployment${NC}"
+echo -e "${GREEN}Shree Kubernetes Deployment${NC}"
 echo "================================"
 echo ""
 
@@ -30,7 +30,7 @@ echo -e "${GREEN}✓ Prerequisites satisfied${NC}"
 echo ""
 
 # Configuration
-IMAGE_NAME=${IMAGE_NAME:-"mytrader:latest"}
+IMAGE_NAME=${IMAGE_NAME:-"shree:latest"}
 NAMESPACE=${NAMESPACE:-"default"}
 USE_SECRETS=${USE_SECRETS:-"false"}
 
@@ -95,7 +95,7 @@ if [[ "$USE_SECRETS" == "true" ]]; then
         read -p "Telegram Bot Token (optional): " TELEGRAM_BOT_TOKEN
         read -p "Telegram Chat ID (optional): " TELEGRAM_CHAT_ID
         
-        kubectl create secret generic mytrader-secrets \
+        kubectl create secret generic shree-secrets \
             --from-literal=IBKR_HOST="$IBKR_HOST" \
             --from-literal=IBKR_PORT="$IBKR_PORT" \
             --from-literal=IBKR_CLIENT_ID="$IBKR_CLIENT_ID" \
@@ -116,7 +116,7 @@ if [[ "$USE_SECRETS" == "true" ]]; then
 fi
 
 # Deploy application
-echo "Deploying MyTrader..."
+echo "Deploying Shree..."
 if [[ "$USE_SECRETS" == "true" ]]; then
     kubectl apply -f deploy/k8s/deployment-with-secrets.yaml -n $NAMESPACE
 else
@@ -142,32 +142,32 @@ fi
 
 # Wait for deployment
 echo "Waiting for deployment to be ready..."
-kubectl rollout status deployment/mytrader -n $NAMESPACE --timeout=300s
+kubectl rollout status deployment/shree -n $NAMESPACE --timeout=300s
 echo -e "${GREEN}✓ Deployment ready${NC}"
 echo ""
 
 # Show status
 echo "Deployment Status:"
 echo "=================="
-kubectl get pods -l app=mytrader -n $NAMESPACE
+kubectl get pods -l app=shree -n $NAMESPACE
 echo ""
-kubectl get svc mytrader-metrics -n $NAMESPACE
+kubectl get svc shree-metrics -n $NAMESPACE
 echo ""
 
 # Show logs
 echo -e "${YELLOW}Recent logs:${NC}"
-kubectl logs -l app=mytrader -n $NAMESPACE --tail=20
+kubectl logs -l app=shree -n $NAMESPACE --tail=20
 echo ""
 
 # Port-forward instructions
 echo -e "${GREEN}Deployment complete!${NC}"
 echo ""
 echo "To access metrics locally:"
-echo "  kubectl port-forward svc/mytrader-metrics 8000:8000 -n $NAMESPACE"
+echo "  kubectl port-forward svc/shree-metrics 8000:8000 -n $NAMESPACE"
 echo "  curl http://localhost:8000/metrics"
 echo ""
 echo "To view logs:"
-echo "  kubectl logs -f deployment/mytrader -n $NAMESPACE"
+echo "  kubectl logs -f deployment/shree -n $NAMESPACE"
 echo ""
 echo "To check pod status:"
-echo "  kubectl describe pod -l app=mytrader -n $NAMESPACE"
+echo "  kubectl describe pod -l app=shree -n $NAMESPACE"

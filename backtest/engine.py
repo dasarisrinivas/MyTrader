@@ -10,7 +10,7 @@ Event-driven backtesting engine that:
 - Supports decision trace mode for comparison with live
 
 This is the core integration point between the backtest framework
-and the live trading logic from mytrader/.
+and the live trading logic from shree/.
 """
 
 from __future__ import annotations
@@ -29,21 +29,21 @@ import numpy as np
 from loguru import logger
 
 # Import existing bot logic
-from mytrader.config import (
+from shree.config import (
     OneMinuteStrategyConfig,
     TradingConfig,
     RiskGateConfig as ConfigRiskGateConfig,
     EntryFilterConfig,
 )
-from mytrader.strategies.mes_one_minute import MesOneMinuteTrendStrategy, StrategyDecision
-from mytrader.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
-from mytrader.strategies.mes_structural_reversion import MesStructuralReversionStrategy
-from mytrader.strategies.es_fifteen_min import EsFifteenMinStrategy
-from mytrader.strategies.base import Signal
-from mytrader.risk.manager import RiskManager
-from mytrader.risk.risk_gate import RiskGate, RiskGateConfig, RiskGateResult
-from mytrader.features.feature_engineer import engineer_features
-from mytrader.strategies.trading_filters import TradingFilters, TradingFilterResult
+from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy, StrategyDecision
+from shree.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
+from shree.strategies.mes_structural_reversion import MesStructuralReversionStrategy
+from shree.strategies.es_fifteen_min import EsFifteenMinStrategy
+from shree.strategies.base import Signal
+from shree.risk.manager import RiskManager
+from shree.risk.risk_gate import RiskGate, RiskGateConfig, RiskGateResult
+from shree.features.feature_engineer import engineer_features
+from shree.strategies.trading_filters import TradingFilters, TradingFilterResult
 
 # Import backtest components
 from .broker_sim import BrokerSimulator, BrokerConfig, Order, OrderSide, OrderType, Fill, Position
@@ -215,10 +215,22 @@ class BacktestEngine:
         
         # Check which strategy to use
         use_15m_strategy = getattr(strategy_cfg, 'use_15m_strategy', False)
+        use_30m_strategy = getattr(strategy_cfg, 'use_30m_strategy', False)
         use_structural_reversion = getattr(strategy_cfg, 'use_structural_reversion', False)
         use_scoring = getattr(strategy_cfg, 'use_scoring_system', False)
         
-        if use_15m_strategy:
+        if use_30m_strategy:
+            from shree.strategies.mes_thirty_minute import MesThirtyMinuteStrategy
+            from shree.config import ThirtyMinuteStrategyConfig
+            # Build ThirtyMinuteStrategyConfig from strategy_cfg overrides
+            tm_cfg = ThirtyMinuteStrategyConfig()
+            # Copy any matching fields from strategy_cfg
+            for field in ThirtyMinuteStrategyConfig.__dataclass_fields__:
+                if hasattr(strategy_cfg, field):
+                    setattr(tm_cfg, field, getattr(strategy_cfg, field))
+            self.strategy = MesThirtyMinuteStrategy(tm_cfg)
+            logger.info(f"Initialized 30-MIN overnight strategy: {self.strategy.name}")
+        elif use_15m_strategy:
             self.strategy = EsFifteenMinStrategy(strategy_cfg)
             logger.info(f"Initialized 15-MIN strategy: {self.strategy.name}")
         elif use_structural_reversion:
@@ -586,6 +598,10 @@ class BacktestEngine:
         self.decision_traces.clear()
         self.equity_curve.clear()
         self.block_reasons.clear()
+
+        # Initialize agent simulation flags (same as run())
+        self.learning_agent_enabled = False
+        self.rag_agent_enabled = False
         
         # Compute indicators directly on 30m data
         logger.info("Computing 30m indicators...")
@@ -718,7 +734,7 @@ class BacktestEngine:
         # this exact approach. The key is to prevent overnight bars
         # from reaching the strategy's generate() method.
         # ──────────────────────────────────────────────────────────────
-        from mytrader.utils.session_utils import classify_session, TradingSession
+        from shree.utils.session_utils import classify_session, TradingSession
         
         # Compute indicators on full 15m data (same as validated backtest)
         logger.info("Computing 15m indicators...")
@@ -1373,7 +1389,7 @@ class BacktestEngine:
         timestamp: datetime
     ) -> None:
         """Check for position management actions (trailing stops, extensions)."""
-        self._apply_rth_close_tighten(bar, timestamp)
+        self._apply_rth_close_tighten(bar, history, timestamp)
         if not self.config.enable_trend_optimizer:
             return
 
@@ -1395,7 +1411,7 @@ class BacktestEngine:
         window_start = close_dt - timedelta(minutes=minutes)
         return window_start.time() <= t <= close_time
 
-    def _apply_rth_close_tighten(self, bar: pd.Series, timestamp: datetime) -> None:
+    def _apply_rth_close_tighten(self, bar: pd.Series, history: pd.DataFrame, timestamp: datetime) -> None:
         """Tighten stops into RTH close to avoid late-day giveback/gap risk."""
         position = self.broker.get_position(self.config.symbol)
         if position.is_flat or self.state.rth_close_tightened:

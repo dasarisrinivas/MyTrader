@@ -23,7 +23,7 @@ from ib_insync import IB, Future, util
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mytrader.utils.logger import configure_logging, logger
+from shree.utils.logger import configure_logging, logger
 
 
 def test_connection(host='127.0.0.1', port=4002, client_id=1):
@@ -109,7 +109,7 @@ def download_es_futures(ib, duration='30 D', bar_size='1 min', save_path='data/e
         print(f"   Date range: {df['date'].min()} to {df['date'].max()}")
         print(f"   Price range: ${df['close'].min():.2f} - ${df['close'].max():.2f}")
         
-        # Prepare for MyTrader format
+        # Prepare for Shree format
         df_clean = pd.DataFrame({
             'timestamp': pd.to_datetime(df['date']),
             'open': df['open'],
@@ -247,7 +247,7 @@ def main():
     configure_logging(level="INFO")
     
     print("\n" + "=" * 80)
-    print("MyTrader - IBKR Setup and Data Download")
+    print("Shree - IBKR Setup and Data Download")
     print("=" * 80)
     
     # Parse command line arguments

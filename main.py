@@ -2,7 +2,7 @@
 
 .. deprecated:: 2025-07
    Use ``run_bot.py`` instead, which delegates to
-   :class:`mytrader.execution.live_trading_manager.LiveTradingManager`.
+   :class:`shree.execution.live_trading_manager.LiveTradingManager`.
 
 This file contains the original monolithic ``run_live()`` function.
 It is kept for reference and backward compatibility with ad-hoc scripts;
@@ -23,31 +23,31 @@ import pandas as pd
 # Apply nest_asyncio to allow nested event loops (required for ib_insync)
 nest_asyncio.apply()
 
-from mytrader.backtesting.engine import BacktestingEngine
-from mytrader.config import Settings
-from mytrader.data.ibkr import IBKRCollector
-from mytrader.data.pipeline import MarketDataPipeline
-from mytrader.data.sentiment import TwitterSentimentCollector
-from mytrader.data.stocktwits_sentiment import (
+from shree.backtesting.engine import BacktestingEngine
+from shree.config import Settings
+from shree.data.ibkr import IBKRCollector
+from shree.data.pipeline import MarketDataPipeline
+from shree.data.sentiment import TwitterSentimentCollector
+from shree.data.stocktwits_sentiment import (
     evaluate_sentiment_for_entry,
     evaluate_sentiment_for_position,
     get_mes_sentiment,
     get_sentiment_summary,
     set_cache_refresh_interval,
 )
-from mytrader.data.tradingview import TradingViewCollector
-from mytrader.execution.ib_executor import TradeExecutor
-from mytrader.features.feature_engineer import engineer_features
-from mytrader.monitoring.live_tracker import LivePerformanceTracker
-from mytrader.optimization.optimizer import ParameterOptimizer
-from mytrader.risk.manager import RiskManager
-from mytrader.risk.trade_math import calculate_realized_pnl, get_contract_spec
-from mytrader.strategies.engine import StrategyEngine
-from mytrader.strategies.momentum_reversal import MomentumReversalStrategy
-from mytrader.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
-from mytrader.strategies.multi_strategy import MultiStrategy
-from mytrader.utils.logger import configure_logging, logger
-from mytrader.utils.settings_loader import load_settings
+from shree.data.tradingview import TradingViewCollector
+from shree.execution.ib_executor import TradeExecutor
+from shree.features.feature_engineer import engineer_features
+from shree.monitoring.live_tracker import LivePerformanceTracker
+from shree.optimization.optimizer import ParameterOptimizer
+from shree.risk.manager import RiskManager
+from shree.risk.trade_math import calculate_realized_pnl, get_contract_spec
+from shree.strategies.engine import StrategyEngine
+from shree.strategies.momentum_reversal import MomentumReversalStrategy
+from shree.strategies.rsi_macd_sentiment import RsiMacdSentimentStrategy
+from shree.strategies.multi_strategy import MultiStrategy
+from shree.utils.logger import configure_logging, logger
+from shree.utils.settings_loader import load_settings
 
 try:
     from ib_insync import IB
@@ -74,10 +74,10 @@ async def run_live(settings: Settings) -> None:
     multi_strategy = None  # Will be initialized after RAG setup
     
     # Wrap multi-strategy with RAG-enhanced LLM intelligence
-    from mytrader.strategies.llm_enhanced_strategy import LLMEnhancedStrategy
-    from mytrader.llm.bedrock_client import BedrockClient
-    from mytrader.llm.rag_engine import RAGEngine
-    from mytrader.llm.rag_trade_advisor import RAGEnhancedTradeAdvisor
+    from shree.strategies.llm_enhanced_strategy import LLMEnhancedStrategy
+    from shree.llm.bedrock_client import BedrockClient
+    from shree.llm.rag_engine import RAGEngine
+    from shree.llm.rag_trade_advisor import RAGEnhancedTradeAdvisor
     
     # Check if RAG and LLM are enabled in config
     rag_enabled = (
@@ -190,7 +190,7 @@ async def run_live(settings: Settings) -> None:
     strategies = [RsiMacdSentimentStrategy(), MomentumReversalStrategy()]
     
     # Load optimized parameters at startup (daily optimization)
-    from mytrader.optimization.daily_optimizer import load_optimized_params, apply_optimized_params
+    from shree.optimization.daily_optimizer import load_optimized_params, apply_optimized_params
     optimized_params = load_optimized_params(settings.optimization.optimized_params_path)
     if optimized_params:
         apply_optimized_params(strategies, optimized_params)
@@ -204,7 +204,7 @@ async def run_live(settings: Settings) -> None:
     )
     
     # Initialize market regime filter
-    from mytrader.strategies.market_regime_filter import MarketRegimeFilter
+    from shree.strategies.market_regime_filter import MarketRegimeFilter
     regime_filter = MarketRegimeFilter(
         min_atr_threshold=settings.trading.min_atr_threshold,
         max_spread_ticks=settings.trading.max_spread_ticks,
@@ -245,7 +245,7 @@ async def run_live(settings: Settings) -> None:
     # Initialize background LLM worker (if LLM enabled and background mode)
     llm_worker = None
     if llm_enabled and hasattr(settings.llm, 'use_background_thread') and settings.llm.use_background_thread:
-        from mytrader.llm.background_worker import BackgroundLLMWorker
+        from shree.llm.background_worker import BackgroundLLMWorker
         if isinstance(multi_strategy, LLMEnhancedStrategy) and hasattr(multi_strategy, 'trade_advisor'):
             llm_worker = BackgroundLLMWorker(
                 trade_advisor=multi_strategy.trade_advisor,
@@ -274,9 +274,9 @@ async def run_live(settings: Settings) -> None:
     
     if hybrid_bedrock_enabled:
         try:
-            from mytrader.llm.bedrock_hybrid_client import HybridBedrockClient, init_bedrock_client
-            from mytrader.llm.event_detector import EventDetector, create_event_detector
-            from mytrader.llm.rag_context_builder import RAGContextBuilder, build_context
+            from shree.llm.bedrock_hybrid_client import HybridBedrockClient, init_bedrock_client
+            from shree.llm.event_detector import EventDetector, create_event_detector
+            from shree.llm.rag_context_builder import RAGContextBuilder, build_context
             
             # Determine symbol (MES or ES based on config)
             hybrid_symbol = settings.data.ibkr_symbol if settings.data.ibkr_symbol in ["MES", "ES"] else "MES"
@@ -405,7 +405,7 @@ async def run_live(settings: Settings) -> None:
                 raise
     
     # Initialize Telegram notifier if configured
-    from mytrader.utils.telegram_notifier import TelegramNotifier
+    from shree.utils.telegram_notifier import TelegramNotifier
     telegram_notifier = None
     if hasattr(settings, 'telegram') and settings.telegram.enabled:
         telegram_notifier = TelegramNotifier(
@@ -1269,7 +1269,7 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
     logger.info("=" * 60)
     
     # Export detailed report
-    from mytrader.backtesting.performance import export_report
+    from shree.backtesting.performance import export_report
     
     output_dir = Path("reports")
     output_dir.mkdir(exist_ok=True)
@@ -1292,7 +1292,7 @@ def run_backtest(settings: Settings, data_path: Path | None) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MyTrader autonomous trading bot")
+    parser = argparse.ArgumentParser(description="Shree autonomous trading bot")
     parser.add_argument("mode", choices=["live", "backtest", "optimize"], help="Execution mode")
     parser.add_argument("--config", type=Path, default=None, help="Path to YAML config")
     parser.add_argument("--data", type=Path, default=None, help="Historical data path for backtest")

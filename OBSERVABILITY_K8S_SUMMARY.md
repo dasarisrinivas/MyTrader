@@ -2,7 +2,7 @@
 
 ## ✅ Implementation Complete
 
-Successfully implemented **Kubernetes-based observability** for MyTrader bot while keeping the bot running **locally on Mac mini**.
+Successfully implemented **Kubernetes-based observability** for Shree bot while keeping the bot running **locally on Mac mini**.
 
 ---
 
@@ -41,18 +41,18 @@ export DEPLOY_ENV=prod
 - **8 alert rules** across 3 groups:
   
   **Staleness alerts:**
-  - `MyTraderStaleBarsCritical` - Bars > 120s old for 5m
-  - `MyTraderStaleBarsWarning` - Bars > 60s old for 2m
-  - `MyTraderFrequentStaleBlocks` - >5 stale blocks in 15m
-  - `MyTraderStaleEpisodeLong` - Stale episode > 10m
+  - `ShreeStaleBarsCritical` - Bars > 120s old for 5m
+  - `ShreeStaleBarsWarning` - Bars > 60s old for 2m
+  - `ShreeFrequentStaleBlocks` - >5 stale blocks in 15m
+  - `ShreeStaleEpisodeLong` - Stale episode > 10m
   
   **Cancellation alerts:**
-  - `MyTraderFrequentStaleCancellations` - >10 cancellations in 15m due to staleness
-  - `MyTraderHighCancellationRate` - >0.5 cancellations/sec
+  - `ShreeFrequentStaleCancellations` - >10 cancellations in 15m due to staleness
+  - `ShreeHighCancellationRate` - >0.5 cancellations/sec
   
   **Health alerts:**
-  - `MyTraderMetricsDown` - Metrics endpoint unreachable for 2m
-  - `MyTraderNoRecentDecisions` - No decisions in 30m
+  - `ShreeMetricsDown` - Metrics endpoint unreachable for 2m
+  - `ShreeNoRecentDecisions` - No decisions in 30m
 
 ---
 
@@ -63,7 +63,7 @@ export DEPLOY_ENV=prod
 **Features:**
 - ✅ Test basic connectivity (curl)
 - ✅ Validate Prometheus metrics format
-- ✅ Check MyTrader-specific metrics present
+- ✅ Check Shree-specific metrics present
 - ✅ Display sample metric values
 - ✅ Provide next-step instructions
 
@@ -90,7 +90,7 @@ export DEPLOY_ENV=prod
 - **6-step deployment guide:**
   1. Verify bot metrics locally
   2. Install Prometheus in k8s
-  3. Deploy MyTrader scrape config
+  3. Deploy Shree scrape config
   4. Verify Prometheus is scraping
   5. Verify alerts
   6. Access Grafana (optional)
@@ -131,7 +131,7 @@ export DEPLOY_ENV=prod
 │          Mac Mini (Local)              │
 │                                        │
 │  ┌──────────────────────────────────┐ │
-│  │ MyTrader Bot (run_bot.py)        │ │
+│  │ Shree Bot (run_bot.py)        │ │
 │  │ - Local Python process           │ │
 │  │ - No Docker, no containers       │ │
 │  │ - Runs via launchd/terminal      │ │
@@ -213,9 +213,9 @@ kubectl apply -f deploy/k8s-observability/prometheus-scrape-config.yaml
 kubectl apply -f deploy/k8s-observability/prometheus-rules.yaml
 
 # Verify
-kubectl get endpoints mytrader-external
-kubectl get servicemonitor mytrader-external
-kubectl get prometheusrule mytrader-alerts
+kubectl get endpoints shree-external
+kubectl get servicemonitor shree-external
+kubectl get prometheusrule shree-alerts
 ```
 
 ### Step 4: Verify End-to-End
@@ -229,12 +229,12 @@ kubectl run test-curl --rm -it --image=curlimages/curl --restart=Never -- \
 kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
 
 # Open browser: http://localhost:9090
-# Check: Status → Targets → Look for "mytrader-external" → Should be UP
+# Check: Status → Targets → Look for "shree-external" → Should be UP
 
 # Test queries:
-# - up{job=~".*mytrader.*"}
-# - mytrader_live_bar_age_seconds
-# - rate(mytrader_decisions_total[5m])
+# - up{job=~".*shree.*"}
+# - shree_live_bar_age_seconds
+# - rate(shree_decisions_total[5m])
 ```
 
 ---
@@ -266,14 +266,14 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
 ## Metrics Exposed
 
 ### Gauges (Current State)
-- `mytrader_live_bar_age_seconds{env, symbol, timeframe}` - Age of most recent bar
-- `mytrader_stale_episode_active{env, symbol, timeframe}` - 1 if in stale episode, 0 otherwise
+- `shree_live_bar_age_seconds{env, symbol, timeframe}` - Age of most recent bar
+- `shree_stale_episode_active{env, symbol, timeframe}` - 1 if in stale episode, 0 otherwise
 
 ### Counters (Cumulative)
-- `mytrader_stale_live_bars_blocks_total{env, symbol, timeframe}` - Total stale blocks
-- `mytrader_decisions_total{env, symbol, action}` - Decisions by action (BUY/SELL/HOLD)
-- `mytrader_pending_entry_orders_canceled_total{env, symbol, reason}` - Cancellations by reason
-- `mytrader_cancel_entries_calls_total{env, symbol, outcome}` - Cancel call outcomes
+- `shree_stale_live_bars_blocks_total{env, symbol, timeframe}` - Total stale blocks
+- `shree_decisions_total{env, symbol, action}` - Decisions by action (BUY/SELL/HOLD)
+- `shree_pending_entry_orders_canceled_total{env, symbol, reason}` - Cancellations by reason
+- `shree_cancel_entries_calls_total{env, symbol, outcome}` - Cancel call outcomes
 
 **Labels used:**
 - `env` - Environment (prod/stage/dev from DEPLOY_ENV)
@@ -319,14 +319,14 @@ All labels are **low-cardinality** as required.
 
 | Alert | Threshold | Duration | Severity |
 |-------|-----------|----------|----------|
-| `MyTraderStaleBarsCritical` | Bar age > 120s | 5m | critical |
-| `MyTraderStaleBarsWarning` | Bar age > 60s | 2m | warning |
-| `MyTraderFrequentStaleBlocks` | >5 blocks in 15m | 5m | warning |
-| `MyTraderStaleEpisodeLong` | Episode > 10m | 10m | warning |
-| `MyTraderFrequentStaleCancellations` | >10 cancels in 15m | 5m | warning |
-| `MyTraderHighCancellationRate` | >0.5 cancels/sec | 5m | info |
-| `MyTraderMetricsDown` | Scrape failing | 2m | critical |
-| `MyTraderNoRecentDecisions` | No decisions | 30m | warning |
+| `ShreeStaleBarsCritical` | Bar age > 120s | 5m | critical |
+| `ShreeStaleBarsWarning` | Bar age > 60s | 2m | warning |
+| `ShreeFrequentStaleBlocks` | >5 blocks in 15m | 5m | warning |
+| `ShreeStaleEpisodeLong` | Episode > 10m | 10m | warning |
+| `ShreeFrequentStaleCancellations` | >10 cancels in 15m | 5m | warning |
+| `ShreeHighCancellationRate` | >0.5 cancels/sec | 5m | info |
+| `ShreeMetricsDown` | Scrape failing | 2m | critical |
+| `ShreeNoRecentDecisions` | No decisions | 30m | warning |
 
 ---
 
@@ -335,43 +335,43 @@ All labels are **low-cardinality** as required.
 ### Staleness
 ```promql
 # Current bar age
-mytrader_live_bar_age_seconds{timeframe="1m"}
+shree_live_bar_age_seconds{timeframe="1m"}
 
 # Stale blocks rate (per minute)
-rate(mytrader_stale_live_bars_blocks_total[5m]) * 60
+rate(shree_stale_live_bars_blocks_total[5m]) * 60
 
 # Total stale blocks today
-increase(mytrader_stale_live_bars_blocks_total[24h])
+increase(shree_stale_live_bars_blocks_total[24h])
 ```
 
 ### Trading Activity
 ```promql
 # Decision rate (per second)
-rate(mytrader_decisions_total[5m])
+rate(shree_decisions_total[5m])
 
 # Decisions by action
-sum by (action) (mytrader_decisions_total)
+sum by (action) (shree_decisions_total)
 
 # HOLD vs trade ratio
-sum(mytrader_decisions_total{action="HOLD"}) / sum(mytrader_decisions_total{action=~"BUY|SELL"})
+sum(shree_decisions_total{action="HOLD"}) / sum(shree_decisions_total{action=~"BUY|SELL"})
 ```
 
 ### Cancellations
 ```promql
 # Cancellation rate (per minute)
-rate(mytrader_pending_entry_orders_canceled_total[5m]) * 60
+rate(shree_pending_entry_orders_canceled_total[5m]) * 60
 
 # Stale bar cancellations (24h)
-increase(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[24h])
+increase(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[24h])
 ```
 
 ### Health
 ```promql
 # Bot is up (1=yes, 0=no)
-up{job="mytrader-mac-mini"}
+up{job="shree-mac-mini"}
 
 # Scrape duration
-scrape_duration_seconds{job="mytrader-mac-mini"}
+scrape_duration_seconds{job="shree-mac-mini"}
 ```
 
 ---
@@ -396,13 +396,13 @@ scrape_duration_seconds{job="mytrader-mac-mini"}
 
 ### ✅ Scraping
 - [ ] Prometheus targets show UP
-- [ ] Queries return data (`mytrader_live_bar_age_seconds`)
+- [ ] Queries return data (`shree_live_bar_age_seconds`)
 - [ ] Time-series data accumulating
 
 ### ✅ Alerts
 - [ ] Alert rules loaded in Prometheus UI
 - [ ] Rules in Inactive state (no firing alerts)
-- [ ] Test alert fires when condition met (stop bot → `MyTraderMetricsDown`)
+- [ ] Test alert fires when condition met (stop bot → `ShreeMetricsDown`)
 
 ---
 
@@ -517,7 +517,7 @@ scrape_duration_seconds{job="mytrader-mac-mini"}
 
 ## Conclusion
 
-✅ **Kubernetes observability successfully implemented** for MyTrader bot.
+✅ **Kubernetes observability successfully implemented** for Shree bot.
 
 **Key Achievements:**
 - Bot runs **locally** (no containerization)

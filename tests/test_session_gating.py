@@ -14,8 +14,8 @@ from unittest.mock import patch, MagicMock
 from zoneinfo import ZoneInfo
 
 # Import modules under test
-from mytrader.utils.session_manager import SessionManager, TradingSession, SessionConfig
-from mytrader.risk.risk_gate import RiskGate, RiskGateConfig
+from shree.utils.session_manager import SessionManager, TradingSession, SessionConfig
+from shree.risk.risk_gate import RiskGate, RiskGateConfig
 
 CST = ZoneInfo("America/Chicago")
 

@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mytrader
+  name: shree
   labels:
-    app: mytrader
+    app: shree
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: mytrader
+      app: shree
   template:
     metadata:
       labels:
-        app: mytrader
+        app: shree
     spec:
       containers:
-      - name: mytrader
-        image: mytrader:latest
+      - name: shree
+        image: shree:latest
         imagePullPolicy: Always
         ports:
         - name: metrics

@@ -1,108 +1,108 @@
-# Prometheus Alert Rules for MyTrader
+# Prometheus Alert Rules for Shree
 # These rules monitor the health and behavior of the trading bot
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: mytrader-alerts
+  name: shree-alerts
   namespace: default
   labels:
-    app: mytrader
+    app: shree
     release: prometheus  # Adjust to match your Prometheus Operator setup
 spec:
   groups:
-    - name: mytrader.staleness
+    - name: shree.staleness
       interval: 30s
       rules:
         # Critical: Live bars are stale for extended period
-        - alert: MyTraderStaleBarsCritical
+        - alert: ShreeStaleBarsCritical
           expr: |
-            mytrader_live_bar_age_seconds{timeframe="1m"} > 120
+            shree_live_bar_age_seconds{timeframe="1m"} > 120
           for: 5m
           labels:
             severity: critical
             component: data-feed
           annotations:
-            summary: "MyTrader live bars critically stale"
+            summary: "Shree live bars critically stale"
             description: "Live bars for {{ $labels.symbol }} ({{ $labels.timeframe }}) are {{ $value }}s old (threshold: 120s). Trading may be halted."
             runbook: "Check IBKR connection, network connectivity, and bot logs for data feed issues."
 
         # Warning: Live bars aging but not critical yet
-        - alert: MyTraderStaleBarsWarning
+        - alert: ShreeStaleBarsWarning
           expr: |
-            mytrader_live_bar_age_seconds{timeframe="1m"} > 60
+            shree_live_bar_age_seconds{timeframe="1m"} > 60
           for: 2m
           labels:
             severity: warning
             component: data-feed
           annotations:
-            summary: "MyTrader live bars showing staleness"
+            summary: "Shree live bars showing staleness"
             description: "Live bars for {{ $labels.symbol }} ({{ $labels.timeframe }}) are {{ $value }}s old (threshold: 60s)."
 
         # Frequent stale episodes indicate persistent data feed problems
-        - alert: MyTraderFrequentStaleBlocks
+        - alert: ShreeFrequentStaleBlocks
           expr: |
-            increase(mytrader_stale_live_bars_blocks_total[15m]) > 5
+            increase(shree_stale_live_bars_blocks_total[15m]) > 5
           for: 5m
           labels:
             severity: warning
             component: data-feed
           annotations:
-            summary: "MyTrader experiencing frequent stale bar blocks"
+            summary: "Shree experiencing frequent stale bar blocks"
             description: "{{ $labels.symbol }} had {{ $value }} stale blocks in 15m. Check data feed stability."
 
         # Long-running stale episode
-        - alert: MyTraderStaleEpisodeLong
+        - alert: ShreeStaleEpisodeLong
           expr: |
-            mytrader_stale_episode_active == 1
+            shree_stale_episode_active == 1
           for: 10m
           labels:
             severity: warning
             component: data-feed
           annotations:
-            summary: "MyTrader in extended stale episode"
+            summary: "Shree in extended stale episode"
             description: "{{ $labels.symbol }} has been in stale episode for 10+ minutes. Trading is blocked."
 
-    - name: mytrader.cancellations
+    - name: shree.cancellations
       interval: 30s
       rules:
         # High rate of order cancellations due to staleness
-        - alert: MyTraderFrequentStaleCancellations
+        - alert: ShreeFrequentStaleCancellations
           expr: |
-            increase(mytrader_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[15m]) > 10
+            increase(shree_pending_entry_orders_canceled_total{reason="STALE_LIVE_BARS"}[15m]) > 10
           for: 5m
           labels:
             severity: warning
             component: execution
           annotations:
-            summary: "MyTrader canceling many orders due to stale data"
+            summary: "Shree canceling many orders due to stale data"
             description: "{{ $value }} orders canceled due to STALE_LIVE_BARS in 15m for {{ $labels.symbol }}. Check data feed."
 
         # Generic cancellation rate monitoring
-        - alert: MyTraderHighCancellationRate
+        - alert: ShreeHighCancellationRate
           expr: |
-            rate(mytrader_pending_entry_orders_canceled_total[5m]) > 0.5
+            rate(shree_pending_entry_orders_canceled_total[5m]) > 0.5
           for: 5m
           labels:
             severity: info
             component: execution
           annotations:
-            summary: "MyTrader order cancellation rate elevated"
+            summary: "Shree order cancellation rate elevated"
             description: "{{ $labels.symbol }} canceling {{ $value | humanize }} orders/sec. Review trading conditions."
 
-    - name: mytrader.health
+    - name: shree.health
       interval: 30s
       rules:
         # Bot metrics endpoint is down
-        - alert: MyTraderMetricsDown
+        - alert: ShreeMetricsDown
           expr: |
-            up{job="mytrader-mac-mini"} == 0
+            up{job="shree-mac-mini"} == 0
           for: 2m
           labels:
             severity: critical
             component: monitoring
           annotations:
-            summary: "MyTrader metrics endpoint unreachable"
+            summary: "Shree metrics endpoint unreachable"
             description: "Cannot scrape metrics from {{ $labels.instance }}. Bot may be down or network issue."
             runbook: |
               1. Check if bot is running: ps aux | grep run_bot.py
@@ -111,18 +111,18 @@ spec:
               4. Check firewall rules
 
         # No recent decisions (bot may be stuck or not trading)
-        - alert: MyTraderNoRecentDecisions
+        - alert: ShreeNoRecentDecisions
           expr: |
-            rate(mytrader_decisions_total[10m]) == 0
+            rate(shree_decisions_total[10m]) == 0
           for: 30m
           labels:
             severity: warning
             component: trading
           annotations:
-            summary: "MyTrader has made no trading decisions recently"
+            summary: "Shree has made no trading decisions recently"
             description: "No decisions recorded for {{ $labels.symbol }} in 30m. Bot may be idle or stuck."
 
-    - name: mytrader.resource
+    - name: shree.resource
       interval: 30s
       rules:
         # Placeholder for future resource monitoring if needed

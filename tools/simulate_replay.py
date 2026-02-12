@@ -16,12 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 import pandas as pd
 import yaml
 
-from mytrader.hybrid import HybridDecisionEngine, DeterministicEngine, HeuristicEngine
-from mytrader.hybrid.confidence import ConfidenceScorer
-from mytrader.hybrid.safety import SafetyManager
-from mytrader.hybrid.decision_logger import DecisionLogger
-from mytrader.features.feature_engineer import engineer_features
-from mytrader.utils.logger import configure_logging, logger
+from shree.hybrid import HybridDecisionEngine, DeterministicEngine, HeuristicEngine
+from shree.hybrid.confidence import ConfidenceScorer
+from shree.hybrid.safety import SafetyManager
+from shree.hybrid.decision_logger import DecisionLogger
+from shree.features.feature_engineer import engineer_features
+from shree.utils.logger import configure_logging, logger
 
 
 def load_config(config_path: str = "config.yaml") -> dict:

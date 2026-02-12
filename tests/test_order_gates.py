@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 
-from mytrader.config import TradingConfig
-from mytrader.execution.components.order_coordinator import OrderCoordinator
-from mytrader.execution.ib_executor import TradeExecutor
+from shree.config import TradingConfig
+from shree.execution.components.order_coordinator import OrderCoordinator
+from shree.execution.ib_executor import TradeExecutor
 
 
 class DummyIB:
@@ -169,10 +169,10 @@ class OrderGateTests(unittest.TestCase):
         signal = SimpleNamespace(action="BUY", confidence=0.7, metadata={"stop_loss": 99.0, "take_profit": 101.0})
 
         with patch(
-            "mytrader.execution.components.order_coordinator.detect_market_regime",
+            "shree.execution.components.order_coordinator.detect_market_regime",
             return_value=(SimpleNamespace(value="TEST"), 1.0),
         ), patch(
-            "mytrader.execution.components.order_coordinator.get_regime_parameters",
+            "shree.execution.components.order_coordinator.get_regime_parameters",
             return_value={"volatility": "MED"},
         ), patch.object(
             OrderCoordinator, "enforce_entry_gates", AsyncMock(return_value=(True, "OK", "key"))

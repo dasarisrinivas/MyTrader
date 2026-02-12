@@ -21,8 +21,8 @@ nest_asyncio.apply()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from mytrader.utils.logger import configure_logging, logger
-from mytrader.utils.settings_loader import load_settings
+from shree.utils.logger import configure_logging, logger
+from shree.utils.settings_loader import load_settings
 
 
 def download_historical_data(ib: IB, contract, duration_str: str, bar_size: str, what_to_show: str, use_rth: bool) -> pd.DataFrame:
@@ -205,7 +205,7 @@ def main():
         df = download_historical_data(ib, None, "1 Y", args.bar_size, "TRADES", False)
         
         # Save
-         # Convert to MyTrader format (timestamp, open, high, low, close, volume)
+         # Convert to Shree format (timestamp, open, high, low, close, volume)
         df_clean = pd.DataFrame({
             'timestamp': df['date'],
             'open': df['open'],

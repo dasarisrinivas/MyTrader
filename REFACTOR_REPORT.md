@@ -1,4 +1,4 @@
-# MyTrader Codebase Refactor Report
+# Shree Codebase Refactor Report
 
 **Date:** 2026-02-07  
 **Author:** Senior Trading Systems Engineer (handoff document)  
@@ -98,17 +98,17 @@ start_bot.sh
 
 | File | Lines | Responsibilities | Severity |
 |------|-------|-----------------|----------|
-| `mytrader/strategies/entry_modules.py` | **5,135** | Session time management, BUY continuation, SHORT continuation, SELL exhaustion, Evening BUY patterns, Evening SELL patterns, IntegratedEntryManager | 🔴 Critical |
-| `mytrader/execution/live_trading_manager.py` | **3,843** | Session lifecycle, position tracking, exit logic, trade context, bracket fill inference, status updates, learning hooks, RAG wiring, AWS agents | 🔴 Critical |
-| `mytrader/execution/ib_executor.py` | **3,019** | IB connection, contract management, order locking, dedup, event handlers, bracket orders, emergency orders, position queries, trailing stops, PnL tracking, keepalive | 🔴 Critical |
-| `mytrader/rag/hybrid_rag_pipeline.py` | **2,761** | RAG retrieval, signal enhancement, vector search, caching | 🟡 High |
-| `mytrader/execution/components/signal_processor.py` | **2,529** | Feature engineering orchestration, strategy evaluation, sentiment checks, MTF gating, scoring, hybrid pipeline, VIX feed | 🟡 High |
-| `mytrader/data/sentiment_aggregator.py` | **1,756** | Multi-source sentiment collection, caching, scoring, entry/position evaluation | 🟡 High |
-| `mytrader/execution/reconcile.py` | **1,377** | Position reconciliation, order matching, state recovery | 🟡 High |
+| `shree/strategies/entry_modules.py` | **5,135** | Session time management, BUY continuation, SHORT continuation, SELL exhaustion, Evening BUY patterns, Evening SELL patterns, IntegratedEntryManager | 🔴 Critical |
+| `shree/execution/live_trading_manager.py` | **3,843** | Session lifecycle, position tracking, exit logic, trade context, bracket fill inference, status updates, learning hooks, RAG wiring, AWS agents | 🔴 Critical |
+| `shree/execution/ib_executor.py` | **3,019** | IB connection, contract management, order locking, dedup, event handlers, bracket orders, emergency orders, position queries, trailing stops, PnL tracking, keepalive | 🔴 Critical |
+| `shree/rag/hybrid_rag_pipeline.py` | **2,761** | RAG retrieval, signal enhancement, vector search, caching | 🟡 High |
+| `shree/execution/components/signal_processor.py` | **2,529** | Feature engineering orchestration, strategy evaluation, sentiment checks, MTF gating, scoring, hybrid pipeline, VIX feed | 🟡 High |
+| `shree/data/sentiment_aggregator.py` | **1,756** | Multi-source sentiment collection, caching, scoring, entry/position evaluation | 🟡 High |
+| `shree/execution/reconcile.py` | **1,377** | Position reconciliation, order matching, state recovery | 🟡 High |
 | `main.py` | **1,306** | Legacy entry point — full trading loop (duplicates LiveTradingManager) | 🔴 Critical (dead code risk) |
-| `mytrader/strategies/range_reversion_module.py` | **1,179** | Range detection, reversion logic, evening session support | 🟡 Medium |
-| `mytrader/strategies/mes_one_minute.py` | **1,017** | 1-minute MES strategy with trend detection, entries, exits | 🟡 Medium |
-| `mytrader/config.py` | **945** | 20+ dataclass configs in one file | 🟡 Medium |
+| `shree/strategies/range_reversion_module.py` | **1,179** | Range detection, reversion logic, evening session support | 🟡 Medium |
+| `shree/strategies/mes_one_minute.py` | **1,017** | 1-minute MES strategy with trend detection, entries, exits | 🟡 Medium |
+| `shree/config.py` | **945** | 20+ dataclass configs in one file | 🟡 Medium |
 
 ### Moderate (400-1000 lines, some mixed concerns)
 
@@ -131,7 +131,7 @@ start_bot.sh
 ### 3a. `entry_modules.py` (5,135 → 7 files)
 
 ```
-mytrader/strategies/entry/
+shree/strategies/entry/
   __init__.py                    # Re-exports for backward compat
   session_time.py                # SessionWindow, SessionTimeManager (~200 lines)
   signals.py                     # PullbackAnalysis, EntrySignal dataclasses (~30 lines)
@@ -146,7 +146,7 @@ mytrader/strategies/entry/
 ### 3b. `config.py` (945 → 5 files)
 
 ```
-mytrader/config/
+shree/config/
   __init__.py           # Re-exports Settings and all configs
   data_sources.py       # DataSourceConfig
   trading.py            # TradingConfig, EntryFilterConfig, RiskGateConfig
@@ -158,7 +158,7 @@ mytrader/config/
 ### 3c. `ib_executor.py` (3,019 → 5 files)
 
 ```
-mytrader/execution/
+shree/execution/
   ib_executor.py         # TradeExecutor core class (~500 lines) — init, connect, contract
   executor_models.py     # OrderResult, PositionInfo, CloseFill dataclasses (~80 lines)
   order_lock.py          # Order locking, dedup, submission signatures (~300 lines)
@@ -223,9 +223,29 @@ The file already delegates to 10+ component helpers. Remaining in-file logic:
 
 ### Phase 2: Execution layer cleanup
 
-6. 🔲 Extract order lock/dedup logic from `ib_executor.py` into `execution/order_lock.py`
-7. 🔲 Extract exit signal handling from `live_trading_manager.py` (~400 lines)
-8. 🔲 Split `signal_processor.py` (2,529 lines) sentiment/MTF helpers into separate modules
+6. ✅ Extract order lock/dedup logic from `ib_executor.py` into `execution/order_lock.py`
+7. ✅ Extract exit signal handling from `live_trading_manager.py` (~651 lines → `exit_manager.py`)
+8. ✅ Split `signal_processor.py` (2,529 lines) sentiment/MTF helpers into separate modules
+
+#### Phase 2 results
+
+| New file | Lines | Extracted from |
+|----------|-------|----------------|
+| `shree/execution/order_lock.py` | 282 | `ib_executor.py` — `OrderLockManager` + `SubmissionDeduplicator` |
+| `shree/execution/components/exit_manager.py` | 786 | `live_trading_manager.py` — `ExitManager` (exit signals, P&L exits, partial profit, trailing stops) |
+| `shree/execution/components/sentiment_evaluator.py` | 527 | `signal_processor.py` — `SentimentEvaluator` (multi-source, VX feed, sentiment+trend) |
+| `shree/execution/components/mtf_gate_manager.py` | 499 | `signal_processor.py` — `MTFGateManager` (5m/15m/30m aggregation, trend gate, IB bootstrap) |
+
+| Modified file | Before | After | Reduction |
+|----------------|--------|-------|-----------|
+| `shree/execution/ib_executor.py` | 2,983 | 2,878 | −105 |
+| `shree/execution/live_trading_manager.py` | 3,844 | 3,193 | −651 |
+| `shree/execution/components/signal_processor.py` | 2,529 | 1,692 | −837 |
+| **Totals** | **9,356** | **7,763** | **−1,593** |
+
+**Extraction pattern**: Mixin-style delegation — each helper class receives a parent reference, parent keeps thin 1-line delegating methods for full backward compatibility. No external callers need to change.
+
+**Safety validation**: 7/7 imports OK (order_lock, models, exit_manager, sentiment_evaluator, mtf_gate_manager, signal_processor, components package).
 
 ### Phase 3: Future opportunities (not in this PR)
 
@@ -260,38 +280,38 @@ The codebase already has clear session separation:
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `mytrader/strategies/entry/__init__.py` | 44 | Re-export shim for backward compat |
-| `mytrader/strategies/entry/session_time.py` | 163 | SessionWindow enum + SessionTimeManager |
-| `mytrader/strategies/entry/signals.py` | 49 | PullbackAnalysis + EntrySignal dataclasses |
-| `mytrader/strategies/entry/buy_continuation.py` | 483 | BuyContinuationModule |
-| `mytrader/strategies/entry/short_continuation.py` | 574 | ShortContinuationModule |
-| `mytrader/strategies/entry/sell_exhaustion.py` | 298 | SellExhaustionModule |
-| `mytrader/strategies/entry/evening_buy.py` | 1,027 | EveningPatternAnalysis + EveningContinuationModule |
-| `mytrader/strategies/entry/evening_sell.py` | 1,046 | EveningSellPatternAnalysis + EveningSellContinuationModule |
-| `mytrader/strategies/entry/integrated_manager.py` | 1,399 | IntegratedEntryManager + create_entry_manager |
-| `mytrader/config/__init__.py` | 64 | Re-export shim for backward compat |
-| `mytrader/config/data_sources.py` | 28 | DataSourceConfig |
-| `mytrader/config/strategy.py` | 300 | EntryFilterConfig, 1m, 30m, StrategyConfig |
-| `mytrader/config/risk.py` | 152 | RiskGateConfig, TradingConfig |
-| `mytrader/config/backtest.py` | 36 | BacktestConfig, OptimizationConfig |
-| `mytrader/config/llm_rag.py` | 157 | LLMConfig, RAGConfig, HybridConfig, AWSAgentsConfig |
-| `mytrader/config/integrations.py` | 215 | Sentiment, VIX feed, Telegram configs |
-| `mytrader/config/misc.py` | 39 | LearningConfig, FeatureFlagsConfig, ObservabilityConfig |
-| `mytrader/config/settings.py` | 113 | Settings root dataclass |
-| `mytrader/execution/models.py` | 54 | OrderResult, PositionInfo, CloseFill |
+| `shree/strategies/entry/__init__.py` | 44 | Re-export shim for backward compat |
+| `shree/strategies/entry/session_time.py` | 163 | SessionWindow enum + SessionTimeManager |
+| `shree/strategies/entry/signals.py` | 49 | PullbackAnalysis + EntrySignal dataclasses |
+| `shree/strategies/entry/buy_continuation.py` | 483 | BuyContinuationModule |
+| `shree/strategies/entry/short_continuation.py` | 574 | ShortContinuationModule |
+| `shree/strategies/entry/sell_exhaustion.py` | 298 | SellExhaustionModule |
+| `shree/strategies/entry/evening_buy.py` | 1,027 | EveningPatternAnalysis + EveningContinuationModule |
+| `shree/strategies/entry/evening_sell.py` | 1,046 | EveningSellPatternAnalysis + EveningSellContinuationModule |
+| `shree/strategies/entry/integrated_manager.py` | 1,399 | IntegratedEntryManager + create_entry_manager |
+| `shree/config/__init__.py` | 64 | Re-export shim for backward compat |
+| `shree/config/data_sources.py` | 28 | DataSourceConfig |
+| `shree/config/strategy.py` | 300 | EntryFilterConfig, 1m, 30m, StrategyConfig |
+| `shree/config/risk.py` | 152 | RiskGateConfig, TradingConfig |
+| `shree/config/backtest.py` | 36 | BacktestConfig, OptimizationConfig |
+| `shree/config/llm_rag.py` | 157 | LLMConfig, RAGConfig, HybridConfig, AWSAgentsConfig |
+| `shree/config/integrations.py` | 215 | Sentiment, VIX feed, Telegram configs |
+| `shree/config/misc.py` | 39 | LearningConfig, FeatureFlagsConfig, ObservabilityConfig |
+| `shree/config/settings.py` | 113 | Settings root dataclass |
+| `shree/execution/models.py` | 54 | OrderResult, PositionInfo, CloseFill |
 
 ### Files replaced with shims
 
 | File | Before | After | Notes |
 |------|--------|-------|-------|
-| `mytrader/strategies/entry_modules.py` | 5,136 | 46 | Thin re-export shim |
-| `mytrader/config.py` | 946 | *deleted* | Replaced by `config/` package |
+| `shree/strategies/entry_modules.py` | 5,136 | 46 | Thin re-export shim |
+| `shree/config.py` | 946 | *deleted* | Replaced by `config/` package |
 
 ### Files modified
 
 | File | Change |
 |------|--------|
-| `mytrader/execution/ib_executor.py` | Removed inline dataclasses (3,020 → 2,983), imports from `models.py` |
+| `shree/execution/ib_executor.py` | Removed inline dataclasses (3,020 → 2,983), imports from `models.py` |
 | `main.py` | Added deprecation header pointing to `run_bot.py` |
 
 ### Backward compatibility

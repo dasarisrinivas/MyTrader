@@ -158,7 +158,7 @@ Changed `max_consecutive_losses` from **3 → 10** in:
 ## Technical Implementation Summary
 
 ### Files Modified
-1. **mytrader/strategies/mes_one_minute_scoring.py**
+1. **shree/strategies/mes_one_minute_scoring.py**
    - ✅ Added `stop_loss` and `take_profit` to Signal metadata (CRITICAL FIX)
    - This was blocking all trades - now resolved
 
@@ -169,9 +169,9 @@ Changed `max_consecutive_losses` from **3 → 10** in:
    - ✅ Increased `max_consecutive_losses: 3 → 10`
 
 ### Files Created (Previous Sessions)
-- `mytrader/strategies/scoring_entry.py` (886 lines) - Core scoring logic
-- `mytrader/strategies/scoring_integration.py` (329 lines) - Integration layer
-- `mytrader/strategies/mes_one_minute_scoring.py` (398 lines) - Strategy class
+- `shree/strategies/scoring_entry.py` (886 lines) - Core scoring logic
+- `shree/strategies/scoring_integration.py` (329 lines) - Integration layer
+- `shree/strategies/mes_one_minute_scoring.py` (398 lines) - Strategy class
 - `configs/backtest_scoring.yaml` (131 lines) - Scoring backtest config
 - `test_scoring_system.py` (408 lines) - Validation suite (100% pass)
 
@@ -208,7 +208,7 @@ trading:
 
 ### Implementation Changes
 1. **`config.yaml`** - Enabled `use_scoring_system: true` in `one_minute` section
-2. **`mytrader/execution/components/trading_session_manager.py`** - Added conditional logic:
+2. **`shree/execution/components/trading_session_manager.py`** - Added conditional logic:
    ```python
    if use_scoring:
        strategy = MesOneMinuteScoringStrategy(one_min_cfg)
@@ -219,7 +219,7 @@ trading:
    ```
 
 ### Deployment Instructions
-1. **Verify configuration:** `python3 -c "from mytrader.utils.settings_loader import load_settings; s=load_settings('config.yaml'); print(f'Scoring enabled: {s.one_minute.use_scoring_system}')"`
+1. **Verify configuration:** `python3 -c "from shree.utils.settings_loader import load_settings; s=load_settings('config.yaml'); print(f'Scoring enabled: {s.one_minute.use_scoring_system}')"`
 2. **Run bot:** `./start_bot.sh` or `python3 run_bot.py`
 3. **Monitor logs:** Check for `"✅ Using SCORING-BASED entry system"` message on startup
 4. **Watch for signals:** Look for `SCORING_ENTRY:` log lines showing score breakdowns

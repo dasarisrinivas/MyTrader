@@ -1,6 +1,6 @@
 import pandas as pd
 
-from mytrader.hybrid.rsi_trend_filter import RSITrendPullbackFilter
+from shree.hybrid.rsi_trend_filter import RSITrendPullbackFilter
 
 
 def test_pullback_reentry_allows_long_when_trend_up():

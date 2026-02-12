@@ -8,15 +8,15 @@ Added comprehensive data tracking to enable data-driven optimization of trading 
 
 ### Files Modified
 
-1. **mytrader/rag/rag_storage_manager.py**
+1. **shree/rag/rag_storage_manager.py**
    - Added 22 new fields to TradeRecord dataclass
    - Total fields: 64 (was 42, now 64)
 
-2. **mytrader/rag/trade_logger.py**
+2. **shree/rag/trade_logger.py**
    - Updated log_entry() to extract and store new metadata
    - Added extraction logic for scoring, confidence, session, sentiment data
 
-3. **mytrader/execution/live_trading_manager.py**
+3. **shree/execution/live_trading_manager.py**
    - Enhanced market_data dict preparation (lines 2960-3070)
    - Added score_breakdown, confidence_data, session_data, sentiment_data
 
@@ -119,7 +119,7 @@ When next trade is taken:
 
 4. Example query to verify:
 ```python
-from mytrader.rag.rag_storage_manager import get_rag_storage
+from shree.rag.rag_storage_manager import get_rag_storage
 
 storage = get_rag_storage()
 trades = storage.list_recent_trades(limit=1)

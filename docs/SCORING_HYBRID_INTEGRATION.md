@@ -5,7 +5,7 @@
 
 ## Overview
 
-The MyTrader bot now uses a **dual-validation architecture** that combines:
+The Shree bot now uses a **dual-validation architecture** that combines:
 
 1. **Hybrid/RAG Pipeline** - Generates primary trading signals using LLM-enhanced market context
 2. **Scoring System** - Validates signal quality using objective technical metrics
@@ -130,7 +130,7 @@ else:
 
 ### Code Location
 
-**File:** `mytrader/execution/components/signal_processor.py`
+**File:** `shree/execution/components/signal_processor.py`
 
 **Integration Point:** Line ~1117 in `generate_trading_signal()`:
 

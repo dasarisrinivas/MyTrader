@@ -1,4 +1,4 @@
-# Prometheus scrape configuration for MyTrader bot running on Mac mini
+# Prometheus scrape configuration for Shree bot running on Mac mini
 # This file contains scrape configs that can be added to Prometheus
 
 # ==============================================================================
@@ -10,10 +10,10 @@
 apiVersion: v1
 kind: Endpoints
 metadata:
-  name: mytrader-external
+  name: shree-external
   namespace: default
   labels:
-    app: mytrader
+    app: shree
     component: metrics
 subsets:
   - addresses:
@@ -28,10 +28,10 @@ subsets:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mytrader-external
+  name: shree-external
   namespace: default
   labels:
-    app: mytrader
+    app: shree
     component: metrics
 spec:
   # This is a headless service that points to external endpoints
@@ -47,15 +47,15 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: mytrader-external
+  name: shree-external
   namespace: default
   labels:
-    app: mytrader
+    app: shree
     release: prometheus  # Adjust this label to match your Prometheus Operator setup
 spec:
   selector:
     matchLabels:
-      app: mytrader
+      app: shree
       component: metrics
   endpoints:
     - port: metrics
@@ -70,7 +70,7 @@ spec:
 # If you're NOT using Prometheus Operator, add this to your prometheus.yml:
 #
 # scrape_configs:
-#   - job_name: 'mytrader-mac-mini'
+#   - job_name: 'shree-mac-mini'
 #     static_configs:
 #       - targets:
 #           - '192.168.1.100:8000'  # UPDATE: Your Mac mini IP

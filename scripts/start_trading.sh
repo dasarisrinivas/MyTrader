@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ################################################################################
-# MyTrader - Live Trading Startup Script
+# Shree - Live Trading Startup Script
 # 
 # This script starts LIVE TRADING (not the dashboard).
 # The trading bot will connect to IBKR and execute trades based on signals.
@@ -48,7 +48,7 @@ done
 # Banner
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}          🤖 MyTrader - Starting Live Trading Bot 🤖            ${NC}"
+echo -e "${BLUE}          🤖 Shree - Starting Live Trading Bot 🤖            ${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 

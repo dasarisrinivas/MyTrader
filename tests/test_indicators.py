@@ -1,6 +1,6 @@
 import pandas as pd
 
-from mytrader.features.indicators import rsi_series
+from shree.features.indicators import rsi_series
 
 
 def test_rsi_handles_short_history_gracefully():

@@ -16,7 +16,7 @@ class TestVxConfig:
     
     def test_default_values(self):
         """Test default configuration values."""
-        from mytrader.data.vx_futures_feed import VxConfig
+        from shree.data.vx_futures_feed import VxConfig
         
         config = VxConfig()
         assert config.host == "127.0.0.1"
@@ -33,7 +33,7 @@ class TestVxConfig:
     
     def test_custom_values(self):
         """Test custom configuration values."""
-        from mytrader.data.vx_futures_feed import VxConfig
+        from shree.data.vx_futures_feed import VxConfig
         
         config = VxConfig(
             host="192.168.1.1",
@@ -54,7 +54,7 @@ class TestVxState:
     
     def test_default_state(self):
         """Test default state values."""
-        from mytrader.data.vx_futures_feed import VxState
+        from shree.data.vx_futures_feed import VxState
         
         state = VxState()
         assert state.price is None
@@ -64,7 +64,7 @@ class TestVxState:
     
     def test_state_with_values(self):
         """Test state with values."""
-        from mytrader.data.vx_futures_feed import VxState
+        from shree.data.vx_futures_feed import VxState
         
         now = datetime.now()
         state = VxState(
@@ -84,7 +84,7 @@ class TestVxFuturesFeedInit:
     
     def test_default_initialization(self):
         """Test default initialization."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         assert feed.config.host == "127.0.0.1"
@@ -97,7 +97,7 @@ class TestVxFuturesFeedInit:
     
     def test_custom_initialization(self):
         """Test custom initialization."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed(
             host="localhost",
@@ -119,7 +119,7 @@ class TestVolatilityMultiplier:
     @pytest.fixture
     def feed(self):
         """Create a VxFuturesFeed instance for testing."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         return VxFuturesFeed()
     
     def test_extreme_vix_multiplier(self, feed):
@@ -170,7 +170,7 @@ class TestVolatilityMultiplier:
     
     def test_stale_with_conservative_mode(self):
         """Test that stale data with conservative mode returns 0.5."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed(conservative_on_stale=True)
         multiplier = feed._calculate_multiplier(15.0, is_stale=True)
@@ -187,7 +187,7 @@ class TestVolatilityMultiplier:
     
     def test_custom_thresholds(self):
         """Test custom threshold values."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed(
             extreme_threshold=40.0,
@@ -208,7 +208,7 @@ class TestStaleDetection:
     
     def test_no_update_is_stale(self):
         """Test that no update means stale."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         # No update has been received
@@ -216,7 +216,7 @@ class TestStaleDetection:
     
     def test_recent_update_not_stale(self):
         """Test that recent update is not stale."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed(stale_seconds=120)
         # Simulate recent update
@@ -225,7 +225,7 @@ class TestStaleDetection:
     
     def test_old_update_is_stale(self):
         """Test that old update is stale."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed(stale_seconds=120)
         # Simulate old update (3 minutes ago)
@@ -234,7 +234,7 @@ class TestStaleDetection:
     
     def test_custom_stale_threshold(self):
         """Test custom stale threshold."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed(stale_seconds=60)
         # 45 seconds ago - should not be stale with 60s threshold
@@ -251,7 +251,7 @@ class TestGetLatest:
     
     def test_get_latest_with_data(self):
         """Test get_latest returns correct data."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         now = datetime.now()
@@ -268,7 +268,7 @@ class TestGetLatest:
     
     def test_get_latest_no_data(self):
         """Test get_latest with no data."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         
@@ -285,7 +285,7 @@ class TestGetVxPrice:
     
     def test_get_price_with_value(self):
         """Test get_vx_price with a value."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         feed._state.price = 18.75
@@ -294,7 +294,7 @@ class TestGetVxPrice:
     
     def test_get_price_without_value(self):
         """Test get_vx_price with no value."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         assert feed.get_vx_price() is None
@@ -305,7 +305,7 @@ class TestPriceFromTicker:
     
     def test_no_ticker_returns_none(self):
         """Test that no ticker returns None."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         feed._ticker = None
@@ -313,7 +313,7 @@ class TestPriceFromTicker:
     
     def test_last_price(self):
         """Test extraction of last price."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         ticker = MagicMock()
@@ -327,7 +327,7 @@ class TestPriceFromTicker:
     
     def test_midpoint_fallback(self):
         """Test fallback to bid/ask midpoint."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         ticker = MagicMock()
@@ -341,7 +341,7 @@ class TestPriceFromTicker:
     
     def test_bid_only_fallback(self):
         """Test fallback to bid only."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         ticker = MagicMock()
@@ -359,7 +359,7 @@ class TestModuleLevelFunctions:
     
     def test_get_vx_feed_returns_none_initially(self):
         """Test get_vx_feed returns None before init."""
-        from mytrader.data.vx_futures_feed import get_vx_feed, shutdown_vx_feed
+        from shree.data.vx_futures_feed import get_vx_feed, shutdown_vx_feed
         
         # Ensure clean state
         shutdown_vx_feed()
@@ -367,7 +367,7 @@ class TestModuleLevelFunctions:
     
     def test_init_and_get_vx_feed(self):
         """Test init_vx_feed creates singleton."""
-        from mytrader.data.vx_futures_feed import (
+        from shree.data.vx_futures_feed import (
             init_vx_feed,
             get_vx_feed,
             shutdown_vx_feed,
@@ -390,7 +390,7 @@ class TestThreadSafety:
     
     def test_concurrent_state_access(self):
         """Test that concurrent access to state is safe."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         errors: List[Exception] = []
@@ -432,7 +432,7 @@ class TestVolatilityMultiplierIntegration:
     
     def test_full_multiplier_flow(self):
         """Test the full flow from state update to multiplier."""
-        from mytrader.data.vx_futures_feed import VxFuturesFeed
+        from shree.data.vx_futures_feed import VxFuturesFeed
         
         feed = VxFuturesFeed()
         

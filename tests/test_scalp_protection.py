@@ -23,7 +23,7 @@ def _make_manager(mode="paper"):
 
 
 def test_scalp_mode_uses_tighter_multipliers_and_min_stop():
-    from mytrader.execution.components.risk_controller import RiskController
+    from shree.execution.components.risk_controller import RiskController
 
     manager = _make_manager(mode="paper")
     rc = RiskController(manager)
@@ -47,7 +47,7 @@ def test_scalp_mode_uses_tighter_multipliers_and_min_stop():
 
 
 def test_non_scalp_mode_requires_tp_beyond_stop_plus_tick():
-    from mytrader.execution.components.risk_controller import RiskController
+    from shree.execution.components.risk_controller import RiskController
 
     manager = _make_manager(mode="paper")
     rc = RiskController(manager)

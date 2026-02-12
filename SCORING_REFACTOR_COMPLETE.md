@@ -16,20 +16,20 @@ Successfully refactored the ES/MES 1-minute trend strategy from a **hard rejecti
 
 ### Core Modules (Production-Ready)
 
-1. **`mytrader/strategies/scoring_entry.py`** (886 lines)
+1. **`shree/strategies/scoring_entry.py`** (886 lines)
    - `SignalScore` dataclass with component tracking
    - `calculate_signal_score()` - Weighted scoring across 5 categories
    - `should_enter_trade()` - Position sizing logic (full/half/none)
    - `check_risk_gates()` - Hard constraint validation
    - All helper functions for component scoring
 
-2. **`mytrader/strategies/scoring_integration.py`** (329 lines)
+2. **`shree/strategies/scoring_integration.py`** (329 lines)
    - `ScoringEntryEvaluator` - Integration bridge
    - `ScoringDecision` - Standardized output format
    - Data preparation and bracket calculation
    - ATR percentile calculation
 
-3. **`mytrader/strategies/mes_one_minute_scoring.py`** (538 lines)
+3. **`shree/strategies/mes_one_minute_scoring.py`** (538 lines)
    - `MesOneMinuteScoringStrategy` - New strategy class
    - Drop-in replacement for existing strategy
    - Full compatibility with backtest engine
@@ -61,14 +61,14 @@ Successfully refactored the ES/MES 1-minute trend strategy from a **hard rejecti
 
 ### Configuration Updates
 
-7. **`mytrader/config.py`** - Added scoring parameters
+7. **`shree/config.py`** - Added scoring parameters
    ```python
    use_scoring_system: bool = False
    scoring_full_size_threshold: float = 60.0
    scoring_half_size_threshold: float = 45.0
    ```
 
-8. **`mytrader/strategies/__init__.py`** - Export new strategy
+8. **`shree/strategies/__init__.py`** - Export new strategy
    - `MesOneMinuteScoringStrategy` now available
 
 ---
@@ -293,7 +293,7 @@ Decision: HALF_SIZE (0.5x) → BUY @ 5850.00
 ### 1. Run Backtest (IMMEDIATE)
 
 ```bash
-python -m mytrader.backtest.run \
+python -m shree.backtest.run \
     --strategy mes_one_minute_scoring \
     --start-date 2025-01-01 \
     --end-date 2026-02-01 \
@@ -434,7 +434,7 @@ Once backtest validates:
 python3 test_scoring_system.py
 
 # 2. Run backtest
-python -m mytrader.backtest.run \
+python -m shree.backtest.run \
     --strategy mes_one_minute_scoring \
     --start-date 2025-01-01 \
     --end-date 2026-02-01
@@ -446,8 +446,8 @@ python -m mytrader.backtest.run \
 ### In Python
 
 ```python
-from mytrader.strategies import MesOneMinuteScoringStrategy
-from mytrader.config import OneMinuteStrategyConfig
+from shree.strategies import MesOneMinuteScoringStrategy
+from shree.config import OneMinuteStrategyConfig
 
 # Create strategy
 config = OneMinuteStrategyConfig(

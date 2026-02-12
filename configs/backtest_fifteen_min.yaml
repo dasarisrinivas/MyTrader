@@ -4,25 +4,33 @@
 # FEB 2026: Replaces ALL 1-minute strategies (scoring, structural reversion, trend)
 #
 # Instrument: MES (Micro E-mini S&P 500) — $5/point, $1.25/tick
-# Strategy: EMA21 Pullback (primary) + OR Breakout (secondary)
-# Direction: Long-only (shorts consistently negative on ES/MES)
+# Strategy: EMA21 Pullback + EMA9 Pullback + OR Breakout (long-only)
 # Timeframe: 15-minute bars
 # Account: $5,000 initial capital
 #
-# DST-CORRECT backtest results (Feb 2025 - Jan 2026, 241 trading days):
-#   Entry window: 11:00-14:59 ET (midday sweet spot)
-#   Total trades:   130 (103 EMA21_PB + 27 OR_BREAK)
-#   Profit Factor:  1.91
-#   Total PnL:      +$2,523 (+50.5%)
-#   Sharpe Ratio:   9.40
-#   Max Drawdown:   -8.33%
-#   Win Rate:       50.8%
+# ─── OPTIMIZATION HISTORY (Feb 2025 - Jan 2026, 241 RTH days) ─────────
 #
-# Key insight (FEB 7 2026): Previous 193-trade/PF 1.67 result had a DST bug
-# in _is_valid_session (fixed -5h offset instead of US/Eastern). This skipped
-# 10:00-10:15 ET bars during EDT months (Mar-Nov), accidentally avoiding the
-# worst entry window. The entry time filter replaces this with an intentional,
-# data-driven restriction.
+# v1 (baseline):  130 trades | PF 1.91 | +$2,523 (+50.5%) | Sharpe 9.40  | DD -8.33%  | WR 50.8%
+#   → TP 2.0×ATR, SL 1.5×ATR, OR target 1.3R, ADX 20+, entry 11:00-14:59
+#
+# v2 (feb 7):     162 trades | PF 1.82 | +$3,130 (+62.6%) | Sharpe 11.27 | DD -12.71% | WR 58.0%
+#   → TP 1.5×ATR, ADX cap 35, EMA9 PB enabled, max hold 8 bars, entry 10:30-14:59
+#
+# v3 (feb 8):     174 trades | PF 2.18 | +$4,129 (+82.6%) | Sharpe 24.73 | DD -6.64%  | WR 65.5%
+#   → TP 1.0×ATR, OR target 1.0R (tighter targets = more TP hits)
+#
+# Parameter sweep results (v3 base):
+#   TP mult:  0.8→1.91 | 1.0→2.18★ | 1.1→1.93 | 1.2→1.85 | 1.3→1.89 | 1.5→1.82 | 2.0→1.91
+#   OR tgt:   0.8→2.18 | 1.0→2.18★ | 1.2→1.99 | 1.3→1.82
+#   SL mult:  1.2→1.93 | 1.5→2.18★ | 1.8→2.10
+#   ADX cap:  30→1.98(134t) | 35→2.18(174t)★
+#   MaxHold:  8→2.18★ | 10→1.71
+#   Entry end: 13:59→1.86(131t) | 14:29→1.76(147t) | 14:59→2.18(174t)★
+#
+# Key insight (FEB 7 2026): Previous 193-trade/PF 1.67 result had a DST bug.
+# Key insight (FEB 8 2026): Tighter TPs (1.0× vs 2.0×) dramatically improve
+#   Sharpe (9.4→24.7) by converting flatten exits into TP hits. 51% of exits
+#   are now TP (was 18%), flattens down to 20% (was 52%).
 # =============================================================================
 
 strategy:
@@ -32,21 +40,31 @@ strategy:
   use_scoring_system: false
 
   # ─── EMA21 Pullback parameters ───
-  ft_pb_stop_mult: 1.5       # Stop = 1.5 × ATR_14 (~15 pts on avg)
-  ft_pb_target_mult: 2.0     # Target = 2.0 × ATR_14 (optimized from 2.5 → +4.5% more PnL)
-  ft_or_target_r: 1.3        # OR breakout target = 1.3 × risk (optimized from 1.5)
-  ft_adx_min: 20.0           # ADX filter (PF 1.53 → 1.75 with this)
+  ft_pb_stop_mult: 1.5       # Stop = 1.5 × ATR_14 (swept 1.2-1.8, 1.5 optimal)
+  ft_pb_target_mult: 1.0     # Target = 1.0 × ATR_14 (optimal: sweep 0.8-2.0, best PnL/Sharpe/PF at 1.0)
+  ft_or_target_r: 1.0        # OR breakout target = 1.0 × risk (swept 0.8-1.3, optimal at 1.0)
+  ft_adx_min: 20.0           # ADX floor (PF 1.53 → 1.75 with this)
+  ft_adx_max: 35.0           # ADX cap: 35+ loses money. Tested 30→PF 1.98 but fewer trades/less PnL
   ft_ema_touch_pct: 0.001    # EMA21 touch tolerance (0.1%)
   ft_or_minutes: 30          # Opening range = first 30 min
-  ft_max_hold_bars: 6        # Max hold = 6 bars = 90 minutes
+  ft_max_hold_bars: 8        # Max hold = 8 bars = 120 min (tested 10→worse: $2,952/PF 1.71)
+
+  # ─── EMA9 Pullback parameters (Signal C) ───
+  # FEB 7 2026: New fast-pullback signal. Catches shallow dips in strong
+  # uptrends that EMA21 misses. Tighter stops (1.2× ATR) and targets (1.5× ATR).
+  ft_ema9_pb_enabled: true
+  ft_ema9_pb_stop_mult: 1.2  # Tighter stop for shallow pullbacks
+  ft_ema9_pb_target_mult: 1.5
+  ft_ema9_touch_pct: 0.0015  # EMA9 touch tolerance (0.15%)
 
   # ─── Entry time filter (ET) ───
-  # FEB 7 2026: DST-correct backtest analysis shows:
-  #   10:xx entries: -$1,208 (87 trades, terrible R:R despite 55% WR)
-  #   15:xx entries: -$397 (22 trades, 9% WR)
-  # Restricting to 11:00-14:59 ET recovers +$1,479 on fewer trades.
-  ft_entry_start_hour: 11    # Earliest entry (ET)
-  ft_entry_start_minute: 0
+  # FEB 7 2026 v2: Expanded from 11:00 to 10:30.
+  # Tested v3 (cut at 13:59) → fewer trades, lower PnL ($2,717 vs $3,130).
+  # Tested v3b (cut at 14:29) → PF 1.76, $2,662 — worse.
+  # v2 (10:30-14:59) wins on absolute PnL, Sharpe, and return despite
+  # slightly lower PF. The 14:xx hour adds $103 net and more opportunities.
+  ft_entry_start_hour: 10    # Earliest entry (ET)
+  ft_entry_start_minute: 30
   ft_entry_end_hour: 15      # Latest entry (ET, exclusive)
   ft_entry_end_minute: 0
 
@@ -63,6 +81,7 @@ risk_gate:
   risk_per_trade_usd: 1000.0 # 15pt stop × $5/pt = $75 typical; 120pt × $5 = $600 worst case
   risk_per_trade_max: 1000.0 # Hard cap — allow high vol trades
   max_daily_loss: 2000.0     # Allow recovery after losses
+  weekly_max_loss_usd: 99999.0  # Disabled in backtest (no weekly tracking in engine)
   max_position_risk_pct: 0.05  # 5% of capital per trade (allows larger stops)
   # FEB 2026: CRITICAL — consecutive loss lockout at 3 killed 319 signals!
   # Simulation shows max 7 consecutive losses. Set to 10 for safety.

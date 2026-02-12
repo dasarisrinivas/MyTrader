@@ -10,7 +10,7 @@ async def test_place_hybrid_order_maps_is_scalp_metadata_to_scalp_action(monkeyp
     Ensure metadata.is_scalp opt-in still maps BUY/SELL -> SCALP_* before protection sizing.
     """
 
-    from mytrader.execution.live_trading_manager import LiveTradingManager
+    from shree.execution.live_trading_manager import LiveTradingManager
 
     class DummySettings:
         class Trading:

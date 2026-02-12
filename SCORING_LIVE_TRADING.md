@@ -16,7 +16,7 @@ The weighted scoring-based entry system has replaced hard rejection filters in p
 
 ### 1. Verify Configuration
 ```bash
-python3 -c "from mytrader.utils.settings_loader import load_settings; s=load_settings('config.yaml'); print(f'Scoring enabled: {s.one_minute.use_scoring_system}')"
+python3 -c "from shree.utils.settings_loader import load_settings; s=load_settings('config.yaml'); print(f'Scoring enabled: {s.one_minute.use_scoring_system}')"
 ```
 
 Expected output: `Scoring enabled: True`
@@ -221,17 +221,17 @@ Then restart: `./stop.sh && ./start_bot.sh`
    - Added scoring thresholds (60/45)
    - Increased `max_consecutive_losses` to 10
 
-2. **`mytrader/execution/components/trading_session_manager.py`**
+2. **`shree/execution/components/trading_session_manager.py`**
    - Added import: `MesOneMinuteScoringStrategy`
    - Added conditional strategy selection logic
 
-3. **`mytrader/strategies/mes_one_minute_scoring.py`**
+3. **`shree/strategies/mes_one_minute_scoring.py`**
    - Fixed bug: Added `stop_loss` and `take_profit` to Signal metadata
 
 ### New Files (from previous development)
-- `mytrader/strategies/scoring_entry.py` - Core scoring logic
-- `mytrader/strategies/scoring_integration.py` - Integration layer  
-- `mytrader/strategies/mes_one_minute_scoring.py` - Strategy class
+- `shree/strategies/scoring_entry.py` - Core scoring logic
+- `shree/strategies/scoring_integration.py` - Integration layer  
+- `shree/strategies/mes_one_minute_scoring.py` - Strategy class
 - `configs/backtest_scoring.yaml` - Backtest configuration
 - `test_scoring_system.py` - Validation suite
 
@@ -274,9 +274,9 @@ Then restart: `./stop.sh && ./start_bot.sh`
 - Bot Audit: `logs/bot.log`
 
 **Code:**
-- Strategy: `mytrader/strategies/mes_one_minute_scoring.py`
-- Core Logic: `mytrader/strategies/scoring_entry.py`
-- Integration: `mytrader/strategies/scoring_integration.py`
+- Strategy: `shree/strategies/mes_one_minute_scoring.py`
+- Core Logic: `shree/strategies/scoring_entry.py`
+- Integration: `shree/strategies/scoring_integration.py`
 
 ---
 

@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 import pytest
 
-from mytrader.data.sentiment_aggregator import (
+from shree.data.sentiment_aggregator import (
     # Data structures
     SentimentSource,
     SourceSentiment,
@@ -349,7 +349,7 @@ class TestSentimentCache:
 class TestEvaluateSentimentForEntry:
     """Test entry decision logic."""
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_bullish_sentiment_allows_long(self, mock_get):
         """Bullish sentiment allows LONG entry."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, 0.5, sample_count=30)
@@ -364,7 +364,7 @@ class TestEvaluateSentimentForEntry:
         assert decision.action_recommendation == "PROCEED"
         assert decision.confidence_modifier >= 1.0
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_bearish_sentiment_blocks_long(self, mock_get):
         """Strong bearish sentiment blocks LONG entry."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, -0.6, sample_count=30)
@@ -378,7 +378,7 @@ class TestEvaluateSentimentForEntry:
         assert not decision.allow_trade
         assert decision.action_recommendation == "BLOCK"
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_moderately_bearish_reduces_long_confidence(self, mock_get):
         """Moderate bearish sentiment reduces LONG confidence."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, -0.3, sample_count=30)
@@ -393,7 +393,7 @@ class TestEvaluateSentimentForEntry:
         assert decision.action_recommendation == "REDUCE_SIZE"
         assert decision.confidence_modifier < 1.0
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_bullish_sentiment_blocks_short(self, mock_get):
         """Strong bullish sentiment blocks SHORT entry."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, 0.6, sample_count=30)
@@ -407,7 +407,7 @@ class TestEvaluateSentimentForEntry:
         assert not decision.allow_trade
         assert decision.action_recommendation == "BLOCK"
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_bearish_sentiment_allows_short(self, mock_get):
         """Bearish sentiment allows SHORT entry."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, -0.5, sample_count=30)
@@ -422,7 +422,7 @@ class TestEvaluateSentimentForEntry:
         assert decision.action_recommendation == "PROCEED"
         assert decision.confidence_modifier >= 1.0
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_neutral_sentiment_allows_trade(self, mock_get):
         """Neutral sentiment allows trade without modification."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, 0.05, sample_count=30)
@@ -445,7 +445,7 @@ class TestEvaluateSentimentForEntry:
 class TestEvaluateSentimentForPosition:
     """Test position management decision logic."""
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_extreme_bearish_tightens_long_stop(self, mock_get):
         """Extreme bearish sentiment recommends tightening stop on LONG."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, -0.7, sample_count=30)
@@ -459,7 +459,7 @@ class TestEvaluateSentimentForPosition:
         assert decision.action_recommendation == "TIGHTEN_STOP"
         assert decision.confidence_modifier < 1.0
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_extreme_bullish_tightens_short_stop(self, mock_get):
         """Extreme bullish sentiment recommends tightening stop on SHORT."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, 0.7, sample_count=30)
@@ -472,7 +472,7 @@ class TestEvaluateSentimentForPosition:
         
         assert decision.action_recommendation == "TIGHTEN_STOP"
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_neutral_sentiment_holds_position(self, mock_get):
         """Neutral sentiment recommends holding position."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, 0.1, sample_count=30)
@@ -494,7 +494,7 @@ class TestEvaluateSentimentForPosition:
 class TestStocktwitsAPI:
     """Test Stocktwits API handling."""
     
-    @patch("mytrader.data.sentiment_aggregator.requests.get")
+    @patch("shree.data.sentiment_aggregator.requests.get")
     def test_successful_fetch(self, mock_get):
         """Successful API response produces valid result."""
         mock_response = MagicMock()
@@ -516,7 +516,7 @@ class TestStocktwitsAPI:
         # 2 bullish, 1 bearish = (2-1)/3 = 0.33
         assert 0.2 <= result.score <= 0.5
     
-    @patch("mytrader.data.sentiment_aggregator.requests.get")
+    @patch("shree.data.sentiment_aggregator.requests.get")
     def test_timeout_returns_zero(self, mock_get):
         """Timeout returns zero score with error."""
         import requests
@@ -532,8 +532,8 @@ class TestStocktwitsAPI:
 class TestRedditAPI:
     """Test Reddit API handling."""
     
-    @patch("mytrader.data.sentiment_aggregator.REDDIT_CLIENT_ID", "")
-    @patch("mytrader.data.sentiment_aggregator.requests.get")
+    @patch("shree.data.sentiment_aggregator.REDDIT_CLIENT_ID", "")
+    @patch("shree.data.sentiment_aggregator.requests.get")
     def test_public_api_fallback(self, mock_get):
         """Falls back to public API without credentials."""
         mock_response = MagicMock()
@@ -556,7 +556,7 @@ class TestRedditAPI:
 class TestTwitterAPI:
     """Test Twitter API handling."""
     
-    @patch("mytrader.data.sentiment_aggregator.TWITTER_BEARER_TOKEN", "")
+    @patch("shree.data.sentiment_aggregator.TWITTER_BEARER_TOKEN", "")
     def test_no_credentials_returns_zero(self):
         """No Twitter credentials (or disabled) returns zero with error."""
         result = get_twitter_sentiment()
@@ -575,9 +575,9 @@ class TestTwitterAPI:
 class TestCombinedSentimentIntegration:
     """Test combined sentiment flow."""
     
-    @patch("mytrader.data.sentiment_aggregator.get_stocktwits_sentiment")
-    @patch("mytrader.data.sentiment_aggregator.get_reddit_sentiment")
-    @patch("mytrader.data.sentiment_aggregator.get_twitter_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_stocktwits_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_reddit_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_twitter_sentiment")
     def test_combines_all_sources(self, mock_twitter, mock_reddit, mock_stocktwits):
         """Combined sentiment uses all sources (Twitter excluded when disabled)."""
         mock_stocktwits.return_value = SourceSentiment(
@@ -592,7 +592,7 @@ class TestCombinedSentimentIntegration:
         )
         
         # Reset cache for fresh fetch
-        from mytrader.data.sentiment_aggregator import _sentiment_cache
+        from shree.data.sentiment_aggregator import _sentiment_cache
         _sentiment_cache.last_fetch_time = None
         _sentiment_cache.last_result = None
         
@@ -605,9 +605,9 @@ class TestCombinedSentimentIntegration:
         # 0.4 * 0.55 + 0.2 * 0.45 = 0.22 + 0.09 = 0.31
         assert 0.25 <= result.score <= 0.35
     
-    @patch("mytrader.data.sentiment_aggregator.get_stocktwits_sentiment")
-    @patch("mytrader.data.sentiment_aggregator.get_reddit_sentiment")
-    @patch("mytrader.data.sentiment_aggregator.get_twitter_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_stocktwits_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_reddit_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_twitter_sentiment")
     def test_uses_cache_when_fresh(self, mock_twitter, mock_reddit, mock_stocktwits):
         """Uses cached result when not stale."""
         mock_stocktwits.return_value = SourceSentiment(
@@ -621,7 +621,7 @@ class TestCombinedSentimentIntegration:
         )
         
         # First call - fetches fresh
-        from mytrader.data.sentiment_aggregator import _sentiment_cache
+        from shree.data.sentiment_aggregator import _sentiment_cache
         _sentiment_cache.last_fetch_time = None
         _sentiment_cache.last_result = None
         
@@ -639,7 +639,7 @@ class TestCombinedSentimentIntegration:
 class TestSourceBreakdown:
     """Test source breakdown in decisions."""
     
-    @patch("mytrader.data.sentiment_aggregator.get_combined_mes_sentiment")
+    @patch("shree.data.sentiment_aggregator.get_combined_mes_sentiment")
     def test_decision_includes_breakdown(self, mock_get):
         """Decision includes source breakdown for logging."""
         stocktwits = SourceSentiment(SentimentSource.STOCKTWITS, 0.4, sample_count=30)

@@ -1,4 +1,4 @@
-from mytrader.risk.protection_validator import calculate_protection
+from shree.risk.protection_validator import calculate_protection
 
 
 def test_pipeline_scalp_sell_is_clamped_to_min_ticks():

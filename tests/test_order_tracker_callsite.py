@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from mytrader.monitoring.order_tracker import OrderTracker
+from shree.monitoring.order_tracker import OrderTracker
 
 
 def _trigger_missing_features(tracker: OrderTracker) -> None:
@@ -22,7 +22,7 @@ def _trigger_missing_features(tracker: OrderTracker) -> None:
 
 
 def test_callsite_suffix_present_when_enabled(tmp_path: Path):
-    os.environ["MYTRADER_ORDER_TRACKER_CALLSITE"] = "1"
+    os.environ["SHREE_ORDER_TRACKER_CALLSITE"] = "1"
 
     db_path = tmp_path / "orders.db"
     tracker = OrderTracker(db_path=str(db_path))
@@ -35,7 +35,7 @@ def test_callsite_suffix_present_when_enabled(tmp_path: Path):
 
 
 def test_callsite_suffix_empty_by_default(tmp_path: Path):
-    os.environ.pop("MYTRADER_ORDER_TRACKER_CALLSITE", None)
+    os.environ.pop("SHREE_ORDER_TRACKER_CALLSITE", None)
 
     db_path = tmp_path / "orders.db"
     tracker = OrderTracker(db_path=str(db_path))

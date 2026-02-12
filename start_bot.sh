@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#          🤖 MyTrader - Start Bot 🤖                      
+#          🤖 Shree - Start Bot 🤖                      
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
 # Usage: . start_bot.sh
@@ -31,7 +31,7 @@ NC='\033[0m' # No Color
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BLUE}          🤖 MyTrader - Starting Bot 🤖${NC}"
+echo -e "${BLUE}          🤖 Shree - Starting Bot 🤖${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -55,12 +55,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
     return 1 2>/dev/null || exit 1
 fi
 
-export MYTRADER_CONFIG_FILE="$CONFIG_FILE"
+export SHREE_CONFIG_FILE="$CONFIG_FILE"
 CONFIG_VALUES=$("$PYTHON_BIN" - <<'PY'
 import os
 import yaml
 
-cfg_path = os.environ.get("MYTRADER_CONFIG_FILE", "config.yaml")
+cfg_path = os.environ.get("SHREE_CONFIG_FILE", "config.yaml")
 try:
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -97,7 +97,7 @@ export CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD:-$CFG_CONFIDENCE_THRESHOLD}
 
 # Optional forensic-only tracing: include caller fingerprints when a root order is recorded
 # without features/rationale snapshots.
-export MYTRADER_ORDER_TRACKER_CALLSITE=${MYTRADER_ORDER_TRACKER_CALLSITE:-0}
+export SHREE_ORDER_TRACKER_CALLSITE=${SHREE_ORDER_TRACKER_CALLSITE:-0}
 
 # Check if IB Gateway/TWS is running
 echo -e "${BLUE}[INFO]${NC} Checking IB Gateway/TWS on port ${IBKR_PORT}..."
@@ -182,14 +182,14 @@ fi
 # Start the bot in the background
 # Determine additional bot arguments
 BOT_ARGS=${BOT_ARGS:-}
-if [ "${MYTRADER_SIMULATION:-0}" = "1" ]; then
-    echo -e "${BLUE}[INFO]${NC} Simulation mode requested via MYTRADER_SIMULATION=1"
+if [ "${SHREE_SIMULATION:-0}" = "1" ]; then
+    echo -e "${BLUE}[INFO]${NC} Simulation mode requested via SHREE_SIMULATION=1"
     BOT_ARGS="--simulation $BOT_ARGS"
 fi
 
 echo -e "${BLUE}[INFO]${NC} Starting trading bot (MAX_CONTRACTS=$MAX_CONTRACTS)..."
-if [ "${MYTRADER_ORDER_TRACKER_CALLSITE}" != "0" ]; then
-    echo -e "${YELLOW}[WARN]${NC} MYTRADER_ORDER_TRACKER_CALLSITE enabled (extra stack inspection on missing-snapshot warnings)"
+if [ "${SHREE_ORDER_TRACKER_CALLSITE}" != "0" ]; then
+    echo -e "${YELLOW}[WARN]${NC} SHREE_ORDER_TRACKER_CALLSITE enabled (extra stack inspection on missing-snapshot warnings)"
 fi
 nohup "$PYTHON_BIN" run_bot.py $BOT_ARGS > logs/bot.log 2>&1 &
 BOT_PID=$!
