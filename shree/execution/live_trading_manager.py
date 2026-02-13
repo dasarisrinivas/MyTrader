@@ -2531,8 +2531,10 @@ TRADING GUIDANCE:
                 # Extract individual source scores from breakdown
                 source_breakdown = metadata.get("source_breakdown", {})
                 if source_breakdown:
-                    sentiment_data["stocktwits"] = source_breakdown.get("stocktwits", {}).get("score", 0.0)
-                    sentiment_data["reddit"] = source_breakdown.get("reddit", {}).get("score", 0.0)
+                    st_val = source_breakdown.get("stocktwits", 0.0)
+                    rd_val = source_breakdown.get("reddit", 0.0)
+                    sentiment_data["stocktwits"] = st_val.get("score", 0.0) if isinstance(st_val, dict) else float(st_val)
+                    sentiment_data["reddit"] = rd_val.get("score", 0.0) if isinstance(rd_val, dict) else float(rd_val)
                 
                 # Determine sentiment decision
                 if metadata.get("sentiment_blocked"):

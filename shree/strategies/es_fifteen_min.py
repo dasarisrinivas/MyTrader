@@ -39,8 +39,15 @@ From simulation of 15m bars (277 trading days, Feb 2025 - Jan 2026):
 
   Combined (day-by-day): +$8,309, Sharpe 4.05, 56% winning days
 
-  SHORT SIDE: Consistently negative (ES has upward drift).
-  DO NOT trade shorts with this strategy.
+  SHORT SIDE: Enabled via ft_shorts_enabled config toggle (FEB 12 2026).
+  Signal D: EMA21 pullback short (mirror of A) in downtrend.
+  Signal E: OR breakdown short (mirror of B) below OR low.
+
+  TREND CONTINUATION: Added FEB 13 2026 for strong rally/selloff days.
+  Signal F: Trend continuation long/short — fires when price runs away
+            from EMA21 without pulling back.  Uses EMA9 as dynamic support,
+            requires full EMA stack alignment + 3 ascending/descending closes
+            + ADX >= 22.  Max 2 fires per day per side.
 
 ENTRY MODEL
 -----------
@@ -96,8 +103,11 @@ class FifteenMinLevels:
 
 class EsFifteenMinStrategy(BaseStrategy):
     """
-    15-minute ES strategy: EMA21 pullback in uptrend + OR breakout.
-    Long-only — shorts are consistently negative on ES.
+    15-minute ES strategy: EMA21 pullback + OR breakout (long & short).
+
+    Long side: EMA21 pullback, EMA9 pullback, OR breakout (Signals A, B, C)
+    Short side: EMA21 pullback short, OR breakdown short (Signals D, E)
+    Shorts gated by ft_shorts_enabled config toggle.
 
     Designed from scratch based on 15m bar simulation showing
     PF 1.75 over 277 trading days with 422 trades.
@@ -131,6 +141,27 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema9_pb_stop_mult: float = getattr(config, 'ft_ema9_pb_stop_mult', 1.2)
         self._ema9_pb_target_mult: float = getattr(config, 'ft_ema9_pb_target_mult', 1.5)
         self._ema9_touch_pct: float = getattr(config, 'ft_ema9_touch_pct', 0.0015)  # 0.15%
+
+        # FEB 12 2026: Short-side signals (D, E) — mirror of long signals
+        self._shorts_enabled: bool = getattr(config, 'ft_shorts_enabled', False)
+        self._short_pb_stop_mult: float = getattr(config, 'ft_short_pb_stop_mult', 1.5)
+        self._short_pb_target_mult: float = getattr(config, 'ft_short_pb_target_mult', 1.0)
+        self._short_or_target_r: float = getattr(config, 'ft_short_or_target_r', 1.0)
+        self._or_broken_below_today: bool = False  # Only first OR breakdown per day
+
+        # FEB 13 2026: Trend continuation signal (Signal F) — captures
+        # strong rally / selloff days when price runs away from EMA21
+        # without pulling back.  Uses EMA9 as dynamic support instead.
+        self._trend_cont_enabled: bool = getattr(config, 'ft_trend_cont_enabled', True)
+        self._trend_cont_stop_mult: float = getattr(config, 'ft_trend_cont_stop_mult', 1.0)
+        self._trend_cont_target_mult: float = getattr(config, 'ft_trend_cont_target_mult', 2.0)
+        self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 22.0)
+        self._trend_cont_ema9_pct: float = getattr(config, 'ft_trend_cont_ema9_pct', 0.003)  # 0.3% proximity to EMA9
+        self._trend_cont_fired_long: bool = False   # Max 2 per day per side
+        self._trend_cont_fired_short: bool = False
+        self._trend_cont_long_count: int = 0   # Track how many fired
+        self._trend_cont_short_count: int = 0
+        self._trend_cont_max_per_day: int = getattr(config, 'ft_trend_cont_max_per_day', 2)
 
         # FEB 7 2026: Entry time filter (ET)
         # Data analysis on DST-correct backtest shows:
@@ -273,7 +304,42 @@ class EsFifteenMinStrategy(BaseStrategy):
                 macd_hist,
             )
 
-        # Priority: A (EMA21 PB) > C (EMA9 PB) > B (OR breakout)
+        # ---- Signal D: EMA21 Pullback Short (downtrend mirror of A) ----
+        signal_d = None
+        if self._shorts_enabled:
+            signal_d = self._check_ema21_pullback_short(
+                close, open_price, high, ema21, ema50, atr, adx,
+                rsi, macd_hist,
+            )
+
+        # ---- Signal E: OR Breakdown Short (downtrend mirror of B) ----
+        signal_e = None
+        if self._shorts_enabled:
+            signal_e = self._check_or_breakdown(
+                close, low, ema9, ema21, atr, adx, macd_hist,
+            )
+
+        # ---- Signal F: Trend Continuation (strong momentum days) ----
+        # FEB 13 2026: Catches rallies/selloffs where price runs away
+        # from EMA21 without pulling back.  Uses EMA9 as dynamic support.
+        signal_f_long = None
+        signal_f_short = None
+        if self._trend_cont_enabled:
+            signal_f_long = self._check_trend_continuation_long(
+                enriched, close, open_price, low, high,
+                ema9, ema21, ema50, atr, adx, rsi, macd_hist,
+            )
+            if self._shorts_enabled and signal_f_long is None:
+                signal_f_short = self._check_trend_continuation_short(
+                    enriched, close, open_price, low, high,
+                    ema9, ema21, ema50, atr, adx, rsi, macd_hist,
+                )
+
+        # Priority: A (EMA21 PB Long) > C (EMA9 PB Long) > B (OR breakout Long)
+        #         > F_long (Trend Cont Long)
+        #         > D (EMA21 PB Short) > E (OR breakdown Short)
+        #         > F_short (Trend Cont Short)
+        # Long signals take priority over short signals.
         # If both fire on same bar, take higher priority.
         chosen = None
         if signal_a is not None:
@@ -282,11 +348,19 @@ class EsFifteenMinStrategy(BaseStrategy):
             chosen = signal_c
         elif signal_b is not None:
             chosen = signal_b
+        elif signal_f_long is not None:
+            chosen = signal_f_long
+        elif signal_d is not None:
+            chosen = signal_d
+        elif signal_e is not None:
+            chosen = signal_e
+        elif signal_f_short is not None:
+            chosen = signal_f_short
 
         if chosen is None:
             # ── Diagnostic: why no signal fired ──
             _diag_parts = []
-            # Signal A diagnostics
+            # Signal A diagnostics (Long EMA21 PB)
             if ema21 <= ema50:
                 _diag_parts.append(f"A:ema21({ema21:.1f})<=ema50({ema50:.1f})")
             else:
@@ -303,7 +377,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                     _diag_parts.append(f"A:macd_hist({macd_hist:.2f})<=0")
                 elif rsi > 70 or rsi < 35:
                     _diag_parts.append(f"A:rsi({rsi:.0f})out[35-70]")
-            # Signal B diagnostics
+            # Signal B diagnostics (Long OR Breakout)
             if not self._or_computed or self._or_high <= 0:
                 _diag_parts.append(f"B:no_OR(computed={self._or_computed},h={self._or_high:.1f})")
             elif self._or_broken_today:
@@ -316,12 +390,81 @@ class EsFifteenMinStrategy(BaseStrategy):
                 _diag_parts.append(f"B:adx({adx:.0f})<{self._adx_min}")
             elif macd_hist <= 0:
                 _diag_parts.append(f"B:macd_hist({macd_hist:.2f})<=0")
+            # Signal D diagnostics (Short EMA21 PB)
+            if self._shorts_enabled:
+                if ema21 >= ema50:
+                    _diag_parts.append(f"D:ema21({ema21:.1f})>=ema50({ema50:.1f})")
+                else:
+                    _touch_s = ema21 * (1 - self._ema_touch_pct)
+                    if high < _touch_s:
+                        _diag_parts.append(f"D:high({high:.1f})<touch({_touch_s:.1f})")
+                    elif close >= ema21:
+                        _diag_parts.append(f"D:close({close:.1f})>=ema21({ema21:.1f})")
+                    elif close >= open_price:
+                        _diag_parts.append(f"D:bullish(c={close:.1f},o={open_price:.1f})")
+                    elif adx < self._adx_min or adx > self._adx_max:
+                        _diag_parts.append(f"D:adx({adx:.0f})out[{self._adx_min}-{self._adx_max}]")
+                    elif macd_hist >= 0:
+                        _diag_parts.append(f"D:macd_hist({macd_hist:.2f})>=0")
+                    elif rsi < 30 or rsi > 65:
+                        _diag_parts.append(f"D:rsi({rsi:.0f})out[30-65]")
+            else:
+                _diag_parts.append("D:shorts_disabled")
+            # Signal E diagnostics (Short OR Breakdown)
+            if self._shorts_enabled:
+                if not self._or_computed or self._or_low <= 0:
+                    _diag_parts.append(f"E:no_OR(computed={self._or_computed},l={self._or_low:.1f})")
+                elif self._or_broken_below_today:
+                    _diag_parts.append("E:already_broken_below")
+                elif not (close < self._or_low and self._prev_close >= self._or_low):
+                    _diag_parts.append(f"E:no_cross(c={close:.1f},prev={self._prev_close:.1f},OR_L={self._or_low:.1f})")
+                elif ema9 >= ema21:
+                    _diag_parts.append(f"E:ema9({ema9:.1f})>=ema21({ema21:.1f})")
+                elif adx < self._adx_min:
+                    _diag_parts.append(f"E:adx({adx:.0f})<{self._adx_min}")
+                elif macd_hist >= 0:
+                    _diag_parts.append(f"E:macd_hist({macd_hist:.2f})>=0")
+            # Signal F diagnostics (Trend Continuation)
+            if self._trend_cont_enabled:
+                if self._trend_cont_long_count >= self._trend_cont_max_per_day:
+                    _f_reason = f"F:maxed({self._trend_cont_long_count})"
+                elif not (ema9 > ema21 > ema50):
+                    _f_reason = f"F:stack(e9={ema9:.0f},e21={ema21:.0f},e50={ema50:.0f})"
+                elif adx < self._trend_cont_adx_min:
+                    _f_reason = f"F:adx({adx:.0f})<{self._trend_cont_adx_min:.0f}"
+                elif close <= ema9:
+                    _f_reason = f"F:close({close:.1f})<=ema9({ema9:.1f})"
+                else:
+                    _f_reason = f"F:bars_chk(c={close:.1f},e9={ema9:.1f})"
+                _diag_parts.append(_f_reason)
             _diag = " | ".join(_diag_parts) if _diag_parts else "unknown"
             logger.info(f"🔍 NO_SIGNAL diag: {_diag}")
             self._prev_close = close
             return Signal("HOLD", 0.0, {"reason": "NO_SIGNAL"})
 
         action, stop_loss, take_profit, reason = chosen
+
+        is_short = action == "SELL"
+        if is_short:
+            if "TREND_CONT" in reason:
+                market_state = "DOWNTREND_CONTINUATION"
+                entry_type = "trend_continuation_short"
+            elif "PB" in reason:
+                market_state = "DOWNTREND_PULLBACK"
+                entry_type = "ema21_pullback_short"
+            else:
+                market_state = "OR_BREAKDOWN"
+                entry_type = "or_breakdown"
+        else:
+            if "TREND_CONT" in reason:
+                market_state = "UPTREND_CONTINUATION"
+                entry_type = "trend_continuation_long"
+            elif "PB" in reason:
+                market_state = "UPTREND_PULLBACK"
+                entry_type = "ema21_pullback" if "EMA21_PB" in reason else "ema9_pullback"
+            else:
+                market_state = "OR_BREAKOUT"
+                entry_type = "or_breakout"
 
         metadata = {
             "reason": reason,
@@ -337,9 +480,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             "ema50": ema50,
             "or_high": self._or_high,
             "or_low": self._or_low,
-            "market_state": "UPTREND_PULLBACK" if "PB" in reason else "OR_BREAKOUT",
+            "market_state": market_state,
             "position_size": 1.0,
-            "entry_type": "ema21_pullback" if "EMA21_PB" in reason else ("ema9_pullback" if "EMA9_PB" in reason else "or_breakout"),
+            "entry_type": entry_type,
             "session_type": "RTH",
         }
 
@@ -548,6 +691,301 @@ class EsFifteenMinStrategy(BaseStrategy):
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
+    #  Signal D: EMA21 Pullback Short (downtrend mirror of Signal A)
+    # ------------------------------------------------------------------
+    def _check_ema21_pullback_short(
+        self, close: float, open_p: float, high: float,
+        ema21: float, ema50: float, atr: float, adx: float,
+        rsi: float = 50.0, macd_hist: float = 0.0,
+    ) -> Optional[tuple]:
+        """
+        EMA21 pullback in downtrend — short-side mirror of Signal A.
+
+        Conditions (exact inverse of long):
+          1. EMA21 < EMA50 (downtrend)
+          2. Bar high touches EMA21 from below (within 0.1%)
+          3. Close < EMA21 (rejected back below)
+          4. Close < Open (bearish bar)
+          5. ADX > threshold (trending)
+          6. MACD histogram < 0 (momentum confirming downtrend)
+          7. RSI 30-65 (not oversold, not overbought)
+
+        Returns: (action, stop, target, reason) or None
+        """
+        # 1. Downtrend
+        if ema21 >= ema50:
+            return None
+
+        # 2. High touches EMA21 from below
+        touch_threshold = ema21 * (1 - self._ema_touch_pct)
+        if high < touch_threshold:
+            return None
+
+        # 3. Close below EMA21
+        if close >= ema21:
+            return None
+
+        # 4. Bearish bar
+        if close >= open_p:
+            return None
+
+        # 5. ADX filter
+        if adx < self._adx_min:
+            return None
+        if adx > self._adx_max:
+            return None
+
+        # 6. MACD histogram must be negative (momentum confirming downtrend)
+        if macd_hist >= 0:
+            return None
+
+        # 7. RSI filter: avoid deeply oversold and overbought
+        if rsi < 30 or rsi > 65:
+            return None
+
+        # ---- Compute stops/targets (inverted) ----
+        stop_loss = close + atr * self._short_pb_stop_mult
+        take_profit = close - atr * self._short_pb_target_mult
+
+        reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
+        return ("SELL", stop_loss, take_profit, reason)
+
+    # ------------------------------------------------------------------
+    #  Signal E: Opening Range Breakdown Short (mirror of Signal B)
+    # ------------------------------------------------------------------
+    def _check_or_breakdown(
+        self, close: float, low: float,
+        ema9: float, ema21: float, atr: float, adx: float,
+        macd_hist: float = 0.0,
+    ) -> Optional[tuple]:
+        """
+        Opening Range breakdown short — first breakdown per day.
+
+        Conditions (exact inverse of long OR breakout):
+          1. OR has been computed
+          2. Close < OR_LOW and previous close >= OR_LOW (first cross below)
+          3. EMA9 < EMA21 (short-term downtrend)
+          4. ADX > threshold
+          5. Haven't already fired this signal today
+          6. MACD histogram < 0 (momentum confirming breakdown)
+
+        Returns: (action, stop, target, reason) or None
+        """
+        if not self._or_computed or self._or_low <= 0:
+            return None
+
+        if self._or_broken_below_today:
+            return None
+
+        # First cross below OR_LOW
+        if not (close < self._or_low and self._prev_close >= self._or_low):
+            return None
+
+        # EMA alignment (bearish)
+        if ema9 >= ema21:
+            return None
+
+        # ADX filter
+        if adx < self._adx_min:
+            return None
+        if adx > self._adx_max:
+            return None
+
+        # MACD histogram must be negative (momentum confirming breakdown)
+        if macd_hist >= 0:
+            return None
+
+        # ---- Compute stops/targets (inverted) ----
+        risk_dist = self._or_high - close + 1.0  # OR high + 1 pt buffer
+        stop_loss = self._or_high + 1.0
+        take_profit = close - risk_dist * self._short_or_target_r
+
+        # Cap stop distance to prevent enormous risk on wide ORs
+        max_stop_dist = atr * 3.0
+        if (stop_loss - close) > max_stop_dist:
+            stop_loss = close + max_stop_dist
+            risk_dist = max_stop_dist
+            take_profit = close - risk_dist * self._short_or_target_r
+
+        self._or_broken_below_today = True
+
+        reason = f"OR_BREAK_SHORT | ADX={adx:.0f} | OR_L={self._or_low:.2f}"
+        return ("SELL", stop_loss, take_profit, reason)
+
+    # ------------------------------------------------------------------
+    #  Signal F: Trend Continuation Long (strong rally days)
+    # ------------------------------------------------------------------
+    def _check_trend_continuation_long(
+        self, df: pd.DataFrame, close: float, open_p: float,
+        low: float, high: float,
+        ema9: float, ema21: float, ema50: float,
+        atr: float, adx: float, rsi: float, macd_hist: float,
+    ) -> Optional[tuple]:
+        """
+        Trend continuation in strong uptrend — catches strong rally days
+        when price runs away from EMA21 without pulling back.
+
+        FEB 13 2026: On strong rally days the pullback signals (A, C)
+        never fire because price never dips to EMA21/EMA9.  This signal
+        enters on momentum continuation using EMA9 as dynamic support.
+
+        Conditions:
+          1. Full EMA stack: EMA9 > EMA21 > EMA50 (strong uptrend)
+          2. Close > EMA9 (price above all EMAs — running)
+          3. Low is near EMA9 (within 0.3%) — shallow dip toward EMA9
+             OR current bar is bullish and prev bar close > EMA9 (sustained trend)
+          4. ADX >= 22 (strong trending)
+          5. MACD histogram > 0 (momentum confirming)
+          6. RSI 45-78 (not exhausted, not weak)
+          7. Last 3 closes are ascending (c[-1] > c[-2] > c[-3]) — momentum
+          8. Max N fires per day per side (default 2)
+          9. Bullish bar (close > open)
+
+        Risk: tighter stop (1.0× ATR below EMA9), wider target (2.0× ATR).
+        Stop is placed below EMA9 to use it as structural support.
+
+        Returns: (action, stop, target, reason) or None
+        """
+        # 8. Daily limit
+        if self._trend_cont_long_count >= self._trend_cont_max_per_day:
+            return None
+
+        # 1. Full EMA stack
+        if not (ema9 > ema21 > ema50):
+            return None
+
+        # 2. Close above EMA9
+        if close <= ema9:
+            return None
+
+        # 9. Bullish bar
+        if close <= open_p:
+            return None
+
+        # 4. ADX filter (need strong trend)
+        if adx < self._trend_cont_adx_min:
+            return None
+
+        # 5. MACD momentum
+        if macd_hist <= 0:
+            return None
+
+        # 6. RSI filter
+        if rsi < 45 or rsi > 78:
+            return None
+
+        # 3. EMA9 proximity check — low should be near EMA9 (shallow dip)
+        #    This prevents buying at the very top of a spike
+        ema9_zone = ema9 * (1 + self._trend_cont_ema9_pct)
+        if low > ema9_zone:
+            # Fallback: allow if close-to-EMA9 spread is less than 1.5× ATR
+            # (price is extended but not dangerously far)
+            if (close - ema9) > atr * 1.5:
+                return None
+
+        # 7. Ascending closes — last 3 bars must show rising closes
+        if len(df) < 4:
+            return None
+        c1 = float(df.iloc[-1]["close"])  # current
+        c2 = float(df.iloc[-2]["close"])  # prev
+        c3 = float(df.iloc[-3]["close"])  # 2 bars ago
+        if not (c1 > c2 and c2 > c3):
+            return None
+
+        # ---- Compute stops/targets ----
+        # Stop below EMA9 (dynamic support) — at least 1.0× ATR
+        stop_dist = max(close - ema9 + atr * 0.5, atr * self._trend_cont_stop_mult)
+        stop_loss = close - stop_dist
+        take_profit = close + atr * self._trend_cont_target_mult
+
+        self._trend_cont_long_count += 1
+
+        reason = (f"TREND_CONT_LONG | ADX={adx:.0f} | RSI={rsi:.0f} "
+                  f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_long_count}")
+        return ("BUY", stop_loss, take_profit, reason)
+
+    # ------------------------------------------------------------------
+    #  Signal F: Trend Continuation Short (strong selloff days)
+    # ------------------------------------------------------------------
+    def _check_trend_continuation_short(
+        self, df: pd.DataFrame, close: float, open_p: float,
+        low: float, high: float,
+        ema9: float, ema21: float, ema50: float,
+        atr: float, adx: float, rsi: float, macd_hist: float,
+    ) -> Optional[tuple]:
+        """
+        Trend continuation in strong downtrend — mirror of long version.
+
+        Conditions (exact inverse):
+          1. Full EMA stack: EMA9 < EMA21 < EMA50 (strong downtrend)
+          2. Close < EMA9 (price below all EMAs — selling)
+          3. High is near EMA9 (within 0.3%) — shallow bounce toward EMA9
+             OR current bar bearish and prev close < EMA9
+          4. ADX >= 22 (strong trending)
+          5. MACD histogram < 0 (momentum confirming)
+          6. RSI 22-55 (not oversold, not strong)
+          7. Last 3 closes are descending (c[-1] < c[-2] < c[-3])
+          8. Max N fires per day (default 2)
+          9. Bearish bar (close < open)
+
+        Returns: (action, stop, target, reason) or None
+        """
+        # 8. Daily limit
+        if self._trend_cont_short_count >= self._trend_cont_max_per_day:
+            return None
+
+        # 1. Full EMA stack (bearish)
+        if not (ema9 < ema21 < ema50):
+            return None
+
+        # 2. Close below EMA9
+        if close >= ema9:
+            return None
+
+        # 9. Bearish bar
+        if close >= open_p:
+            return None
+
+        # 4. ADX filter
+        if adx < self._trend_cont_adx_min:
+            return None
+
+        # 5. MACD momentum (negative)
+        if macd_hist >= 0:
+            return None
+
+        # 6. RSI filter
+        if rsi < 22 or rsi > 55:
+            return None
+
+        # 3. EMA9 proximity — high near EMA9 (shallow bounce)
+        ema9_zone = ema9 * (1 - self._trend_cont_ema9_pct)
+        if high < ema9_zone:
+            # Fallback: allow if EMA9-to-close spread < 1.5× ATR
+            if (ema9 - close) > atr * 1.5:
+                return None
+
+        # 7. Descending closes
+        if len(df) < 4:
+            return None
+        c1 = float(df.iloc[-1]["close"])
+        c2 = float(df.iloc[-2]["close"])
+        c3 = float(df.iloc[-3]["close"])
+        if not (c1 < c2 and c2 < c3):
+            return None
+
+        # ---- Compute stops/targets (inverted) ----
+        stop_dist = max(ema9 - close + atr * 0.5, atr * self._trend_cont_stop_mult)
+        stop_loss = close + stop_dist
+        take_profit = close - atr * self._trend_cont_target_mult
+
+        self._trend_cont_short_count += 1
+
+        reason = (f"TREND_CONT_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} "
+                  f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_short_count}")
+        return ("SELL", stop_loss, take_profit, reason)
+
+    # ------------------------------------------------------------------
     #  Opening range helpers
     # ------------------------------------------------------------------
     def _collect_opening_bar(self, bar: pd.Series) -> None:
@@ -656,7 +1094,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._or_computed = False
         self._opening_bars = []
         self._or_broken_today = False
+        self._or_broken_below_today = False
         self._prev_close = 0.0
+        # Signal F counters
+        self._trend_cont_long_count = 0
+        self._trend_cont_short_count = 0
 
     def _to_et(self, ts: pd.Timestamp) -> Any:
         """Convert timestamp to US/Eastern."""

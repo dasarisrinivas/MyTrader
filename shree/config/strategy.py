@@ -216,6 +216,21 @@ class OneMinuteStrategyConfig:
     ft_ema9_pb_target_mult: float = 1.5
     ft_ema9_touch_pct: float = 0.0015  # EMA9 touch tolerance (0.15%)
 
+    # FEB 12 2026: Short-side signals (D, E) — mirror of long signals
+    ft_shorts_enabled: bool = False    # Toggle for short-side trading
+    ft_short_pb_stop_mult: float = 1.5   # Short pullback stop = 1.5 × ATR
+    ft_short_pb_target_mult: float = 1.0 # Short pullback target = 1.0 × ATR
+    ft_short_or_target_r: float = 1.0    # OR breakdown target = 1.0 × risk
+
+    # FEB 13 2026: Trend continuation signal (Signal F) — for strong
+    # rally/selloff days when price runs away from EMA21 without pulling back
+    ft_trend_cont_enabled: bool = True       # Toggle Signal F
+    ft_trend_cont_stop_mult: float = 1.0     # Stop = 1.0 × ATR (tighter — trend has momentum)
+    ft_trend_cont_target_mult: float = 2.0   # Target = 2.0 × ATR (wider — riding the trend)
+    ft_trend_cont_adx_min: float = 22.0      # Minimum ADX for trend continuation
+    ft_trend_cont_ema9_pct: float = 0.003    # EMA9 proximity tolerance (0.3%)
+    ft_trend_cont_max_per_day: int = 2        # Max fires per day per side
+
     # FEB 8 2026: Entry time filter (ET) — v3 optimized window
     # 10:30-14:59 ET optimal (swept 11:00, 13:59, 14:29 cutoffs)
     ft_entry_start_hour: int = 10     # Earliest entry hour (ET)

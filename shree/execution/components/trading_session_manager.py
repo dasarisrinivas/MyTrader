@@ -2,6 +2,7 @@
 
 import asyncio
 import time as _time
+from datetime import time as _time_cls
 
 from ib_insync import IB
 
@@ -73,7 +74,11 @@ class TradingSessionManager:
                 logger.info("📊 STRATEGY: ES 15-Minute (EMA21 Pullback + OR Breakout)")
                 logger.info(f"   Timeframe: 15m | Max hold: {m._ft_max_hold_minutes} min")
                 logger.info(f"   Warmup: {m.status.min_bars_needed} bars | Window: {m._bar_window} bars")
-                logger.info("   Mode: LONG-ONLY (shorts disabled)")
+                shorts_on = getattr(one_min_cfg, 'ft_shorts_enabled', False)
+                if shorts_on:
+                    logger.info("   Mode: LONG + SHORT (short-side signals enabled)")
+                else:
+                    logger.info("   Mode: LONG-ONLY (shorts disabled)")
                 logger.info("=" * 60)
             elif use_scoring:
                 strategy = MesOneMinuteScoringStrategy(one_min_cfg)
@@ -302,7 +307,22 @@ class TradingSessionManager:
                     # ──────────────────────────────────────────────────────
                     if active_tf == "15m":
                         bar_ts = new_bar.get("timestamp") or new_bar.get("date")
-                        session = classify_session(bar_ts) if bar_ts is not None else TradingSession.RTH
+                        # Use strategy's configured RTH window (may be wider than
+                        # default 9:30-16:00 ET if entry window was extended).
+                        one_min_cfg = getattr(m.settings, "one_minute", None)
+                        _rth_s = _time_cls(
+                            getattr(one_min_cfg, "rth_start_hour", 9),
+                            getattr(one_min_cfg, "rth_start_minute", 30),
+                        ) if one_min_cfg else _time_cls(9, 30)
+                        _rth_e = _time_cls(
+                            getattr(one_min_cfg, "rth_end_hour", 16),
+                            getattr(one_min_cfg, "rth_end_minute", 0),
+                        ) if one_min_cfg else _time_cls(16, 0)
+                        session = (
+                            classify_session(bar_ts, rth_start=_rth_s, rth_end=_rth_e)
+                            if bar_ts is not None
+                            else TradingSession.RTH
+                        )
                         if session == TradingSession.RTH:
                             await m._process_trading_cycle(current_price, bar_timestamp=new_bar["timestamp"])
                         else:
