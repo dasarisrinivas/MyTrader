@@ -611,7 +611,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         take_profit = close + risk_dist * self._or_target_r
 
         # Cap stop distance to prevent enormous risk on wide ORs
-        max_stop_dist = atr * 3.0
+        # FEB 18 2026: Tightened from 3.0 to 1.8× ATR — 3.0 was producing
+        # 25-30 pt stops that exceed RiskGate max (18 pts / $90).
+        max_stop_dist = atr * 1.8
         if (close - stop_loss) > max_stop_dist:
             stop_loss = close - max_stop_dist
             risk_dist = max_stop_dist
@@ -801,7 +803,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         take_profit = close - risk_dist * self._short_or_target_r
 
         # Cap stop distance to prevent enormous risk on wide ORs
-        max_stop_dist = atr * 3.0
+        # FEB 18 2026: Tightened from 3.0 to 1.8× ATR (matches Signal B)
+        max_stop_dist = atr * 1.8
         if (stop_loss - close) > max_stop_dist:
             stop_loss = close + max_stop_dist
             risk_dist = max_stop_dist

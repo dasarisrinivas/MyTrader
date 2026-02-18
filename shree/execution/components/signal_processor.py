@@ -572,7 +572,13 @@ class SignalProcessor:
         # Block BUY signals near session highs when overbought indicators
         # are present.  This catches the class of failure where EMA-pullback
         # signals fire at the exhaustion point of an intra-day rally.
-        if signal.action in ("BUY", "SCALP_BUY") and pipeline_result is not None:
+        # FEB 18 2026: Exempt OR breakout/breakdown signals — by definition
+        # they fire at session extremes; exhaustion gate creates a catch-22.
+        signal_reason = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
+        is_or_breakout = "OR_BREAK" in signal_reason
+        if is_or_breakout and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            logger.info(f"✅ Exhaustion gate EXEMPT: OR breakout signal ({signal_reason})")
+        if signal.action in ("BUY", "SCALP_BUY") and pipeline_result is not None and not is_or_breakout:
             exhaustion_result = self._apply_exhaustion_dampening(
                 signal=signal,
                 features=features,
@@ -638,8 +644,11 @@ class SignalProcessor:
 
     # ── Exhaustion Dampening (FEB 9 2026) ─────────────────────────
     # Named constants — tuneable without touching logic
-    EXHAUSTION_SESSION_HIGH_PCT = 0.3    # Within 0.3% of session high
-    EXHAUSTION_RSI_THRESHOLD = 65.0      # RSI above this = overbought zone
+    # FEB 18 2026: Loosened from 0.3%/RSI 65. Old values blocked ALL
+    # momentum signals on trending days (RSI 65-70 is normal in a trend).
+    # Now only blocks truly extreme exhaustion (RSI 75+ within 0.1% of high).
+    EXHAUSTION_SESSION_HIGH_PCT = 0.1    # Within 0.1% of session high (was 0.3%)
+    EXHAUSTION_RSI_THRESHOLD = 75.0      # RSI above this = overbought zone (was 65)
     EXHAUSTION_CONFIDENCE_PENALTY = 0.15  # Penalty applied on soft dampening
     EXHAUSTION_BLOCK_PENALTY = 1.0       # Full block (set conf to 0)
     EXHAUSTION_OVERBOUGHT_KEYWORDS = frozenset({
