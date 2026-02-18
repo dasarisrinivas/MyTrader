@@ -1101,8 +1101,8 @@ class RuleEngine:
             elif price < bb_lower and bb_lower > 0:
                  result.filters_blocked.append(f"BLOCKED: OVERSOLD_EXTENSION (Price < BB Low)")
                  result.signal = TradeAction.HOLD
-            elif dist_to_ema20 > 0.003:
-                 result.filters_blocked.append(f"BLOCKED: OVERSOLD_EXTENSION (EMA Extension {dist_to_ema20:.4f} > 0.3%)")
+            elif dist_to_ema20 > 0.005:
+                 result.filters_blocked.append(f"BLOCKED: OVERSOLD_EXTENSION (EMA Extension {dist_to_ema20:.4f} > 0.5%)")
                  result.signal = TradeAction.HOLD
         
         # Store breakdown for external access

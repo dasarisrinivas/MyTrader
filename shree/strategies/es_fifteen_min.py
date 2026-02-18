@@ -155,7 +155,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._trend_cont_enabled: bool = getattr(config, 'ft_trend_cont_enabled', True)
         self._trend_cont_stop_mult: float = getattr(config, 'ft_trend_cont_stop_mult', 1.0)
         self._trend_cont_target_mult: float = getattr(config, 'ft_trend_cont_target_mult', 2.0)
-        self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 22.0)
+        self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 18.0)
         self._trend_cont_ema9_pct: float = getattr(config, 'ft_trend_cont_ema9_pct', 0.003)  # 0.3% proximity to EMA9
         self._trend_cont_fired_long: bool = False   # Max 2 per day per side
         self._trend_cont_fired_short: bool = False

@@ -25,7 +25,7 @@ class RiskGateConfig:
     max_contracts: int = field(default_factory=lambda: int(os.environ.get("MAX_MES_CONTRACTS", "1")))
     risk_per_trade_usd: float = field(default_factory=lambda: float(os.environ.get("RISK_PER_TRADE_USD", "60")))
     risk_per_trade_min: float = 25.0
-    risk_per_trade_max: float = 75.0  # $75 max = 15 point stop
+    risk_per_trade_max: float = 90.0  # $90 max = 18 point stop (FEB 17 2026: raised from 75 to accommodate 1.5×ATR stops)
     # JAN 8 2026 FIX: Raised min_stop_points from 4.0 to 6.0
     # Analysis showed 83% stop-loss hit rate with 4-point stops due to normal
     # market noise of 3-5 points. 6 points gives breathing room.

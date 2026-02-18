@@ -227,7 +227,7 @@ class OneMinuteStrategyConfig:
     ft_trend_cont_enabled: bool = True       # Toggle Signal F
     ft_trend_cont_stop_mult: float = 1.0     # Stop = 1.0 × ATR (tighter — trend has momentum)
     ft_trend_cont_target_mult: float = 2.0   # Target = 2.0 × ATR (wider — riding the trend)
-    ft_trend_cont_adx_min: float = 22.0      # Minimum ADX for trend continuation
+    ft_trend_cont_adx_min: float = 18.0      # Minimum ADX for trend continuation (FEB 17: lowered from 22)
     ft_trend_cont_ema9_pct: float = 0.003    # EMA9 proximity tolerance (0.3%)
     ft_trend_cont_max_per_day: int = 2        # Max fires per day per side
 
