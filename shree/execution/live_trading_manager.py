@@ -2890,8 +2890,10 @@ TRADING GUIDANCE:
             return False
 
         # Check 7: Enforce minimum risk/reward ratio
-        # UPDATED Jan 2, 2026: Raised from 1.0 to 1.5 after audit showed avg loss > avg win
-        min_rr_ratio = getattr(self.settings.trading, "min_risk_reward_ratio", 1.5)
+        # FEB 18 2026: Fixed — field was missing from TradingConfig dataclass,
+        # so getattr always returned 1.5 fallback, blocking all OR signals.
+        # Now reads from config.yaml via TradingConfig.min_risk_reward_ratio (default=1.0)
+        min_rr_ratio = getattr(self.settings.trading, "min_risk_reward_ratio", 1.0)
         _, reward_points, rr_ratio = compute_risk_reward(
             entry_price,
             stop_loss,

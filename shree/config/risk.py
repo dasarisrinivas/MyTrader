@@ -73,6 +73,9 @@ class TradingConfig:
     # Risk percentage per trade for fixed fractional sizing (0.005 = 0.5%, 0.01 = 1%)
     risk_per_trade_pct: float = 0.005
     
+    # Risk/reward guardrail
+    min_risk_reward_ratio: float = 1.0  # Minimum R:R to allow entry (1.0 = 1:1)
+
     # Safety parameters
     disaster_stop_pct: float = 0.007
     max_trade_duration_minutes: int = 60

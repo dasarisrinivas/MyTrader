@@ -9,7 +9,7 @@ PREVIOUS DAY LEVELS:
 - Previous Day Open: 6835.00
 
 TODAY'S LEVELS (so far):
-- Today's High: 6923.75
+- Today's High: 6925.75
 - Today's Low: 6861.25
 - Today's Open: 6873.75
 
