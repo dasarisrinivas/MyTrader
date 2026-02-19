@@ -1,0 +1,31 @@
+{
+  "trade_cycle_id": "dc2aa520e2a9",
+  "symbol": "MES",
+  "contract": "MES",
+  "quantity": 1,
+  "side": "SELL",
+  "entry_time": "2026-02-19T11:15:37.479918-06:00",
+  "entry_price": 6866.75,
+  "exit_time": "2026-02-19T17:22:20.305279+00:00",
+  "exit_price": 6877.5,
+  "stop_loss": 6877.5,
+  "take_profit": 6854.75,
+  "signal_type": "SELL",
+  "signal_confidence": 0.7474999999999999,
+  "regime": "CHOP",
+  "volatility": "MEDIUM",
+  "advisory": null,
+  "risk_parameters": {
+    "distance_points": 10.75,
+    "target_points": 12.0
+  },
+  "features": {},
+  "execution_metrics": {
+    "slippage": 0.0,
+    "latency_ms": null,
+    "immediate_fill": false
+  },
+  "reason_codes": [],
+  "outcome": "LOSS",
+  "pnl": -54.99
+}

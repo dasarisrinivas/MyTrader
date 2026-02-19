@@ -150,14 +150,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._or_broken_below_today: bool = False  # Only first OR breakdown per day
 
         # FEB 18 2026: Fixed-point take-profit system
-        # In futures, each point = fixed $ (MES: $5/pt).  ATR-based targets
-        # produce wildly different dollar outcomes across volatility regimes.
-        # Fixed-point targets give consistent, achievable dollar targets:
-        #   8 pts = $40,  10 pts = $50,  12 pts = $60
-        # These hit more often than stretched ATR targets, improving win rate.
+        # FEB 19 2026: Fixed-point stop-loss system (matching TP for consistent R:R)
+        # In futures, each point = fixed $ (MES: $5/pt).  ATR-based stops
+        # produce inconsistent R:R when paired with fixed TP.
+        # Fixed-point SL/TP gives guaranteed R:R at every entry:
+        #   A/B/D/E: SL=6pts($30), TP=8pts($40) → R:R 1.33:1
+        #   C:       SL=8pts($40), TP=10pts($50) → R:R 1.25:1
+        #   F:       SL=8pts($40), TP=12pts($60) → R:R 1.50:1
         self._fixed_tp_points: float = getattr(config, 'ft_fixed_tp_points', 8.0)          # Signals A, B, D, E
         self._fixed_tp_points_ema9: float = getattr(config, 'ft_fixed_tp_points_ema9', 10.0)  # Signal C (EMA9 PB)
         self._fixed_tp_points_trend: float = getattr(config, 'ft_fixed_tp_points_trend', 12.0) # Signal F (trend cont)
+        self._fixed_sl_points: float = getattr(config, 'ft_fixed_sl_points', 6.0)          # Signals A, B, D, E
+        self._fixed_sl_points_ema9: float = getattr(config, 'ft_fixed_sl_points_ema9', 8.0)  # Signal C
+        self._fixed_sl_points_trend: float = getattr(config, 'ft_fixed_sl_points_trend', 8.0) # Signal F
 
         # FEB 13 2026: Trend continuation signal (Signal F) — captures
         # strong rally / selloff days when price runs away from EMA21
@@ -563,7 +568,7 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets ----
-        stop_loss = close - atr * self._pb_stop_mult
+        stop_loss = close - self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
         take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
         reason = f"EMA21_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
@@ -616,19 +621,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets ----
-        risk_dist = close - self._or_low + 1.0  # OR low - 1 pt buffer
-        stop_loss = self._or_low - 1.0
-
-        # FEB 18 2026: Fixed-point TP ($40 at 8 pts).  Previous ATR-based and
-        # OR-width-based targets produced unreachable TPs on wide-OR days.
-        take_profit = close + self._fixed_tp_points
-
-        # Cap stop distance to prevent enormous risk on wide ORs
-        # FEB 18 2026: Tightened from 3.0 to 1.8× ATR — 3.0 was producing
-        # 25-30 pt stops that exceed RiskGate max (18 pts / $90).
-        max_stop_dist = atr * 1.8
-        if (close - stop_loss) > max_stop_dist:
-            stop_loss = close - max_stop_dist
+        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
+        stop_loss = close - self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
+        take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
         self._or_broken_today = True
 
@@ -697,8 +692,8 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets ----
-        stop_loss = close - atr * self._ema9_pb_stop_mult
-        take_profit = close + self._fixed_tp_points_ema9  # Fixed-point TP ($50 at 10 pts)
+        stop_loss = close - self._fixed_sl_points_ema9       # Fixed-point SL ($40 at 8 pts)
+        take_profit = close + self._fixed_tp_points_ema9     # Fixed-point TP ($50 at 10 pts)
 
         reason = f"EMA9_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | ATR={atr:.1f}"
         return ("BUY", stop_loss, take_profit, reason)
@@ -757,7 +752,7 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets (inverted) ----
-        stop_loss = close + atr * self._short_pb_stop_mult
+        stop_loss = close + self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
         take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
         reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
@@ -809,17 +804,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets (inverted) ----
-        stop_loss = self._or_high + 1.0
-
-        # FEB 18 2026: Fixed-point TP ($40 at 8 pts).  Previous OR-width-based
-        # targets were 16 pts when ATR was only 10 — unreachable.
-        take_profit = close - self._fixed_tp_points
-
-        # Cap stop distance to prevent enormous risk on wide ORs
-        # FEB 18 2026: Tightened from 3.0 to 1.8× ATR (matches Signal B)
-        max_stop_dist = atr * 1.8
-        if (stop_loss - close) > max_stop_dist:
-            stop_loss = close + max_stop_dist
+        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
+        stop_loss = close + self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
+        take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
         self._or_broken_below_today = True
 
@@ -907,10 +894,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets ----
-        # Stop below EMA9 (dynamic support) — at least 1.0× ATR
-        stop_dist = max(close - ema9 + atr * 0.5, atr * self._trend_cont_stop_mult)
-        stop_loss = close - stop_dist
-        take_profit = close + self._fixed_tp_points_trend  # Fixed-point TP ($60 at 12 pts)
+        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
+        stop_loss = close - self._fixed_sl_points_trend      # Fixed-point SL ($40 at 8 pts)
+        take_profit = close + self._fixed_tp_points_trend    # Fixed-point TP ($60 at 12 pts)
 
         self._trend_cont_long_count += 1
 
@@ -989,9 +975,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # ---- Compute stops/targets (inverted) ----
-        stop_dist = max(ema9 - close + atr * 0.5, atr * self._trend_cont_stop_mult)
-        stop_loss = close + stop_dist
-        take_profit = close - self._fixed_tp_points_trend  # Fixed-point TP ($60 at 12 pts)
+        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
+        stop_loss = close + self._fixed_sl_points_trend      # Fixed-point SL ($40 at 8 pts)
+        take_profit = close - self._fixed_tp_points_trend    # Fixed-point TP ($60 at 12 pts)
 
         self._trend_cont_short_count += 1
 

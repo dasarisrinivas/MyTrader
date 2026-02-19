@@ -116,7 +116,7 @@ class HybridConfig:
     # Confidence thresholds
     min_confidence_threshold: float = 0.60
     signal_threshold: int = 40
-    oversold_extension_rsi_min: float = 40.0
+    oversold_extension_rsi_min: float = 25.0  # FEB 19: Lowered 40→25 for short compatibility
     no_signal_allow_weak_signals: bool = False
     no_signal_allow_chop_bias: bool = False
     min_confidence_for_trade: int = 25  # ADDED: Minimum confidence % for trade execution (25 = 25%)
