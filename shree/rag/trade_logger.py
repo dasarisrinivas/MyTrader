@@ -121,6 +121,12 @@ class TradeLogger:
         
         # Extract scoring data
         score_breakdown = market_data.get("score_breakdown", {})
+        # FEB 18 2026: score_breakdown can be a list of strings from strategy
+        # (e.g. ['TREND_SCORE:+85', ...]) instead of a dict. Handle both.
+        if isinstance(score_breakdown, list):
+            score_breakdown = {"raw_breakdown": score_breakdown}
+        elif not isinstance(score_breakdown, dict):
+            score_breakdown = {}
         scoring_total = score_breakdown.get("total", 0.0)
         scoring_trend = score_breakdown.get("trend", 0.0)
         scoring_momentum = score_breakdown.get("momentum", 0.0)

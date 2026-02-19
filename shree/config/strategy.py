@@ -91,13 +91,13 @@ class OneMinuteStrategyConfig:
     # Previous settings (Require Trend + High ATR) were too restrictive (~1 trade/day)
     require_regime_trend: bool = False  # Allow trading in 15m ranging markets (uses 1m trend)
     
-    # JAN 11 2026: Session gating - only trade RTH to avoid bad overnight data
-    # IB 1-min data has 60%+ ZERO_RANGE bars overnight (no real trading)
-    rth_only: bool = True  # Only trade during RTH hours
-    rth_start_hour: int = 9   # RTH start hour (9:30 AM ET)
-    rth_start_minute: int = 30
-    rth_end_hour: int = 16    # RTH end hour (4:00 PM ET)
-    rth_end_minute: int = 0
+    # FEB 18 2026: 24-HOUR TRADING — RTH gate widened to full session
+    # Maintenance (4-5 PM CT) enforced by RiskGate separately
+    rth_only: bool = True  # Still True but window covers full 24h
+    rth_start_hour: int = 0   # 24h: midnight ET
+    rth_start_minute: int = 0
+    rth_end_hour: int = 23    # 24h: 11 PM ET
+    rth_end_minute: int = 59
     
     # JAN 11 2026: Volume filter - skip bars with no real trading activity
     # IB ZERO_RANGE bars have volume=0 or 1, real bars have 1000+ volume
@@ -231,12 +231,12 @@ class OneMinuteStrategyConfig:
     ft_trend_cont_ema9_pct: float = 0.003    # EMA9 proximity tolerance (0.3%)
     ft_trend_cont_max_per_day: int = 2        # Max fires per day per side
 
-    # FEB 8 2026: Entry time filter (ET) — v3 optimized window
-    # 10:30-14:59 ET optimal (swept 11:00, 13:59, 14:29 cutoffs)
-    ft_entry_start_hour: int = 10     # Earliest entry hour (ET)
-    ft_entry_start_minute: int = 30
-    ft_entry_end_hour: int = 15       # Latest entry hour (ET, exclusive)
-    ft_entry_end_minute: int = 0
+    # FEB 18 2026: 24-HOUR TRADING — entry/RTH gates effectively disabled
+    # Maintenance (4-5 PM CT) is enforced by RiskGate separately
+    ft_entry_start_hour: int = 0      # 24h: midnight ET
+    ft_entry_start_minute: int = 0
+    ft_entry_end_hour: int = 23       # 24h: 11 PM ET
+    ft_entry_end_minute: int = 59
 
 
 @dataclass
