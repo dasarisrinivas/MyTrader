@@ -282,9 +282,10 @@ class AnomalyDetector:
         else:
             last_trade_str = "never"
 
-        # Only the first NO_TRADE of the day gets a Copilot session;
-        # subsequent re-alerts are Telegram-only to avoid spamming Copilot.
-        first_today = not self._no_trade_fired_today
+        # Every NO_TRADE alert gets a Copilot session so the agent
+        # always explains *why* the bot is idle.  Rate-limiting
+        # (max_analyses_per_hour) and cooldown (no_trade_cooldown_minutes)
+        # prevent Copilot spam.
         self._no_trade_fired_today = True
 
         anomaly = Anomaly(
@@ -304,7 +305,7 @@ class AnomalyDetector:
                 "last_trade": last_ts.isoformat() if last_ts else None,
                 "last_trade_display": last_trade_str,
             },
-            needs_copilot=first_today,
+            needs_copilot=True,
         )
         self._record_trigger(anomaly)
         return anomaly

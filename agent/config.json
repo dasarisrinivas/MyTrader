@@ -17,7 +17,7 @@
     },
     "cooldowns": {
         "analysis_cooldown_minutes": 30,
-        "no_trade_cooldown_minutes": 45,
+        "no_trade_cooldown_minutes": 60,
         "loss_cooldown_minutes": 20,
         "max_analyses_per_hour": 3,
         "dedup_window_minutes": 60

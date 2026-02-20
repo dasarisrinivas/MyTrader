@@ -1,82 +1,44 @@
 {
   "triggered": {
-    "e8a6383d6074addf": "2026-02-20T13:00:21.575312-06:00",
-    "cf4447e27c6f5b70": "2026-02-20T13:00:21.578825-06:00",
-    "d385b3c4cb1ef6b2": "2026-02-20T13:31:23.858581-06:00",
-    "9d47d9280c7c34de": "2026-02-20T13:44:28.174336-06:00"
+    "8c438b3650c5208d": "2026-02-20T15:05:50.024229-06:00"
   },
   "anomaly_history": [
     {
-      "anomaly_id": "e8a6383d6074addf",
-      "anomaly_type": "TRADE_COMPLETE",
-      "severity": "LOW",
-      "description": "Trade completed: BUY filled at 6877.5, P&L: flat. Order: 130003.",
-      "detected_at": "2026-02-20T13:00:21.575296-06:00",
-      "payload": {
-        "order_id": "130003",
-        "action": "BUY",
-        "fill_price": 6877.5,
-        "realized_pnl": 0.0,
-        "pnl_display": "flat",
-        "symbol": "MES"
-      },
-      "needs_copilot": false
-    },
-    {
-      "anomaly_id": "cf4447e27c6f5b70",
+      "anomaly_id": "8c438b3650c5208d",
       "anomaly_type": "NO_TRADE",
-      "severity": "HIGH",
-      "description": "No trades for 25h 38m. Last trade: yesterday at 11:22 AM CST. Threshold: 60 min.",
-      "detected_at": "2026-02-20T13:00:21.578769-06:00",
+      "severity": "MEDIUM",
+      "description": "No trades for 90 min. Last trade: today at 1:35 PM CST. Threshold: 60 min.",
+      "detected_at": "2026-02-20T14:00:50.024157-06:00",
       "payload": {
-        "minutes_idle": 1538.0,
-        "idle_display": "25h 38m",
+        "minutes_idle": 90.0,
+        "idle_display": "90 min",
         "threshold": 60,
-        "last_trade": "2026-02-19T11:22:20.298208-06:00",
-        "last_trade_display": "yesterday at 11:22 AM CST"
+        "last_trade": "2026-02-20T13:35:50.023076-06:00",
+        "last_trade_display": "today at 1:35 PM CST"
       },
       "needs_copilot": true
     },
     {
-      "anomaly_id": "d385b3c4cb1ef6b2",
-      "anomaly_type": "TRADE_COMPLETE",
-      "severity": "LOW",
-      "description": "Trade completed: BUY filled at 6920.25, P&L: flat. Order: 372.",
-      "detected_at": "2026-02-20T13:31:23.858514-06:00",
-      "payload": {
-        "order_id": "372",
-        "action": "BUY",
-        "fill_price": 6920.25,
-        "realized_pnl": 0.0,
-        "pnl_display": "flat",
-        "symbol": "MES"
-      },
-      "needs_copilot": false
-    },
-    {
-      "anomaly_id": "9d47d9280c7c34de",
-      "anomaly_type": "TRADE_COMPLETE",
+      "anomaly_id": "8c438b3650c5208d",
+      "anomaly_type": "NO_TRADE",
       "severity": "MEDIUM",
-      "description": "Trade completed: SELL filled at 6912.25, P&L: $-44.80. Order: 374.",
-      "detected_at": "2026-02-20T13:44:28.173946-06:00",
+      "description": "No trades for 90 min. Last trade: today at 1:35 PM CST. Threshold: 60 min.",
+      "detected_at": "2026-02-20T15:05:50.024189-06:00",
       "payload": {
-        "order_id": "374",
-        "action": "SELL",
-        "fill_price": 6912.25,
-        "realized_pnl": -44.8,
-        "pnl_display": "$-44.80",
-        "symbol": "MES"
+        "minutes_idle": 90.0,
+        "idle_display": "90 min",
+        "threshold": 60,
+        "last_trade": "2026-02-20T13:35:50.023076-06:00",
+        "last_trade_display": "today at 1:35 PM CST"
       },
       "needs_copilot": true
     }
   ],
   "analysis_timestamps": [
-    "2026-02-20T13:00:21.575314-06:00",
-    "2026-02-20T13:00:21.578826-06:00",
-    "2026-02-20T13:31:23.858586-06:00",
-    "2026-02-20T13:44:28.174348-06:00"
+    "2026-02-20T15:05:50.023808-06:00",
+    "2026-02-20T15:05:50.024230-06:00"
   ],
   "last_seen_trade_id": "374",
   "no_trade_fired_date": "2026-02-20",
-  "saved_at": "2026-02-20T13:44:28.176955-06:00"
+  "saved_at": "2026-02-20T15:05:50.024261-06:00"
 }
