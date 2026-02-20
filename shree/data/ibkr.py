@@ -70,10 +70,10 @@ class IBKRCollector(DataCollector):
                 # Small delay to let connection stabilize
                 await asyncio.sleep(0.5)
                 
-                # Request delayed market data (free, no subscription needed)
-                # This provides 15-minute delayed data for paper trading
-                self.ib.reqMarketDataType(3)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
-                logger.info("✅ Data collector connected successfully (client_id={}, delayed data)", self.client_id)
+                # Request live market data (requires market data subscription)
+                # Use type 1 for live trading, type 3 for paper/delayed
+                self.ib.reqMarketDataType(1)  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed-Frozen
+                logger.info("✅ Data collector connected successfully (client_id={}, live data)", self.client_id)
                 return
             except TimeoutError:
                 self.connection_attempts += 1

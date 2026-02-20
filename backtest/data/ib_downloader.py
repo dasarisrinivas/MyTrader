@@ -38,7 +38,7 @@ except ImportError:
 class DownloadConfig:
     """Configuration for historical data download."""
     host: str = "127.0.0.1"
-    port: int = 4002
+    port: int = 4001
     client_id: int = 99  # Dedicated client ID for downloads
     
     # Pacing settings (IB limits: max 60 requests per 10 minutes)
@@ -202,8 +202,8 @@ class IBHistoricalDownloader:
                     timeout=30
                 )
                 
-                # Request delayed data (works without market data subscription)
-                self.ib.reqMarketDataType(3)  # 3 = Delayed
+                # Request live data (requires market data subscription)
+                self.ib.reqMarketDataType(1)  # 1 = Live
                 
                 logger.info("✅ Connected to IB Gateway")
                 return

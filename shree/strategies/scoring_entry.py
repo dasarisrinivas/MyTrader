@@ -631,12 +631,120 @@ def calculate_penalty_score(
     return components
 
 
+def calculate_level_trap_score(
+    data: Dict[str, Any],
+    recent_bars: Optional[pd.DataFrame] = None,
+    key_levels: Optional[Dict[str, Optional[float]]] = None,
+) -> List[ScoreComponent]:
+    """Detect false-breakout / level-trap patterns near key S/R levels.
+
+    FEB 20 2026: New penalty component.  A "level trap" occurs when price
+    wicks through a significant support/resistance level but the candle
+    *closes back inside* — a classic sign of a fake-out that catches
+    breakout traders.  In elevated-VIX, geopolitically-tense sessions
+    (like today) these traps are especially common.
+
+    Detection logic (per level):
+        1. The candle high/low breached the level.
+        2. The candle close is back on the "wrong" side of the level
+           (i.e. the breakout failed).
+        3. Penalty scales with how far the wick extended beyond the level
+           relative to the candle range (deeper wick = stronger trap signal).
+
+    Also checks recent bars (last 3) for *multi-bar* false breakouts:
+    a prior bar closed beyond the level but the current bar reversed back.
+
+    Args:
+        data: Current bar OHLC + indicators.
+        recent_bars: Last 5-10 bars for multi-bar trap detection.
+        key_levels: Dict of level_name → price, e.g.
+            {"PDH": 6922.0, "PDL": 6860.0, "R1": 6900.0, ...}.
+            When ``None``, the function is a no-op.
+
+    Returns:
+        List of ScoreComponent penalties (all negative or empty).
+    """
+    components: List[ScoreComponent] = []
+
+    if not key_levels:
+        return components
+
+    close = float(data.get("close", 0))
+    high = float(data.get("high", close))
+    low = float(data.get("low", close))
+    candle_range = high - low
+    if candle_range <= 0:
+        return components
+
+    for level_name, level_price in key_levels.items():
+        if level_price is None:
+            continue
+        level_price = float(level_price)
+
+        # ── Resistance trap (wick above, close below) ────────────
+        if high > level_price and close < level_price:
+            wick_beyond = high - level_price
+            wick_ratio = wick_beyond / candle_range
+            # Scale penalty: -8 base, up to -15 for deep wicks
+            penalty = -8.0 - min(7.0, wick_ratio * 10.0)
+            components.append(ScoreComponent(
+                "LEVEL_TRAP_RESIST",
+                round(penalty, 1),
+                f"wicked above {level_name}={level_price:.1f} (wick_ratio={wick_ratio:.2f})",
+                "penalty",
+            ))
+
+        # ── Support trap (wick below, close above) ───────────────
+        if low < level_price and close > level_price:
+            wick_beyond = level_price - low
+            wick_ratio = wick_beyond / candle_range
+            penalty = -8.0 - min(7.0, wick_ratio * 10.0)
+            components.append(ScoreComponent(
+                "LEVEL_TRAP_SUPPORT",
+                round(penalty, 1),
+                f"wicked below {level_name}={level_price:.1f} (wick_ratio={wick_ratio:.2f})",
+                "penalty",
+            ))
+
+    # ── Multi-bar false breakout (recent bar closed beyond, current reversed) ──
+    if recent_bars is not None and len(recent_bars) >= 2:
+        try:
+            for level_name, level_price in key_levels.items():
+                if level_price is None:
+                    continue
+                level_price = float(level_price)
+                prev_close = float(recent_bars["close"].iloc[-2])
+
+                # Prior bar closed above resistance, current bar fell back below
+                if prev_close > level_price and close < level_price:
+                    components.append(ScoreComponent(
+                        "MULTI_BAR_TRAP_RESIST",
+                        -10.0,
+                        f"prev closed above {level_name}={level_price:.1f}, now reversed",
+                        "penalty",
+                    ))
+
+                # Prior bar closed below support, current bar bounced back above
+                if prev_close < level_price and close > level_price:
+                    components.append(ScoreComponent(
+                        "MULTI_BAR_TRAP_SUPPORT",
+                        -10.0,
+                        f"prev closed below {level_name}={level_price:.1f}, now reversed",
+                        "penalty",
+                    ))
+        except Exception as e:
+            logger.debug(f"Multi-bar trap detection skipped: {e}")
+
+    return components
+
+
 def calculate_signal_score(
     data: Dict[str, Any],
     prev_data: Optional[Dict[str, Any]] = None,
     recent_bars: Optional[pd.DataFrame] = None,
     timestamp: Optional[datetime] = None,
-    atr_percentile: Optional[float] = None
+    atr_percentile: Optional[float] = None,
+    key_levels: Optional[Dict[str, Optional[float]]] = None,
 ) -> SignalScore:
     """Calculate comprehensive signal score from all components.
     
@@ -649,6 +757,8 @@ def calculate_signal_score(
         recent_bars: Recent 10-20 bars for momentum/pullback analysis
         timestamp: Current timestamp for session checks
         atr_percentile: Current ATR percentile (0-1)
+        key_levels: Optional dict of S/R level_name → price for false-breakout
+            trap detection (e.g. {"PDH": 6922.0, "S1": 6860.0}).
         
     Returns:
         SignalScore object with total score and component breakdown
@@ -710,10 +820,12 @@ def calculate_signal_score(
     regime_components = calculate_regime_score(data, atr_percentile)
     entry_components = calculate_entry_quality_score(data, recent_bars)
     penalty_components = calculate_penalty_score(data, timestamp)
+    level_trap_components = calculate_level_trap_score(data, recent_bars, key_levels)
     
     # Add all components to score
     for component in (trend_components + momentum_components + 
-                     regime_components + entry_components + penalty_components):
+                     regime_components + entry_components + penalty_components +
+                     level_trap_components):
         score.components.append(component)
         score.total_score += component.value
     

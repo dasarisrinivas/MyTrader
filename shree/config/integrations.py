@@ -169,7 +169,7 @@ class VixFeedConfig:
         default_factory=lambda: os.environ.get("VIX_FEED_IB_HOST", "127.0.0.1")
     )
     ib_port: int = field(
-        default_factory=lambda: int(os.environ.get("VIX_FEED_IB_PORT", "7497"))
+        default_factory=lambda: int(os.environ.get("VIX_FEED_IB_PORT", "4001"))
     )
     client_id: int = field(
         default_factory=lambda: int(os.environ.get("VIX_FEED_CLIENT_ID", "71"))

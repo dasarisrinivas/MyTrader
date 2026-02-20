@@ -20,7 +20,7 @@ class TestVxConfig:
         
         config = VxConfig()
         assert config.host == "127.0.0.1"
-        assert config.port == 7497
+        assert config.port == 4001
         assert config.client_id == 71
         assert config.market_data_type == 1
         assert config.stale_seconds == 120
@@ -88,7 +88,7 @@ class TestVxFuturesFeedInit:
         
         feed = VxFuturesFeed()
         assert feed.config.host == "127.0.0.1"
-        assert feed.config.port == 7497
+        assert feed.config.port == 4001
         assert feed.config.client_id == 71
         assert feed._running is False
         assert feed._thread is None
@@ -374,7 +374,7 @@ class TestModuleLevelFunctions:
         )
         
         # Initialize
-        feed = init_vx_feed(host="127.0.0.1", port=7497, client_id=99)
+        feed = init_vx_feed(host="127.0.0.1", port=4001, client_id=99)
         
         # Get should return the same instance
         assert get_vx_feed() is feed

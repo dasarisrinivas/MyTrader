@@ -167,13 +167,53 @@ class RiskManager:
         current_price: float, 
         atr: float, 
         direction: Literal["long", "short"],
-        atr_multiplier: float = 2.0
+        atr_multiplier: float = 2.0,
+        vix_value: float | None = None,
     ) -> float:
-        """Calculate ATR-based stop loss."""
+        """Calculate ATR-based stop loss, optionally widened by implied vol.
+
+        FEB 20 2026 FIX: When the VIX (implied vol) materially exceeds
+        realized vol (ATR), stops calibrated purely on ATR are too tight —
+        the market can gap through them on a news spike.  We now accept an
+        optional ``vix_value`` and, when implied vol is elevated relative to
+        ATR, widen the effective ATR multiplier so stops have breathing room.
+
+        The widening is *capped* at 50 % extra to avoid runaway stop
+        distances; the RiskGate ``max_stop_points`` still enforces the hard
+        ceiling downstream.
+
+        Args:
+            current_price: Current market price.
+            atr: Current ATR value (realized vol proxy).
+            direction: Trade direction.
+            atr_multiplier: Base multiplier for ATR stop distance.
+            vix_value: Optional current VIX/VX level.  When provided, the
+                stop distance may be widened if implied vol > realized vol.
+
+        Returns:
+            Stop price.
+        """
+        effective_mult = atr_multiplier
+
+        if vix_value is not None and atr > 0:
+            # Normalize VIX to per-bar realized-vol-equivalent using a rough
+            # annualization factor.  For 1-min bars on MES, ATR ~2-5 pts is
+            # typical when VIX ~15-20.  We use a simple heuristic ratio:
+            #   implied_proxy = vix_value / 4.0  (empirical scaling for ES/MES)
+            #   ratio = implied_proxy / atr
+            # When ratio > 1.0 the market expects larger moves than recent
+            # bars delivered → widen stops.
+            implied_proxy = vix_value / 4.0
+            ratio = implied_proxy / atr
+            if ratio > 1.0:
+                # Scale: 10 % widening per 0.1 excess, capped at +50 %
+                widening = min(0.50, (ratio - 1.0) * 1.0)
+                effective_mult *= (1.0 + widening)
+
         if direction == "long":
-            stop_price = current_price - (atr * atr_multiplier)
+            stop_price = current_price - (atr * effective_mult)
         else:  # short
-            stop_price = current_price + (atr * atr_multiplier)
+            stop_price = current_price + (atr * effective_mult)
         return stop_price
 
     def calculate_dynamic_stops(
@@ -182,10 +222,26 @@ class RiskManager:
         current_atr: float,
         direction: Literal["long", "short"],
         atr_multiplier: float = 2.0,
-        risk_reward_ratio: float = 2.0
+        risk_reward_ratio: float = 2.0,
+        vix_value: float | None = None,
     ) -> tuple[float, float]:
-        """Calculate dynamic stop loss and take profit based on ATR."""
-        stop_distance = current_atr * atr_multiplier
+        """Calculate dynamic stop loss and take profit based on ATR.
+
+        FEB 20 2026: Accepts optional ``vix_value`` to widen stop distance
+        when implied vol exceeds realized vol (same logic as
+        ``calculate_atr_stop``).  Take-profit distance scales with the
+        same widening so the R:R ratio is preserved.
+        """
+        effective_mult = atr_multiplier
+
+        if vix_value is not None and current_atr > 0:
+            implied_proxy = vix_value / 4.0
+            ratio = implied_proxy / current_atr
+            if ratio > 1.0:
+                widening = min(0.50, (ratio - 1.0) * 1.0)
+                effective_mult *= (1.0 + widening)
+
+        stop_distance = current_atr * effective_mult
         target_distance = stop_distance * risk_reward_ratio
         
         if direction == "long":

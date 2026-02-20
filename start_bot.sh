@@ -79,7 +79,7 @@ def get_value(obj, path, default):
 
 values = [
     str(get_value(data, "data.ibkr_host", "127.0.0.1")),
-    str(get_value(data, "data.ibkr_port", 4002)),
+    str(get_value(data, "data.ibkr_port", 4001)),
     str(get_value(data, "rag.min_similar_trades", 2)),
     str(get_value(data, "rag.min_weighted_win_rate", 0.45)),
     str(get_value(data, "trading.confidence_threshold", 0.7)),
@@ -129,7 +129,7 @@ fi
 # Set environment variables and guardrails
 export MAX_CONTRACTS=${MAX_CONTRACTS:-5}
 export IBKR_HOST=${IBKR_HOST:-"127.0.0.1"}
-export IBKR_PORT=${IBKR_PORT:-4002}
+export IBKR_PORT=${IBKR_PORT:-4001}
 
 # Prometheus metrics (required for Kubernetes observability)
 export PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}

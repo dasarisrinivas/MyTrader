@@ -4,15 +4,15 @@ echo "🔍 Checking IB Gateway Connection Status..."
 echo ""
 
 # Check if IB Gateway is running
-if lsof -i :4002 | grep -q JavaAppli; then
+if lsof -i :4001 | grep -q JavaAppli; then
     echo "✅ IB Gateway is running"
     echo ""
     echo "Current connections:"
-    lsof -i :4002 | grep -v "COMMAND"
+    lsof -i :4001 | grep -v "COMMAND"
     echo ""
     
     # Count connections
-    CLIENT_CONN=$(lsof -i :4002 | grep ESTABLISHED | grep -v JavaAppli | wc -l | tr -d ' ')
+    CLIENT_CONN=$(lsof -i :4001 | grep ESTABLISHED | grep -v JavaAppli | wc -l | tr -d ' ')
     echo "Active client connections: $CLIENT_CONN"
     
     if [ "$CLIENT_CONN" -gt 0 ]; then
@@ -28,7 +28,7 @@ else
     echo ""
     echo "Please start IB Gateway:"
     echo "  1. Open IB Gateway application"
-    echo "  2. Login to Paper Trading"  
+    echo "  2. Login to Live Trading"  
     echo "  3. Wait for 'Connected' status"
 fi
 

@@ -2079,6 +2079,25 @@ TRADING GUIDANCE:
     def _get_volatility_from_features(self, row) -> str:
         """Extract volatility classification from feature row."""
         return self.risk_controller.get_volatility_from_features(row)
+
+    def _get_live_vix_price(self) -> Optional[float]:
+        """Return the current VX front-month price (VIX proxy) from the feed.
+
+        Returns None if the feed is unavailable or stale, letting callers
+        fall back to ATR-only behaviour.
+        """
+        sp = getattr(self, "signal_processor", None)
+        if sp is None:
+            return None
+        vx_feed = getattr(sp, "_vx_feed", None)
+        if vx_feed is None:
+            return None
+        try:
+            if vx_feed.is_stale():
+                return None
+            return vx_feed.get_vx_price()
+        except Exception:  # noqa: BLE001
+            return None
     
     async def _broadcast_aws_agent_signal(self, decision: dict, current_price: float):
         """Broadcast AWS agent signal to WebSocket clients."""
@@ -2361,12 +2380,15 @@ TRADING GUIDANCE:
                 target_offset = pipeline_result.take_profit
                 logger.info(f"🎯 Using PIPELINE risk params: SL={stop_offset:.2f}, TP={target_offset:.2f}")
             else:
+                # FEB 20 2026: Pass live VIX value so stop widens on event days
+                _live_vix = self._get_live_vix_price()
                 offsets = compute_protective_offsets(
                     atr_value=atr,
                     tick_size=self.settings.trading.tick_size,
                     scalper=is_scalp,
                     volatility=self.status.hybrid_volatility_regime,
                     current_price=current_price,
+                    vix_value=_live_vix,
                 )
                 stop_offset = offsets.stop_offset
                 target_offset = offsets.target_offset
@@ -3065,7 +3087,7 @@ TRADING GUIDANCE:
         """Infer trading mode from CLI arguments and IBKR connectivity."""
         if self.simulation_mode:
             return "paper"
-        ib_port = getattr(settings.data, "ibkr_port", 4002)
+        ib_port = getattr(settings.data, "ibkr_port", 4001)
         if ib_port in (4001, 7496):
             return "live"
         if ib_port in (4002, 7497):

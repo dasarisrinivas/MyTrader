@@ -179,7 +179,7 @@ class SentimentEvaluator:
 
         try:
             ib_host = getattr(vix_cfg, "ib_host", "127.0.0.1")
-            ib_port = getattr(vix_cfg, "ib_port", 7497)
+            ib_port = getattr(vix_cfg, "ib_port", 4001)
             client_id = getattr(vix_cfg, "client_id", 71)
             market_data_type = getattr(vix_cfg, "market_data_type", 1)
             stale_seconds = getattr(vix_cfg, "stale_seconds", 120)

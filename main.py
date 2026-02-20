@@ -59,7 +59,7 @@ async def run_live(settings: Settings) -> None:
     """Run live trading with enhanced monitoring and risk management."""
     configure_logging(level="INFO")
     contract_spec = get_contract_spec(settings.data.ibkr_symbol, settings.trading)
-    trading_mode = "paper" if getattr(settings.data, "ibkr_port", 4002) in (4002, 7497) else "live"
+    trading_mode = "paper" if getattr(settings.data, "ibkr_port", 4001) in (4002, 7497) else "live"
 
     # For actual live trading, we use a simpler approach:
     # 1. Connect to IBKR via executor
@@ -393,7 +393,7 @@ async def run_live(settings: Settings) -> None:
                 client_id = random.randint(10, 999)
             else:
                 logger.error("❌ Connection failed after all retries")
-                logger.error("Check: 1) IB Gateway is running 2) API is enabled 3) Port 4002 is open 4) No other bots connected")
+                logger.error("Check: 1) IB Gateway is running 2) API is enabled 3) Port 4001 is open 4) No other bots connected")
                 raise
         except Exception as e:
             if attempt < max_retries - 1:
@@ -431,8 +431,8 @@ async def run_live(settings: Settings) -> None:
     executor._connection_client_id = client_id
     
     # Set up executor event handlers
-    ib.reqMarketDataType(3)  # Delayed market data
-    logger.info("Using delayed market data (15-min delay, free)")
+    ib.reqMarketDataType(1)  # Live market data
+    logger.info("Using live market data")
     ib.orderStatusEvent += executor._on_order_status
     ib.execDetailsEvent += executor._on_execution
     await executor._cancel_all_existing_orders()

@@ -184,7 +184,7 @@ def main():
     
     # Settings / Defaults
     host = os.getenv("IBKR_HOST", "127.0.0.1")
-    port = int(os.getenv("IBKR_PORT", "7497")) # Start with 7497 (TWS) or 4001 (Gateway)
+    port = int(os.getenv("IBKR_PORT", "4001"))  # 4001=live gateway, 4002=paper gateway
     client_id = 15 # Different ID to avoid conflict
     
     ib = IB()

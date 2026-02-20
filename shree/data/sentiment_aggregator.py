@@ -309,6 +309,9 @@ def _clean_text(text: str) -> str:
 def _keyword_sentiment(text: str) -> float:
     """Simple keyword-based sentiment scoring as fallback.
     
+    FEB 20 2026: Added geopolitical, oil/energy, and macro-event keywords
+    that directly impact MES via risk-off / risk-on flows.
+    
     Returns:
         Score in [-1.0, 1.0]
     """
@@ -318,14 +321,27 @@ def _keyword_sentiment(text: str) -> float:
     bullish_words = [
         'bull', 'bullish', 'buy', 'long', 'calls', 'moon', 'rocket',
         'pump', 'green', 'rally', 'breakout', 'higher', 'up', 'gain',
-        'profit', 'win', 'winner', 'strong', 'support', 'bounce'
+        'profit', 'win', 'winner', 'strong', 'support', 'bounce',
+        # Macro-bullish
+        'rate cut', 'dovish', 'stimulus', 'soft landing', 'goldilocks',
+        'risk on', 'risk-on', 'ceasefire', 'peace deal', 'de-escalation',
     ]
     
     # Bearish keywords
     bearish_words = [
         'bear', 'bearish', 'sell', 'short', 'puts', 'crash', 'dump',
         'red', 'drop', 'breakdown', 'lower', 'down', 'loss', 'lose',
-        'loser', 'weak', 'resistance', 'fade', 'tank', 'plunge'
+        'loser', 'weak', 'resistance', 'fade', 'tank', 'plunge',
+        # Geopolitical / risk-off
+        'sanctions', 'tariff', 'tariffs', 'war', 'military', 'missile',
+        'iran', 'invasion', 'geopolitical', 'escalation', 'retaliation',
+        'nuclear', 'conflict', 'embargo', 'blockade',
+        # Oil / energy shock (bearish for equities via cost-push inflation)
+        'oil spike', 'crude spike', 'oil surge', 'energy crisis',
+        'opec cut', 'supply disruption',
+        # Macro-bearish
+        'rate hike', 'hawkish', 'stagflation', 'recession', 'hot inflation',
+        'sticky inflation', 'risk off', 'risk-off', 'flight to safety',
     ]
     
     bullish_count = sum(1 for word in bullish_words if word in text_lower)

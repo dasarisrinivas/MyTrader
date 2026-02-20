@@ -11,7 +11,7 @@ Requirements:
 Usage:
     from shree.data.vx_futures_feed import VxFuturesFeed
     
-    vx_feed = VxFuturesFeed(host="127.0.0.1", port=7497, client_id=71)
+    vx_feed = VxFuturesFeed(host="127.0.0.1", port=4001, client_id=71)
     vx_feed.start_in_background()
     
     # Later in signal processing:
@@ -48,7 +48,7 @@ class VxState:
 class VxConfig:
     """Configuration for VX futures feed."""
     host: str = "127.0.0.1"
-    port: int = 7497  # 7497=paper, 7496=live
+    port: int = 4001  # 4001=live gateway, 4002=paper gateway
     client_id: int = 71
     market_data_type: int = 1  # 1=live, 3=delayed
     stale_seconds: int = 120
@@ -77,7 +77,7 @@ class VxFuturesFeed:
     def __init__(
         self,
         host: str = "127.0.0.1",
-        port: int = 7497,
+        port: int = 4001,
         client_id: int = 71,
         market_data_type: int = 1,
         stale_seconds: int = 120,
@@ -91,7 +91,7 @@ class VxFuturesFeed:
         
         Args:
             host: IB Gateway host address
-            port: IB Gateway port (7497=paper, 7496=live)
+            port: IB Gateway port (4001=live, 4002=paper)
             client_id: Unique client ID for this connection
             market_data_type: 1=live, 3=delayed
             stale_seconds: Seconds after which data is considered stale
@@ -542,6 +542,19 @@ class VxFuturesFeed:
     def _calculate_multiplier(self, price: Optional[float], is_stale: bool) -> float:
         """Calculate the volatility multiplier based on VX price.
         
+        FEB 20 2026 FIX: Replaced binary step-function (1.0 / 0.7 / 0.4) with
+        piecewise-linear interpolation so that the transition zone (VIX 15-30)
+        produces granular sizing.  This prevents a single tick crossing the
+        threshold from causing a 30 % jump in position size.
+        
+        Multiplier curve:
+            VX <= 12 : 1.00  (complacency — full size, but watch for vol expansion)
+            VX  = 15 : 1.00  (normal — full size)
+            VX  = 20 : 0.75  (elevated — reduce 25 %)
+            VX  = 25 : 0.55  (high fear — reduce 45 %)
+            VX >= 30 : 0.40  (extreme fear — minimum sizing)
+        Linear interpolation between knot points.
+        
         Args:
             price: Current VX price
             is_stale: Whether the data is stale
@@ -557,13 +570,28 @@ class VxFuturesFeed:
         if price is None or price <= 0:
             return 1.0
         
-        # Calculate multiplier based on thresholds
-        if price >= self.config.extreme_threshold:
-            return 0.4
-        elif price >= self.config.elevated_threshold:
-            return 0.7
-        else:
-            return 1.0
+        # Piecewise-linear interpolation knots: (vx_level, multiplier)
+        _KNOTS = [
+            (15.0, 1.00),
+            (20.0, 0.75),
+            (25.0, 0.55),
+            (30.0, 0.40),
+        ]
+        
+        if price <= _KNOTS[0][0]:
+            return _KNOTS[0][1]
+        if price >= _KNOTS[-1][0]:
+            return _KNOTS[-1][1]
+        
+        for i in range(len(_KNOTS) - 1):
+            x0, y0 = _KNOTS[i]
+            x1, y1 = _KNOTS[i + 1]
+            if x0 <= price <= x1:
+                t = (price - x0) / (x1 - x0)
+                return y0 + t * (y1 - y0)
+        
+        # Fallback (should never reach here)
+        return 1.0
 
 
 # Module-level singleton for easy access
@@ -581,7 +609,7 @@ def get_vx_feed() -> Optional[VxFuturesFeed]:
 
 def init_vx_feed(
     host: str = "127.0.0.1",
-    port: int = 7497,
+    port: int = 4001,
     client_id: int = 71,
     **kwargs
 ) -> VxFuturesFeed:

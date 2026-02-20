@@ -278,6 +278,72 @@ class ExitManager:
             f"pnl/ct={pnl_per_contract:.2f} total={total_pnl:.2f}"
         )
 
+        # ──────────────────────────────────────────────────────────────
+        # FEB 20 2026: STRUCTURAL SUPPORT CIRCUIT BREAKER
+        #
+        # If price breaks below a configured structural support floor,
+        # immediately flatten any LONG position at market.  For shorts,
+        # tighten the trailing stop aggressively (support-break is in
+        # our favour, but we lock profit quickly to avoid the snap-back).
+        #
+        # Config: ``structural_support_floor`` in config.yaml or env
+        # ``STRUCTURAL_SUPPORT_FLOOR``.  Set to 0 or omit to disable.
+        # ──────────────────────────────────────────────────────────────
+        support_floor = self._get_support_floor()
+        if support_floor is not None and support_floor > 0:
+            if qty > 0 and current_price < support_floor:
+                # LONG below structural support → immediate market exit
+                logger.warning(
+                    f"🚨 SUPPORT_BREAK_FLATTEN: Price {current_price:.2f} < "
+                    f"floor {support_floor:.2f}. Flattening {contracts} LONG contracts."
+                )
+                try:
+                    log_structured_event(
+                        agent="exit_manager",
+                        event_type="SUPPORT_BREAK_FLATTEN",
+                        message=f"Price {current_price:.2f} broke structural support {support_floor:.2f}",
+                        payload={
+                            "contracts": contracts,
+                            "direction": "LONG",
+                            "current_price": current_price,
+                            "support_floor": support_floor,
+                            "pnl": total_pnl,
+                        },
+                    )
+                except Exception:
+                    pass
+                return {
+                    "reason": "SUPPORT_BREAK_FLATTEN",
+                    "action": "SELL",
+                    "quantity": contracts,
+                    "pnl": total_pnl,
+                }
+            if qty < 0 and current_price < support_floor - 5.0:
+                # SHORT and price is well below support → tighten trailing stop
+                # to lock in profits before a potential snap-back rally
+                if self.executor and hasattr(self.executor, "get_active_bracket_levels"):
+                    try:
+                        bracket_levels = self.executor.get_active_bracket_levels()
+                        if bracket_levels:
+                            current_stop = bracket_levels.get("stop_loss")
+                            if current_stop is not None:
+                                # Tighten stop to 4 pts above current price
+                                tight_stop = current_price + 4.0
+                                if tight_stop < current_stop:
+                                    logger.warning(
+                                        f"📉 SUPPORT_BREAK_TIGHTEN: Price {current_price:.2f} broke "
+                                        f"floor {support_floor:.2f}. Tightening SHORT stop "
+                                        f"{current_stop:.2f} → {tight_stop:.2f}"
+                                    )
+                                    return {
+                                        "reason": "SUPPORT_BREAK_TIGHTEN",
+                                        "action": None,
+                                        "new_stop_loss": tight_stop,
+                                        "quantity": 0,
+                                    }
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"Support-break tighten skipped: {exc}")
+
         # PROFIT PROTECTION: Check if price has reached TP level and force market exit
         # This works around IB Paper Trading LIMIT order fill issues
         if self.executor and hasattr(self.executor, "get_active_bracket_levels"):
@@ -536,6 +602,31 @@ class ExitManager:
                 action = "SELL" if qty > 0 else "BUY"
                 return {"reason": "STOP_LOSS", "action": action, "quantity": contracts, "pnl": total_pnl}
 
+        return None
+
+    # ------------------------------------------------------------------
+    # FEB 20 2026: Structural support floor helper
+    # ------------------------------------------------------------------
+
+    def _get_support_floor(self) -> Optional[float]:
+        """Read the structural support floor from the order coordinator or env.
+
+        Returns the price level or *None* if not configured.
+        """
+        # Prefer the coordinator's cached value (set during __init__)
+        coordinator = getattr(self._m, "order_coordinator", None)
+        if coordinator is not None:
+            floor = getattr(coordinator, "_support_floor_price", None)
+            if floor is not None:
+                return float(floor)
+        # Fallback: env var
+        import os as _os
+        raw = _os.environ.get("STRUCTURAL_SUPPORT_FLOOR")
+        if raw:
+            try:
+                return float(raw)
+            except (ValueError, TypeError):
+                pass
         return None
 
     # ------------------------------------------------------------------

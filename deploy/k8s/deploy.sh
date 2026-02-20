@@ -86,8 +86,8 @@ if [[ "$USE_SECRETS" == "true" ]]; then
         read -p "IBKR Host (default: 127.0.0.1): " IBKR_HOST
         IBKR_HOST=${IBKR_HOST:-"127.0.0.1"}
         
-        read -p "IBKR Port (default: 4002): " IBKR_PORT
-        IBKR_PORT=${IBKR_PORT:-"4002"}
+        read -p "IBKR Port (default: 4001): " IBKR_PORT
+        IBKR_PORT=${IBKR_PORT:-"4001"}
         
         read -p "IBKR Client ID (default: 1): " IBKR_CLIENT_ID
         IBKR_CLIENT_ID=${IBKR_CLIENT_ID:-"1"}

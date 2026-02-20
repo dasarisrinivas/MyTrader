@@ -26,7 +26,7 @@ async def download_1m_es_data():
     # Configure download
     config = DownloadConfig(
         host="127.0.0.1",
-        port=4002,
+        port=4001,
         client_id=97,  # Different from other downloads
         cache_dir=Path("data/raw"),
     )

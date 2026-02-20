@@ -60,7 +60,7 @@ kubectl apply -f deploy/k8s/configmap.yaml
 # 4. Create Secrets (update values)
 kubectl create secret generic shree-secrets \
   --from-literal=IBKR_HOST='127.0.0.1' \
-  --from-literal=IBKR_PORT='4002' \
+  --from-literal=IBKR_PORT='4001' \
   --from-literal=IBKR_CLIENT_ID='1' \
   --from-literal=TELEGRAM_BOT_TOKEN='your-token-here' \
   --from-literal=TELEGRAM_CHAT_ID='your-chat-id'

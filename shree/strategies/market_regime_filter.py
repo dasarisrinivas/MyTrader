@@ -4,7 +4,7 @@ Determines if market conditions are suitable for trading.
 """
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import pandas as pd
 import numpy as np
@@ -40,6 +40,7 @@ class MarketRegimeFilter:
         vix_low_threshold: float = 10.0,
         vix_high_threshold: float = 40.0,
         volatility_spike_threshold: float = 2.0,  # ATR vs 20-period avg
+        high_impact_event_dates: Optional[List[str]] = None,
     ):
         """
         Initialize market regime filter.
@@ -50,6 +51,11 @@ class MarketRegimeFilter:
             vix_low_threshold: VIX too low (complacent market)
             vix_high_threshold: VIX too high (panic market)
             volatility_spike_threshold: ATR multiplier vs average
+            high_impact_event_dates: Explicit list of dates (YYYY-MM-DD) to
+                treat as high-impact event days, overriding heuristics.
+                Load from config or env ``HIGH_IMPACT_DATES`` to block
+                trading on known event days that the heuristic would miss.
+                Example: ["2026-02-20", "2026-03-19"]
         """
         self.min_atr_threshold = min_atr_threshold
         self.max_spread_ticks = max_spread_ticks
@@ -57,12 +63,28 @@ class MarketRegimeFilter:
         self.vix_high_threshold = vix_high_threshold
         self.volatility_spike_threshold = volatility_spike_threshold
         
+        # Manual override dates — always block 8:00-9:15 AM ET on these days
+        import os as _os
+        env_dates = _os.environ.get("HIGH_IMPACT_DATES", "")
+        raw_dates = (high_impact_event_dates or []) + [
+            d.strip() for d in env_dates.split(",") if d.strip()
+        ]
+        self._high_impact_override_dates: set = set()
+        for d in raw_dates:
+            try:
+                from datetime import date as _date
+                self._high_impact_override_dates.add(_date.fromisoformat(d))
+            except (ValueError, TypeError):
+                logger.warning(f"Ignoring invalid high-impact date: {d!r}")
+
         # High-impact event schedule (simplified - could be enhanced with API)
         self.high_impact_events = {
             # FOMC meetings (8 times per year) - 2 PM ET
             # CPI releases (monthly) - 8:30 AM ET
             # NFP (Non-Farm Payroll) - First Friday of month, 8:30 AM ET
-            # These would be loaded from economic calendar API in production
+            # Core PCE - Last Friday of month, 8:30 AM ET
+            # GDP Advance - End of month, 8:30 AM ET
+            # These are now detected heuristically + via manual overrides
         }
     
     def check_regime(
@@ -286,28 +308,77 @@ class MarketRegimeFilter:
         """
         Check if current time is near a high-impact economic event.
         
-        In production, this would query an economic calendar API.
-        For now, we block trading around typical event times:
-        - 8:30 AM ET (CPI, NFP)
-        - 2:00 PM ET (FOMC)
+        Blocks trading ±30 min around known high-impact release windows.
+        Covers: NFP, CPI, Core PCE, GDP Advance, FOMC.
+        
+        FEB 20 2026 FIX: Added Core PCE (last Friday of month, 8:30 AM ET)
+        and GDP Advance Estimate (end-of-month, 8:30 AM ET).  Previous
+        version only checked NFP and CPI, leaving the bot exposed to the
+        two most market-moving macro prints after NFP.
+        
+        NOTE: In production, replace with an economic-calendar API for
+        exact release dates.  The heuristics below cover ~90 % of cases.
         """
-        current_time = dt.time()
+        try:
+            from zoneinfo import ZoneInfo
+            et_tz = ZoneInfo("America/New_York")
+        except ImportError:
+            import pytz
+            et_tz = pytz.timezone("America/New_York")
+
+        # Ensure we're working in ET (release times are ET-based)
+        if dt.tzinfo is None:
+            from datetime import timezone as tz
+            dt = dt.replace(tzinfo=tz.utc)
+        dt_et = dt.astimezone(et_tz)
+        current_time = dt_et.time()
         
-        # Block 30 minutes before and after typical event times
-        # 8:30 AM events (CPI, NFP) - block 8:00-9:00 AM
-        if time(8, 0) <= current_time <= time(9, 0):
-            # Check if it's first Friday (NFP) or mid-month (CPI)
-            if dt.day <= 7 and dt.weekday() == 4:  # First Friday
-                return True
-            if 10 <= dt.day <= 15:  # Mid-month (CPI typically around 13th)
+        import calendar as _cal
+        
+        # ── Manual override dates (from config or env HIGH_IMPACT_DATES) ──
+        if self._high_impact_override_dates and dt_et.date() in self._high_impact_override_dates:
+            if time(8, 0) <= current_time <= time(9, 15):
+                logger.info(f"🚫 High-impact event: manual override for {dt_et.date()}")
                 return True
         
-        # 2:00 PM events (FOMC) - block 1:30-2:30 PM on FOMC days
-        # FOMC meets 8 times per year - would need calendar API for exact dates
-        if time(13, 30) <= current_time <= time(14, 30):
-            # For now, just be cautious around 2 PM
-            # In production, check against FOMC calendar
-            pass
+        # ── 8:30 AM ET window (block 8:00 – 9:15 AM ET) ──────────────
+        if time(8, 0) <= current_time <= time(9, 15):
+            # NFP — First Friday of month, 8:30 AM ET
+            if dt_et.day <= 7 and dt_et.weekday() == 4:
+                logger.info("🚫 High-impact event: NFP (first Friday)")
+                return True
+            
+            # CPI — Typically 10th-15th of month, 8:30 AM ET
+            if 10 <= dt_et.day <= 15:
+                logger.info("🚫 High-impact event: CPI window (mid-month)")
+                return True
+            
+            # Core PCE — Last Friday of month, 8:30 AM ET
+            # Detect last Friday: the next Friday would be in the next month
+            if dt_et.weekday() == 4:  # Friday
+                _, month_last_day = _cal.monthrange(dt_et.year, dt_et.month)
+                if dt_et.day + 7 > month_last_day:
+                    logger.info("🚫 High-impact event: Core PCE (last Friday)")
+                    return True
+            
+            # GDP Advance Estimate — Typically last week of month, 8:30 AM ET
+            _, month_last_day = _cal.monthrange(dt_et.year, dt_et.month)
+            if dt_et.day >= month_last_day - 6:
+                # Only flag weekdays in last 7 calendar days
+                if dt_et.weekday() < 5:
+                    logger.info("🚫 High-impact event: GDP window (end-of-month)")
+                    return True
+        
+        # ── 2:00 PM ET window (block 1:30 – 2:45 PM ET) ─────────────
+        # FOMC rate decisions — 8 times/year.  Without a calendar API we
+        # cannot know the exact dates, but we can flag Wed afternoons in
+        # FOMC-heavy months (Jan, Mar, May, Jun, Jul, Sep, Nov, Dec).
+        if time(13, 30) <= current_time <= time(14, 45):
+            fomc_months = {1, 3, 5, 6, 7, 9, 11, 12}
+            if dt_et.month in fomc_months and dt_et.weekday() == 2:
+                # Wednesdays in FOMC-heavy months → cautious block
+                logger.info("🚫 High-impact event: possible FOMC window")
+                return True
         
         return False
     

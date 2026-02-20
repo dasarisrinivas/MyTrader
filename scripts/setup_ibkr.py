@@ -9,7 +9,7 @@ This script helps you:
 4. Prepare data for backtesting
 
 Requirements:
-- IB Gateway or TWS running on port 4002 (paper trading) or 7496 (live)
+- IB Gateway or TWS running on port 4001 (live) or 4002 (paper trading)
 - IBKR account with market data subscriptions
 """
 
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shree.utils.logger import configure_logging, logger
 
 
-def test_connection(host='127.0.0.1', port=4002, client_id=1):
+def test_connection(host='127.0.0.1', port=4001, client_id=1):
     """Test IBKR connection."""
     print("\n" + "=" * 80)
     print("Testing IBKR Connection")
@@ -61,7 +61,7 @@ def test_connection(host='127.0.0.1', port=4002, client_id=1):
         print("\nTroubleshooting:")
         print("1. Make sure IB Gateway or TWS is running")
         print("2. Check that API connections are enabled in TWS settings")
-        print("3. Verify the port number (4002 for paper, 7496 for live)")
+        print("3. Verify the port number (4001 for live, 4002 for paper)")
         print("4. Check that 'localhost' connections are allowed")
         print("5. Disable 'Read-Only API' in Global Configuration → API → Settings")
         return None
@@ -254,7 +254,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='Setup IBKR connection and download data')
     parser.add_argument('--host', default='127.0.0.1', help='IBKR host (default: 127.0.0.1)')
-    parser.add_argument('--port', type=int, default=4002, help='IBKR port (default: 4002 for paper)')
+    parser.add_argument('--port', type=int, default=4001, help='IBKR port (default: 4001 for live)')
     parser.add_argument('--duration', default='30 D', help='Historical data duration (default: 30 D)')
     parser.add_argument('--bar-size', default='1 min', help='Bar size (default: 1 min)')
     parser.add_argument('--output', default='data/es_historical.csv', help='Output file path')

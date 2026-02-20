@@ -28,7 +28,7 @@ NC='\033[0m'
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_PATH="$PROJECT_ROOT/.venv"
 CONFIG_FILE="$PROJECT_ROOT/config.yaml"
-IB_PORT=4002
+IB_PORT=4001
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -75,7 +75,7 @@ if ! lsof -Pi :$IB_PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     echo ""
     echo "You must start IB Gateway or Trader Workstation first:"
     echo "  1. Open IB Gateway or TWS"
-    echo "  2. Select 'Paper Trading' mode (recommended) or Live"
+    echo "  2. Select 'Live Trading' mode"
     echo "  3. Configure API settings:"
     echo "     - Edit > Global Configuration > API > Settings"
     echo "     - Enable ActiveX and Socket Clients"

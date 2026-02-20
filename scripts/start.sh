@@ -30,7 +30,7 @@ BACKEND_DIR="$PROJECT_ROOT/dashboard/backend"
 FRONTEND_DIR="$PROJECT_ROOT/dashboard/frontend"
 BACKEND_PORT=8000
 FRONTEND_PORT=5173
-IB_GATEWAY_PORT=4002
+IB_GATEWAY_PORT=4001
 OPEN_BROWSER=true
 
 # Parse arguments
@@ -137,7 +137,7 @@ if check_port $IB_GATEWAY_PORT; then
     echo ""
     echo "To start IB Gateway:"
     echo "  1. Open IB Gateway application"
-    echo "  2. Select 'Paper Trading' mode"
+    echo "  2. Select 'Live Trading' mode"
     echo "  3. Configure to use port $IB_GATEWAY_PORT"
     echo "  4. Enable API connections in settings"
     echo ""

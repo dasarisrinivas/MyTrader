@@ -90,7 +90,7 @@ class ThirtyMinuteOvernightBot:
             self.ib = IB()
             
             host = getattr(self.settings.data, "ibkr_host", "127.0.0.1")
-            port = getattr(self.settings.data, "ibkr_port", 4002)
+            port = getattr(self.settings.data, "ibkr_port", 4001)
             client_id = getattr(self.settings.data, "ibkr_client_id", 1) + 100  # Use different client ID
             
             logger.info(f"🔌 Connecting to IB Gateway at {host}:{port} (client {client_id})")

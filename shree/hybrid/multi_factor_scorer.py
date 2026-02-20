@@ -1,7 +1,9 @@
 """Multi-factor scoring that fuses technical, RAG, and external context."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from loguru import logger
@@ -52,11 +54,46 @@ class MultiFactorScorer:
     def __init__(self, weights: Optional[Dict[str, float]] = None):
         weights = weights or {}
         merged = {**self.DEFAULT_WEIGHTS, **weights}
+
+        # ── FEB 20 2026: Boost news & macro weights on high-impact event days ──
+        # When HIGH_IMPACT_DATES env var contains today's date, double the
+        # news and macro weights so geopolitical / PCE / GDP signals have
+        # meaningful influence instead of the default 10 % each.
+        if self._is_high_impact_day():
+            old_news = merged.get("news", 0.10)
+            old_macro = merged.get("macro", 0.10)
+            merged["news"] = min(old_news * 2.0, 0.25)
+            merged["macro"] = min(old_macro * 2.0, 0.25)
+            logger.info(
+                f"📰 High-impact event day: boosted news weight {old_news:.2f}→{merged['news']:.2f}, "
+                f"macro weight {old_macro:.2f}→{merged['macro']:.2f}"
+            )
+
         total = sum(merged.values())
         if total <= 0:
             total = 1.0
         self.weights = {k: v / total for k, v in merged.items()}
         logger.info(f"MultiFactorScorer initialized with weights={self.weights}")
+
+    @staticmethod
+    def _is_high_impact_day() -> bool:
+        """Check if today is in the HIGH_IMPACT_DATES env var or is a heuristic event day."""
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        env_dates = os.environ.get("HIGH_IMPACT_DATES", "")
+        if today_str in [d.strip() for d in env_dates.split(",") if d.strip()]:
+            return True
+        # Heuristic: last 7 calendar days of month → GDP window,
+        # first Friday → NFP, mid-month → CPI
+        import calendar
+        now = datetime.now(timezone.utc)
+        _, last_day = calendar.monthrange(now.year, now.month)
+        if now.day >= last_day - 6:
+            return True  # GDP / PCE window
+        if now.day <= 7 and now.weekday() == 4:
+            return True  # NFP
+        if 10 <= now.day <= 15:
+            return True  # CPI
+        return False
 
     def score(
         self,

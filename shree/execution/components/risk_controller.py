@@ -214,6 +214,7 @@ class RiskController:
             scalper=False,
             volatility="MED",
             current_price=price,
+            vix_value=m._get_live_vix_price() if hasattr(m, "_get_live_vix_price") else None,
         )
         is_buy = action.upper() in ("BUY", "SCALP_BUY")
         stop_price = price - offsets.stop_offset if is_buy else price + offsets.stop_offset
@@ -288,6 +289,7 @@ class RiskController:
                 scalper=scalper,
                 volatility=regime_params.get("volatility", "MED"),
                 current_price=entry_price,
+                vix_value=m._get_live_vix_price() if hasattr(m, "_get_live_vix_price") else None,
             )
             stop_offset = offsets.stop_offset
             target_offset = offsets.target_offset

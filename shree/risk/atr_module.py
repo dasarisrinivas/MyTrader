@@ -29,12 +29,19 @@ def compute_protective_offsets(
     scalper: bool = False,
     volatility: Optional[str] = None,
     current_price: Optional[float] = None,
+    vix_value: Optional[float] = None,
 ) -> ATRProtectiveOffsets:
     """
     Convert ATR to protective offsets while guaranteeing non-zero results.
 
     Ensures offsets remain at least one volatility-aware tick distance even
     when ATR is unavailable.
+
+    FEB 20 2026: Added *vix_value* parameter.  When VIX-implied daily move
+    (vix / sqrt(252) ≈ vix / 15.87, scaled to intraday ≈ vix / 4) exceeds
+    the ATR-based stop, the stop offset is widened up to +50 % so that
+    normal event-day volatility doesn't immediately stop-out positions.
+    The target is widened proportionally to maintain the same R:R ratio.
     """
     min_ticks = _min_ticks_for_volatility(volatility, scalper)
     min_distance = max(tick_size * min_ticks, tick_size)
@@ -79,8 +86,49 @@ def compute_protective_offsets(
             target_offset = stop_offset + tick_size * max(1.0, min_ticks * 0.25)
 
     return ATRProtectiveOffsets(
-        stop_offset=stop_offset,
-        target_offset=target_offset,
+        stop_offset=_apply_vix_widening(stop_offset, target_offset, vix_value, tick_size),
+        target_offset=_apply_vix_widening(
+            target_offset, target_offset, vix_value, tick_size, is_target=True,
+            base_stop=stop_offset,
+        ),
         fallback_used=fallback_used,
         reason=fallback_reason,
     )
+
+
+def _apply_vix_widening(
+    offset: float,
+    target_offset: float,
+    vix_value: Optional[float],
+    tick_size: float,
+    is_target: bool = False,
+    base_stop: float = 0.0,
+) -> float:
+    """Widen *offset* when VIX-implied intraday move exceeds ATR-based stop.
+
+    For the stop leg, the widening factor is capped at +50 %.
+    For the target leg, the original R:R ratio is preserved.
+    """
+    if vix_value is None or vix_value <= 0:
+        return offset
+
+    # Approximate intraday implied move from VIX
+    # VIX is annualized; daily ≈ VIX/√252 ≈ VIX/15.87
+    # For intraday (1-4 hours), rough proxy ≈ VIX/4 (empirical)
+    implied_move = vix_value / 4.0
+
+    if implied_move <= offset:
+        return offset  # ATR-based stop already wide enough
+
+    if is_target:
+        # Preserve R:R ratio: if stop widened by X%, widen target by same %
+        if base_stop > 0:
+            widen_factor = min(1.5, implied_move / base_stop)
+            return max(offset, offset * widen_factor)
+        return offset
+
+    # Cap widening at +50 % of original ATR-based stop
+    widened = min(offset * 1.5, implied_move)
+    # Snap to tick grid
+    widened = round(widened / max(tick_size, 1e-6)) * max(tick_size, 1e-6)
+    return max(offset, widened)

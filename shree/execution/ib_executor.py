@@ -127,7 +127,7 @@ class TradeExecutor:
         
         # Store connection parameters for auto-reconnect
         self._connection_host: str = "127.0.0.1"
-        self._connection_port: int = 4002
+        self._connection_port: int = 4001  # Default to live IB Gateway port
         self._connection_client_id: int = 2
         self._connection_client_id: int = 2
         self._keepalive_task: Optional[object] = None

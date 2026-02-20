@@ -164,14 +164,14 @@ def main():
     try:
         settings = load_settings(args.config)
         host = getattr(settings.data, "ibkr_host", "127.0.0.1")
-        port = getattr(settings.data, "ibkr_port", 7497)
+        port = getattr(settings.data, "ibkr_port", 4001)
         client_id = getattr(settings.data, "ibkr_client_id", 11)
         exchange = args.exchange or getattr(settings.data, "ibkr_exchange", "GLOBEX")
         currency = args.currency or getattr(settings.data, "ibkr_currency", "USD")
     except Exception as e:
         logger.warning(f"Could not load config: {e}, using defaults")
         host = os.getenv("IBKR_HOST", "127.0.0.1")
-        port = int(os.getenv("IBKR_PORT", "7497"))
+        port = int(os.getenv("IBKR_PORT", "4001"))
         client_id = int(os.getenv("IBKR_CLIENT_ID", "11"))
         exchange = args.exchange or "GLOBEX"
         currency = args.currency or "USD"

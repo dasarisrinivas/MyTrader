@@ -9,7 +9,7 @@ Usage:
     python scripts/download_30m_data.py
     
 Requires:
-    - IB Gateway running on port 4002
+    - IB Gateway running on port 4001
     - ib_insync installed
 """
 
@@ -31,7 +31,7 @@ async def download_30m_es_data():
     # Configure download
     config = DownloadConfig(
         host="127.0.0.1",
-        port=4002,
+        port=4001,
         client_id=98,  # Different from main bot
         cache_dir=Path("data/raw"),
     )

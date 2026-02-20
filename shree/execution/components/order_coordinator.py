@@ -2,15 +2,17 @@
 
 import contextlib
 import math
+import os
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import datetime, time, timezone
+from typing import Any, Dict, List, Optional
 
 from ...learning.trade_learning import ExecutionMetrics, TradeLearningPayload
 # Use S3 RAGStorageManager TradeRecord instead of local SQLite
 from ...rag.rag_storage_manager import TradeRecord as RAGTradeRecord
 from ...risk.trade_math import compute_risk_reward, expected_target_outcome
 from ...strategies.market_regime import detect_market_regime, get_regime_parameters
+from ...strategies.market_regime_filter import MarketRegimeFilter
 from ...utils.structured_logging import log_structured_event
 from ...utils.logger import logger
 from ...utils.timezone_utils import now_cst
@@ -27,6 +29,37 @@ class OrderCoordinator:
         trading_cfg = getattr(getattr(manager, "settings", None), "trading", None)
         ttl = getattr(trading_cfg, "decision_min_interval_seconds", 300) if trading_cfg else 300
         self._signal_ttl_seconds: int = max(300, int(ttl))
+
+        # ── FEB 20 2026: Spread gate + high-impact event blackout ─────
+        # Read spread config from the trading settings; default to 2.0 ticks
+        self._spread_gate_enabled: bool = bool(
+            getattr(trading_cfg, "spread_gate_enabled", True)
+        )
+        self._max_spread_ticks: float = float(
+            getattr(trading_cfg, "max_spread_ticks", 2.0)
+        )
+        # Instantiate MarketRegimeFilter so we get the event blackout logic
+        # Load manual override dates from config + env HIGH_IMPACT_DATES
+        cfg_dict = getattr(manager, "config", None) or {}
+        override_dates: List[str] = cfg_dict.get("high_impact_event_dates", []) if isinstance(cfg_dict, dict) else []
+        self._regime_filter = MarketRegimeFilter(
+            max_spread_ticks=int(self._max_spread_ticks),
+            high_impact_event_dates=override_dates,
+        )
+        # Structural support floor (config-driven, env override)
+        self._support_floor_price: Optional[float] = None
+        raw_floor = (
+            cfg_dict.get("structural_support_floor")
+            if isinstance(cfg_dict, dict) else None
+        ) or os.environ.get("STRUCTURAL_SUPPORT_FLOOR")
+        if raw_floor is not None:
+            try:
+                self._support_floor_price = float(raw_floor)
+                logger.info(
+                    f"🛡️ Structural support floor set: {self._support_floor_price:.2f}"
+                )
+            except (ValueError, TypeError):
+                pass
 
     def prepare_order_metadata(
         self,
@@ -267,6 +300,11 @@ class OrderCoordinator:
     ) -> tuple[bool, str, Optional[str]]:
         """
         Enforce idempotency, cooldown spacing, and single-position rules before submitting an entry.
+
+        FEB 20 2026: Also enforces:
+        - Real-time bid/ask spread gate (blocks when spread > max_spread_ticks)
+        - High-impact economic-event blackout (PCE, GDP, NFP, CPI, FOMC)
+        - Structural support floor (blocks new longs when price < floor)
         """
         now = datetime.now(timezone.utc)
         self._prune_signal_keys(now)
@@ -278,6 +316,28 @@ class OrderCoordinator:
 
         # Reserve the key immediately to close race window
         self._recent_signal_keys[signal_key] = now
+
+        # ── FEB 20 2026: High-impact event blackout ───────────────────
+        if self._regime_filter._is_high_impact_event_time(datetime.now(timezone.utc)):
+            logger.warning("🚫 Entry blocked: high-impact economic event window")
+            self._recent_signal_keys.pop(signal_key, None)
+            return False, "HIGH_IMPACT_EVENT_BLACKOUT", signal_key
+
+        # ── FEB 20 2026: Real-time spread gate ────────────────────────
+        if self._spread_gate_enabled:
+            spread_blocked, spread_reason = await self._check_spread_gate()
+            if spread_blocked:
+                logger.warning("🚫 Entry blocked: {}", spread_reason)
+                self._recent_signal_keys.pop(signal_key, None)
+                return False, spread_reason, signal_key
+
+        # ── FEB 20 2026: Structural support floor ─────────────────────
+        if self._support_floor_price is not None:
+            floor_blocked, floor_reason = await self._check_support_floor(action)
+            if floor_blocked:
+                logger.warning("🚫 Entry blocked: {}", floor_reason)
+                self._recent_signal_keys.pop(signal_key, None)
+                return False, floor_reason, signal_key
 
         # Enforce minimum spacing between orders
         cooldown_seconds = getattr(self.manager, "_cooldown_seconds", 0) or 0
@@ -323,6 +383,87 @@ class OrderCoordinator:
         if not signal_key:
             return
         self._recent_signal_keys[signal_key] = datetime.now(timezone.utc)
+
+    # ------------------------------------------------------------------
+    # FEB 20 2026: Pre-entry spread & structural-support helpers
+    # ------------------------------------------------------------------
+
+    async def _check_spread_gate(self) -> tuple[bool, str]:
+        """Fetch real-time bid/ask from executor and block if spread is too wide.
+
+        Returns (blocked: bool, reason: str).
+        """
+        executor = getattr(self.manager, "executor", None)
+        if executor is None:
+            return False, ""
+        try:
+            ticker = getattr(executor, "_ticker", None) or getattr(executor, "ticker", None)
+            bid = ask = None
+            if ticker is not None:
+                bid = getattr(ticker, "bid", None)
+                ask = getattr(ticker, "ask", None)
+            # Fallback: try the executor's dedicated helpers
+            if bid is None or ask is None:
+                bid_ask = getattr(executor, "get_bid_ask", None)
+                if callable(bid_ask):
+                    result = bid_ask()
+                    if isinstance(result, tuple) and len(result) >= 2:
+                        bid, ask = result[0], result[1]
+            if bid is None or ask is None or bid <= 0 or ask <= 0:
+                return False, ""  # No data — don't block
+            tick_size = float(
+                getattr(
+                    getattr(self.manager.settings, "trading", None),
+                    "tick_size",
+                    0.25,
+                )
+            )
+            spread_ticks = (ask - bid) / max(tick_size, 1e-6)
+            if spread_ticks > self._max_spread_ticks:
+                reason = (
+                    f"SPREAD_TOO_WIDE:{spread_ticks:.1f}>{self._max_spread_ticks:.1f} "
+                    f"(bid={bid:.2f} ask={ask:.2f})"
+                )
+                return True, reason
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Spread gate check skipped: {}", exc)
+        return False, ""
+
+    async def _check_support_floor(self, action: str) -> tuple[bool, str]:
+        """Block new LONG entries when price is at or below the structural support floor.
+
+        Also block new SHORT entries when price is far below support (don't
+        chase a breakdown — wait for a pull-back).
+
+        Returns (blocked: bool, reason: str).
+        """
+        floor = self._support_floor_price
+        if floor is None:
+            return False, ""
+        executor = getattr(self.manager, "executor", None)
+        if executor is None:
+            return False, ""
+        try:
+            price = await executor.get_current_price()
+            if price is None or price <= 0:
+                return False, ""
+            # Block new longs when price is within 5 pts of or below the floor
+            is_buy = action.upper() in {"BUY", "SCALP_BUY"}
+            if is_buy and price <= floor + 5.0:
+                reason = (
+                    f"SUPPORT_FLOOR_BLOCK:price={price:.2f}<=floor+5={floor + 5.0:.2f}"
+                )
+                return True, reason
+            # Block new shorts when price is >15 pts below floor (chasing breakdown)
+            is_sell = action.upper() in {"SELL", "SCALP_SELL"}
+            if is_sell and price < floor - 15.0:
+                reason = (
+                    f"SUPPORT_BREAKDOWN_CHASE:price={price:.2f}<floor-15={floor - 15.0:.2f}"
+                )
+                return True, reason
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Support floor check skipped: {}", exc)
+        return False, ""
 
     async def execute_trade_with_risk_checks(self, signal, current_price: float, features):
         """Place an order with sizing, stops, and hard guardrails."""
