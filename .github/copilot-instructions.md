@@ -37,6 +37,7 @@ All runtime config lives in `config.yaml` (never committed with secrets). Config
 
 ## Coding Conventions
 
+- **Always use `python3`** — never use bare `python` in commands, scripts, shebangs, or documentation. This project requires Python 3.11+.
 - **Logging:** Use `from shree.utils.logger import logger` (loguru). Structured events via `log_structured_event()` from `shree/utils/structured_logging.py`.
 - **Strategy pattern:** Subclass `BaseStrategy` (`shree/strategies/base.py`), implement `generate(features: pd.DataFrame) -> Signal`. The `Signal` dataclass has `action` (BUY/SELL/HOLD), `confidence` (0–1), `metadata` (dict).
 - **Risk values are in points, ticks, or USD** — comments always clarify which unit. MES = $5/point, $1.25/tick, tick_size=0.25.
@@ -52,14 +53,14 @@ All runtime config lives in `config.yaml` (never committed with secrets). Config
 
 # Simulation (no real orders)
 SHREE_SIMULATION=1 . start_bot.sh
-python run_bot.py --simulation
+python3 run_bot.py --simulation
 
 # Backtesting
-python -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m
+python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m
 ./start_backtest.sh           # Wrapper with defaults
 
 # Tests
-python -m pytest tests/ -x    # Run all tests (no live IB needed)
+python3 -m pytest tests/ -x    # Run all tests (no live IB needed)
 ENABLE_GUARDRAILS=1 . start_bot.sh  # Runs guardrail tests before starting
 ```
 
