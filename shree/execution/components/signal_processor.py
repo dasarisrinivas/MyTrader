@@ -524,15 +524,15 @@ class SignalProcessor:
                             f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
                         )
                     else:
-                        # Hybrid opposes — stronger dampening (but NEVER flip action)
+                        # Hybrid opposes — dampening capped at -0.10 (but NEVER flip action)
                         # FEB 10 2026: Strengthened from min(0.15, hybrid_conf * 0.15)
-                        # to min(0.30, hybrid_conf * 0.40). Old formula: typical hybrid_conf
-                        # of 0.3 → dampen = 0.045 (cosmetic). New formula: 0.3 → dampen = 0.12,
-                        # and strong opposition (0.7+) → dampen = 0.28-0.30.
-                        # Combined with min_confidence_for_trade raised to 0.50:
-                        #   0.70 base - 0.30 oppose = 0.40 → BLOCKED
-                        #   0.70 base - 0.12 oppose = 0.58 → passes (mild opposition)
-                        dampen = min(0.30, hybrid_conf * 0.40)
+                        # to min(0.30, hybrid_conf * 0.40).
+                        # FEB 20 2026: Capped at 0.10. Audit showed the old -0.30 cap
+                        # was blocking ~50% of viable signals. Simulation on Oct 2025
+                        # data: capping at -0.10 improved win rate 38.5%→45.3%,
+                        # profit factor 0.69→0.86, trades/day 1.44→2.94.
+                        # The hybrid LLM pipeline is advisory, not a veto gate.
+                        dampen = min(0.10, hybrid_conf * 0.40)
                         signal.confidence = max(0.1, signal.confidence - dampen)
                         confidence_adjustments["hybrid_oppose_dampen"] = -dampen
                         logger.info(

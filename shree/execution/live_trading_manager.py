@@ -1294,9 +1294,7 @@ TRADING GUIDANCE:
             and getattr(self, "_startup_completed_bars", 0) < self._startup_min_completed_bars
         ):
             logger.info(
-                "Entry blocked: waiting for %d/%d completed bars after startup",
-                self._startup_completed_bars,
-                self._startup_min_completed_bars,
+                f"Entry blocked: waiting for {self._startup_completed_bars}/{self._startup_min_completed_bars} completed bars after startup"
             )
             return True
         # Order lock

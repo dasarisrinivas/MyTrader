@@ -1,0 +1,60 @@
+{
+    "anomaly_detection": {
+        "inactivity_minutes_threshold": 60,
+        "max_loss_per_trade_usd": 100.0,
+        "daily_loss_threshold_usd": 200.0,
+        "cumulative_loss_alert_pct": 4.0,
+        "consecutive_losses_alert": 3,
+        "min_trades_expected_per_session": 1
+    },
+    "copilot": {
+        "max_iterations": 2,
+        "timeout_seconds": 90,
+        "retry_attempts": 2,
+        "retry_delay_seconds": 5,
+        "cli_command": "gh copilot",
+        "model": "gpt-4o"
+    },
+    "cooldowns": {
+        "analysis_cooldown_minutes": 30,
+        "no_trade_cooldown_minutes": 45,
+        "loss_cooldown_minutes": 20,
+        "max_analyses_per_hour": 3,
+        "dedup_window_minutes": 60
+    },
+    "trading_window": {
+        "description": "CME ES/MES futures trading hours",
+        "week_start_day": "Sunday",
+        "week_start_hour_et": 18,
+        "week_end_day": "Friday",
+        "week_end_hour_et": 17,
+        "daily_break_start_hour_et": 17,
+        "daily_break_end_hour_et": 18,
+        "timezone": "America/New_York"
+    },
+    "context_collection": {
+        "recent_trades_count": 20,
+        "log_tail_lines": 500,
+        "orders_db_path": "data/orders.db",
+        "log_file_path": "logs/bot.log",
+        "detail_log_file_path": "logs/live_trading.log",
+        "config_yaml_path": "config.yaml",
+        "status_dir": "status"
+    },
+    "reporting": {
+        "reports_dir": "agent/reports",
+        "logs_dir": "agent/logs",
+        "max_report_age_days": 30,
+        "severity_levels": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "telegram": {
+        "enabled": true,
+        "bot_token_env": "TELEGRAM_BOT_TOKEN",
+        "chat_id_env": "TELEGRAM_CHAT_ID",
+        "max_message_length": 4096
+    },
+    "polling": {
+        "check_interval_seconds": 60,
+        "heartbeat_interval_seconds": 300
+    }
+}

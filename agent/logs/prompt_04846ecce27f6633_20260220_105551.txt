@@ -1,0 +1,235 @@
+You are a senior quantitative trading systems analyst diagnosing a live MES (Micro E-mini S&P 500) futures trading system.
+
+═══════════════════════════════════════════
+ OBSERVED BEHAVIOR
+═══════════════════════════════════════════
+
+No trades executed in the last 1413 minutes. Threshold: 60 minutes. Last trade: 2026-02-19T11:22:20.298208-06:00.
+
+The live trading bot has NOT executed any trades within the expected window.
+This is anomalous because the ES 15-minute strategy typically generates 3-4 trades per day during RTH (Regular Trading Hours: 9:30 AM - 3:00 PM ET).
+
+═══════════════════════════════════════════
+ EXPECTED BEHAVIOR
+═══════════════════════════════════════════
+
+1. The strategy runs on 15-minute bars with two signal types:
+   - Signal A: EMA21 pullback (long or short) — fires when price touches EMA21 and bounces
+   - Signal B: Opening Range breakout/breakdown — fires on first close outside OR range
+   - Signal F: Trend continuation — fires in strong trends when EMA stack is aligned
+2. Entry requires: ADX > 20, EMA alignment, bullish/bearish confirmation bar
+3. Typical trade frequency: 3-4 per day, max ~10
+4. System should generate signals whenever conditions are met during RTH
+
+═══════════════════════════════════════════
+ RECENT METRICS
+═══════════════════════════════════════════
+
+Daily P&L: $0.00
+Trades Today: 0 (Wins: 0, Losses: 0)
+Last Trade: 2026-02-19T11:22:20.298208-06:00
+
+Signal Generation:
+  Signals Generated: 0
+  Signals Blocked: 1
+  Recent Confidence Values: []
+
+Open Positions: 5
+  1. SELL  @ ? | PnL:       open | ? | ?
+  2. BUY   @ ? | PnL:       open | ? | ?
+  3. BUY   @ ? | PnL:       open | ? | ?
+  ... and 2 more trades
+
+Recent Trades (last 10):
+  1. BUY   @ 6877.5 | PnL:       open | Filled | 2026-02-19T17:22:20.298208
+  2. BUY   @ 6877.5 | PnL:    $-53.75 | Filled | 2026-02-19T17:22:20.273286
+  3. SELL  @ 6866.75 | PnL:       open | Filled | 2026-02-19T17:15:37.413493
+  4. SELL  @ 6866.75 | PnL:       open | Filled | 2026-02-19T17:15:37.400110
+  5. BUY   @ None | PnL:       open | Cancelled | None
+  6. BUY   @ 6900.5 | PnL:    $-75.62 | Filled | 2026-02-18T20:50:48.123347
+  7. SELL  @ 6885.5 | PnL:       open | Filled | 2026-02-18T19:45:22.019265
+  8. BUY   @ None | PnL:       open | Cancelled | None
+  9. BUY   @ 6928.5 | PnL:     $38.13 | Filled | 2026-02-06T18:16:05.427568
+  10. BUY   @ None | PnL:       open | Cancelled | None
+  ... and 10 more trades
+
+═══════════════════════════════════════════
+ CONFIDENCE THRESHOLDS
+═══════════════════════════════════════════
+
+    min_weighted_confidence: 0.5
+    confidence_threshold: 0.6
+    min_confidence_for_trade: 0.5
+    min_risk_reward_ratio: 1.0
+    entry_filters:
+        wait_for_candle_close: True
+        require_trend_alignment: True
+        allow_counter_trend: True
+        ema_fast_period: 9
+        ema_slow_period: 20
+        ema_alignment_tolerance_pct: 0.0002
+        counter_trend_penalty: 0.15
+        require_adx_confirmation: True
+        min_adx_threshold: 10.0
+        min_adx_threshold_low_volume: 7.0
+        adx_period: 14
+        atr_period: 14
+        min_atr_threshold: 0.3
+        min_atr_percentile: 10
+        max_atr_threshold: 50.0
+        low_atr_penalty_mode: True
+        low_atr_penalty: 0.15
+        atr_percentile_lookback: 240
+        chop_zone_buffer_pct: 0.25
+        sr_proximity_ticks: 8
+        contract_month_offset: 0
+
+═══════════════════════════════════════════
+ DAMPENING / THROTTLING STATUS
+═══════════════════════════════════════════
+
+  Cooldown Active: False
+  Kill Switch: False
+  Drawdown Halt: False
+  Maintenance Block: False
+  Details:
+    [none]
+
+═══════════════════════════════════════════
+ RISK MANAGEMENT RULES
+═══════════════════════════════════════════
+
+    risk_gate:
+        max_contracts: 1
+        risk_per_trade_usd: 90.0
+        risk_per_trade_min: 25
+        risk_per_trade_max: 125.0
+        daily_max_loss_usd: 250
+        weekly_max_loss_usd: 500
+        margin_buffer_usd: 1000
+        initial_margin_long: 2464.0
+        initial_margin_short: 2305.6
+        avoid_close_window_minutes: 20
+        avoid_close_enabled: True
+        min_stop_points: 6.0
+        max_stop_points: 25.0
+        max_consecutive_losses: 5
+        peak_drawdown_enabled: True
+        peak_drawdown_pct: 4.0
+        peak_drawdown_action: halt
+        peak_drawdown_tighten_multiplier: 0.5
+        peak_drawdown_stop_buffer_points: 0.5
+        peak_drawdown_flatten_on_trigger: True
+        peak_drawdown_reset_on_new_day: True
+    position_limits:
+        max_position_size: 1
+        max_contracts_limit: 1
+        max_daily_loss: 1000.0
+        max_daily_trades: 10
+    stop_target:
+        stop_loss_ticks: 60.0
+        take_profit_ticks: 120.0
+        min_stop_distance_ticks: 16
+        max_stop_distance_ticks: 60
+    cooldowns:
+        trade_cooldown_minutes: 10
+        cooldown_on_loss_minutes: 20
+        cooldown_on_consecutive_losses_minutes: 45
+
+═══════════════════════════════════════════
+ STRATEGY PARAMETERS
+═══════════════════════════════════════════
+
+  Entry Filters:
+    wait_for_candle_close: True
+    require_trend_alignment: True
+    allow_counter_trend: True
+    ema_fast_period: 9
+    ema_slow_period: 20
+    ema_alignment_tolerance_pct: 0.0002
+    counter_trend_penalty: 0.15
+    require_adx_confirmation: True
+    min_adx_threshold: 10.0
+    min_adx_threshold_low_volume: 7.0
+    adx_period: 14
+    atr_period: 14
+    min_atr_threshold: 0.3
+    min_atr_percentile: 10
+    max_atr_threshold: 50.0
+    low_atr_penalty_mode: True
+    low_atr_penalty: 0.15
+    atr_percentile_lookback: 240
+    chop_zone_buffer_pct: 0.25
+    sr_proximity_ticks: 8
+    contract_month_offset: 0
+
+  Risk Gate Config:
+    max_contracts: 1
+    risk_per_trade_usd: 90.0
+    risk_per_trade_min: 25
+    risk_per_trade_max: 125.0
+    daily_max_loss_usd: 250
+    weekly_max_loss_usd: 500
+    margin_buffer_usd: 1000
+    initial_margin_long: 2464.0
+    initial_margin_short: 2305.6
+    avoid_close_window_minutes: 20
+    avoid_close_enabled: True
+    min_stop_points: 6.0
+    max_stop_points: 25.0
+    max_consecutive_losses: 5
+    peak_drawdown_enabled: True
+    peak_drawdown_pct: 4.0
+    peak_drawdown_action: halt
+    peak_drawdown_tighten_multiplier: 0.5
+    peak_drawdown_stop_buffer_points: 0.5
+    peak_drawdown_flatten_on_trigger: True
+    peak_drawdown_reset_on_new_day: True
+
+═══════════════════════════════════════════
+ VIX / VOLATILITY
+═══════════════════════════════════════════
+
+    config:
+        enabled: True
+        ib_host: 127.0.0.1
+        ib_port: 4001
+        client_id: 71
+        market_data_type: 1
+        stale_seconds: 120
+        conservative_on_stale: False
+        thresholds:
+            extreme: 30.0
+            elevated: 20.0
+        max_retries: 5
+        base_delay: 1.0
+        max_delay: 60.0
+    cached_value: None
+
+═══════════════════════════════════════════
+ MARKET REGIME
+═══════════════════════════════════════════
+
+    status: no_regime_data_available
+
+═══════════════════════════════════════════
+ SIGNAL BLOCK REASONS (from logs)
+═══════════════════════════════════════════
+
+  - :31 CST | INFO     | shree.execution.live_trading_manager:_should_block_new_entry:1296 - Entry blocked: waiting for %d/%d completed bars after startup
+
+═══════════════════════════════════════════
+ ASK: DIAGNOSE AND SUGGEST IMPROVEMENTS
+═══════════════════════════════════════════
+
+Based on the above data:
+
+1. What is the most likely root cause of no trades being executed?
+2. Is this a SYSTEM issue (bug, misconfiguration, connectivity) or a MARKET issue (no setups, low volatility, choppy regime)?
+3. Are any filters or gates being too aggressive?
+4. Are confidence thresholds too high for current conditions?
+5. Is the strategy's ADX > 20 requirement blocking signals in a ranging/low-ADX market?
+6. What specific parameter or logic changes would you recommend?
+7. What is the severity of this issue: CRITICAL / HIGH / MEDIUM / LOW?
+
+Be specific and data-driven. Reference the actual values above in your analysis.

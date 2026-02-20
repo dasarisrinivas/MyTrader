@@ -46,7 +46,7 @@ From simulation of 15m bars (277 trading days, Feb 2025 - Jan 2026):
   TREND CONTINUATION: Added FEB 13 2026 for strong rally/selloff days.
   Signal F: Trend continuation long/short — fires when price runs away
             from EMA21 without pulling back.  Uses EMA9 as dynamic support,
-            requires full EMA stack alignment + 3 ascending/descending closes
+            requires full EMA stack alignment + 2 ascending/descending closes
             + ADX >= 22.  Max 2 fires per day per side.
 
 ENTRY MODEL
@@ -155,14 +155,23 @@ class EsFifteenMinStrategy(BaseStrategy):
         # produce inconsistent R:R when paired with fixed TP.
         # Fixed-point SL/TP gives guaranteed R:R at every entry:
         #   A/B/D/E: SL=6pts($30), TP=8pts($40) → R:R 1.33:1
-        #   C:       SL=8pts($40), TP=10pts($50) → R:R 1.25:1
+        #   C:       SL=ATR-adaptive (see below), TP=SL×1.25 → R:R 1.25:1
         #   F:       SL=8pts($40), TP=12pts($60) → R:R 1.50:1
         self._fixed_tp_points: float = getattr(config, 'ft_fixed_tp_points', 8.0)          # Signals A, B, D, E
-        self._fixed_tp_points_ema9: float = getattr(config, 'ft_fixed_tp_points_ema9', 10.0)  # Signal C (EMA9 PB)
+        self._fixed_tp_points_ema9: float = getattr(config, 'ft_fixed_tp_points_ema9', 10.0)  # Signal C fallback
         self._fixed_tp_points_trend: float = getattr(config, 'ft_fixed_tp_points_trend', 12.0) # Signal F (trend cont)
         self._fixed_sl_points: float = getattr(config, 'ft_fixed_sl_points', 6.0)          # Signals A, B, D, E
-        self._fixed_sl_points_ema9: float = getattr(config, 'ft_fixed_sl_points_ema9', 8.0)  # Signal C
+        self._fixed_sl_points_ema9: float = getattr(config, 'ft_fixed_sl_points_ema9', 8.0)  # Signal C fallback
         self._fixed_sl_points_trend: float = getattr(config, 'ft_fixed_sl_points_trend', 8.0) # Signal F
+
+        # FEB 20 2026: ATR-adaptive stops for Signal C
+        # Fixed 8pt SL was only 0.50× ATR at typical vol (mean ATR 16.1) → noise band stops.
+        # Dynamic: SL = min(ceiling, max(floor, ATR × mult)), TP = SL × rr_ratio
+        # Simulation (Oct 2025): WR 37.5% → 50%, PF 0.54 → 0.95 at ATR×1.0
+        self._ema9_sl_atr_mult: float = getattr(config, 'ft_ema9_sl_atr_mult', 1.0)
+        self._ema9_sl_floor: float = getattr(config, 'ft_ema9_sl_floor_pts', 8.0)
+        self._ema9_sl_ceiling: float = getattr(config, 'ft_ema9_sl_ceiling_pts', 20.0)
+        self._ema9_rr_ratio: float = getattr(config, 'ft_ema9_rr_ratio', 1.25)
 
         # FEB 13 2026: Trend continuation signal (Signal F) — captures
         # strong rally / selloff days when price runs away from EMA21
@@ -172,6 +181,12 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._trend_cont_target_mult: float = getattr(config, 'ft_trend_cont_target_mult', 2.0)
         self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 18.0)
         self._trend_cont_ema9_pct: float = getattr(config, 'ft_trend_cont_ema9_pct', 0.003)  # 0.3% proximity to EMA9
+        # FEB 20 2026: Gap/extension handling — on gap-up/down days, ATR is
+        # small (overnight range) but price is far from EMAs.  The old
+        # 1.5×ATR limit was ~4 pts, blocking 20-30pt gap-ups entirely.
+        # Use max(multiplier × ATR, fixed ceiling) so gaps can still trade.
+        self._trend_cont_max_ext_pts: float = getattr(config, 'ft_trend_cont_max_ext_pts', 30.0)  # Max pts from EMA9 allowed
+        self._trend_cont_gap_adx_min: float = getattr(config, 'ft_trend_cont_gap_adx_min', 25.0)  # Higher ADX required when extended >3×ATR
         self._trend_cont_fired_long: bool = False   # Max 2 per day per side
         self._trend_cont_fired_short: bool = False
         self._trend_cont_long_count: int = 0   # Track how many fired
@@ -287,6 +302,13 @@ class EsFifteenMinStrategy(BaseStrategy):
         adx = float(latest.get("ADX_14", 0))
         rsi = float(latest.get("RSI_14", 50))
         macd_hist = float(latest.get("MACDhist_12_26_9", 0))
+
+        # FEB 20 2026: Seed prev_close from prior bar on first evaluation
+        # after startup.  Without this, OR cross-detection (Signals B, E)
+        # is broken on the first bar (prev_close=0.0).
+        if self._prev_close == 0.0 and len(enriched) >= 2:
+            self._prev_close = float(enriched.iloc[-2]["close"])
+            logger.info(f"📌 Seeded prev_close={self._prev_close:.2f} from prior bar")
 
         # Fix NaN
         for name, val in [("atr", atr), ("adx", adx), ("rsi", rsi), ("macd_hist", macd_hist)]:
@@ -449,8 +471,27 @@ class EsFifteenMinStrategy(BaseStrategy):
                     _f_reason = f"F:adx({adx:.0f})<{self._trend_cont_adx_min:.0f}"
                 elif close <= ema9:
                     _f_reason = f"F:close({close:.1f})<=ema9({ema9:.1f})"
+                elif close <= open_price:
+                    _f_reason = f"F:bearish(c={close:.1f},o={open_price:.1f})"
+                elif macd_hist <= 0:
+                    _f_reason = f"F:macd({macd_hist:.2f})<=0"
+                elif rsi < 45 or rsi > 78:
+                    _f_reason = f"F:rsi({rsi:.0f})out[45-78]"
                 else:
-                    _f_reason = f"F:bars_chk(c={close:.1f},e9={ema9:.1f})"
+                    # Proximity / ascending closes / gap-adx
+                    _spread = close - ema9
+                    _max_ext = max(atr * 1.5, self._trend_cont_max_ext_pts)
+                    if _spread > _max_ext:
+                        _f_reason = f"F:ext({_spread:.1f})>max({_max_ext:.1f})"
+                    elif atr > 0 and _spread > atr * 3 and adx < self._trend_cont_gap_adx_min:
+                        _f_reason = f"F:gap_adx({adx:.0f})<{self._trend_cont_gap_adx_min:.0f}(ext={_spread:.1f})"
+                    elif len(enriched) >= 4:
+                        c1 = float(enriched.iloc[-1]["close"])
+                        c2 = float(enriched.iloc[-2]["close"])
+                        c3 = float(enriched.iloc[-3]["close"])
+                        _f_reason = f"F:asc({c1:.1f},{c2:.1f},{c3:.1f})"
+                    else:
+                        _f_reason = f"F:bars<4({len(enriched)})"
                 _diag_parts.append(_f_reason)
             _diag = " | ".join(_diag_parts) if _diag_parts else "unknown"
             logger.info(f"🔍 NO_SIGNAL diag: {_diag}")
@@ -691,11 +732,17 @@ class EsFifteenMinStrategy(BaseStrategy):
         if macd_hist <= 0:
             return None
 
-        # ---- Compute stops/targets ----
-        stop_loss = close - self._fixed_sl_points_ema9       # Fixed-point SL ($40 at 8 pts)
-        take_profit = close + self._fixed_tp_points_ema9     # Fixed-point TP ($50 at 10 pts)
+        # ---- Compute ATR-adaptive stops/targets (FEB 20 2026) ----
+        # SL = min(ceiling, max(floor, ATR × mult))  — adapts to volatility
+        # TP = SL × rr_ratio                         — preserves R:R
+        sl_pts = min(self._ema9_sl_ceiling,
+                     max(self._ema9_sl_floor, atr * self._ema9_sl_atr_mult))
+        tp_pts = sl_pts * self._ema9_rr_ratio
+        stop_loss = close - sl_pts
+        take_profit = close + tp_pts
 
-        reason = f"EMA9_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | ATR={atr:.1f}"
+        reason = (f"EMA9_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | ATR={atr:.1f}"
+                  f" | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts")
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -876,21 +923,29 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # 3. EMA9 proximity check — low should be near EMA9 (shallow dip)
-        #    This prevents buying at the very top of a spike
+        #    This prevents buying at the very top of a spike.
+        #    FEB 20 2026: Use max(1.5×ATR, max_ext_pts) to handle gap-up days
+        #    where ATR is small but price legitimately gapped away from EMAs.
+        #    When extension is large (>3×ATR), require higher ADX for safety.
         ema9_zone = ema9 * (1 + self._trend_cont_ema9_pct)
+        spread = close - ema9
+        max_allowed = max(atr * 1.5, self._trend_cont_max_ext_pts)
         if low > ema9_zone:
-            # Fallback: allow if close-to-EMA9 spread is less than 1.5× ATR
-            # (price is extended but not dangerously far)
-            if (close - ema9) > atr * 1.5:
+            if spread > max_allowed:
                 return None
+            # Extra safety: if very extended (>3×ATR), demand stronger trend
+            if atr > 0 and spread > atr * 3:
+                if adx < self._trend_cont_gap_adx_min:
+                    return None
 
-        # 7. Ascending closes — last 3 bars must show rising closes
-        if len(df) < 4:
+        # 7. Ascending closes — last 2 bars must show rising closes
+        # FEB 20 2026: Relaxed from 3-bar to 2-bar. Simulation showed
+        # F_long improved from 3W/10L to 5W/7L with this change.
+        if len(df) < 3:
             return None
         c1 = float(df.iloc[-1]["close"])  # current
         c2 = float(df.iloc[-2]["close"])  # prev
-        c3 = float(df.iloc[-3]["close"])  # 2 bars ago
-        if not (c1 > c2 and c2 > c3):
+        if not (c1 > c2):
             return None
 
         # ---- Compute stops/targets ----
@@ -959,19 +1014,25 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # 3. EMA9 proximity — high near EMA9 (shallow bounce)
+        #    FEB 20 2026: Use max(1.5×ATR, max_ext_pts) for gap-down days
         ema9_zone = ema9 * (1 - self._trend_cont_ema9_pct)
+        spread = ema9 - close
+        max_allowed = max(atr * 1.5, self._trend_cont_max_ext_pts)
         if high < ema9_zone:
-            # Fallback: allow if EMA9-to-close spread < 1.5× ATR
-            if (ema9 - close) > atr * 1.5:
+            if spread > max_allowed:
                 return None
+            # Extra safety: very extended gap-down needs stronger trend
+            if atr > 0 and spread > atr * 3:
+                if adx < self._trend_cont_gap_adx_min:
+                    return None
 
-        # 7. Descending closes
-        if len(df) < 4:
+        # 7. Descending closes — last 2 bars must show falling closes
+        # FEB 20 2026: Relaxed from 3-bar to 2-bar (mirrors long side change).
+        if len(df) < 3:
             return None
         c1 = float(df.iloc[-1]["close"])
         c2 = float(df.iloc[-2]["close"])
-        c3 = float(df.iloc[-3]["close"])
-        if not (c1 < c2 and c2 < c3):
+        if not (c1 < c2):
             return None
 
         # ---- Compute stops/targets (inverted) ----

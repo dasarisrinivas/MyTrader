@@ -1328,3 +1328,6 @@
 {"timestamp": "2026-02-18T19:45:18.824136+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "SELL", "quantity": 1, "limit_price": null, "stop_loss": 6900.5, "take_profit": 6868.5, "symbol": "MES", "signature": "efc71778bf79e2201e988da17fb18d3e"}}
 {"timestamp": "2026-02-19T17:15:34.224024+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "SELL", "quantity": 1, "limit_price": null, "stop_loss": 6877.5, "take_profit": 6854.75, "symbol": "MES", "signature": "afb517517ed2294dace7ed7e2e0530c9"}}
 {"timestamp": "2026-02-20T15:32:27.236757+00:00", "correlation_id": "2046ca7f6767", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-02-20T16:15:02.293583+00:00", "correlation_id": "b4c618f78e8b", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-02-20T19:29:01.560366+00:00", "correlation_id": "81e31f0d36d1", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-02-20T19:30:34.450423+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "BUY", "quantity": 1, "limit_price": null, "stop_loss": 6912.25, "take_profit": 6930.25, "symbol": "MES", "signature": "4ece665e7062867831d5a90787857fc0"}}

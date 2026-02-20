@@ -1,0 +1,345 @@
+{
+  "report_id": "RPT_e8a6383d6074addf_20260220_130022",
+  "generated_at": "2026-02-20T13:00:22.778942-06:00",
+  "severity": "LOW",
+  "anomaly": {
+    "anomaly_id": "e8a6383d6074addf",
+    "anomaly_type": "TRADE_COMPLETE",
+    "severity": "LOW",
+    "description": "Trade completed: BUY filled at 6877.5, P&L: flat. Order: 130003.",
+    "detected_at": "2026-02-20T13:00:21.575296-06:00",
+    "payload": {
+      "order_id": "130003",
+      "action": "BUY",
+      "fill_price": 6877.5,
+      "realized_pnl": 0.0,
+      "pnl_display": "flat",
+      "symbol": "MES"
+    },
+    "needs_copilot": false
+  },
+  "context_snapshot": {
+    "timestamp": "2026-02-20T13:00:22.497303-06:00",
+    "daily_pnl": {
+      "date": "2026-02-20",
+      "realized_pnl": 0.0,
+      "trade_count": 0,
+      "wins": 0,
+      "losses": 0
+    },
+    "open_positions": [
+      {
+        "trade_cycle_id": "456d58a6cd9d",
+        "action": "SELL",
+        "quantity": 1,
+        "price": 6866.0,
+        "timestamp": "2026-02-05T17:46:10.331117"
+      },
+      {
+        "trade_cycle_id": "fa74c408d4f3",
+        "action": "BUY",
+        "quantity": 1,
+        "price": 6843.0,
+        "timestamp": "2026-02-05T16:30:13.407830"
+      },
+      {
+        "trade_cycle_id": "af712919059d",
+        "action": "BUY",
+        "quantity": 1,
+        "price": 6941.75,
+        "timestamp": "2026-02-04T02:41:13.636636"
+      },
+      {
+        "trade_cycle_id": "73e57f3d3b7b",
+        "action": "BUY",
+        "quantity": 1,
+        "price": 7002.0,
+        "timestamp": "2026-01-28T17:24:07.627747"
+      },
+      {
+        "trade_cycle_id": "fd878f748182",
+        "action": "SELL",
+        "quantity": 1,
+        "price": 6975.5,
+        "timestamp": "2026-01-26T15:09:13.789246"
+      }
+    ],
+    "last_trade_timestamp": "2026-02-19T11:22:20.298208-06:00",
+    "signal_metrics": {
+      "signals_generated": 0,
+      "signals_blocked": 1,
+      "confidence_values": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "block_reasons": [
+        "waiting for %d/%d completed bars after startup"
+      ]
+    },
+    "dampening_status": {
+      "cooldown_active": true,
+      "kill_switch_active": false,
+      "drawdown_halt": false,
+      "maintenance_block": false,
+      "cooldown_details": [
+        {
+          "timestamp": "2026-02-20 10:16:54",
+          "detail": "last trade at 2026-02-19 11:15:37 CST"
+        }
+      ],
+      "risk_consolidation": [],
+      "details": []
+    },
+    "market_regime": {
+      "status": "no_regime_data_available"
+    },
+    "vix_status": {
+      "config": {
+        "enabled": true,
+        "ib_host": "127.0.0.1",
+        "ib_port": 4001,
+        "client_id": 71,
+        "market_data_type": 1,
+        "stale_seconds": 120,
+        "conservative_on_stale": false,
+        "thresholds": {
+          "extreme": 30.0,
+          "elevated": 20.0
+        },
+        "max_retries": 5,
+        "base_delay": 1.0,
+        "max_delay": 60.0
+      },
+      "cached_value": null
+    }
+  },
+  "strategy_config": {
+    "trading": {
+      "market_hours": {
+        "enabled": true,
+        "futures_mode": true,
+        "maintenance_windows": [
+          {
+            "start": "16:00",
+            "end": "17:00",
+            "timezone": "America/Chicago"
+          }
+        ],
+        "daily_reset_time": "17:00",
+        "daily_reset_timezone": "America/Chicago"
+      },
+      "max_position_size": 1,
+      "max_contracts_limit": 1,
+      "contracts_per_order": 1,
+      "max_daily_loss": 1000.0,
+      "max_daily_trades": 10,
+      "max_consecutive_losses": 10,
+      "initial_capital": 5000.0,
+      "contract_multiplier": 5.0,
+      "tick_size": 0.25,
+      "tick_value": 1.25,
+      "commission_per_contract": 2.4,
+      "stop_loss_ticks": 60.0,
+      "take_profit_ticks": 120.0,
+      "min_stop_distance_ticks": 16,
+      "max_stop_distance_ticks": 60,
+      "min_weighted_confidence": 0.5,
+      "confidence_threshold": 0.6,
+      "min_confidence_for_trade": 0.5,
+      "emergency_mode_enabled": true,
+      "trade_cooldown_minutes": 10,
+      "cooldown_on_loss_minutes": 20,
+      "cooldown_on_consecutive_losses_minutes": 45,
+      "max_losses_before_extended_cooldown": 2,
+      "order_lock_timeout_seconds": 300,
+      "pending_order_timeout_seconds": 180,
+      "reset_state_on_start": false,
+      "startup_grace_period_seconds": 120,
+      "startup_min_completed_bars": 2,
+      "max_spread_ticks": 2.0,
+      "spread_gate_enabled": true,
+      "entry_filters": {
+        "wait_for_candle_close": true,
+        "require_trend_alignment": true,
+        "allow_counter_trend": true,
+        "ema_fast_period": 9,
+        "ema_slow_period": 20,
+        "ema_alignment_tolerance_pct": 0.0002,
+        "counter_trend_penalty": 0.15,
+        "require_adx_confirmation": true,
+        "min_adx_threshold": 10.0,
+        "min_adx_threshold_low_volume": 7.0,
+        "adx_period": 14,
+        "atr_period": 14,
+        "min_atr_threshold": 0.3,
+        "min_atr_percentile": 10,
+        "max_atr_threshold": 50.0,
+        "low_atr_penalty_mode": true,
+        "low_atr_penalty": 0.15,
+        "atr_percentile_lookback": 240,
+        "chop_zone_buffer_pct": 0.25,
+        "sr_proximity_ticks": 8,
+        "contract_month_offset": 0
+      },
+      "min_confidence_threshold": 0.45,
+      "evening_session_threshold": 0.35,
+      "fallback_signals_enabled": true,
+      "s3_cache_duration_minutes": 10,
+      "max_trade_logs_per_query": 5,
+      "position_management": {
+        "max_position_duration_hours": 4,
+        "profit_target_points": 20,
+        "stop_loss_points": 10,
+        "emergency_close_enabled": true,
+        "force_exits_after_hours": 4,
+        "emergency_exit_confidence": 60,
+        "bypass_filters_for_exits": true
+      },
+      "position_exit": {
+        "stop_loss_dollars": 75,
+        "profit_target_dollars": 100,
+        "max_hold_time_hours": 4
+      },
+      "exit_signals": {
+        "bypass_regime_filter": true,
+        "time_based_exit": true,
+        "profit_target_exit": true,
+        "stop_loss_exit": true
+      },
+      "min_risk_reward_ratio": 1.0
+    },
+    "risk_gate": {
+      "max_contracts": 1,
+      "risk_per_trade_usd": 90.0,
+      "risk_per_trade_min": 25,
+      "risk_per_trade_max": 125.0,
+      "daily_max_loss_usd": 250,
+      "weekly_max_loss_usd": 500,
+      "margin_buffer_usd": 1000,
+      "initial_margin_long": 2464.0,
+      "initial_margin_short": 2305.6,
+      "avoid_close_window_minutes": 20,
+      "avoid_close_enabled": true,
+      "min_stop_points": 6.0,
+      "max_stop_points": 25.0,
+      "max_consecutive_losses": 5,
+      "peak_drawdown_enabled": true,
+      "peak_drawdown_pct": 4.0,
+      "peak_drawdown_action": "halt",
+      "peak_drawdown_tighten_multiplier": 0.5,
+      "peak_drawdown_stop_buffer_points": 0.5,
+      "peak_drawdown_flatten_on_trigger": true,
+      "peak_drawdown_reset_on_new_day": true
+    },
+    "vix_feed": {
+      "enabled": true,
+      "ib_host": "127.0.0.1",
+      "ib_port": 4001,
+      "client_id": 71,
+      "market_data_type": 1,
+      "stale_seconds": 120,
+      "conservative_on_stale": false,
+      "thresholds": {
+        "extreme": 30.0,
+        "elevated": 20.0
+      },
+      "max_retries": 5,
+      "base_delay": 1.0,
+      "max_delay": 60.0
+    },
+    "hybrid": {
+      "chop_ema_spread_min_pct": 0.0,
+      "signal_threshold": 20,
+      "oversold_extension_rsi_min": 25.0,
+      "no_signal_allow_weak_signals": true,
+      "no_signal_allow_chop_bias": true,
+      "level_confirmation_enabled": false
+    },
+    "structural_support_floor": 6860.0,
+    "high_impact_event_dates": [
+      "2026-02-20"
+    ]
+  },
+  "risk_parameters": {
+    "risk_gate": {
+      "max_contracts": 1,
+      "risk_per_trade_usd": 90.0,
+      "risk_per_trade_min": 25,
+      "risk_per_trade_max": 125.0,
+      "daily_max_loss_usd": 250,
+      "weekly_max_loss_usd": 500,
+      "margin_buffer_usd": 1000,
+      "initial_margin_long": 2464.0,
+      "initial_margin_short": 2305.6,
+      "avoid_close_window_minutes": 20,
+      "avoid_close_enabled": true,
+      "min_stop_points": 6.0,
+      "max_stop_points": 25.0,
+      "max_consecutive_losses": 5,
+      "peak_drawdown_enabled": true,
+      "peak_drawdown_pct": 4.0,
+      "peak_drawdown_action": "halt",
+      "peak_drawdown_tighten_multiplier": 0.5,
+      "peak_drawdown_stop_buffer_points": 0.5,
+      "peak_drawdown_flatten_on_trigger": true,
+      "peak_drawdown_reset_on_new_day": true
+    },
+    "position_limits": {
+      "max_position_size": 1,
+      "max_contracts_limit": 1,
+      "max_daily_loss": 1000.0,
+      "max_daily_trades": 10
+    },
+    "stop_target": {
+      "stop_loss_ticks": 60.0,
+      "take_profit_ticks": 120.0,
+      "min_stop_distance_ticks": 16,
+      "max_stop_distance_ticks": 60
+    },
+    "cooldowns": {
+      "trade_cooldown_minutes": 10,
+      "cooldown_on_loss_minutes": 20,
+      "cooldown_on_consecutive_losses_minutes": 45
+    }
+  },
+  "confidence_thresholds": {
+    "min_weighted_confidence": 0.5,
+    "confidence_threshold": 0.6,
+    "min_confidence_for_trade": 0.5,
+    "min_risk_reward_ratio": 1.0,
+    "entry_filters": {
+      "wait_for_candle_close": true,
+      "require_trend_alignment": true,
+      "allow_counter_trend": true,
+      "ema_fast_period": 9,
+      "ema_slow_period": 20,
+      "ema_alignment_tolerance_pct": 0.0002,
+      "counter_trend_penalty": 0.15,
+      "require_adx_confirmation": true,
+      "min_adx_threshold": 10.0,
+      "min_adx_threshold_low_volume": 7.0,
+      "adx_period": 14,
+      "atr_period": 14,
+      "min_atr_threshold": 0.3,
+      "min_atr_percentile": 10,
+      "max_atr_threshold": 50.0,
+      "low_atr_penalty_mode": true,
+      "low_atr_penalty": 0.15,
+      "atr_percentile_lookback": 240,
+      "chop_zone_buffer_pct": 0.25,
+      "sr_proximity_ticks": 8,
+      "contract_month_offset": 0
+    }
+  },
+  "copilot_analysis": null,
+  "recommendations": [],
+  "advisory_only": true,
+  "disclaimer": "This report is advisory only. No automated parameter changes or strategy modifications should be made without human review."
+}

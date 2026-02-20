@@ -1,0 +1,43 @@
+You are diagnosing a live MES futures trading bot that has NOT traded.
+
+PROBLEM: No trades for 25h 9m. Last trade: yesterday at 11:22 AM CST. Threshold: 60 min.
+
+BOT: RUNNING | price=6894.5 | bars=69 | hb=2026-02-20 12:28:11
+OR: H=6894.75 L=6889.25 range=5.5pts ($27.5)
+VX: 18.75 (mult=0.8x)
+P&L today: $0.00 | trades: 0
+Last trade: 2026-02-19T11:22:20.298208-06:00
+Cycles evaluated: 11 | Skips: 10 (all HOLD)
+Cooldown: True | Kill-switch: False
+
+SIGNAL FAILURES (parsed from NO_SIGNAL diag — 9 cycles):
+  A (EMA21 Pullback Long (price dips to EMA21, bounces in uptrend)): 9x fail — bearish(c=6894.5,o=6901.8)
+  B (Opening Range Breakout Long (first close above OR high)): 8x fail — already_broken
+  D (EMA21 Pullback Short (price rallies to EMA21, rejects in downtrend)): 9x fail — ema21(6893.3)>=ema50(6889.6)
+  E (Opening Range Breakdown Short (first close below OR low)): 9x fail — no_cross(c=6894.5,prev=6906.0,OR_L=6889.2)
+  F (Trend Continuation (strong momentum, aligned EMA stack)): 9x fail — close(6894.5)<=ema9(6897.4)
+
+Latest raw diag: A:close(6890.8)<=ema21(6893.1) | B:already_broken | D:ema21(6893.1)>=ema50(6889.7) | E:no_cross(c=6890.8,prev=6894.5,OR_L=6889.2) | F:close(6890.8)<=ema9(6896.1)
+
+Entry blocks:
+  2026-02-20 10:30:31: waiting for %d/%d completed bars after startup
+
+STRATEGY REFERENCE:
+  A=EMA21 Pullback Long (touch EMA21 + bounce + bullish bar + MACD>0)
+  B=OR Breakout Long (prev close < OR_H, current close > OR_H)
+  D=EMA21 Pullback Short (mirror of A in downtrend)
+  E=OR Breakdown Short (mirror of B below OR_L)
+  F=Trend Continuation (aligned EMA stack 9>21>50 or 9<21<50)
+
+KEY FILES you can inspect on this machine for deeper analysis:
+  Strategy code: /Users/svss/Documents/code/ShreeBot/shree/strategies/es_fifteen_min.py
+  Live bot log:  /Users/svss/Documents/code/ShreeBot/logs/bot.log
+  Config:        /Users/svss/Documents/code/ShreeBot/config.yaml
+  Orders DB:     /Users/svss/Documents/code/ShreeBot/data/orders.db
+
+DIAGNOSE:
+1. Root cause — cite the specific signal failure values above.
+2. Market vs System issue?
+3. Is price just too far from EMA21 / stuck inside OR / no trend?
+4. What needs to change for trades to fire?
+5. Severity: CRITICAL / HIGH / MEDIUM / LOW?

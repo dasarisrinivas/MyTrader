@@ -1,0 +1,191 @@
+{
+  "generated_at": "2026-02-20T13:23:01.192222",
+  "data_source": "/Users/svss/Documents/code/ShreeBot/data/es_october_2025.csv",
+  "trading_days": 18,
+  "bars_15m": 1632,
+  "current_raw": {
+    "label": "CURRENT (raw)",
+    "total_signals": 52,
+    "blocked": 0,
+    "executed": 52,
+    "wins": 20,
+    "losses": 32,
+    "win_rate": 38.46153846153847,
+    "avg_win": 41.019999999999996,
+    "avg_loss": -39.19875,
+    "total_pnl": -433.9600000000002,
+    "max_drawdown": 656.6400000000002,
+    "profit_factor": 0.6540387129691632,
+    "trades_per_day": 2.888888888888889,
+    "signals_per_day": 2.888888888888889
+  },
+  "current_hybrid": {
+    "label": "CURRENT (w/ hybrid)",
+    "total_signals": 52,
+    "blocked": 26,
+    "executed": 26,
+    "wins": 10,
+    "losses": 16,
+    "win_rate": 38.46153846153847,
+    "avg_win": 44.519999999999996,
+    "avg_loss": -40.2925,
+    "total_pnl": -199.47999999999985,
+    "max_drawdown": 442.23999999999995,
+    "profit_factor": 0.6905751690761305,
+    "trades_per_day": 1.4444444444444444,
+    "signals_per_day": 2.888888888888889
+  },
+  "proposed_hybrid": {
+    "label": "PROPOSED (w/ hybrid cap)",
+    "total_signals": 53,
+    "blocked": 0,
+    "executed": 53,
+    "wins": 24,
+    "losses": 29,
+    "win_rate": 45.28301886792453,
+    "avg_win": 40.43666666666667,
+    "avg_loss": -38.85931034482759,
+    "total_pnl": -156.43999999999969,
+    "max_drawdown": 469.1199999999997,
+    "profit_factor": 0.8611791431512436,
+    "trades_per_day": 2.9444444444444446,
+    "signals_per_day": 2.9444444444444446
+  },
+  "proposed_raw": {
+    "label": "PROPOSED (raw)",
+    "total_signals": 53,
+    "blocked": 0,
+    "executed": 53,
+    "wins": 24,
+    "losses": 29,
+    "win_rate": 45.28301886792453,
+    "avg_win": 40.43666666666667,
+    "avg_loss": -38.85931034482759,
+    "total_pnl": -156.43999999999969,
+    "max_drawdown": 469.1199999999997,
+    "profit_factor": 0.8611791431512436,
+    "trades_per_day": 2.9444444444444446,
+    "signals_per_day": 2.9444444444444446
+  },
+  "current_by_type": {
+    "E": {
+      "signals": 6,
+      "executed": 6,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 3,
+      "pnl": -14.879999999999981
+    },
+    "D": {
+      "signals": 11,
+      "executed": 11,
+      "blocked": 0,
+      "wins": 5,
+      "losses": 6,
+      "pnl": -62.279999999999966
+    },
+    "F_short": {
+      "signals": 7,
+      "executed": 7,
+      "blocked": 0,
+      "wins": 4,
+      "losses": 3,
+      "pnl": 67.64000000000001
+    },
+    "F_long": {
+      "signals": 13,
+      "executed": 13,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 10,
+      "pnl": -182.23999999999995
+    },
+    "C": {
+      "signals": 9,
+      "executed": 9,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 6,
+      "pnl": -157.31999999999996
+    },
+    "B": {
+      "signals": 1,
+      "executed": 1,
+      "blocked": 0,
+      "wins": 0,
+      "losses": 1,
+      "pnl": -37.48
+    },
+    "A": {
+      "signals": 5,
+      "executed": 5,
+      "blocked": 0,
+      "wins": 2,
+      "losses": 3,
+      "pnl": -47.399999999999984
+    }
+  },
+  "proposed_by_type": {
+    "E": {
+      "signals": 6,
+      "executed": 6,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 3,
+      "pnl": -14.879999999999981
+    },
+    "D": {
+      "signals": 15,
+      "executed": 15,
+      "blocked": 0,
+      "wins": 7,
+      "losses": 8,
+      "pnl": -72.19999999999993
+    },
+    "F_short": {
+      "signals": 4,
+      "executed": 4,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 1,
+      "pnl": 110.08000000000001
+    },
+    "F_long": {
+      "signals": 12,
+      "executed": 12,
+      "blocked": 0,
+      "wins": 5,
+      "losses": 7,
+      "pnl": 20.240000000000023
+    },
+    "C": {
+      "signals": 8,
+      "executed": 8,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 5,
+      "pnl": -109.83999999999997
+    },
+    "B": {
+      "signals": 1,
+      "executed": 1,
+      "blocked": 0,
+      "wins": 0,
+      "losses": 1,
+      "pnl": -37.48
+    },
+    "A": {
+      "signals": 7,
+      "executed": 7,
+      "blocked": 0,
+      "wins": 3,
+      "losses": 4,
+      "pnl": -52.359999999999964
+    }
+  },
+  "changes": {
+    "ema_touch_pct": "0.001 \u2192 0.0015",
+    "ascending_bars": "3 \u2192 2",
+    "hybrid_oppose_cap": "-0.33 \u2192 -0.10"
+  }
+}

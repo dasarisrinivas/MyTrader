@@ -1,0 +1,360 @@
+{
+  "report_id": "RPT_cf4447e27c6f5b70_20260220_120716",
+  "generated_at": "2026-02-20T12:07:16.958524-06:00",
+  "severity": "HIGH",
+  "anomaly": {
+    "anomaly_id": "cf4447e27c6f5b70",
+    "anomaly_type": "NO_TRADE",
+    "severity": "HIGH",
+    "description": "No trades executed in the last 1484 minutes. Threshold: 60 minutes. Last trade: 2026-02-19T11:22:20.298208-06:00.",
+    "detected_at": "2026-02-20T12:06:33.189841-06:00",
+    "payload": {
+      "minutes_idle": 1484.2,
+      "threshold": 60,
+      "last_trade": "2026-02-19T11:22:20.298208-06:00"
+    }
+  },
+  "context_snapshot": {
+    "timestamp": "2026-02-20T12:06:33.189998-06:00",
+    "daily_pnl": {
+      "date": "2026-02-20",
+      "realized_pnl": 0.0,
+      "trade_count": 0,
+      "wins": 0,
+      "losses": 0
+    },
+    "open_positions": [
+      {
+        "trade_cycle_id": "456d58a6cd9d",
+        "action": "SELL",
+        "quantity": 1,
+        "price": 6866.0,
+        "timestamp": "2026-02-05T17:46:10.331117"
+      },
+      {
+        "trade_cycle_id": "fa74c408d4f3",
+        "action": "BUY",
+        "quantity": 1,
+        "price": 6843.0,
+        "timestamp": "2026-02-05T16:30:13.407830"
+      },
+      {
+        "trade_cycle_id": "af712919059d",
+        "action": "BUY",
+        "quantity": 1,
+        "price": 6941.75,
+        "timestamp": "2026-02-04T02:41:13.636636"
+      },
+      {
+        "trade_cycle_id": "73e57f3d3b7b",
+        "action": "BUY",
+        "quantity": 1,
+        "price": 7002.0,
+        "timestamp": "2026-01-28T17:24:07.627747"
+      },
+      {
+        "trade_cycle_id": "fd878f748182",
+        "action": "SELL",
+        "quantity": 1,
+        "price": 6975.5,
+        "timestamp": "2026-01-26T15:09:13.789246"
+      }
+    ],
+    "last_trade_timestamp": "2026-02-19T11:22:20.298208-06:00",
+    "signal_metrics": {
+      "signals_generated": 0,
+      "signals_blocked": 1,
+      "confidence_values": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "block_reasons": [
+        "waiting for %d/%d completed bars after startup"
+      ]
+    },
+    "dampening_status": {
+      "cooldown_active": true,
+      "kill_switch_active": false,
+      "drawdown_halt": false,
+      "maintenance_block": false,
+      "cooldown_details": [
+        {
+          "timestamp": "2026-02-20 10:16:54",
+          "detail": "last trade at 2026-02-19 11:15:37 CST"
+        }
+      ],
+      "risk_consolidation": [],
+      "details": []
+    },
+    "market_regime": {
+      "status": "no_regime_data_available"
+    },
+    "vix_status": {
+      "config": {
+        "enabled": true,
+        "ib_host": "127.0.0.1",
+        "ib_port": 4001,
+        "client_id": 71,
+        "market_data_type": 1,
+        "stale_seconds": 120,
+        "conservative_on_stale": false,
+        "thresholds": {
+          "extreme": 30.0,
+          "elevated": 20.0
+        },
+        "max_retries": 5,
+        "base_delay": 1.0,
+        "max_delay": 60.0
+      },
+      "cached_value": null
+    }
+  },
+  "strategy_config": {
+    "trading": {
+      "market_hours": {
+        "enabled": true,
+        "futures_mode": true,
+        "maintenance_windows": [
+          {
+            "start": "16:00",
+            "end": "17:00",
+            "timezone": "America/Chicago"
+          }
+        ],
+        "daily_reset_time": "17:00",
+        "daily_reset_timezone": "America/Chicago"
+      },
+      "max_position_size": 1,
+      "max_contracts_limit": 1,
+      "contracts_per_order": 1,
+      "max_daily_loss": 1000.0,
+      "max_daily_trades": 10,
+      "max_consecutive_losses": 10,
+      "initial_capital": 5000.0,
+      "contract_multiplier": 5.0,
+      "tick_size": 0.25,
+      "tick_value": 1.25,
+      "commission_per_contract": 2.4,
+      "stop_loss_ticks": 60.0,
+      "take_profit_ticks": 120.0,
+      "min_stop_distance_ticks": 16,
+      "max_stop_distance_ticks": 60,
+      "min_weighted_confidence": 0.5,
+      "confidence_threshold": 0.6,
+      "min_confidence_for_trade": 0.5,
+      "emergency_mode_enabled": true,
+      "trade_cooldown_minutes": 10,
+      "cooldown_on_loss_minutes": 20,
+      "cooldown_on_consecutive_losses_minutes": 45,
+      "max_losses_before_extended_cooldown": 2,
+      "order_lock_timeout_seconds": 300,
+      "pending_order_timeout_seconds": 180,
+      "reset_state_on_start": false,
+      "startup_grace_period_seconds": 120,
+      "startup_min_completed_bars": 2,
+      "max_spread_ticks": 2.0,
+      "spread_gate_enabled": true,
+      "entry_filters": {
+        "wait_for_candle_close": true,
+        "require_trend_alignment": true,
+        "allow_counter_trend": true,
+        "ema_fast_period": 9,
+        "ema_slow_period": 20,
+        "ema_alignment_tolerance_pct": 0.0002,
+        "counter_trend_penalty": 0.15,
+        "require_adx_confirmation": true,
+        "min_adx_threshold": 10.0,
+        "min_adx_threshold_low_volume": 7.0,
+        "adx_period": 14,
+        "atr_period": 14,
+        "min_atr_threshold": 0.3,
+        "min_atr_percentile": 10,
+        "max_atr_threshold": 50.0,
+        "low_atr_penalty_mode": true,
+        "low_atr_penalty": 0.15,
+        "atr_percentile_lookback": 240,
+        "chop_zone_buffer_pct": 0.25,
+        "sr_proximity_ticks": 8,
+        "contract_month_offset": 0
+      },
+      "min_confidence_threshold": 0.45,
+      "evening_session_threshold": 0.35,
+      "fallback_signals_enabled": true,
+      "s3_cache_duration_minutes": 10,
+      "max_trade_logs_per_query": 5,
+      "position_management": {
+        "max_position_duration_hours": 4,
+        "profit_target_points": 20,
+        "stop_loss_points": 10,
+        "emergency_close_enabled": true,
+        "force_exits_after_hours": 4,
+        "emergency_exit_confidence": 60,
+        "bypass_filters_for_exits": true
+      },
+      "position_exit": {
+        "stop_loss_dollars": 75,
+        "profit_target_dollars": 100,
+        "max_hold_time_hours": 4
+      },
+      "exit_signals": {
+        "bypass_regime_filter": true,
+        "time_based_exit": true,
+        "profit_target_exit": true,
+        "stop_loss_exit": true
+      },
+      "min_risk_reward_ratio": 1.0
+    },
+    "risk_gate": {
+      "max_contracts": 1,
+      "risk_per_trade_usd": 90.0,
+      "risk_per_trade_min": 25,
+      "risk_per_trade_max": 125.0,
+      "daily_max_loss_usd": 250,
+      "weekly_max_loss_usd": 500,
+      "margin_buffer_usd": 1000,
+      "initial_margin_long": 2464.0,
+      "initial_margin_short": 2305.6,
+      "avoid_close_window_minutes": 20,
+      "avoid_close_enabled": true,
+      "min_stop_points": 6.0,
+      "max_stop_points": 25.0,
+      "max_consecutive_losses": 5,
+      "peak_drawdown_enabled": true,
+      "peak_drawdown_pct": 4.0,
+      "peak_drawdown_action": "halt",
+      "peak_drawdown_tighten_multiplier": 0.5,
+      "peak_drawdown_stop_buffer_points": 0.5,
+      "peak_drawdown_flatten_on_trigger": true,
+      "peak_drawdown_reset_on_new_day": true
+    },
+    "vix_feed": {
+      "enabled": true,
+      "ib_host": "127.0.0.1",
+      "ib_port": 4001,
+      "client_id": 71,
+      "market_data_type": 1,
+      "stale_seconds": 120,
+      "conservative_on_stale": false,
+      "thresholds": {
+        "extreme": 30.0,
+        "elevated": 20.0
+      },
+      "max_retries": 5,
+      "base_delay": 1.0,
+      "max_delay": 60.0
+    },
+    "hybrid": {
+      "chop_ema_spread_min_pct": 0.0,
+      "signal_threshold": 20,
+      "oversold_extension_rsi_min": 25.0,
+      "no_signal_allow_weak_signals": true,
+      "no_signal_allow_chop_bias": true,
+      "level_confirmation_enabled": false
+    },
+    "structural_support_floor": 6860.0,
+    "high_impact_event_dates": [
+      "2026-02-20"
+    ]
+  },
+  "risk_parameters": {
+    "risk_gate": {
+      "max_contracts": 1,
+      "risk_per_trade_usd": 90.0,
+      "risk_per_trade_min": 25,
+      "risk_per_trade_max": 125.0,
+      "daily_max_loss_usd": 250,
+      "weekly_max_loss_usd": 500,
+      "margin_buffer_usd": 1000,
+      "initial_margin_long": 2464.0,
+      "initial_margin_short": 2305.6,
+      "avoid_close_window_minutes": 20,
+      "avoid_close_enabled": true,
+      "min_stop_points": 6.0,
+      "max_stop_points": 25.0,
+      "max_consecutive_losses": 5,
+      "peak_drawdown_enabled": true,
+      "peak_drawdown_pct": 4.0,
+      "peak_drawdown_action": "halt",
+      "peak_drawdown_tighten_multiplier": 0.5,
+      "peak_drawdown_stop_buffer_points": 0.5,
+      "peak_drawdown_flatten_on_trigger": true,
+      "peak_drawdown_reset_on_new_day": true
+    },
+    "position_limits": {
+      "max_position_size": 1,
+      "max_contracts_limit": 1,
+      "max_daily_loss": 1000.0,
+      "max_daily_trades": 10
+    },
+    "stop_target": {
+      "stop_loss_ticks": 60.0,
+      "take_profit_ticks": 120.0,
+      "min_stop_distance_ticks": 16,
+      "max_stop_distance_ticks": 60
+    },
+    "cooldowns": {
+      "trade_cooldown_minutes": 10,
+      "cooldown_on_loss_minutes": 20,
+      "cooldown_on_consecutive_losses_minutes": 45
+    }
+  },
+  "confidence_thresholds": {
+    "min_weighted_confidence": 0.5,
+    "confidence_threshold": 0.6,
+    "min_confidence_for_trade": 0.5,
+    "min_risk_reward_ratio": 1.0,
+    "entry_filters": {
+      "wait_for_candle_close": true,
+      "require_trend_alignment": true,
+      "allow_counter_trend": true,
+      "ema_fast_period": 9,
+      "ema_slow_period": 20,
+      "ema_alignment_tolerance_pct": 0.0002,
+      "counter_trend_penalty": 0.15,
+      "require_adx_confirmation": true,
+      "min_adx_threshold": 10.0,
+      "min_adx_threshold_low_volume": 7.0,
+      "adx_period": 14,
+      "atr_period": 14,
+      "min_atr_threshold": 0.3,
+      "min_atr_percentile": 10,
+      "max_atr_threshold": 50.0,
+      "low_atr_penalty_mode": true,
+      "low_atr_penalty": 0.15,
+      "atr_percentile_lookback": 240,
+      "chop_zone_buffer_pct": 0.25,
+      "sr_proximity_ticks": 8,
+      "contract_month_offset": 0
+    }
+  },
+  "copilot_analysis": {
+    "session_id": "NO_TRADE_cf4447e27c6f5b70_20260220_120633",
+    "anomaly_id": "cf4447e27c6f5b70",
+    "anomaly_type": "NO_TRADE",
+    "started_at": "2026-02-20T12:06:33.435225-06:00",
+    "prompt_chars": 2308,
+    "response": "\u2717 Check recent bot log for signal/entry context\n  $ tail -100 /Users/svss/Documents/code/ShreeBot/logs/bot.log 2>/dev/null | grep -E\n  \"(SIGNAL|signal|entry|block|cooldown|OR|EMA|confidence|HOLD|BUY|SELL|skip)\" | tail -50\n  Permission denied and could not request permission from user\n\n\u25cf Check relevant config values\n  $ grep -E \"^(trading:|risk_gate:|strategy:|entry_min_bars|warmup|startup)\"\n  /Users/svss/Documents/code/ShreeBot/config.yaml | head -30\n  \u2514 3 lines...\n\n\u25cf Grep \"min_bars|warmup|startup|entry_block|completed_bars\"\n(/Users/svss/Documents/code/ShreeBot/shree/strategies/es_fifteen_min.py)\n  \u2514 2 lines found\n\n\u25cf Read trading and strategy config sections\n  $ grep -A5 \"trading:\" /Users/svss/Documents/code/ShreeBot/config.yaml | head -20 && echo \"---\" &&\n  grep -A5 \"strategy:\" /Users/svss/Documents/code/ShreeBot/config.yaml | head -20\n  \u2514 28 lines...\n\n\u25cf Read shree/strategies/es_fifteen_min.py lines 290-330\n  \u2514 41 lines read\n\n\u25cf Grep \"ema21.*ema50|ema50.*ema21|downtrend.*condition|Signal D|pullback.*short\"\n(/Users/svss/Documents/code/ShreeBot/shree/strategies/es_fifteen_min.py)\n  \u2514 41 lines found\n\n---\n\n## Diagnosis\n\n### 1. Root Cause \u2014 **Market Structure, Not a System Bug**\n\nAll 5 signals are failing for the same underlying reason: **the market is trapped in a compressed, choppy range** where price, EMA9, EMA21, and EMA50 are all bunched together within ~9 points (6882\u20136897).\n\n| Signal | Failure | Why |\n|--------|---------|-----|\n| **A** (EMA21 PB Long) | `close(6882.5) <= ema21(6891.9)` | Needs EMA21 > EMA50 (uptrend) AND price > EMA21. Price is **below** EMA21 by ~9.4 pts \u2014 no bounce setup |\n| **B** (OR Breakout Long) | `no_cross(c=6882.5, prev=6888.8, OR_H=6894.8)` | Price never crossed above OR high. Currently **12 pts below OR_H** |\n| **D** (EMA21 PB Short) | `ema21(6891.9) >= ema50(6888.7)` | Needs EMA21 < EMA50 (downtrend). EMAs are **inverted** \u2014 EMA21 is 3.2 pts **above** EMA50, so no downtrend |\n| **E** (OR Breakdown Short) | `no_cross(c=6882.5, prev=6888.8, OR_L=6889.2)` | Price is below OR_L (6882.5 < 6889.2) but a **cross never occurred** \u2014 it gapped/drifted below without a discrete close-to-close crossover |\n| **F** (Trend Continuation) | `close(6882.5) <= ema9(6897.3)` | Needs full EMA stack (9>21>50 or 9<21<50). Stack is disordered: ema9=6897 > ema21=6892 > ema50=6889, but **price is below all three** |\n\n**Special note on Signal E (most actionable):** Price has been **below OR_L (6889.25) for multiple bars** but Signal E requires a discrete bar-over-bar crossover (`prev_close > OR_L AND current_close < OR_L`). Since `prev=6888.8` was already below OR_L, the cross was missed and now no entry fires even though price is trading below the range.\n\n### 2. Market vs System Issue?\n\n**95% Market.** The strategy is working as designed \u2014 it correctly refuses to enter in a directionless, compressed tape. There is **one potential edge case**: Signal E missed the OR_L crossover (already below on the prev bar), which is a market timing issue, not a bug.\n\n### 3. Price/EMA/OR Analysis\n\n- **Price (6882.5\u20136891.5) is sandwiched between EMA50 (6888.7) and EMA21 (6891.9)** \u2014 EMAs are nearly flat and converging. This is a classic chop zone.\n- **OR range = only 5.5 pts ($27.50)** \u2014 an extremely tight opening range. The breakout thresholds (B/E) are barely above/below a near-flat range.\n- EMA stack order: `EMA9 (6897) > EMA21 (6892) > EMA50 (6889)` \u2014 nominally bullish stack, but the 8-point spread means the trend is weak and decaying.\n- **VIX multiplier = 0.8x** (low vol) \u2014 this compresses confidence scoring further even if a signal fires.\n\n### 4. What Needs to Change for Trades to Fire\n\nIn order of likelihood (no code changes needed \u2014 this is market-dependent):\n\n| Trigger | What to Watch |\n|---------|--------------|\n| **Signal A fires** | Price rallies back above EMA21 (~6892) AND EMA21 stays above EMA50 AND MACD turns positive |\n| **Signal B fires** | A decisive close above 6894.75 (OR high) \u2014 needs ~3\u201312 pts of upside |\n| **Signal D fires** | EMA21 drops below EMA50 (needs ~3 pt EMA compression) AND price rallies to touch EMA21 from below |\n| **Signal E opportunity was missed** | The OR_L crossover occurred without detection. Would need another re-test: prev bar closes **above** 6889.25, then current bar closes **below** |\n| **Signal F fires** | Full aligned stack with price above all EMAs (bullish: close > ema9 > ema21 > ema50) |\n\n**If you want the bot to catch the Signal E setup it missed**, you could consider adding a \"price already below OR_L for N bars\" condition as an alternative entry trigger \u2014 but that's a strategy logic change.\n\n### 5. Severity: **LOW**\n\nThe bot is functioning correctly. No trades is the **right behavior** for today's market conditions (compressed 5.5pt OR, price/EMA stack tangled together, no clear directional momentum). The 1,484-minute gap is alarming from a monitoring standpoint but reflects a genuinely untradeable tape since yesterday morning.\n\n**Action:** Monitor for price to break cleanly above 6895 (Signal B) or wait for EMA stack to separate (>5 pts between EMA21 and EMA50) to enable Signal A or D. No config or code changes warranted today.",
+    "duration_seconds": 43.52,
+    "success": true,
+    "error": null,
+    "final_summary": "ood (no code changes needed \u2014 this is market-dependent):\n\n| Trigger | What to Watch |\n|---------|--------------|\n| **Signal A fires** | Price rallies back above EMA21 (~6892) AND EMA21 stays above EMA50 AND MACD turns positive |\n| **Signal B fires** | A decisive close above 6894.75 (OR high) \u2014 needs ~3\u201312 pts of upside |\n| **Signal D fires** | EMA21 drops below EMA50 (needs ~3 pt EMA compression) AND price rallies to touch EMA21 from below |\n| **Signal E opportunity was missed** | The OR_L crossover occurred without detection. Would need another re-test: prev bar closes **above** 6889.25, then current bar closes **below** |\n| **Signal F fires** | Full aligned stack with price above all EMAs (bullish: close > ema9 > ema21 > ema50) |\n\n**If you want the bot to catch the Signal E setup it missed**, you could consider adding a \"price already below OR_L for N bars\" condition as an alternative entry trigger \u2014 but that's a strategy logic change.\n\n### 5. Severity: **LOW**\n\nThe bot is functioning correctly. No trades is the **right behavior** for today's market conditions (compressed 5.5pt OR, price/EMA stack tangled together, no clear directional momentum). The 1,484-minute gap is alarming from a monitoring standpoint but reflects a genuinely untradeable tape since yesterday morning.\n\n**Action:** Monitor for price to break cleanly above 6895 (Signal B) or wait for EMA stack to separate (>5 pts between EMA21 and EMA50) to enable Signal A or D. No config or code changes warranted today.",
+    "suggestions": [
+      "Price (6882.5\u20136891.5) is sandwiched between EMA50 (6888.7) and EMA21 (6891.9)** \u2014 EMAs are nearly flat and converging. This is a classic chop zone.",
+      "OR range = only 5.5 pts ($27.50)** \u2014 an extremely tight opening range. The breakout thresholds (B/E) are barely above/below a near-flat range.",
+      "EMA stack order: `EMA9 (6897) > EMA21 (6892) > EMA50 (6889)` \u2014 nominally bullish stack, but the 8-point spread means the trend is weak and decaying.",
+      "VIX multiplier = 0.8x** (low vol) \u2014 this compresses confidence scoring further even if a signal fires."
+    ],
+    "completed": true
+  },
+  "recommendations": [
+    "Price (6882.5\u20136891.5) is sandwiched between EMA50 (6888.7) and EMA21 (6891.9)** \u2014 EMAs are nearly flat and converging. This is a classic chop zone.",
+    "OR range = only 5.5 pts ($27.50)** \u2014 an extremely tight opening range. The breakout thresholds (B/E) are barely above/below a near-flat range.",
+    "EMA stack order: `EMA9 (6897) > EMA21 (6892) > EMA50 (6889)` \u2014 nominally bullish stack, but the 8-point spread means the trend is weak and decaying.",
+    "VIX multiplier = 0.8x** (low vol) \u2014 this compresses confidence scoring further even if a signal fires."
+  ],
+  "advisory_only": true,
+  "disclaimer": "This report is advisory only. No automated parameter changes or strategy modifications should be made without human review."
+}
