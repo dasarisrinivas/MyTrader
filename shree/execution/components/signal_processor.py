@@ -568,6 +568,49 @@ class SignalProcessor:
         # 2d. Scoring validation — DISABLED (1m scoring system sunset FEB 2026)
         # Kept as no-op stub; remove entirely when tests are updated.
 
+        # ── Step 2d½: CHOP regime guard (FEB 22 2026) ────────────────
+        # Pullback signals (EMA21_PB, EMA9_PB) are trend-following by
+        # design — they assume price will continue in the trend direction
+        # after a shallow retracement.  When the hybrid pipeline detects
+        # CHOP (range-bound, no clear trend), pullbacks are structurally
+        # disadvantaged: there is no trend to "pull back into".
+        #
+        # Friday 2026-02-20 post-mortem: EMA9_PB_LONG fired in a CHOP
+        # regime with 14.3-point ATR.  Even after the ATR-adaptive stop
+        # fix, pullback signals in CHOP markets have a ~30% win rate
+        # (per RAG historical lookback).  This gate blocks them.
+        #
+        # OR breakout / breakdown signals are EXEMPT — they are designed
+        # to capture range expansion, which can occur in any regime.
+        signal_reason = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
+        is_pullback_signal = "_PB_" in signal_reason
+        hybrid_trend = getattr(m.status, "hybrid_market_trend", None)
+
+        if is_pullback_signal and hybrid_trend == "CHOP" and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            confidence_adjustments["chop_regime_block"] = -signal.confidence
+            logger.warning(
+                f"🚫 CHOP regime guard: blocking pullback signal "
+                f"({signal_reason}) — pullbacks need trending markets. "
+                f"Was {signal.action} conf={signal.confidence:.3f}"
+            )
+            signal.action = "HOLD"
+            signal.confidence = 0.0
+            if isinstance(signal.metadata, dict):
+                signal.metadata["reason"] = f"CHOP_REGIME_BLOCK | original: {signal_reason}"
+                signal.metadata["chop_guard"] = {
+                    "original_action": original_action,
+                    "original_confidence": base_confidence,
+                    "hybrid_trend": hybrid_trend,
+                }
+            return SignalGenerationResult(
+                signal=signal,
+                pipeline_result=pipeline_result,
+                filters_passed=False,
+                filters_applied=list(confidence_adjustments.keys()),
+                run_legacy_after_hybrid=False,
+                sentiment_modifier=sentiment_modifier,
+            )
+
         # ── Step 2e: Exhaustion dampening (FEB 9 2026) ────────────────
         # Block BUY signals near session highs when overbought indicators
         # are present.  This catches the class of failure where EMA-pullback
