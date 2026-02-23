@@ -468,14 +468,31 @@ class SignalProcessor:
                 logger.debug(f"Sentiment overlay skipped: {exc}")
 
         # 2b. VIX volatility scaling
+        # FEB 23 2026: Exempt OR breakout/breakdown signals from VX scaling.
+        # OR breakout signals are designed to capture range expansion — they
+        # THRIVE in elevated-VX environments.  Penalizing them for volatility
+        # is self-defeating (same rationale as the exhaustion gate exemption).
+        # Pullback signals (EMA21_PB, EMA9_PB) still get VX scaling because
+        # high VX = wider noise bands = pullbacks get stopped out more.
+        # Evidence: 2026-02-23 09:45 OR_BREAK_SHORT at 6865.75 was blocked
+        # solely because VX 0.724× dropped conf from 0.70→0.507; TP hit
+        # within 15 min (+$40).  With this fix: 0.70 - 0.10 = 0.60 → passes.
+        signal_reason_for_vx = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
+        is_or_breakout_for_vx = "OR_BREAK" in signal_reason_for_vx
         vx_multiplier = self._get_vx_multiplier()
-        if vx_multiplier != 1.0:
+        if vx_multiplier != 1.0 and not is_or_breakout_for_vx:
             original_conf = signal.confidence
             signal.confidence = original_conf * vx_multiplier
             confidence_adjustments["vx_multiplier"] = vx_multiplier
             logger.info(
                 f"📈 VX Scaling: {original_conf:.3f} × {vx_multiplier:.2f} = "
                 f"{signal.confidence:.3f}"
+            )
+        elif vx_multiplier != 1.0 and is_or_breakout_for_vx:
+            confidence_adjustments["vx_multiplier_exempt"] = vx_multiplier
+            logger.info(
+                f"✅ VX Scaling EXEMPT: OR breakout signal ({signal_reason_for_vx}) "
+                f"— breakouts thrive in elevated VX. Multiplier {vx_multiplier:.2f} skipped."
             )
 
         # 2c. Hybrid pipeline as advisory (RAG similarity + LLM reasoning)
