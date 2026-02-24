@@ -173,6 +173,20 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema9_sl_ceiling: float = getattr(config, 'ft_ema9_sl_ceiling_pts', 20.0)
         self._ema9_rr_ratio: float = getattr(config, 'ft_ema9_rr_ratio', 1.25)
 
+        # FEB 24 2026: ATR-adaptive stops/targets for Signal F (TREND_CONT)
+        # Backtest analysis (252 trades, Feb 2025 – Jan 2026):
+        #   Fixed 8pt SL / 12pt TP → 50% WR, PnL = −$9 (break-even)
+        #   ATR < 7:  TP=2.1×ATR (unreachable), SL=1.4×ATR → 49% WR, −$72
+        #   ATR 7-10: TP=1.4×ATR, SL=1.0×ATR → 57% WR, +$247  ← sweet spot
+        #   ATR 15-25: SL=0.5×ATR (noise band) → 31% WR, −$317
+        # Fix: SL = clamp(ATR × 1.0, floor=6, ceiling=20)
+        #      TP = SL × 1.25 (same R:R as Signal C's proven adaptive system)
+        # This keeps SL ≈ 1×ATR at every vol level and TP within reach.
+        self._trend_sl_atr_mult: float = getattr(config, 'ft_trend_sl_atr_mult', 1.0)
+        self._trend_sl_floor: float = getattr(config, 'ft_trend_sl_floor_pts', 6.0)
+        self._trend_sl_ceiling: float = getattr(config, 'ft_trend_sl_ceiling_pts', 20.0)
+        self._trend_rr_ratio: float = getattr(config, 'ft_trend_rr_ratio', 1.25)
+
         # FEB 13 2026: Trend continuation signal (Signal F) — captures
         # strong rally / selloff days when price runs away from EMA21
         # without pulling back.  Uses EMA9 as dynamic support instead.
@@ -948,15 +962,22 @@ class EsFifteenMinStrategy(BaseStrategy):
         if not (c1 > c2):
             return None
 
-        # ---- Compute stops/targets ----
-        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
-        stop_loss = close - self._fixed_sl_points_trend      # Fixed-point SL ($40 at 8 pts)
-        take_profit = close + self._fixed_tp_points_trend    # Fixed-point TP ($60 at 12 pts)
+        # ---- Compute ATR-adaptive stops/targets (FEB 24 2026) ----
+        # SL = clamp(ATR × mult, floor, ceiling), TP = SL × rr_ratio
+        # At ATR=8.7: SL=8.7pts($44), TP=10.9pts($54) → reachable
+        # At ATR=15:  SL=15pts($75), TP=18.8pts($94) → room to breathe
+        # At ATR=5:   SL=6pts($30),  TP=7.5pts($38) → floor protects
+        sl_pts = min(self._trend_sl_ceiling,
+                     max(self._trend_sl_floor, atr * self._trend_sl_atr_mult))
+        tp_pts = sl_pts * self._trend_rr_ratio
+        stop_loss = close - sl_pts
+        take_profit = close + tp_pts
 
         self._trend_cont_long_count += 1
 
         reason = (f"TREND_CONT_LONG | ADX={adx:.0f} | RSI={rsi:.0f} "
-                  f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_long_count}")
+                  f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_long_count}"
+                  f" | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts")
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -1035,15 +1056,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         if not (c1 < c2):
             return None
 
-        # ---- Compute stops/targets (inverted) ----
-        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
-        stop_loss = close + self._fixed_sl_points_trend      # Fixed-point SL ($40 at 8 pts)
-        take_profit = close - self._fixed_tp_points_trend    # Fixed-point TP ($60 at 12 pts)
+        # ---- Compute ATR-adaptive stops/targets (FEB 24 2026) ----
+        # Mirrors long side: SL = clamp(ATR × mult, floor, ceiling), TP = SL × rr_ratio
+        sl_pts = min(self._trend_sl_ceiling,
+                     max(self._trend_sl_floor, atr * self._trend_sl_atr_mult))
+        tp_pts = sl_pts * self._trend_rr_ratio
+        stop_loss = close + sl_pts
+        take_profit = close - tp_pts
 
         self._trend_cont_short_count += 1
 
         reason = (f"TREND_CONT_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} "
-                  f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_short_count}")
+                  f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_short_count}"
+                  f" | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts")
         return ("SELL", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
