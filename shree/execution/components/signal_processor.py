@@ -597,17 +597,27 @@ class SignalProcessor:
         # fix, pullback signals in CHOP markets have a ~30% win rate
         # (per RAG historical lookback).  This gate blocks them.
         #
+        # FEB 24 2026: Extended to also block TREND_CONT signals in CHOP.
+        # 224-trade backtest showed TREND_CONT has −$7.94/trade overall.
+        # "Trend continuation" in a CHOP regime is a contradiction —
+        # there is no trend to continue.  Today's TREND_CONT_LONG at
+        # ADX=18 with hybrid=CHOP lost −$40.62 (chopped for 3 hours,
+        # max favorable excursion only +$9 before SL hit).
+        # The hybrid LLM/RAG flagged CHOP with 30% win rate — we ignored it.
+        #
         # OR breakout / breakdown signals are EXEMPT — they are designed
         # to capture range expansion, which can occur in any regime.
         signal_reason = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
         is_pullback_signal = "_PB_" in signal_reason
+        is_trend_cont_signal = "TREND_CONT" in signal_reason
         hybrid_trend = getattr(m.status, "hybrid_market_trend", None)
 
-        if is_pullback_signal and hybrid_trend == "CHOP" and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+        if (is_pullback_signal or is_trend_cont_signal) and hybrid_trend == "CHOP" and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            block_type = "pullback" if is_pullback_signal else "trend_cont"
             confidence_adjustments["chop_regime_block"] = -signal.confidence
             logger.warning(
-                f"🚫 CHOP regime guard: blocking pullback signal "
-                f"({signal_reason}) — pullbacks need trending markets. "
+                f"🚫 CHOP regime guard: blocking {block_type} signal "
+                f"({signal_reason}) — {block_type} needs trending markets. "
                 f"Was {signal.action} conf={signal.confidence:.3f}"
             )
             signal.action = "HOLD"
@@ -618,6 +628,7 @@ class SignalProcessor:
                     "original_action": original_action,
                     "original_confidence": base_confidence,
                     "hybrid_trend": hybrid_trend,
+                    "block_type": block_type,
                 }
             return SignalGenerationResult(
                 signal=signal,
@@ -627,6 +638,56 @@ class SignalProcessor:
                 run_legacy_after_hybrid=False,
                 sentiment_modifier=sentiment_modifier,
             )
+
+        # ── Step 2d¾: MES dead-zone time guard (FEB 24 2026) ─────────
+        # MES (Micro E-mini S&P 500) has a well-known liquidity structure:
+        #   08:30-10:00 CT: Power hour (most volume, directional moves)
+        #   10:30-13:00 CT: "Dead zone" — liquidity thins, chop dominates
+        #   13:00-15:15 CT: Afternoon drift / final flush
+        #
+        # 224-trade backtest of TREND_CONT by session zone:
+        #   Dead Zone (10-12 CST): 18 trades, 28% WR, −$447 (−$24.8/trade)
+        #   Afternoon (13-14):      5 trades, 20% WR, −$163 (−$32.7/trade)
+        #   vs Power Hour (09-10): 10 trades, 60% WR, +$269 (+$26.9/trade)
+        #
+        # Today's losing trade entered at 11:15 CST — dead zone entry.
+        # This guard blocks TREND_CONT entries during 10:30-13:00 CST.
+        # Pullback and OR breakout signals are EXEMPT (they have different
+        # edge profiles and are already filtered by CHOP guard + ADX).
+        if is_trend_cont_signal and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            try:
+                cst_now = now_cst()
+                hour_ct = cst_now.hour
+                minute_ct = cst_now.minute
+                # Dead zone: 10:30 CT through 12:59 CT
+                in_dead_zone = (hour_ct == 10 and minute_ct >= 30) or (11 <= hour_ct <= 12)
+                if in_dead_zone:
+                    confidence_adjustments["dead_zone_block"] = -signal.confidence
+                    logger.warning(
+                        f"🚫 MES dead-zone guard: blocking TREND_CONT signal "
+                        f"({signal_reason}) at {hour_ct}:{minute_ct:02d} CST — "
+                        f"MES liquidity thins 10:30-13:00, trend signals chop out. "
+                        f"Was {signal.action} conf={signal.confidence:.3f}"
+                    )
+                    signal.action = "HOLD"
+                    signal.confidence = 0.0
+                    if isinstance(signal.metadata, dict):
+                        signal.metadata["reason"] = f"DEAD_ZONE_BLOCK | original: {signal_reason}"
+                        signal.metadata["dead_zone_guard"] = {
+                            "original_action": original_action,
+                            "original_confidence": base_confidence,
+                            "time_cst": f"{hour_ct}:{minute_ct:02d}",
+                        }
+                    return SignalGenerationResult(
+                        signal=signal,
+                        pipeline_result=pipeline_result,
+                        filters_passed=False,
+                        filters_applied=list(confidence_adjustments.keys()),
+                        run_legacy_after_hybrid=False,
+                        sentiment_modifier=sentiment_modifier,
+                    )
+            except Exception:
+                pass  # Graceful fallback if time resolution fails
 
         # ── Step 2e: Exhaustion dampening (FEB 9 2026) ────────────────
         # Block BUY signals near session highs when overbought indicators

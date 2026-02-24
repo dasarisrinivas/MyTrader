@@ -322,11 +322,11 @@ class TestChopRegimeGuard:
         assert meta["chop_guard"]["hybrid_trend"] == "CHOP"
 
     @pytest.mark.asyncio
-    async def test_allows_trend_continuation_in_chop(self):
-        """Trend continuation signals don't have _PB_ → should pass through CHOP guard."""
+    async def test_allows_non_categorized_signal_in_chop(self):
+        """Signals without _PB_ or TREND_CONT in reason → pass through CHOP guard."""
         manager = _make_stub_manager(hybrid_trend="CHOP")
         engine = MagicMock()
-        # Signal F: Trend continuation — reason starts with "F:" not "_PB_"
+        # Diagnostic reason (F:stack) is NOT an actual fired TREND_CONT signal
         signal = _make_signal(
             action="BUY",
             confidence=0.65,
@@ -345,3 +345,88 @@ class TestChopRegimeGuard:
 
         assert result is not None
         assert result.signal.action == "BUY"
+
+    @pytest.mark.asyncio
+    async def test_blocks_trend_cont_long_in_chop(self):
+        """TREND_CONT_LONG in CHOP regime → blocked (FEB 24 2026 fix).
+
+        Root cause: Today's trade — TREND_CONT_LONG at ADX=18, hybrid=CHOP,
+        chopped for 3 hours, max favorable excursion +$9, SL hit for −$40.62.
+        224-trade backtest: TREND_CONT is −$7.94/trade overall.
+        """
+        manager = _make_stub_manager(hybrid_trend="CHOP")
+        engine = MagicMock()
+        signal = _make_signal(
+            action="BUY",
+            confidence=0.70,
+            reason="TREND_CONT_LONG | ADX=18 | RSI=65 | MACD_H=3.53 | e9=6887.5 | #1",
+        )
+        engine.evaluate.return_value = signal
+
+        proc = _make_processor(manager=manager, engine=engine)
+
+        result = await proc._generate_strategy_first_signal(
+            features=_make_features(),
+            returns=None,
+            current_price=6920.25,
+            structural_metrics=None,
+        )
+
+        assert result is not None
+        assert result.signal.action == "HOLD"
+        assert result.signal.confidence == 0.0
+        assert result.filters_passed is False
+        assert "chop_regime_block" in result.filters_applied
+        assert "CHOP_REGIME_BLOCK" in result.signal.metadata.get("reason", "")
+        assert result.signal.metadata["chop_guard"]["block_type"] == "trend_cont"
+
+    @pytest.mark.asyncio
+    async def test_blocks_trend_cont_short_in_chop(self):
+        """TREND_CONT_SHORT in CHOP regime → blocked."""
+        manager = _make_stub_manager(hybrid_trend="CHOP")
+        engine = MagicMock()
+        signal = _make_signal(
+            action="SELL",
+            confidence=0.70,
+            reason="TREND_CONT_SHORT | ADX=20 | RSI=35 | MACD_H=-2.1 | e9=6910 | #1",
+        )
+        engine.evaluate.return_value = signal
+
+        proc = _make_processor(manager=manager, engine=engine)
+
+        result = await proc._generate_strategy_first_signal(
+            features=_make_features(),
+            returns=None,
+            current_price=6920.25,
+            structural_metrics=None,
+        )
+
+        assert result is not None
+        assert result.signal.action == "HOLD"
+        assert result.filters_passed is False
+        assert result.signal.metadata["chop_guard"]["block_type"] == "trend_cont"
+
+    @pytest.mark.asyncio
+    async def test_allows_trend_cont_in_uptrend(self):
+        """TREND_CONT_LONG in UPTREND regime → ALLOWED."""
+        manager = _make_stub_manager(hybrid_trend="UPTREND")
+        engine = MagicMock()
+        signal = _make_signal(
+            action="BUY",
+            confidence=0.70,
+            reason="TREND_CONT_LONG | ADX=30 | RSI=60 | MACD_H=5.0 | e9=6900 | #1",
+        )
+        engine.evaluate.return_value = signal
+
+        proc = _make_processor(manager=manager, engine=engine)
+
+        result = await proc._generate_strategy_first_signal(
+            features=_make_features(),
+            returns=None,
+            current_price=6920.25,
+            structural_metrics=None,
+        )
+
+        assert result is not None
+        assert result.signal.action == "BUY"
+        assert result.signal.confidence > 0.0

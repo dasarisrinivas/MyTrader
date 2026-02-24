@@ -190,10 +190,21 @@ class EsFifteenMinStrategy(BaseStrategy):
         # FEB 13 2026: Trend continuation signal (Signal F) — captures
         # strong rally / selloff days when price runs away from EMA21
         # without pulling back.  Uses EMA9 as dynamic support instead.
+        #
+        # FEB 24 2026 — ADX floor raised from 18 → 25 after deep analysis:
+        #   224-trade backtest (Feb 2025 – Jan 2026, TREND_CONT only):
+        #     ADX<18:  67 trades, 31% WR, −$1,243 (−$18.6/trade) ← disaster
+        #     ADX 18-22: 31 trades, 42% WR, +$18 ($0.6/trade) ← break-even
+        #     ADX 22-30: 50 trades, 40% WR, −$731 (−$14.6/trade)
+        #     ADX≥30:  76 trades, 50% WR, +$178 ($2.3/trade) ← only edge
+        #   ADX≥25 filter blocks 114/224 worst trades, saves $1,582.
+        #   Today's losing trade (ADX=18.01) would have been blocked.
+        #   MES-specific: ADX=18 means a directional burst just EXHAUSTED,
+        #   not that a trend is continuing.  Require real trend strength.
         self._trend_cont_enabled: bool = getattr(config, 'ft_trend_cont_enabled', True)
         self._trend_cont_stop_mult: float = getattr(config, 'ft_trend_cont_stop_mult', 1.0)
         self._trend_cont_target_mult: float = getattr(config, 'ft_trend_cont_target_mult', 2.0)
-        self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 18.0)
+        self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 25.0)
         self._trend_cont_ema9_pct: float = getattr(config, 'ft_trend_cont_ema9_pct', 0.003)  # 0.3% proximity to EMA9
         # FEB 20 2026: Gap/extension handling — on gap-up/down days, ATR is
         # small (overnight range) but price is far from EMAs.  The old
@@ -896,7 +907,7 @@ class EsFifteenMinStrategy(BaseStrategy):
           2. Close > EMA9 (price above all EMAs — running)
           3. Low is near EMA9 (within 0.3%) — shallow dip toward EMA9
              OR current bar is bullish and prev bar close > EMA9 (sustained trend)
-          4. ADX >= 22 (strong trending)
+          4. ADX >= 25 (strong trending — raised from 18 on FEB 24 2026)
           5. MACD histogram > 0 (momentum confirming)
           6. RSI 45-78 (not exhausted, not weak)
           7. Last 3 closes are ascending (c[-1] > c[-2] > c[-3]) — momentum
@@ -924,7 +935,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if close <= open_p:
             return None
 
-        # 4. ADX filter (need strong trend)
+        # 4. ADX filter (need strong trend — FEB 24: raised to 25)
         if adx < self._trend_cont_adx_min:
             return None
 
@@ -997,7 +1008,7 @@ class EsFifteenMinStrategy(BaseStrategy):
           2. Close < EMA9 (price below all EMAs — selling)
           3. High is near EMA9 (within 0.3%) — shallow bounce toward EMA9
              OR current bar bearish and prev close < EMA9
-          4. ADX >= 22 (strong trending)
+          4. ADX >= 25 (strong trending — raised from 18 on FEB 24 2026)
           5. MACD histogram < 0 (momentum confirming)
           6. RSI 22-55 (not oversold, not strong)
           7. Last 3 closes are descending (c[-1] < c[-2] < c[-3])
