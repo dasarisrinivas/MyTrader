@@ -124,7 +124,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._or_low: float = 0.0
         self._or_computed: bool = False
         self._opening_bars: List[dict] = []
-        self._or_broken_today: bool = False  # Only first OR breakout per day
+        self._or_break_long_count: int = 0   # FEB 26 2026: counter (was bool)
         self._prev_close: float = 0.0  # For detecting first cross above OR_HIGH
 
         # Parameters (from simulation sweep)
@@ -147,7 +147,13 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._short_pb_stop_mult: float = getattr(config, 'ft_short_pb_stop_mult', 1.5)
         self._short_pb_target_mult: float = getattr(config, 'ft_short_pb_target_mult', 1.0)
         self._short_or_target_r: float = getattr(config, 'ft_short_or_target_r', 1.0)
-        self._or_broken_below_today: bool = False  # Only first OR breakdown per day
+        self._or_break_short_count: int = 0  # FEB 26 2026: counter (was bool)
+
+        # FEB 26 2026: Allow up to N OR breaks per day per side.
+        # The cross condition (prev_close on other side of OR level) naturally
+        # requires price to retest the OR level before re-triggering — a high-
+        # probability pattern when the initial OR break confirms the trend.
+        self._or_break_max_per_day: int = getattr(config, 'ft_or_break_max_per_day', 2)
 
         # FEB 18 2026: Fixed-point take-profit system
         # FEB 19 2026: Fixed-point stop-loss system (matching TP for consistent R:R)
@@ -442,8 +448,8 @@ class EsFifteenMinStrategy(BaseStrategy):
             # Signal B diagnostics (Long OR Breakout)
             if not self._or_computed or self._or_high <= 0:
                 _diag_parts.append(f"B:no_OR(computed={self._or_computed},h={self._or_high:.1f})")
-            elif self._or_broken_today:
-                _diag_parts.append("B:already_broken")
+            elif self._or_break_long_count >= self._or_break_max_per_day:
+                _diag_parts.append(f"B:maxed({self._or_break_long_count})")
             elif not (close > self._or_high and self._prev_close <= self._or_high):
                 _diag_parts.append(f"B:no_cross(c={close:.1f},prev={self._prev_close:.1f},OR_H={self._or_high:.1f})")
             elif ema9 <= ema21:
@@ -476,8 +482,8 @@ class EsFifteenMinStrategy(BaseStrategy):
             if self._shorts_enabled:
                 if not self._or_computed or self._or_low <= 0:
                     _diag_parts.append(f"E:no_OR(computed={self._or_computed},l={self._or_low:.1f})")
-                elif self._or_broken_below_today:
-                    _diag_parts.append("E:already_broken_below")
+                elif self._or_break_short_count >= self._or_break_max_per_day:
+                    _diag_parts.append(f"E:maxed({self._or_break_short_count})")
                 elif not (close < self._or_low and self._prev_close >= self._or_low):
                     _diag_parts.append(f"E:no_cross(c={close:.1f},prev={self._prev_close:.1f},OR_L={self._or_low:.1f})")
                 elif ema9 >= ema21:
@@ -649,14 +655,20 @@ class EsFifteenMinStrategy(BaseStrategy):
         macd_hist: float = 0.0,
     ) -> Optional[tuple]:
         """
-        Opening Range breakout long (first breakout per day).
+        Opening Range breakout long (up to N per day, default 2).
+
+        FEB 26 2026: Changed from once-per-day to max N per day.
+        The cross condition (prev_close <= OR_HIGH and close > OR_HIGH)
+        naturally requires price to return below the OR level before
+        re-triggering — this is a "retest breakout" pattern with
+        strong backtest support for continuation entries.
         
         Conditions:
           1. OR has been computed
-          2. Close > OR_HIGH and previous close ≤ OR_HIGH (first cross)
+          2. Close > OR_HIGH and previous close ≤ OR_HIGH (cross above)
           3. EMA9 > EMA21 (short-term uptrend)
           4. ADX > threshold
-          5. Haven't already fired this signal today
+          5. Haven't exceeded max fires per day
           6. MACD histogram > 0 (momentum confirming breakout) — FEB 10 2026
         
         Returns: (action, stop, target, reason) or None
@@ -664,7 +676,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if not self._or_computed or self._or_high <= 0:
             return None
 
-        if self._or_broken_today:
+        if self._or_break_long_count >= self._or_break_max_per_day:
             return None
 
         # First cross above OR_HIGH
@@ -691,9 +703,10 @@ class EsFifteenMinStrategy(BaseStrategy):
         stop_loss = close - self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
         take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
-        self._or_broken_today = True
+        self._or_break_long_count += 1
 
-        reason = f"OR_BREAK_LONG | ADX={adx:.0f} | OR_H={self._or_high:.2f}"
+        tag = "" if self._or_break_long_count == 1 else f" | retest#{self._or_break_long_count}"
+        reason = f"OR_BREAK_LONG | ADX={adx:.0f} | OR_H={self._or_high:.2f}{tag}"
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -839,14 +852,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         macd_hist: float = 0.0,
     ) -> Optional[tuple]:
         """
-        Opening Range breakdown short — first breakdown per day.
+        Opening Range breakdown short (up to N per day, default 2).
+
+        FEB 26 2026: Changed from once-per-day to max N per day.
+        The cross condition (prev_close >= OR_LOW and close < OR_LOW)
+        naturally requires price to bounce back above OR_LOW before
+        re-triggering — this is a "retest breakdown" pattern.
 
         Conditions (exact inverse of long OR breakout):
           1. OR has been computed
-          2. Close < OR_LOW and previous close >= OR_LOW (first cross below)
+          2. Close < OR_LOW and previous close >= OR_LOW (cross below)
           3. EMA9 < EMA21 (short-term downtrend)
           4. ADX > threshold
-          5. Haven't already fired this signal today
+          5. Haven't exceeded max fires per day
           6. MACD histogram < 0 (momentum confirming breakdown)
 
         Returns: (action, stop, target, reason) or None
@@ -854,7 +872,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if not self._or_computed or self._or_low <= 0:
             return None
 
-        if self._or_broken_below_today:
+        if self._or_break_short_count >= self._or_break_max_per_day:
             return None
 
         # First cross below OR_LOW
@@ -880,9 +898,10 @@ class EsFifteenMinStrategy(BaseStrategy):
         stop_loss = close + self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
         take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
-        self._or_broken_below_today = True
+        self._or_break_short_count += 1
 
-        reason = f"OR_BREAK_SHORT | ADX={adx:.0f} | OR_L={self._or_low:.2f}"
+        tag = "" if self._or_break_short_count == 1 else f" | retest#{self._or_break_short_count}"
+        reason = f"OR_BREAK_SHORT | ADX={adx:.0f} | OR_L={self._or_low:.2f}{tag}"
         return ("SELL", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -1190,8 +1209,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._or_low = 0.0
         self._or_computed = False
         self._opening_bars = []
-        self._or_broken_today = False
-        self._or_broken_below_today = False
+        self._or_break_long_count = 0
+        self._or_break_short_count = 0
         self._prev_close = 0.0
         # Signal F counters
         self._trend_cont_long_count = 0

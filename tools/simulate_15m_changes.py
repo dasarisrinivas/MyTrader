@@ -151,8 +151,9 @@ class SignalEngine:
         self._or_high = 0.0
         self._or_low = 0.0
         self._or_computed = False
-        self._or_broken_today = False
-        self._or_broken_below_today = False
+        self._or_break_long_count = 0
+        self._or_break_short_count = 0
+        self._or_break_max_per_day = 2
         self._opening_bars: list = []
         self._prev_close = 0.0
         self._session_date = None
@@ -165,8 +166,8 @@ class SignalEngine:
         self._or_low = 0.0
         self._or_computed = False
         self._opening_bars = []
-        self._or_broken_today = False
-        self._or_broken_below_today = False
+        self._or_break_long_count = 0
+        self._or_break_short_count = 0
         self._prev_close = 0.0
         self._trend_cont_long_count = 0
         self._trend_cont_short_count = 0
@@ -294,14 +295,14 @@ class SignalEngine:
     # ── Signal B ──
     def _check_b(self, close, high, ema9, ema21, atr, adx, macd_hist, et_time):
         if not self._or_computed or self._or_high <= 0: return None
-        if self._or_broken_today: return None
+        if self._or_break_long_count >= self._or_break_max_per_day: return None
         if not (close > self._or_high and self._prev_close <= self._or_high): return None
         if ema9 <= ema21: return None
         if adx < self.cfg.adx_min or adx > self.cfg.adx_max: return None
         if macd_hist <= 0: return None
         sl = close - self.cfg.fixed_sl_ab
         tp = close + self.cfg.fixed_tp_ab
-        self._or_broken_today = True
+        self._or_break_long_count += 1
         return SimSignal(et_time, "BUY", "B", close, sl, tp)
 
     # ── Signal C ──
@@ -342,14 +343,14 @@ class SignalEngine:
     # ── Signal E ──
     def _check_e(self, close, low, ema9, ema21, atr, adx, macd_hist, et_time):
         if not self._or_computed or self._or_low <= 0: return None
-        if self._or_broken_below_today: return None
+        if self._or_break_short_count >= self._or_break_max_per_day: return None
         if not (close < self._or_low and self._prev_close >= self._or_low): return None
         if ema9 >= ema21: return None
         if adx < self.cfg.adx_min or adx > self.cfg.adx_max: return None
         if macd_hist >= 0: return None
         sl = close + self.cfg.fixed_sl_ab
         tp = close - self.cfg.fixed_tp_ab
-        self._or_broken_below_today = True
+        self._or_break_short_count += 1
         return SimSignal(et_time, "SELL", "E", close, sl, tp)
 
     # ── Signal F Long ──
