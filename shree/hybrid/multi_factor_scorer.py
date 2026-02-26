@@ -42,10 +42,14 @@ class MultiFactorDecision:
 class MultiFactorScorer:
     """Blend rule-engine, RAG, news, macro, and risk signals into one score."""
 
+    # FEB 26 2026: LLM weight set to 0 — Bedrock client is not wired up
+    # in LiveTradingManager (llm_client=None), so the LLM factor was always
+    # returning 0.5 (neutral fallback), diluting real signals.
+    # Redistributed LLM's 20% to technical (+10%) and RAG (+10%).
     DEFAULT_WEIGHTS = {
-        "technical": 0.30,
-        "llm": 0.20,
-        "rag": 0.20,
+        "technical": 0.40,
+        "llm": 0.00,
+        "rag": 0.30,
         "news": 0.10,
         "macro": 0.10,
         "risk": 0.10,
@@ -233,9 +237,11 @@ class MultiFactorScorer:
         return normalized
 
     def _extract_llm_score(self, pipeline_result: HybridPipelineResult) -> float:
-        if pipeline_result.llm_decision:
-            return self._normalize(pipeline_result.llm_decision.confidence, 100)
-        return 0.5
+        # LLM client not wired up — always return neutral.
+        # When Bedrock is connected, restore weight and remove this guard.
+        if not pipeline_result.llm_decision:
+            return 0.5
+        return self._normalize(pipeline_result.llm_decision.confidence, 100)
 
     def _extract_rag_score(self, pipeline_result: HybridPipelineResult) -> float:
         rag = pipeline_result.rag_retrieval
