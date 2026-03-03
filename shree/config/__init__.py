@@ -35,7 +35,7 @@ from .integrations import (  # noqa: F401
     VixFeedConfig,
     TelegramConfig,
 )
-from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig  # noqa: F401
+from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig, DynamicSupportConfig  # noqa: F401
 from .settings import Settings  # noqa: F401
 
 __all__ = [
@@ -60,5 +60,6 @@ __all__ = [
     "LearningConfig",
     "FeatureFlagsConfig",
     "ObservabilityConfig",
+    "DynamicSupportConfig",
     "Settings",
 ]

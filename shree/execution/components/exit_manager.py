@@ -609,14 +609,21 @@ class ExitManager:
     # ------------------------------------------------------------------
 
     def _get_support_floor(self) -> Optional[float]:
-        """Read the structural support floor from the order coordinator or env.
+        """Read the structural support floor from the dynamic floor or env.
 
-        Returns the price level or *None* if not configured.
+        MAR 2026: Prefers DynamicSupportFloor (auto-computed from PDL /
+        weekly low / OR low).  Falls back to static env override.
         """
-        # Prefer the coordinator's cached value (set during __init__)
+        # Prefer the dynamic floor
+        dsf = getattr(self._m, "dynamic_support_floor", None)
+        if dsf is not None:
+            floor = dsf.get_floor()
+            if floor is not None:
+                return float(floor)
+        # Fallback: static override on order coordinator
         coordinator = getattr(self._m, "order_coordinator", None)
         if coordinator is not None:
-            floor = getattr(coordinator, "_support_floor_price", None)
+            floor = getattr(coordinator, "_static_floor_override", None)
             if floor is not None:
                 return float(floor)
         # Fallback: env var

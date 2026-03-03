@@ -1331,3 +1331,9 @@
 {"timestamp": "2026-02-20T16:15:02.293583+00:00", "correlation_id": "b4c618f78e8b", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
 {"timestamp": "2026-02-20T19:29:01.560366+00:00", "correlation_id": "81e31f0d36d1", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
 {"timestamp": "2026-02-20T19:30:34.450423+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "BUY", "quantity": 1, "limit_price": null, "stop_loss": 6912.25, "take_profit": 6930.25, "symbol": "MES", "signature": "4ece665e7062867831d5a90787857fc0"}}
+{"timestamp": "2026-02-26T14:45:12.933552+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "SELL", "quantity": 1, "limit_price": null, "stop_loss": 6948.0, "take_profit": 6934.0, "symbol": "MES", "signature": "627f30edb60250272f53f186bcd8b7fb"}}
+{"timestamp": "2026-02-26T16:24:33.902485+00:00", "correlation_id": "d71fb084b943", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-02T13:59:32.689012+00:00", "correlation_id": "8a63f192c426", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-03T15:44:57.950603+00:00", "correlation_id": "828c788c1e45", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-03T15:45:53.845024+00:00", "correlation_id": "db955f17f47d", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-03T15:52:17.238376+00:00", "correlation_id": "be108bb15e70", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}

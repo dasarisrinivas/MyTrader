@@ -25,6 +25,7 @@ class FeatureFlagsConfig:
     enforce_wait_blocking: bool = field(default_factory=lambda: os.environ.get("FF_WAIT_BLOCKING", "true").lower() not in {"0", "false", "no"})
     enforce_reduce_only_exits: bool = field(default_factory=lambda: os.environ.get("FF_EXIT_GUARDS", "true").lower() not in {"0", "false", "no"})
     enable_learning_hooks: bool = field(default_factory=lambda: os.environ.get("FF_LEARNING_HOOKS", "true").lower() not in {"0", "false", "no"})
+    enable_chop_exception: bool = field(default_factory=lambda: os.environ.get("ENABLE_CHOP_EXCEPTION", "false").lower() in {"1", "true", "yes"})
 
 
 @dataclass
@@ -34,6 +35,20 @@ class ObservabilityConfig:
     prometheus_addr: str = field(default_factory=lambda: os.environ.get("PROMETHEUS_ADDR", "0.0.0.0"))
     prometheus_port: int = field(default_factory=lambda: int(os.environ.get("PROMETHEUS_PORT", "8000")))
     env_label: str = field(default_factory=lambda: os.environ.get("DEPLOY_ENV", "local"))
+
+
+@dataclass
+class DynamicSupportConfig:
+    """Dynamic structural support floor — auto-computed from market data.
+
+    The floor is min(PDL, weekly_low, OR_low) - buffer_points.
+    No hardcoded price level needed.
+    """
+    buffer_points: float = 5.0
+    min_sources: int = 1
+    use_pdl: bool = True
+    use_weekly_low: bool = True
+    use_or_low: bool = True
 
 
 

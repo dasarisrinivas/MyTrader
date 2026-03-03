@@ -38,6 +38,7 @@ from ..strategies.engine import StrategyEngine
 from ..features.feature_engineer import engineer_features
 from ..risk.manager import RiskManager
 from ..risk.risk_gate import RiskGate, RiskGateConfig
+from ..risk.dynamic_support import DynamicSupportFloor, DynamicSupportFloorConfig
 from ..risk.atr_module import compute_protective_offsets
 from ..risk.trade_math import (
     ContractSpec,
@@ -58,6 +59,7 @@ from ..learning.trade_learning import (
 )
 from ..optimization.optimizer import ParameterOptimizer
 from ..llm.rag_storage import RAGStorage
+from ..risk.dynamic_support import DynamicSupportFloor, DynamicSupportFloorConfig
 try:
     from ..llm.trade_logger import TradeLogger as DecisionMetricsLogger
 except ImportError:
@@ -359,6 +361,16 @@ class LiveTradingManager:
             )
         gate_cfg.tick_size = getattr(settings.trading, "tick_size", gate_cfg.tick_size)
         self.risk_gate = RiskGate(gate_cfg)
+
+        # Dynamic structural support floor — auto-computed from PDL / weekly low / OR low
+        dsf_cfg = getattr(settings, "dynamic_support", None)
+        self.dynamic_support_floor = DynamicSupportFloor(DynamicSupportFloorConfig(
+            buffer_points=float(getattr(dsf_cfg, "buffer_points", 5.0)),
+            min_sources=int(getattr(dsf_cfg, "min_sources", 1)),
+            use_pdl=bool(getattr(dsf_cfg, "use_pdl", True)),
+            use_weekly_low=bool(getattr(dsf_cfg, "use_weekly_low", True)),
+            use_or_low=bool(getattr(dsf_cfg, "use_or_low", True)),
+        ))
         
         # Knowledge base + telemetry
         rag_cfg = getattr(settings, "rag", None)
@@ -753,6 +765,9 @@ class LiveTradingManager:
                     
                     # Store in RAG for agents to query
                     await self._store_historical_context_in_rag()
+
+                    # Feed PDL + weekly low into dynamic support floor
+                    self.dynamic_support_floor.update_from_historical_context(self._historical_context)
                     
                 else:
                     logger.warning("⚠️ Not enough historical bars received")

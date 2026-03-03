@@ -441,10 +441,6 @@ class EsFifteenMinStrategy(BaseStrategy):
                     _diag_parts.append(f"A:bearish(c={close:.1f},o={open_price:.1f})")
                 elif adx < self._adx_min or adx > self._adx_max:
                     _diag_parts.append(f"A:adx({adx:.0f})out[{self._adx_min}-{self._adx_max}]")
-                elif macd_hist <= 0:
-                    _diag_parts.append(f"A:macd_hist({macd_hist:.2f})<=0")
-                elif rsi > 70 or rsi < 35:
-                    _diag_parts.append(f"A:rsi({rsi:.0f})out[35-70]")
             # Signal B diagnostics (Long OR Breakout)
             if not self._or_computed or self._or_high <= 0:
                 _diag_parts.append(f"B:no_OR(computed={self._or_computed},h={self._or_high:.1f})")
@@ -456,8 +452,6 @@ class EsFifteenMinStrategy(BaseStrategy):
                 _diag_parts.append(f"B:ema9({ema9:.1f})<=ema21({ema21:.1f})")
             elif adx < self._adx_min:
                 _diag_parts.append(f"B:adx({adx:.0f})<{self._adx_min}")
-            elif macd_hist <= 0:
-                _diag_parts.append(f"B:macd_hist({macd_hist:.2f})<=0")
             # Signal D diagnostics (Short EMA21 PB)
             if self._shorts_enabled:
                 if ema21 >= ema50:
@@ -472,10 +466,6 @@ class EsFifteenMinStrategy(BaseStrategy):
                         _diag_parts.append(f"D:bullish(c={close:.1f},o={open_price:.1f})")
                     elif adx < self._adx_min or adx > self._adx_max:
                         _diag_parts.append(f"D:adx({adx:.0f})out[{self._adx_min}-{self._adx_max}]")
-                    elif macd_hist >= 0:
-                        _diag_parts.append(f"D:macd_hist({macd_hist:.2f})>=0")
-                    elif rsi < 30 or rsi > 65:
-                        _diag_parts.append(f"D:rsi({rsi:.0f})out[30-65]")
             else:
                 _diag_parts.append("D:shorts_disabled")
             # Signal E diagnostics (Short OR Breakdown)
@@ -490,8 +480,6 @@ class EsFifteenMinStrategy(BaseStrategy):
                     _diag_parts.append(f"E:ema9({ema9:.1f})>=ema21({ema21:.1f})")
                 elif adx < self._adx_min:
                     _diag_parts.append(f"E:adx({adx:.0f})<{self._adx_min}")
-                elif macd_hist >= 0:
-                    _diag_parts.append(f"E:macd_hist({macd_hist:.2f})>=0")
             # Signal F diagnostics (Trend Continuation)
             if self._trend_cont_enabled:
                 if self._trend_cont_long_count >= self._trend_cont_max_per_day:
@@ -599,8 +587,8 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. Close > EMA21 (bounced back above)
           4. Close > Open (bullish bar)
           5. ADX > threshold (trending)
-          6. MACD histogram > 0 (momentum confirming uptrend) — FEB 10 2026
-          7. RSI 35-70 (not overbought, not deeply oversold) — FEB 10 2026
+          6. (REMOVED MAR 3 2026: MACD histogram — redundant with EMA alignment)
+          7. (REMOVED MAR 3 2026: RSI filter — covered by exhaustion gate in signal_processor)
         
         Returns: (action, stop, target, reason) or None
         """
@@ -625,18 +613,6 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx < self._adx_min:
             return None
         if adx > self._adx_max:
-            return None
-
-        # 6. MACD histogram must be positive (momentum confirming uptrend)
-        #    FEB 10 2026: All 4 losing signals on Feb 9-10 had negative or
-        #    near-zero MACD histograms — trend structure (EMA21>EMA50) was
-        #    intact but momentum had already rolled over.
-        if macd_hist <= 0:
-            return None
-
-        # 7. RSI filter: avoid overbought exhaustion and deep oversold
-        #    FEB 10 2026: Feb 9 signals had RSI ~67-70 (overbought zone)
-        if rsi > 70 or rsi < 35:
             return None
 
         # ---- Compute stops/targets ----
@@ -669,7 +645,7 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. EMA9 > EMA21 (short-term uptrend)
           4. ADX > threshold
           5. Haven't exceeded max fires per day
-          6. MACD histogram > 0 (momentum confirming breakout) — FEB 10 2026
+          6. (REMOVED MAR 3 2026: MACD histogram — redundant; breakout IS momentum)
         
         Returns: (action, stop, target, reason) or None
         """
@@ -691,11 +667,6 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx < self._adx_min:
             return None
         if adx > self._adx_max:
-            return None
-
-        # 6. MACD histogram must be positive (momentum confirming breakout)
-        #    FEB 10 2026: Don't chase OR breakouts with fading momentum
-        if macd_hist <= 0:
             return None
 
         # ---- Compute stops/targets ----
@@ -800,8 +771,8 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. Close < EMA21 (rejected back below)
           4. Close < Open (bearish bar)
           5. ADX > threshold (trending)
-          6. MACD histogram < 0 (momentum confirming downtrend)
-          7. RSI 30-65 (not oversold, not overbought)
+          6. (REMOVED MAR 3 2026: MACD histogram — redundant with EMA alignment)
+          7. (REMOVED MAR 3 2026: RSI filter — covered by exhaustion gate)
 
         Returns: (action, stop, target, reason) or None
         """
@@ -826,14 +797,6 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx < self._adx_min:
             return None
         if adx > self._adx_max:
-            return None
-
-        # 6. MACD histogram must be negative (momentum confirming downtrend)
-        if macd_hist >= 0:
-            return None
-
-        # 7. RSI filter: avoid deeply oversold and overbought
-        if rsi < 30 or rsi > 65:
             return None
 
         # ---- Compute stops/targets (inverted) ----
@@ -865,7 +828,7 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. EMA9 < EMA21 (short-term downtrend)
           4. ADX > threshold
           5. Haven't exceeded max fires per day
-          6. MACD histogram < 0 (momentum confirming breakdown)
+          6. (REMOVED MAR 3 2026: MACD histogram — redundant; breakdown IS momentum)
 
         Returns: (action, stop, target, reason) or None
         """
@@ -887,10 +850,6 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx < self._adx_min:
             return None
         if adx > self._adx_max:
-            return None
-
-        # MACD histogram must be negative (momentum confirming breakdown)
-        if macd_hist >= 0:
             return None
 
         # ---- Compute stops/targets (inverted) ----

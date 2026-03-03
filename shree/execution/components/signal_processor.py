@@ -1,6 +1,7 @@
 """Signal processing pipeline."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import SimpleNamespace
@@ -422,6 +423,14 @@ class SignalProcessor:
             f"meta={signal.metadata.get('reason', '') if isinstance(signal.metadata, dict) else ''})"
         )
 
+        # Feed OR levels into dynamic support floor (strategy puts them in metadata)
+        sig_meta = signal.metadata if isinstance(signal.metadata, dict) else {}
+        _or_h = sig_meta.get("or_high", 0.0)
+        _or_l = sig_meta.get("or_low", 0.0)
+        dsf = getattr(m, "dynamic_support_floor", None)
+        if dsf and (_or_h > 0 or _or_l > 0):
+            dsf.update_or_levels(_or_h, _or_l)
+
         m.status.last_signal = signal.action
         m.status.signal_confidence = signal.confidence
 
@@ -467,33 +476,87 @@ class SignalProcessor:
             except Exception as exc:
                 logger.debug(f"Sentiment overlay skipped: {exc}")
 
-        # 2b. VIX volatility scaling
-        # FEB 23 2026: Exempt OR breakout/breakdown signals from VX scaling.
-        # OR breakout signals are designed to capture range expansion — they
-        # THRIVE in elevated-VX environments.  Penalizing them for volatility
-        # is self-defeating (same rationale as the exhaustion gate exemption).
-        # Pullback signals (EMA21_PB, EMA9_PB) still get VX scaling because
-        # high VX = wider noise bands = pullbacks get stopped out more.
-        # Evidence: 2026-02-23 09:45 OR_BREAK_SHORT at 6865.75 was blocked
-        # solely because VX 0.724× dropped conf from 0.70→0.507; TP hit
-        # within 15 min (+$40).  With this fix: 0.70 - 0.10 = 0.60 → passes.
+        # 2b. VIX volatility — ADDITIVE signal-type-aware adjustment
+        #
+        # MAR 3 2026: Replaced multiplicative scaling (conf × 0.7) with
+        # additive adjustment.  The old system was the #1 signal killer:
+        #   0.70 × 0.70 = 0.49 → below 0.50 threshold → DEAD.
+        # 27 of 45 signals (60%) were dampened, 26 failed conf threshold.
+        #
+        # New system: VX price → additive conf adjustment, varies by signal
+        # type because different signals have different VX edge profiles:
+        #   - OR breakouts/breakdowns THRIVE in elevated VX (range expansion)
+        #   - Trend continuation works well in moderate VX (trends extend)
+        #   - Pullbacks get wider noise in high VX (more stop-outs)
+        #
+        # VX tiers (MES median VX is ~18-22):
+        #   VX < 16:  low vol — narrow ranges, targets harder to reach
+        #   16-22:    normal MES baseline — neutral
+        #   22-28:    elevated — good for trends, cautious for pullbacks
+        #   28-35:    high fear — reduce pullbacks/continuation
+        #   35+:      extreme — meaningful reduction except breakouts
         signal_reason_for_vx = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
         is_or_breakout_for_vx = "OR_BREAK" in signal_reason_for_vx
+        is_trend_cont_for_vx = "TREND_CONT" in signal_reason_for_vx
+        is_pullback_for_vx = "_PB_" in signal_reason_for_vx
         vx_multiplier = self._get_vx_multiplier()
-        if vx_multiplier != 1.0 and not is_or_breakout_for_vx:
-            original_conf = signal.confidence
-            signal.confidence = original_conf * vx_multiplier
-            confidence_adjustments["vx_multiplier"] = vx_multiplier
-            logger.info(
-                f"📈 VX Scaling: {original_conf:.3f} × {vx_multiplier:.2f} = "
-                f"{signal.confidence:.3f}"
-            )
-        elif vx_multiplier != 1.0 and is_or_breakout_for_vx:
-            confidence_adjustments["vx_multiplier_exempt"] = vx_multiplier
-            logger.info(
-                f"✅ VX Scaling EXEMPT: OR breakout signal ({signal_reason_for_vx}) "
-                f"— breakouts thrive in elevated VX. Multiplier {vx_multiplier:.2f} skipped."
-            )
+        # Derive VX price from multiplier (reverse the piecewise-linear curve)
+        # We need the actual VX price for tier logic, not the old multiplier
+        vx_price = None
+        if self._sentiment._vx_feed_enabled and self._sentiment._vx_feed:
+            try:
+                raw_vx = self._sentiment._vx_feed.get_vx_price()
+                if isinstance(raw_vx, (int, float)) and raw_vx > 0:
+                    vx_price = float(raw_vx)
+            except Exception:
+                pass  # VX feed unavailable — skip additive adjustment
+
+        if vx_price is not None:
+            # Signal-type-aware additive VX adjustment
+            if vx_price < 16:
+                # Low vol: narrow ranges, targets harder to reach
+                vx_adj = -0.08 if is_trend_cont_for_vx else -0.03
+            elif vx_price < 22:
+                # Normal MES baseline — neutral
+                vx_adj = 0.0
+            elif vx_price < 28:
+                # Elevated: trends extend, breakouts are real, pullbacks riskier
+                if is_or_breakout_for_vx:
+                    vx_adj = 0.03
+                elif is_trend_cont_for_vx:
+                    vx_adj = 0.05
+                elif is_pullback_for_vx:
+                    vx_adj = -0.05
+                else:
+                    vx_adj = 0.0
+            elif vx_price < 35:
+                # High fear: genuine caution warranted
+                if is_or_breakout_for_vx:
+                    vx_adj = 0.0  # Breakouts still valid
+                else:
+                    vx_adj = -0.08
+            else:
+                # Extreme fear (VX >= 35): only breakouts trade normally
+                if is_or_breakout_for_vx:
+                    vx_adj = -0.03
+                else:
+                    vx_adj = -0.15
+
+            if vx_adj != 0.0:
+                original_conf = signal.confidence
+                signal.confidence = max(0.10, signal.confidence + vx_adj)
+                confidence_adjustments["vx_additive"] = vx_adj
+                logger.info(
+                    f"📈 VX Adjustment: VX={vx_price:.1f} | {original_conf:.3f} "
+                    f"{vx_adj:+.3f} = {signal.confidence:.3f} "
+                    f"({'breakout' if is_or_breakout_for_vx else 'trend_cont' if is_trend_cont_for_vx else 'pullback' if is_pullback_for_vx else 'other'})"
+                )
+            else:
+                confidence_adjustments["vx_neutral"] = 0.0
+                logger.info(
+                    f"📈 VX Neutral: VX={vx_price:.1f} — no adjustment "
+                    f"(signal_type={'breakout' if is_or_breakout_for_vx else 'trend_cont' if is_trend_cont_for_vx else 'pullback' if is_pullback_for_vx else 'other'})"
+                )
 
         # 2c. Hybrid pipeline as advisory (RAG similarity + LLM reasoning)
         if m._use_hybrid_pipeline and (self.hybrid_pipeline or m.hybrid_pipeline):
@@ -529,11 +592,13 @@ class SignalProcessor:
                             f"conf boost +{boost:.3f} → {signal.confidence:.3f}"
                         )
                     elif hybrid_action == "HOLD":
-                        # Hybrid is uncertain — moderate dampening
-                        # FEB 10 2026: Raised from 0.05 to 0.10. If the hybrid
-                        # pipeline can't commit to a direction, that's meaningful
-                        # information. 0.70 - 0.10 = 0.60 (still passes 0.50 floor).
-                        dampen = 0.10
+                        # Hybrid is uncertain — light dampening
+                        # FEB 10 2026: Raised from 0.05 to 0.10.
+                        # MAR 3 2026: Reduced from 0.10 to 0.05. With additive VX
+                        # scaling, the confidence budget is tighter. Hybrid uncertain
+                        # should nudge, not meaningfully reduce. The strategy's own
+                        # filters (EMA alignment, ADX, bullish bar) are the quality gate.
+                        dampen = 0.05
                         signal.confidence = max(0.1, signal.confidence - dampen)
                         confidence_adjustments["hybrid_uncertain_dampen"] = -dampen
                         logger.info(
@@ -541,15 +606,17 @@ class SignalProcessor:
                             f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
                         )
                     else:
-                        # Hybrid opposes — dampening capped at -0.10 (but NEVER flip action)
+                        # Hybrid opposes — dampening capped at -0.05 (but NEVER flip action)
                         # FEB 10 2026: Strengthened from min(0.15, hybrid_conf * 0.15)
                         # to min(0.30, hybrid_conf * 0.40).
                         # FEB 20 2026: Capped at 0.10. Audit showed the old -0.30 cap
-                        # was blocking ~50% of viable signals. Simulation on Oct 2025
-                        # data: capping at -0.10 improved win rate 38.5%→45.3%,
-                        # profit factor 0.69→0.86, trades/day 1.44→2.94.
+                        # was blocking ~50% of viable signals.
+                        # MAR 3 2026: Capped at 0.05. Log analysis (Feb 6 – Mar 3) showed
+                        # hybrid oppose hit 18/45 signals (40%). Combined with VX scaling,
+                        # this created: 0.70 × 0.70 − 0.10 = 0.39 (killed). With additive
+                        # VX and 0.05 cap: 0.70 − 0.05 − 0.05 = 0.60 (healthy).
                         # The hybrid LLM pipeline is advisory, not a veto gate.
-                        dampen = min(0.10, hybrid_conf * 0.40)
+                        dampen = min(0.05, hybrid_conf * 0.20)
                         signal.confidence = max(0.1, signal.confidence - dampen)
                         confidence_adjustments["hybrid_oppose_dampen"] = -dampen
                         logger.info(
@@ -585,28 +652,44 @@ class SignalProcessor:
         # 2d. Scoring validation — DISABLED (1m scoring system sunset FEB 2026)
         # Kept as no-op stub; remove entirely when tests are updated.
 
-        # ── Step 2d½: CHOP regime guard (FEB 22 2026) ────────────────
-        # Pullback signals (EMA21_PB, EMA9_PB) are trend-following by
-        # design — they assume price will continue in the trend direction
-        # after a shallow retracement.  When the hybrid pipeline detects
-        # CHOP (range-bound, no clear trend), pullbacks are structurally
-        # disadvantaged: there is no trend to "pull back into".
+        # ── Step 2d½: CHOP regime guard ─────────────────────────────
         #
-        # Friday 2026-02-20 post-mortem: EMA9_PB_LONG fired in a CHOP
-        # regime with 14.3-point ATR.  Even after the ATR-adaptive stop
-        # fix, pullback signals in CHOP markets have a ~30% win rate
-        # (per RAG historical lookback).  This gate blocks them.
+        # History:
+        #   FEB 22 2026: Binary block for all pullback/trend_cont in CHOP.
+        #   MAR 2 2026:  Direction-aware redesign (LONGs dampen, SHORTs block).
+        #   MAR 2 2026:  REVERTED to block-all after 1-year backtest (25,646 bars,
+        #                226 CHOP-blocked trades) showed LONGs are ALSO net losers:
+        #                  LONGs:  26.5% WR, −$146.25, PF 0.90
+        #                  SHORTs: 25.0% WR, −$421.25, PF 0.79
+        #                CIs overlap [18.8-36.0%] vs [18.3-33.2%].
+        #                14-trade live sample (80% LONG WR) was survivorship bias.
+        #                Block-all ($0) > direction-aware (−$146.25) > blind (−$567.50).
         #
-        # FEB 24 2026: Extended to also block TREND_CONT signals in CHOP.
-        # 224-trade backtest showed TREND_CONT has −$7.94/trade overall.
-        # "Trend continuation" in a CHOP regime is a contradiction —
-        # there is no trend to continue.  Today's TREND_CONT_LONG at
-        # ADX=18 with hybrid=CHOP lost −$40.62 (chopped for 3 hours,
-        # max favorable excursion only +$9 before SL hit).
-        # The hybrid LLM/RAG flagged CHOP with 30% win rate — we ignored it.
+        # ADX micro-edge (from 1-year data):
+        #   ADX 20-25: 152 trades, −$642.50 (deeply negative)
+        #   ADX 25-30:  55 trades, +$65.00  (slight edge)
+        #   ADX 30+:    19 trades, +$10.00  (near flat)
         #
-        # OR breakout / breakdown signals are EXEMPT — they are designed
-        # to capture range expansion, which can occur in any regime.
+        # Optional exception framework (ENABLE_CHOP_EXCEPTION env var, OFF
+        # by default): allows LONG-only exceptions through a statistically
+        # controlled gate.  Must satisfy ALL conditions before any CHOP
+        # signal passes:
+        #   1. Direction == LONG
+        #   2. ADX >= 25
+        #   3. Daily sentiment bias == BULLISH
+        #   4. Confidence >= 0.70
+        #   5. ATR expanding (current ATR > ATR 5 bars ago)
+        #
+        # This framework is for evaluation ONLY.  It should remain OFF
+        # in production until backtest shows:
+        #   - Expectancy > 0
+        #   - Net PnL improvement > 1.5R vs block-all
+        #   - Max DD does NOT increase > 10%
+        #   - Edge persists across ≥ 3 independent quarters
+        #   - Sample size ≥ 50 trades
+        #
+        # OR breakout / breakdown signals remain EXEMPT — they capture
+        # range expansion, which can occur in any regime.
         signal_reason = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
         is_pullback_signal = "_PB_" in signal_reason
         is_trend_cont_signal = "TREND_CONT" in signal_reason
@@ -614,30 +697,100 @@ class SignalProcessor:
 
         if (is_pullback_signal or is_trend_cont_signal) and hybrid_trend == "CHOP" and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
             block_type = "pullback" if is_pullback_signal else "trend_cont"
-            confidence_adjustments["chop_regime_block"] = -signal.confidence
-            logger.warning(
-                f"🚫 CHOP regime guard: blocking {block_type} signal "
-                f"({signal_reason}) — {block_type} needs trending markets. "
-                f"Was {signal.action} conf={signal.confidence:.3f}"
-            )
-            signal.action = "HOLD"
-            signal.confidence = 0.0
-            if isinstance(signal.metadata, dict):
-                signal.metadata["reason"] = f"CHOP_REGIME_BLOCK | original: {signal_reason}"
-                signal.metadata["chop_guard"] = {
-                    "original_action": original_action,
-                    "original_confidence": base_confidence,
-                    "hybrid_trend": hybrid_trend,
-                    "block_type": block_type,
-                }
-            return SignalGenerationResult(
-                signal=signal,
-                pipeline_result=pipeline_result,
-                filters_passed=False,
-                filters_applied=list(confidence_adjustments.keys()),
-                run_legacy_after_hybrid=False,
-                sentiment_modifier=sentiment_modifier,
-            )
+            is_long = signal.action in ("BUY", "SCALP_BUY")
+
+            # ── Check exception framework (OFF by default) ────────
+            chop_exception_enabled = os.environ.get("ENABLE_CHOP_EXCEPTION", "").lower() in ("1", "true", "yes")
+            exception_passed = False
+
+            if chop_exception_enabled and is_long:
+                # Gate 1: ADX >= 25 (only ADX 25+ showed positive edge in 1yr data)
+                adx_val = 0.0
+                reason_parts = signal_reason.split("|")
+                for part in reason_parts:
+                    part = part.strip()
+                    if part.startswith("ADX="):
+                        try:
+                            adx_val = float(part.split("=")[1])
+                        except (ValueError, IndexError):
+                            pass
+                        break
+
+                # Gate 2: Daily sentiment bias == BULLISH
+                daily_bias = getattr(m, "_last_sentiment_bias", "NEUTRAL")
+
+                # Gate 3: Confidence >= 0.70 (pre-dampen)
+                conf_ok = signal.confidence >= 0.70
+
+                # Gate 4: ATR expanding (current ATR > ATR 5 bars ago)
+                atr_expanding = False
+                if features is not None and len(features) >= 6 and "ATR_14" in features.columns:
+                    try:
+                        atr_current = float(features.iloc[-1]["ATR_14"])
+                        atr_5ago = float(features.iloc[-6]["ATR_14"])
+                        atr_expanding = atr_current > atr_5ago and atr_5ago > 0
+                    except (ValueError, IndexError, KeyError):
+                        pass
+
+                exception_passed = (
+                    adx_val >= 25
+                    and daily_bias == "BULLISH"
+                    and conf_ok
+                    and atr_expanding
+                )
+
+                if exception_passed:
+                    # Exception activated — dampen confidence but allow through
+                    chop_exception_dampen = 0.05
+                    old_conf = signal.confidence
+                    signal.confidence = max(0.15, signal.confidence - chop_exception_dampen)
+                    confidence_adjustments["chop_exception_pass"] = -chop_exception_dampen
+                    logger.warning(
+                        f"⚠️ CHOP Exception Activated: LONG allowed | "
+                        f"ADX={adx_val:.0f} | conf={old_conf:.3f}→{signal.confidence:.3f} | "
+                        f"bias={daily_bias} | ATR_expanding={atr_expanding} | "
+                        f"signal={signal_reason}"
+                    )
+                    if isinstance(signal.metadata, dict):
+                        signal.metadata["chop_guard"] = {
+                            "original_action": original_action,
+                            "original_confidence": base_confidence,
+                            "hybrid_trend": hybrid_trend,
+                            "block_type": block_type,
+                            "exception_activated": True,
+                            "exception_adx": adx_val,
+                            "exception_bias": daily_bias,
+                            "exception_atr_expanding": atr_expanding,
+                            "dampen_applied": chop_exception_dampen,
+                        }
+
+            if not exception_passed:
+                # Default: BLOCK ALL pullback/trend_cont in CHOP
+                confidence_adjustments["chop_regime_block"] = -signal.confidence
+                logger.warning(
+                    f"🚫 CHOP Block-All Guard Activated: "
+                    f"blocking {signal.action} {block_type} signal "
+                    f"({signal_reason}) in CHOP regime. "
+                    f"Was conf={signal.confidence:.3f}"
+                )
+                signal.action = "HOLD"
+                signal.confidence = 0.0
+                if isinstance(signal.metadata, dict):
+                    signal.metadata["reason"] = f"CHOP_REGIME_BLOCK | original: {signal_reason}"
+                    signal.metadata["chop_guard"] = {
+                        "original_action": original_action,
+                        "original_confidence": base_confidence,
+                        "hybrid_trend": hybrid_trend,
+                        "block_type": block_type,
+                    }
+                return SignalGenerationResult(
+                    signal=signal,
+                    pipeline_result=pipeline_result,
+                    filters_passed=False,
+                    filters_applied=list(confidence_adjustments.keys()),
+                    run_legacy_after_hybrid=False,
+                    sentiment_modifier=sentiment_modifier,
+                )
 
         # ── Step 2d¾: MES dead-zone time guard (FEB 24 2026) ─────────
         # MES (Micro E-mini S&P 500) has a well-known liquidity structure:

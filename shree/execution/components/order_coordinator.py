@@ -46,18 +46,22 @@ class OrderCoordinator:
             max_spread_ticks=int(self._max_spread_ticks),
             high_impact_event_dates=override_dates,
         )
-        # Structural support floor (config-driven, env override)
-        self._support_floor_price: Optional[float] = None
+        # Structural support floor — dynamic (auto-computed from PDL/weekly low/OR low)
+        # Falls back to config/env override if dynamic floor has no data yet.
+        self._static_floor_override: Optional[float] = None
         raw_floor = (
             cfg_dict.get("structural_support_floor")
             if isinstance(cfg_dict, dict) else None
         ) or os.environ.get("STRUCTURAL_SUPPORT_FLOOR")
         if raw_floor is not None:
             try:
-                self._support_floor_price = float(raw_floor)
-                logger.info(
-                    f"🛡️ Structural support floor set: {self._support_floor_price:.2f}"
-                )
+                val = float(raw_floor)
+                if val > 0:
+                    self._static_floor_override = val
+                    logger.info(
+                        f"🛡️ Static support floor override: {val:.2f} "
+                        f"(will be superseded by dynamic floor once market data loads)"
+                    )
             except (ValueError, TypeError):
                 pass
 
@@ -331,13 +335,12 @@ class OrderCoordinator:
                 self._recent_signal_keys.pop(signal_key, None)
                 return False, spread_reason, signal_key
 
-        # ── FEB 20 2026: Structural support floor ─────────────────────
-        if self._support_floor_price is not None:
-            floor_blocked, floor_reason = await self._check_support_floor(action)
-            if floor_blocked:
-                logger.warning("🚫 Entry blocked: {}", floor_reason)
-                self._recent_signal_keys.pop(signal_key, None)
-                return False, floor_reason, signal_key
+        # ── MAR 2026: Dynamic structural support floor ────────────────
+        floor_blocked, floor_reason = await self._check_support_floor(action)
+        if floor_blocked:
+            logger.warning("🚫 Entry blocked: {}", floor_reason)
+            self._recent_signal_keys.pop(signal_key, None)
+            return False, floor_reason, signal_key
 
         # Enforce minimum spacing between orders
         cooldown_seconds = getattr(self.manager, "_cooldown_seconds", 0) or 0
@@ -432,14 +435,23 @@ class OrderCoordinator:
     async def _check_support_floor(self, action: str) -> tuple[bool, str]:
         """Block new LONG entries when price is at or below the structural support floor.
 
+        MAR 2026: Uses DynamicSupportFloor (auto-computed from PDL / weekly low /
+        OR low) instead of a hardcoded price.  Falls back to static config/env
+        override if the dynamic floor hasn't loaded yet.
+
         Also block new SHORT entries when price is far below support (don't
         chase a breakdown — wait for a pull-back).
 
         Returns (blocked: bool, reason: str).
         """
-        floor = self._support_floor_price
+        # Resolve floor: prefer dynamic, fallback to static override
+        dsf = getattr(self.manager, "dynamic_support_floor", None)
+        floor = dsf.get_floor() if dsf else None
         if floor is None:
+            floor = self._static_floor_override
+        if floor is None or floor <= 0:
             return False, ""
+
         executor = getattr(self.manager, "executor", None)
         if executor is None:
             return False, ""
@@ -452,6 +464,7 @@ class OrderCoordinator:
             if is_buy and price <= floor + 5.0:
                 reason = (
                     f"SUPPORT_FLOOR_BLOCK:price={price:.2f}<=floor+5={floor + 5.0:.2f}"
+                    f" (dynamic={dsf.get_floor() is not None if dsf else False})"
                 )
                 return True, reason
             # Block new shorts when price is >15 pts below floor (chasing breakdown)
@@ -459,6 +472,7 @@ class OrderCoordinator:
             if is_sell and price < floor - 15.0:
                 reason = (
                     f"SUPPORT_BREAKDOWN_CHASE:price={price:.2f}<floor-15={floor - 15.0:.2f}"
+                    f" (dynamic={dsf.get_floor() is not None if dsf else False})"
                 )
                 return True, reason
         except Exception as exc:  # noqa: BLE001

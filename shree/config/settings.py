@@ -24,7 +24,7 @@ from .integrations import (
     VixFeedConfig,
     TelegramConfig,
 )
-from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig
+from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig, DynamicSupportConfig
 
 @dataclass
 class Settings:
@@ -46,6 +46,7 @@ class Settings:
     learning: LearningConfig = field(default_factory=LearningConfig)
     features: FeatureFlagsConfig = field(default_factory=FeatureFlagsConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    dynamic_support: DynamicSupportConfig = field(default_factory=DynamicSupportConfig)
 
     def validate(self) -> None:
         import logging
