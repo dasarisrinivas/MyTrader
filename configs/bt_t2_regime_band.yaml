@@ -1,0 +1,63 @@
+# T2 Regime-Adaptive Band — MAR 2026
+# ====================================
+# Adds 4-bucket ATR regime logic to the touch band (Signal A/D):
+#   ATR < 8  (very low):  pct band 0.0010 — tighter than baseline 0.0015
+#   ATR 8-13 (normal):    pct band 0.0015 — same as baseline
+#   ATR 13-20 (high):     ATR × 0.75     — same as Fix #6
+#   ATR > 20 (extreme):   ATR × 1.0      — widest (live only — not in backtest period)
+#
+# Backtest period (Feb 2025–Jan 2026): 83.5% bars have ATR < 13
+#   → very-low bucket active most of the time (tighter band)
+#   → high-vol bucket: same as bt_fix6 (no change vs Fix #6)
+#   → expected effect: fewer false Signal A/D touches in low-vol chop
+strategy:
+  use_15m_strategy: true
+  use_scoring_system: false
+  ft_pb_stop_mult: 1.5
+  ft_pb_target_mult: 1.0
+  ft_max_hold_bars: 8
+  ft_or_minutes: 30
+  ft_or_break_max_per_day: 2
+  ft_or_target_r: 1.0
+  ft_adx_min: 18.0
+  ft_adx_max: 45.0
+  ft_ema_touch_pct: 0.0015        # Normal bucket (ATR 8-13)
+  ft_ema_touch_atr_mult: 0.75     # High-vol bucket (ATR 13-20) — Fix #6 value
+  # T2: ATR regime boundaries
+  ft_atr_very_low_threshold: 8.0  # below this → tight pct (0.0010)
+  ft_atr_high_threshold: 13.0     # above this → ATR-scaled (ft_ema_touch_atr_mult)
+  ft_atr_extreme_threshold: 20.0  # above this → ATR × 1.0
+  ft_fixed_tp_points: 8.0
+  ft_fixed_tp_points_ema9: 10.0
+  ft_fixed_tp_points_trend: 12.0
+  ft_fixed_sl_points: 6.0
+  ft_fixed_sl_points_ema9: 8.0
+  ft_fixed_sl_points_trend: 8.0
+  ft_ema9_sl_atr_mult: 1.0
+  ft_ema9_sl_floor_pts: 8.0
+  ft_ema9_sl_ceiling_pts: 20.0
+  ft_ema9_rr_ratio: 1.25
+  ft_ema9_pb_enabled: true
+  ft_ema9_pb_stop_mult: 1.2
+  ft_ema9_pb_target_mult: 1.5
+  ft_ema9_touch_pct: 0.0015
+  ft_shorts_enabled: true
+  ft_short_pb_stop_mult: 1.5
+  ft_short_pb_target_mult: 1.0
+  ft_short_or_target_r: 1.0
+  ft_trend_cont_enabled: true
+  ft_trend_cont_stop_mult: 1.0
+  ft_trend_cont_target_mult: 2.0
+  ft_trend_cont_adx_min: 25.0
+  ft_trend_cont_ema9_pct: 0.003
+  ft_trend_cont_max_per_day: 2
+  ft_trend_cont_max_ext_pts: 30.0
+  ft_trend_cont_gap_adx_min: 25.0
+  ft_entry_start_hour: 0
+  ft_entry_start_minute: 0
+  ft_entry_end_hour: 23
+  ft_entry_end_minute: 59
+  rth_start_hour: 0
+  rth_start_minute: 0
+  rth_end_hour: 23
+  rth_end_minute: 59

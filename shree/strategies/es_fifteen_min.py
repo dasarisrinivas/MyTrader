@@ -139,6 +139,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Scales with volatility: tighter when quiet, wider on high-vol days.
         # 0.0 = disabled (falls back to ft_ema_touch_pct).
         self._ema_touch_atr_mult: float = getattr(config, 'ft_ema_touch_atr_mult', 0.0)
+        # MAR 2026 T2: Regime-adaptive band — ATR boundaries for 4-bucket system.
+        # Very-low (<8): tighten to 0.0010  Normal (8-13): current pct  High (13-20): ATR-scaled  Extreme (>20): ATR*1.0 (live only)
+        self._atr_very_low: float = getattr(config, 'ft_atr_very_low_threshold', 8.0)
+        self._atr_high: float = getattr(config, 'ft_atr_high_threshold', 13.0)
+        self._atr_extreme: float = getattr(config, 'ft_atr_extreme_threshold', 20.0)
         self._or_minutes: int = getattr(config, 'ft_or_minutes', 30)
 
         # FEB 7 2026: EMA9 pullback parameters (Signal C)
@@ -437,10 +442,7 @@ class EsFifteenMinStrategy(BaseStrategy):
             if ema21 <= ema50:
                 _diag_parts.append(f"A:ema21({ema21:.1f})<=ema50({ema50:.1f})")
             else:
-                if self._ema_touch_atr_mult > 0 and atr > 0:
-                    _touch = ema21 + atr * self._ema_touch_atr_mult
-                else:
-                    _touch = ema21 * (1 + self._ema_touch_pct)
+                _touch = self._regime_touch_threshold(ema21, atr, side="long")
                 if low > _touch:
                     _diag_parts.append(f"A:low({low:.1f})>touch({_touch:.1f})")
                 elif close <= ema21:
@@ -465,10 +467,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                 if ema21 >= ema50:
                     _diag_parts.append(f"D:ema21({ema21:.1f})>=ema50({ema50:.1f})")
                 else:
-                    if self._ema_touch_atr_mult > 0 and atr > 0:
-                        _touch_s = ema21 - atr * self._ema_touch_atr_mult
-                    else:
-                        _touch_s = ema21 * (1 - self._ema_touch_pct)
+                    _touch_s = self._regime_touch_threshold(ema21, atr, side="short")
                     if high < _touch_s:
                         _diag_parts.append(f"D:high({high:.1f})<touch({_touch_s:.1f})")
                     elif close >= ema21:
@@ -582,6 +581,42 @@ class EsFifteenMinStrategy(BaseStrategy):
         return Signal(action=action, confidence=0.7, metadata=metadata)
 
     # ------------------------------------------------------------------
+    #  MAR 2026 T2: Regime-adaptive touch band
+    # ------------------------------------------------------------------
+    def _regime_touch_threshold(self, ema21: float, atr: float, side: str) -> float:
+        """Return the EMA21 touch band threshold for the current ATR regime.
+
+        Four buckets (ATR in ES/MES points):
+          < ft_atr_very_low_threshold (8):   tight pct band (0.0010) — reduce false touches
+          8 – ft_atr_high_threshold (13):    current ft_ema_touch_pct (0.0015) — unchanged
+          13 – ft_atr_extreme_threshold (20): ATR-scaled (ft_ema_touch_atr_mult × ATR)
+          > ft_atr_extreme_threshold (20):   ATR × 1.0 — extreme vol, widest band
+
+        side = "long"  → threshold is above EMA21 (low must be ≤ threshold)
+        side = "short" → threshold is below EMA21 (high must be ≥ threshold)
+        """
+        sign = 1.0 if side == "long" else -1.0
+
+        if atr <= 0:
+            return ema21 * (1.0 + sign * self._ema_touch_pct)
+
+        if atr < self._atr_very_low:
+            # Very low vol: tighter band to avoid noise touches
+            return ema21 * (1.0 + sign * 0.0010)
+
+        if atr < self._atr_high:
+            # Normal regime: existing configured pct (0.0015)
+            return ema21 * (1.0 + sign * self._ema_touch_pct)
+
+        if atr < self._atr_extreme:
+            # High vol (Fix #6 regime): ATR-scaled band
+            mult = self._ema_touch_atr_mult if self._ema_touch_atr_mult > 0 else 0.75
+            return ema21 + sign * atr * mult
+
+        # Extreme vol (ATR > 20): widest band — ATR × 1.0
+        return ema21 + sign * atr * 1.0
+
+    # ------------------------------------------------------------------
     #  Signal A: EMA21 Pullback Long
     # ------------------------------------------------------------------
     def _check_ema21_pullback(
@@ -607,11 +642,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         if ema21 <= ema50:
             return None
 
-        # 2. Low touches EMA21 (ATR-adaptive band if configured, else pct-based)
-        if self._ema_touch_atr_mult > 0 and atr > 0:
-            touch_threshold = ema21 + atr * self._ema_touch_atr_mult
-        else:
-            touch_threshold = ema21 * (1 + self._ema_touch_pct)
+        # 2. Low touches EMA21 — regime-adaptive band (T2 MAR 2026)
+        touch_threshold = self._regime_touch_threshold(ema21, atr, side="long")
         if low > touch_threshold:
             return None
 
@@ -794,11 +826,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         if ema21 >= ema50:
             return None
 
-        # 2. High touches EMA21 from below (ATR-adaptive band if configured, else pct-based)
-        if self._ema_touch_atr_mult > 0 and atr > 0:
-            touch_threshold = ema21 - atr * self._ema_touch_atr_mult
-        else:
-            touch_threshold = ema21 * (1 - self._ema_touch_pct)
+        # 2. High touches EMA21 from below — regime-adaptive band (T2 MAR 2026)
+        touch_threshold = self._regime_touch_threshold(ema21, atr, side="short")
         if high < touch_threshold:
             return None
 
