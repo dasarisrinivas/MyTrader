@@ -1,0 +1,421 @@
+{
+  "window": 5,
+  "is_start": "2025-06-01",
+  "is_end": "2025-08-31",
+  "oos_start": "2025-09-01",
+  "oos_end": "2025-09-30",
+  "best_low_vol_params": {
+    "ft_adx_min": 26.0,
+    "ft_ema_touch_pct": 0.001,
+    "ft_ema_touch_atr_mult": 0.5,
+    "ft_pb_stop_mult": 1.2
+  },
+  "best_high_vol_params": {
+    "ft_adx_min": 26.0,
+    "ft_ema_touch_pct": 0.001,
+    "ft_ema_touch_atr_mult": 0.5,
+    "ft_pb_stop_mult": 1.2
+  },
+  "oos_low_opt": {
+    "n_trades": 49,
+    "total_pnl": -230.1,
+    "sharpe": -2.346,
+    "pf": 0.786,
+    "regime_low": {
+      "n": 49,
+      "pnl": -230.1,
+      "pf": 0.786,
+      "sharpe": -2.346,
+      "score": 3.074
+    },
+    "regime_high": {
+      "n": 0,
+      "pnl": 0,
+      "pf": 0.0,
+      "sharpe": 0.0,
+      "score": 0.0
+    }
+  },
+  "oos_high_opt": {
+    "n_trades": 49,
+    "total_pnl": -230.1,
+    "sharpe": -2.346,
+    "pf": 0.786,
+    "regime_low": {
+      "n": 49,
+      "pnl": -230.1,
+      "pf": 0.786,
+      "sharpe": -2.346,
+      "score": 3.074
+    },
+    "regime_high": {
+      "n": 0,
+      "pnl": 0,
+      "pf": 0.0,
+      "sharpe": 0.0,
+      "score": 0.0
+    }
+  },
+  "is_grid_top10": [
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 1.5
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 2.0
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.75,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.75,
+        "ft_pb_stop_mult": 1.5
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.75,
+        "ft_pb_stop_mult": 2.0
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 1.0,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 1.0,
+        "ft_pb_stop_mult": 1.5
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 1.0,
+        "ft_pb_stop_mult": 2.0
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    },
+    {
+      "params": {
+        "ft_adx_min": 26.0,
+        "ft_ema_touch_pct": 0.0015,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 32,
+          "pnl": 333.2,
+          "pf": 1.886,
+          "sharpe": 5.772,
+          "score": 6.594
+        }
+      },
+      "score_all": 6.594,
+      "score_low": 6.594,
+      "score_high": 0.0,
+      "n_trades": 32,
+      "total_pnl": 333.2
+    }
+  ]
+}

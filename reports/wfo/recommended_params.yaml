@@ -1,0 +1,12 @@
+_comment: "WFO recommended params \u2014 generated 2026-03-09 | Latest IS window:\
+  \ 2026-01"
+low_vol_regime:
+  ft_adx_min: 18.0
+  ft_ema_touch_pct: 0.002
+  ft_ema_touch_atr_mult: 0.5
+  ft_pb_stop_mult: 1.2
+high_vol_regime:
+  ft_adx_min: 15.0
+  ft_ema_touch_pct: 0.002
+  ft_ema_touch_atr_mult: 0.5
+  ft_pb_stop_mult: 1.2

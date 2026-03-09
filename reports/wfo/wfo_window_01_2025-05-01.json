@@ -1,0 +1,397 @@
+{
+  "window": 1,
+  "is_start": "2025-02-01",
+  "is_end": "2025-04-30",
+  "oos_start": "2025-05-01",
+  "oos_end": "2025-05-31",
+  "best_low_vol_params": {
+    "ft_adx_min": 15.0,
+    "ft_ema_touch_pct": 0.001,
+    "ft_ema_touch_atr_mult": 0.5,
+    "ft_pb_stop_mult": 1.2
+  },
+  "best_high_vol_params": {
+    "ft_adx_min": 15.0,
+    "ft_ema_touch_pct": 0.001,
+    "ft_ema_touch_atr_mult": 0.5,
+    "ft_pb_stop_mult": 1.2
+  },
+  "oos_low_opt": {
+    "n_trades": 0,
+    "total_pnl": 0.0,
+    "sharpe": 0.0,
+    "pf": 0.0,
+    "regime_low": {},
+    "regime_high": {}
+  },
+  "oos_high_opt": {
+    "n_trades": 0,
+    "total_pnl": 0.0,
+    "sharpe": 0.0,
+    "pf": 0.0,
+    "regime_low": {},
+    "regime_high": {}
+  },
+  "is_grid_top10": [
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 1.5
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 2.0
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.75,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.75,
+        "ft_pb_stop_mult": 1.5
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 0.75,
+        "ft_pb_stop_mult": 2.0
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 1.0,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 1.0,
+        "ft_pb_stop_mult": 1.5
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.001,
+        "ft_ema_touch_atr_mult": 1.0,
+        "ft_pb_stop_mult": 2.0
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    },
+    {
+      "params": {
+        "ft_adx_min": 15.0,
+        "ft_ema_touch_pct": 0.0015,
+        "ft_ema_touch_atr_mult": 0.5,
+        "ft_pb_stop_mult": 1.2
+      },
+      "regime": {
+        "low": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "high": {
+          "n": 0,
+          "pnl": 0,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        },
+        "all": {
+          "n": 1,
+          "pnl": -4.9,
+          "pf": 0.0,
+          "sharpe": 0.0,
+          "score": 0.0
+        }
+      },
+      "score_all": 0.0,
+      "score_low": 0.0,
+      "score_high": 0.0,
+      "n_trades": 1,
+      "total_pnl": -4.9
+    }
+  ]
+}
