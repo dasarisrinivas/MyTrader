@@ -59,6 +59,23 @@ class RiskGateConfig:
     peak_drawdown_reset_on_new_day: bool = field(
         default_factory=lambda: _env_bool("PEAK_DRAWDOWN_RESET_ON_NEW_DAY", False)
     )
+    # MAR 2026: Tiered drawdown (used when peak_drawdown_action = "tiered")
+    # Tier 1: reduce size to 50%  Tier 2: reduce to 25%  Tier 3: full halt
+    peak_drawdown_tier1_pct: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DD_TIER1_PCT", "3.0"))
+    )
+    peak_drawdown_tier1_size_mult: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DD_TIER1_SIZE_MULT", "0.5"))
+    )
+    peak_drawdown_tier2_pct: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DD_TIER2_PCT", "5.0"))
+    )
+    peak_drawdown_tier2_size_mult: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DD_TIER2_SIZE_MULT", "0.25"))
+    )
+    peak_drawdown_tier3_pct: float = field(
+        default_factory=lambda: float(os.environ.get("PEAK_DD_TIER3_PCT", "7.0"))
+    )
 
     def bounded_risk_usd(self) -> float:
         raw = self.risk_per_trade_usd
@@ -325,6 +342,30 @@ class RiskGate:
     def kill_switch_active(self) -> bool:
         return self._kill_switch_active
 
+    def get_drawdown_tier(self) -> int:
+        """Return current drawdown tier: 0=normal 1=reduce50% 2=reduce75% 3=halt.
+
+        Only meaningful when peak_drawdown_action = "tiered".
+        Uses the live last_equity vs high_water mark to compute actual drawdown pct,
+        then maps it to a tier using config thresholds.
+        """
+        if not self.config.peak_drawdown_enabled:
+            return 0
+        if self._equity_high_water is None or self._last_equity is None:
+            return 0
+        if self._equity_high_water <= 0:
+            return 0
+        dd_pct = abs(
+            (self._last_equity - self._equity_high_water) / self._equity_high_water * 100.0
+        )
+        if dd_pct >= self.config.peak_drawdown_tier3_pct:
+            return 3
+        if dd_pct >= self.config.peak_drawdown_tier2_pct:
+            return 2
+        if dd_pct >= self.config.peak_drawdown_tier1_pct:
+            return 1
+        return 0
+
     def evaluate_entry(
         self,
         action: str,
@@ -374,6 +415,28 @@ class RiskGate:
             action_mode = (self.config.peak_drawdown_action or "halt").lower()
             if action_mode == "halt":
                 return RiskGateResult(False, "PEAK_DRAWDOWN_LOCKOUT", levels)
+            elif action_mode == "tiered":
+                tier = self.get_drawdown_tier()
+                if tier >= 3:
+                    return RiskGateResult(False, "PEAK_DD_TIER3_HALT", levels)
+                if tier == 2:
+                    levels["dd_tier"] = 2.0
+                    levels["dd_size_mult"] = self.config.peak_drawdown_tier2_size_mult
+                    logger.info(
+                        "⚠️ DD Tier 2 ({:.1f}%): size mult {:.2f}",
+                        abs((self._last_equity - self._equity_high_water) / self._equity_high_water * 100),
+                        self.config.peak_drawdown_tier2_size_mult,
+                    )
+                elif tier == 1:
+                    levels["dd_tier"] = 1.0
+                    levels["dd_size_mult"] = self.config.peak_drawdown_tier1_size_mult
+                    logger.info(
+                        "⚠️ DD Tier 1 ({:.1f}%): size mult {:.2f}",
+                        abs((self._last_equity - self._equity_high_water) / self._equity_high_water * 100),
+                        self.config.peak_drawdown_tier1_size_mult,
+                    )
+                else:
+                    levels["dd_tier"] = 0.0
 
         # 1) Position cap (no pyramiding)
         projected = current_position + (quantity if action.upper().startswith("BUY") else -quantity)

@@ -1,0 +1,143 @@
+{
+  "metrics": {
+    "total_return": -0.0052,
+    "total_pnl": -26.0,
+    "cagr": -0.03301131620146147,
+    "sharpe_ratio": -0.309579278750014,
+    "sortino_ratio": -0.04699120708537115,
+    "calmar_ratio": 0.45106766841285445,
+    "max_drawdown": -0.07318484234885747,
+    "max_drawdown_duration_days": 29,
+    "avg_drawdown": -0.05168329972643203,
+    "total_trades": 65,
+    "winning_trades": 28,
+    "losing_trades": 37,
+    "win_rate": 0.4307692307692308,
+    "profit_factor": 0.9754148740012295,
+    "avg_win": 36.84107142857143,
+    "avg_loss": -28.58243243243243,
+    "avg_trade": -0.40000000000000074,
+    "expectancy": -0.3999999999999968,
+    "largest_win": 87.6,
+    "largest_loss": -106.15,
+    "avg_trade_duration_minutes": 80.76923076923077,
+    "time_in_market_pct": 0.0,
+    "avg_position_size": 0.0,
+    "total_commission": 0.0,
+    "total_slippage": 0.0,
+    "annualized_volatility": 0.17123664224396698,
+    "daily_volatility": 0.01078689454093509
+  },
+  "regime_analysis": {
+    "low_atr_trades": 22,
+    "low_atr_win_rate": 0.5,
+    "low_atr_pnl": 212.19999999999996,
+    "medium_atr_trades": 21,
+    "medium_atr_win_rate": 0.38095238095238093,
+    "medium_atr_pnl": -261.65,
+    "high_atr_trades": 22,
+    "high_atr_win_rate": 0.4090909090909091,
+    "high_atr_pnl": 23.449999999999996,
+    "low_vix_trades": 0,
+    "low_vix_pnl": 0.0,
+    "high_vix_trades": 0,
+    "high_vix_pnl": 0.0,
+    "trending_trades": 62,
+    "trending_win_rate": 0.43548387096774194,
+    "trending_pnl": -12.549999999999951,
+    "ranging_trades": 3,
+    "ranging_win_rate": 0.3333333333333333,
+    "ranging_pnl": -13.449999999999998
+  },
+  "session_analysis": {
+    "rth_trades": 63,
+    "rth_win_rate": 0.4444444444444444,
+    "rth_pnl": -14.950000000000017,
+    "rth_avg_trade": -0.23730158730158757,
+    "overnight_trades": 2,
+    "overnight_win_rate": 0.0,
+    "overnight_pnl": -11.05,
+    "overnight_avg_trade": -5.525,
+    "hourly_pnl": {
+      "13": -11.05,
+      "14": -158.79999999999998,
+      "15": 115.80000000000001,
+      "16": 47.55000000000001,
+      "17": -77.75,
+      "18": 157.15,
+      "19": 98.30000000000001,
+      "20": -197.2
+    },
+    "hourly_win_rate": {
+      "13": 0.0,
+      "14": 0.25,
+      "15": 0.5,
+      "16": 0.5384615384615384,
+      "17": 0.3,
+      "18": 0.6666666666666666,
+      "19": 0.625,
+      "20": 0.0
+    },
+    "daily_pnl": {
+      "Friday": -106.39999999999999,
+      "Monday": -270.25,
+      "Thursday": 257.55,
+      "Tuesday": 351.5,
+      "Wednesday": -258.4
+    },
+    "daily_win_rate": {
+      "Friday": 0.2727272727272727,
+      "Monday": 0.2,
+      "Thursday": 0.6923076923076923,
+      "Tuesday": 0.6666666666666666,
+      "Wednesday": 0.25
+    }
+  },
+  "optimizer_analysis": {
+    "near_tp_events": 0,
+    "extensions_attempted": 0,
+    "extensions_approved": 0,
+    "approval_rate": 0.0,
+    "extended_trades_win": 0,
+    "extended_trades_loss": 0,
+    "extension_win_rate": 0.0,
+    "incremental_r_gained": 0.0,
+    "extension_pnl": 0.0,
+    "stopouts_after_extension": 0,
+    "avg_extended_trade_pnl": 0.0,
+    "avg_non_extended_trade_pnl": -0.40000000000000074
+  },
+  "learnings": {
+    "overall_assessment": "MARGINAL: Strategy is near breakeven. Significant tuning needed.",
+    "best_regime": "TRENDING (ADX >= 20)",
+    "worst_regime": "",
+    "best_session": "Overnight",
+    "regime_notes": [
+      "Performs better in trending markets: 43.5% win rate, $-13 total P&L",
+      "ATR matters: Best in Low ATR ($212), Worst in Medium ATR ($-262)"
+    ],
+    "session_notes": [
+      "Overnight session is more profitable - consider focusing here",
+      "Best hour: 18:00 UTC ($157), Worst: 20:00 UTC ($-197)"
+    ],
+    "helpful_filters": [],
+    "harmful_filters": [
+      "PEAK_DD_TIER3_HALT (53.9% of blocks) - review if too restrictive",
+      "NO_SIGNAL (45.8% of blocks) - review if too restrictive"
+    ],
+    "drawdown_causes": [
+      "Max drawdown of -7.3% is significant"
+    ],
+    "sensitive_parameters": [],
+    "recommendations": [
+      "Profit factor < 1 - strategy is unprofitable, needs fundamental changes",
+      "Average trade duration 81 min - consider tighter time-based exits"
+    ]
+  },
+  "block_reasons": {
+    "PEAK_DD_TIER3_HALT": 2505,
+    "NO_SIGNAL": 2129,
+    "PEAK_DD_TIER2_ENTRY": 11,
+    "PEAK_DD_TIER1_ENTRY": 6
+  }
+}

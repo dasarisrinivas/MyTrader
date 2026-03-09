@@ -1187,7 +1187,7 @@ class BacktestEngine:
         if self.state.cooldown_until and timestamp < self.state.cooldown_until:
             return False
 
-        # Peak drawdown lockout
+        # Peak drawdown lockout / tiered reduction
         gate_cfg = getattr(self.risk_gate, "config", None)
         if gate_cfg and getattr(gate_cfg, "peak_drawdown_enabled", False):
             if getattr(self.risk_gate, "drawdown_active", False):
@@ -1195,6 +1195,12 @@ class BacktestEngine:
                 if action_mode == "halt":
                     self._record_block("PEAK_DRAWDOWN_LOCKOUT")
                     return False
+                elif action_mode == "tiered":
+                    tier = self.risk_gate.get_drawdown_tier()
+                    if tier >= 3:
+                        self._record_block("PEAK_DD_TIER3_HALT")
+                        return False
+                    # Tiers 1/2: allow entry — size/grade applied in _evaluate_entry
         
         # Check daily trade limit
         strategy_cfg = self.config.strategy_config or OneMinuteStrategyConfig()
@@ -1279,11 +1285,18 @@ class BacktestEngine:
         if not gate_result.allowed:
             self._record_block(gate_result.reason)
             return
-        
+
         # Use adjusted levels from gate if provided
         stop_loss = gate_result.levels.get("stop_loss", stop_loss)
         take_profit = gate_result.levels.get("take_profit", take_profit)
-        
+
+        # MAR 2026: Tiered drawdown — track tier, no grade filter (size reduction is the guard)
+        dd_tier = int(gate_result.levels.get("dd_tier", 0))
+        if dd_tier >= 2:
+            self._record_block("PEAK_DD_TIER2_ENTRY")  # tracking counter (doesn't halt)
+        elif dd_tier == 1:
+            self._record_block("PEAK_DD_TIER1_ENTRY")  # tracking counter
+
         # Submit bracket order through broker
         side = OrderSide.BUY if signal.action == "BUY" else OrderSide.SELL
         
@@ -1689,13 +1702,20 @@ class BacktestEngine:
             self._record_block("PEAK_DRAWDOWN_TRIGGER")
 
         action_mode = getattr(gate_cfg, "peak_drawdown_action", "halt").lower()
+
+        # Tiered mode: only flatten open positions when tier 3 is reached
+        if action_mode == "tiered":
+            tier = self.risk_gate.get_drawdown_tier()
+            if tier < 3:
+                return  # Tiers 1/2: keep open positions, only reduce new entries
+
         position = self.broker.get_position(self.config.symbol)
         if position.is_flat:
             return
 
         close_price = float(bar["close"])
 
-        if action_mode == "halt" and getattr(gate_cfg, "peak_drawdown_flatten_on_trigger", True):
+        if action_mode in ("halt", "tiered") and getattr(gate_cfg, "peak_drawdown_flatten_on_trigger", True):
             logger.warning(
                 "🚫 Peak drawdown flatten: closing position at {:.2f}",
                 close_price,
