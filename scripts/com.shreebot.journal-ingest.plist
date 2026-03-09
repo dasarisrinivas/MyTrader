@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.shreebot.journal-ingest</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/svss/Documents/code/ShreeBot/scripts/auto_journal_ingest.sh</string>
+    </array>
+
+    <!-- Run daily at 3:00 PM (15:00) Central Time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>15</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Run on load if the scheduled time was missed (e.g. machine was asleep) -->
+    <key>MissedTaskPolicy</key>
+    <string>Aggressive</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/svss/Documents/code/ShreeBot/logs/journal_ingest_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/svss/Documents/code/ShreeBot/logs/journal_ingest_launchd.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/svss/Documents/code/ShreeBot</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>TZ</key>
+        <string>America/Chicago</string>
+    </dict>
+</dict>
+</plist>

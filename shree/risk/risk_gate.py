@@ -44,7 +44,7 @@ class RiskGateConfig:
     maintenance_end: time = time(17, 0)    # CME maintenance end CT
     tick_size: float = 0.25
     # Peak-to-trough drawdown guard (high-water mark trailing stop for equity)
-    peak_drawdown_enabled: bool = field(default_factory=lambda: _env_bool("PEAK_DRAWDOWN_ENABLED", False))
+    peak_drawdown_enabled: bool = field(default_factory=lambda: _env_bool("PEAK_DRAWDOWN_ENABLED", True))
     peak_drawdown_pct: float = field(default_factory=lambda: float(os.environ.get("PEAK_DRAWDOWN_PCT", "4.0")))
     peak_drawdown_action: str = field(default_factory=lambda: os.environ.get("PEAK_DRAWDOWN_ACTION", "halt"))
     peak_drawdown_tighten_multiplier: float = field(

@@ -18,10 +18,46 @@
 | Risk gate blocks? | `grep -E "RiskGate\|BLOCKED\|evaluate_entry" logs/live_trading.log \| tail -10` |
 | Today's P&L? | `grep "realized_pnl\|Daily P&L" logs/live_trading.log \| tail -5` |
 | Cooldown status? | `grep "cooldown\|Cooldown" logs/live_trading.log \| tail -5` |
+| Trade journal — weekly report? | `python3 scripts/daily_journal.py --report 2026-03-02 2026-03-07` |
+| Trade journal — blocked signals? | `python3 scripts/daily_journal.py --blocked` |
+| Trade journal — near-misses? | `python3 scripts/daily_journal.py --misses` |
+| Trade journal — ingest today? | `python3 scripts/daily_journal.py $(date +%Y-%m-%d)` *(auto-runs daily at 3 PM CT)* |
+| Trade journal DB (raw SQL)? | `sqlite3 data/trade_journal.db` |
 | Start / stop the bot? | `. start_bot.sh` / `. stop.sh` |
 | Run tests? | `python3 -m pytest tests/ -x` |
 | Backtest? | `python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m` |
 | Optimization roadmap? | `docs/SIGNAL_OPTIMIZATION_REMAINING.md` |
+
+---
+
+## Trade Journal DB — Auto-Ingested Daily
+
+The trade journal database (`data/trade_journal.db`) is **auto-ingested every day at 3:00 PM CT** via macOS launchd (`com.shreebot.journal-ingest`). It contains all signals, blocked signals (with hypothetical outcomes), near-misses, trades, and daily summaries.
+
+**Copilot behavior:** When the user asks about performance, trades, blocked signals, P&L, weekly reports, or "how is the bot doing" — **always query the trade journal DB first** before grepping logs. The DB has structured, queryable data that is more reliable than log parsing.
+
+Key queries:
+```bash
+# Quick signal outcome summary (was each signal executed or blocked?)
+sqlite3 data/trade_journal.db "SELECT date, time, signal_type, direction, outcome FROM signals ORDER BY date DESC, time DESC LIMIT 20"
+
+# Blocked signals with hypothetical P&L (would it have been a winner?)
+sqlite3 data/trade_journal.db "SELECT date, time, signal_type, direction, hypo_outcome, hypo_pnl FROM blocked_signals ORDER BY date DESC LIMIT 15"
+
+# Scorecard: how many winners did CHOP guard block?
+sqlite3 data/trade_journal.db "SELECT hypo_outcome, COUNT(*) as cnt, ROUND(SUM(hypo_pnl),2) as total_pnl FROM blocked_signals WHERE hypo_outcome NOT IN ('NO_DATA') GROUP BY hypo_outcome"
+
+# Weekly summary
+python3 scripts/daily_journal.py --report YYYY-MM-DD YYYY-MM-DD
+```
+
+**Launchd management:**
+```bash
+launchctl list | grep shreebot                                    # Check if running
+launchctl unload ~/Library/LaunchAgents/com.shreebot.journal-ingest.plist  # Stop
+launchctl load ~/Library/LaunchAgents/com.shreebot.journal-ingest.plist    # Start
+tail -20 logs/journal_ingest.log                                  # Check ingest log
+```
 
 ---
 
@@ -124,11 +160,11 @@ Strategy base confidence (0.70)
 | `shree/config/` | Split dataclass configs in `settings.py` / `risk.py` / `strategy.py` / `misc.py`. Loaded from `config.yaml` via `settings_loader.py`. |
 | `shree/features/` | `feature_engineer.py` — computes EMA, RSI, ATR, ADX, MACD on OHLCV DataFrames. |
 | `shree/hybrid/` | `d_engine.py` (deterministic), `h_engine.py` (LLM+RAG), `confidence.py` (merger), `multi_factor_scorer.py` |
-| `shree/monitoring/` | `order_tracker.py` (SQLite order log), `pnl_calculator.py` |
+| `shree/monitoring/` | `order_tracker.py` (SQLite order log), `pnl_calculator.py`, `trade_journal_db.py` (SQLite trade journal — signals, blocked, near-misses, trades, observations) |
 | `backtest/` | `engine.py` reuses same strategy/risk logic as live. Run via `python3 -m backtest.run`. |
 | `agent/` | Autonomous analysis agent (separate process, `start_analyst.sh`). |
 | `tools/` | Trade replay, order checking, historical data download utilities. |
-| `scripts/` | Ops scripts: backup, IB status check, metrics, data download. |
+| `scripts/` | Ops scripts: backup, IB status check, metrics, data download, `daily_journal.py` (trade journal ingest + reports). |
 
 ---
 
@@ -193,6 +229,7 @@ FF_EXIT_GUARDS=1             # Feature flag: exit guards
 | `orders.db` | SQLite: order tracker (all orders placed, fills, cancels) |
 | `llm_trades.db` | SQLite: LLM trade logger (decisions, outcomes) |
 | `rag_storage.db` | SQLite: RAG trade patterns and outcomes |
+| `trade_journal.db` | SQLite: trade journal — daily summaries, signals, blocked signals, near-misses, trades, observations. Queried by `scripts/daily_journal.py` and directly via `sqlite3`. See schema in `shree/monitoring/trade_journal_db.py`. |
 
 ### Market Data Files (`data/`)
 
@@ -288,6 +325,38 @@ grep "order_inserted" logs/reconcile.log | tail -5
 grep "Connected to IBKR\|connection keepalive\|Sync:.*active orders" logs/live_trading.log | tail -5
 ```
 
+### "How did this week go?" / "Show me recent performance"
+Use the trade journal DB (`data/trade_journal.db`) for historical analysis:
+```bash
+# Weekly summary report
+python3 scripts/daily_journal.py --report 2026-03-03 2026-03-07
+
+# All blocked signals (what the bot wanted to trade but couldn't)
+python3 scripts/daily_journal.py --blocked
+
+# Near-miss signals (signals that almost fired)
+python3 scripts/daily_journal.py --misses
+
+# Direct SQL for custom queries
+sqlite3 data/trade_journal.db "SELECT date, signals_generated, trades_taken, realized_pnl, chop_blocks FROM daily_summary ORDER BY date DESC LIMIT 10"
+
+# Blocked signals by reason
+sqlite3 data/trade_journal.db "SELECT block_reason, COUNT(*) FROM blocked_signals GROUP BY block_reason"
+
+# D signal near-misses (touch-band analysis for Phase 3 Fix #6)
+sqlite3 data/trade_journal.db "SELECT date, gap_points FROM near_misses WHERE signal_type='D' ORDER BY gap_points"
+```
+
+**Trade Journal DB Tables** (schema in `shree/monitoring/trade_journal_db.py`):
+| Table | Content |
+|---|---|
+| `daily_summary` | Per-day stats: signals, trades, P&L, CHOP blocks, near-miss counts |
+| `signals` | Every signal generated (type, direction, confidence, entry price) |
+| `blocked_signals` | Signals blocked by CHOP/confidence/risk (includes reason + hypothetical outcome) |
+| `near_misses` | Signals that almost fired (gap in points from trigger condition) |
+| `trades` | Executed trades with entry/exit prices, P&L, duration |
+| `observations` | Free-text notes and analysis for a given date |
+
 ---
 
 ## Coding Conventions
@@ -328,6 +397,14 @@ python3 check_dbs.py          # Inspect SQLite databases
 python3 inspect_parquet.py    # Inspect parquet data files
 python3 analyze_trades.py     # Analyze recent trade outcomes
 python3 test_ib_connections.py # Test IBKR connectivity
+
+# Trade Journal
+python3 scripts/daily_journal.py 2026-03-10           # Ingest today's log into trade_journal.db
+python3 scripts/daily_journal.py 2026-03-10 --week     # Ingest last 5 trading days
+python3 scripts/daily_journal.py --report 2026-03-03 2026-03-07  # Weekly summary report
+python3 scripts/daily_journal.py --blocked             # List all blocked signals
+python3 scripts/daily_journal.py --misses              # List all near-miss signals
+sqlite3 data/trade_journal.db                          # Raw SQL queries on journal DB
 ```
 
 ---

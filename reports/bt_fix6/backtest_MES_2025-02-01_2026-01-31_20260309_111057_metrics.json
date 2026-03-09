@@ -1,0 +1,139 @@
+{
+  "metrics": {
+    "total_return": 0.020560000000000037,
+    "total_pnl": 102.80000000000018,
+    "cagr": 0.14000968330986985,
+    "sharpe_ratio": 0.745585155870208,
+    "sortino_ratio": 0.09974438093634012,
+    "calmar_ratio": 2.935710767221446,
+    "max_drawdown": -0.047691920087340356,
+    "max_drawdown_duration_days": 29,
+    "avg_drawdown": -0.03591271348061253,
+    "total_trades": 53,
+    "winning_trades": 24,
+    "losing_trades": 29,
+    "win_rate": 0.4528301886792453,
+    "profit_factor": 1.122621816663685,
+    "avg_win": 39.21458333333334,
+    "avg_loss": -28.908620689655166,
+    "avg_trade": 1.9396226415094326,
+    "expectancy": 1.9396226415094375,
+    "largest_win": 87.6,
+    "largest_loss": -106.15,
+    "avg_trade_duration_minutes": 89.43396226415095,
+    "time_in_market_pct": 0.0,
+    "avg_position_size": 0.0,
+    "total_commission": 0.0,
+    "total_slippage": 0.0,
+    "annualized_volatility": 0.1609603978365165,
+    "daily_volatility": 0.01013955199060575
+  },
+  "regime_analysis": {
+    "low_atr_trades": 18,
+    "low_atr_win_rate": 0.5,
+    "low_atr_pnl": 203.05,
+    "medium_atr_trades": 17,
+    "medium_atr_win_rate": 0.35294117647058826,
+    "medium_atr_pnl": -258.29999999999995,
+    "high_atr_trades": 18,
+    "high_atr_win_rate": 0.5,
+    "high_atr_pnl": 158.05,
+    "low_vix_trades": 0,
+    "low_vix_pnl": 0.0,
+    "high_vix_trades": 0,
+    "high_vix_pnl": 0.0,
+    "trending_trades": 50,
+    "trending_win_rate": 0.46,
+    "trending_pnl": 116.25,
+    "ranging_trades": 3,
+    "ranging_win_rate": 0.3333333333333333,
+    "ranging_pnl": -13.449999999999998
+  },
+  "session_analysis": {
+    "rth_trades": 51,
+    "rth_win_rate": 0.47058823529411764,
+    "rth_pnl": 113.85,
+    "rth_avg_trade": 2.2323529411764707,
+    "overnight_trades": 2,
+    "overnight_win_rate": 0.0,
+    "overnight_pnl": -11.05,
+    "overnight_avg_trade": -5.525,
+    "hourly_pnl": {
+      "13": -11.05,
+      "14": -125.54999999999998,
+      "15": 150.7,
+      "16": 57.35000000000001,
+      "17": -32.849999999999994,
+      "18": 195.8,
+      "19": 65.60000000000001,
+      "20": -197.2
+    },
+    "hourly_win_rate": {
+      "13": 0.0,
+      "14": 0.14285714285714285,
+      "15": 0.5714285714285714,
+      "16": 0.5454545454545454,
+      "17": 0.3333333333333333,
+      "18": 0.75,
+      "19": 0.6666666666666666,
+      "20": 0.0
+    },
+    "daily_pnl": {
+      "Friday": -91.8,
+      "Monday": -270.25,
+      "Thursday": 258.6,
+      "Tuesday": 364.95,
+      "Wednesday": -158.7
+    },
+    "daily_win_rate": {
+      "Friday": 0.14285714285714285,
+      "Monday": 0.2,
+      "Thursday": 0.7272727272727273,
+      "Tuesday": 0.75,
+      "Wednesday": 0.3076923076923077
+    }
+  },
+  "optimizer_analysis": {
+    "near_tp_events": 0,
+    "extensions_attempted": 0,
+    "extensions_approved": 0,
+    "approval_rate": 0.0,
+    "extended_trades_win": 0,
+    "extended_trades_loss": 0,
+    "extension_win_rate": 0.0,
+    "incremental_r_gained": 0.0,
+    "extension_pnl": 0.0,
+    "stopouts_after_extension": 0,
+    "avg_extended_trade_pnl": 0.0,
+    "avg_non_extended_trade_pnl": 1.9396226415094326
+  },
+  "learnings": {
+    "overall_assessment": "MIXED: Strategy is profitable but risk-adjusted returns need improvement.",
+    "best_regime": "TRENDING (ADX >= 20)",
+    "worst_regime": "",
+    "best_session": "RTH (9:30 AM - 4:00 PM ET)",
+    "regime_notes": [
+      "Performs better in trending markets: 46.0% win rate, $116 total P&L",
+      "ATR matters: Best in Low ATR ($203), Worst in Medium ATR ($-258)"
+    ],
+    "session_notes": [
+      "RTH outperforms: $114 vs $-11 overnight",
+      "Best hour: 18:00 UTC ($196), Worst: 20:00 UTC ($-197)"
+    ],
+    "helpful_filters": [],
+    "harmful_filters": [
+      "PEAK_DRAWDOWN_LOCKOUT (55.7% of blocks) - review if too restrictive",
+      "NO_SIGNAL (44.3% of blocks) - review if too restrictive"
+    ],
+    "drawdown_causes": [],
+    "sensitive_parameters": [],
+    "recommendations": [
+      "Profit factor between 1-1.5 - marginally profitable, focus on reducing losses",
+      "Average trade duration 89 min - consider tighter time-based exits"
+    ]
+  },
+  "block_reasons": {
+    "PEAK_DRAWDOWN_LOCKOUT": 2606,
+    "NO_SIGNAL": 2073
+  }
+}

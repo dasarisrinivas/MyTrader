@@ -39,7 +39,7 @@ class RiskGateConfig:
     tick_size: float = 0.25
     max_stop_points: float = 50.0  # Increased from 12.0 to 50.0 for RTH volatility
     max_consecutive_losses: int = 3
-    peak_drawdown_enabled: bool = False
+    peak_drawdown_enabled: bool = True
     peak_drawdown_pct: float = 4.0
     peak_drawdown_action: str = "halt"  # "halt" or "tighten"
     peak_drawdown_tighten_multiplier: float = 0.5

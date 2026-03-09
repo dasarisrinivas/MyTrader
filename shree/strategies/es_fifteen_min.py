@@ -134,6 +134,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._adx_min: float = getattr(config, 'ft_adx_min', 20.0)
         self._adx_max: float = getattr(config, 'ft_adx_max', 999.0)  # FEB 7 2026: ADX cap
         self._ema_touch_pct: float = getattr(config, 'ft_ema_touch_pct', 0.001)
+        # MAR 2026 Fix #6: ATR-adaptive touch band for A/D signals.
+        # When > 0, replaces pct-based band: threshold = ema21 ± atr * mult.
+        # Scales with volatility: tighter when quiet, wider on high-vol days.
+        # 0.0 = disabled (falls back to ft_ema_touch_pct).
+        self._ema_touch_atr_mult: float = getattr(config, 'ft_ema_touch_atr_mult', 0.0)
         self._or_minutes: int = getattr(config, 'ft_or_minutes', 30)
 
         # FEB 7 2026: EMA9 pullback parameters (Signal C)
@@ -432,7 +437,10 @@ class EsFifteenMinStrategy(BaseStrategy):
             if ema21 <= ema50:
                 _diag_parts.append(f"A:ema21({ema21:.1f})<=ema50({ema50:.1f})")
             else:
-                _touch = ema21 * (1 + self._ema_touch_pct)
+                if self._ema_touch_atr_mult > 0 and atr > 0:
+                    _touch = ema21 + atr * self._ema_touch_atr_mult
+                else:
+                    _touch = ema21 * (1 + self._ema_touch_pct)
                 if low > _touch:
                     _diag_parts.append(f"A:low({low:.1f})>touch({_touch:.1f})")
                 elif close <= ema21:
@@ -457,7 +465,10 @@ class EsFifteenMinStrategy(BaseStrategy):
                 if ema21 >= ema50:
                     _diag_parts.append(f"D:ema21({ema21:.1f})>=ema50({ema50:.1f})")
                 else:
-                    _touch_s = ema21 * (1 - self._ema_touch_pct)
+                    if self._ema_touch_atr_mult > 0 and atr > 0:
+                        _touch_s = ema21 - atr * self._ema_touch_atr_mult
+                    else:
+                        _touch_s = ema21 * (1 - self._ema_touch_pct)
                     if high < _touch_s:
                         _diag_parts.append(f"D:high({high:.1f})<touch({_touch_s:.1f})")
                     elif close >= ema21:
@@ -596,8 +607,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         if ema21 <= ema50:
             return None
 
-        # 2. Low touches EMA21
-        touch_threshold = ema21 * (1 + self._ema_touch_pct)
+        # 2. Low touches EMA21 (ATR-adaptive band if configured, else pct-based)
+        if self._ema_touch_atr_mult > 0 and atr > 0:
+            touch_threshold = ema21 + atr * self._ema_touch_atr_mult
+        else:
+            touch_threshold = ema21 * (1 + self._ema_touch_pct)
         if low > touch_threshold:
             return None
 
@@ -780,8 +794,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         if ema21 >= ema50:
             return None
 
-        # 2. High touches EMA21 from below
-        touch_threshold = ema21 * (1 - self._ema_touch_pct)
+        # 2. High touches EMA21 from below (ATR-adaptive band if configured, else pct-based)
+        if self._ema_touch_atr_mult > 0 and atr > 0:
+            touch_threshold = ema21 - atr * self._ema_touch_atr_mult
+        else:
+            touch_threshold = ema21 * (1 - self._ema_touch_pct)
         if high < touch_threshold:
             return None
 

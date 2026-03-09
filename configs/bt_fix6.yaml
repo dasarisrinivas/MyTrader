@@ -1,0 +1,49 @@
+# Fix #6 backtest config — ATR-adaptive touch band for Signals A/D
+# ft_ema_touch_atr_mult = 0.75 → band scales with ATR (e.g. ATR=14 → 10.5pts)
+strategy:
+  use_15m_strategy: true
+  use_scoring_system: false
+  ft_pb_stop_mult: 1.5
+  ft_pb_target_mult: 1.0
+  ft_max_hold_bars: 8
+  ft_or_minutes: 30
+  ft_or_break_max_per_day: 2
+  ft_or_target_r: 1.0
+  ft_adx_min: 18.0
+  ft_adx_max: 45.0
+  ft_ema_touch_pct: 0.0015
+  ft_ema_touch_atr_mult: 0.75     # FIX #6: ATR-adaptive band (replaces pct)
+  ft_fixed_tp_points: 8.0
+  ft_fixed_tp_points_ema9: 10.0
+  ft_fixed_tp_points_trend: 12.0
+  ft_fixed_sl_points: 6.0
+  ft_fixed_sl_points_ema9: 8.0
+  ft_fixed_sl_points_trend: 8.0
+  ft_ema9_sl_atr_mult: 1.0
+  ft_ema9_sl_floor_pts: 8.0
+  ft_ema9_sl_ceiling_pts: 20.0
+  ft_ema9_rr_ratio: 1.25
+  ft_ema9_pb_enabled: true
+  ft_ema9_pb_stop_mult: 1.2
+  ft_ema9_pb_target_mult: 1.5
+  ft_ema9_touch_pct: 0.0015
+  ft_shorts_enabled: true
+  ft_short_pb_stop_mult: 1.5
+  ft_short_pb_target_mult: 1.0
+  ft_short_or_target_r: 1.0
+  ft_trend_cont_enabled: true
+  ft_trend_cont_stop_mult: 1.0
+  ft_trend_cont_target_mult: 2.0
+  ft_trend_cont_adx_min: 25.0
+  ft_trend_cont_ema9_pct: 0.003
+  ft_trend_cont_max_per_day: 2
+  ft_trend_cont_max_ext_pts: 30.0
+  ft_trend_cont_gap_adx_min: 25.0
+  ft_entry_start_hour: 0
+  ft_entry_start_minute: 0
+  ft_entry_end_hour: 23
+  ft_entry_end_minute: 59
+  rth_start_hour: 0
+  rth_start_minute: 0
+  rth_end_hour: 23
+  rth_end_minute: 59

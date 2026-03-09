@@ -269,11 +269,26 @@ class OrderTracker:
                     pass
                 return None
 
+            # Pull per-trade P&L by summing executions for this order.
+            # IBKR's orders.realized_pnl can be a cumulative session counter
+            # (it accumulates across the day rather than resetting per trade),
+            # which causes massive P&L inflation on later trades each session.
+            # The executions table is populated by the local FIFO calculator
+            # (ib_executor._on_exec_details) and always reflects this trade only.
+            exec_sum = conn.execute(
+                "SELECT COALESCE(SUM(realized_pnl), 0.0) AS rpnl,"
+                " COALESCE(SUM(gross_pnl), 0.0) AS gpnl,"
+                " COALESCE(SUM(net_pnl), 0.0) AS npnl,"
+                " COALESCE(SUM(commission), 0.0) AS comm"
+                " FROM executions WHERE order_id = ?",
+                (int(root["order_id"]),),
+            ).fetchone()
+            has_exec = exec_sum["gpnl"] != 0.0 or exec_sum["rpnl"] != 0.0
             pnl = {
-                "realized_pnl": float(root["realized_pnl"] or 0.0),
-                "gross_pnl": float(root["gross_pnl"] or 0.0),
-                "net_pnl": float(root["net_pnl"] or 0.0),
-                "commission": float(root["commission"] or 0.0),
+                "realized_pnl": float(exec_sum["rpnl"] if has_exec else (root["realized_pnl"] or 0.0)),
+                "gross_pnl":    float(exec_sum["gpnl"] if has_exec else (root["gross_pnl"] or 0.0)),
+                "net_pnl":      float(exec_sum["npnl"] if has_exec else (root["net_pnl"] or 0.0)),
+                "commission":   float(exec_sum["comm"] if has_exec else (root["commission"] or 0.0)),
             }
 
             conn.execute(
