@@ -144,6 +144,17 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._atr_very_low: float = getattr(config, 'ft_atr_very_low_threshold', 8.0)
         self._atr_high: float = getattr(config, 'ft_atr_high_threshold', 13.0)
         self._atr_extreme: float = getattr(config, 'ft_atr_extreme_threshold', 20.0)
+        # MAR 2026 T3: Proximity entry (Signal A-prime / D-prime)
+        # Fires when price nearly touches the band but misses by ≤ proximity_gap_mult × ATR.
+        # Only active in high-vol regime (ATR > _atr_high). Max 2 per day per side.
+        self._proximity_enabled: bool = getattr(config, 'ft_proximity_enabled', False)
+        self._proximity_gap_mult: float = getattr(config, 'ft_proximity_gap_mult', 0.3)   # gap allowed above band
+        self._proximity_size_mult: float = getattr(config, 'ft_proximity_size_mult', 0.7)  # 70% position size
+        self._proximity_sl_mult: float = getattr(config, 'ft_proximity_sl_mult', 0.8)      # tighter SL
+        self._proximity_tp_mult: float = getattr(config, 'ft_proximity_tp_mult', 0.8)      # tighter TP
+        self._proximity_max_per_day: int = getattr(config, 'ft_proximity_max_per_day', 2)
+        self._proximity_long_count: int = 0
+        self._proximity_short_count: int = 0
         self._or_minutes: int = getattr(config, 'ft_or_minutes', 30)
 
         # FEB 7 2026: EMA9 pullback parameters (Signal C)
@@ -369,6 +380,13 @@ class EsFifteenMinStrategy(BaseStrategy):
             rsi, macd_hist,
         )
 
+        # ---- Signal A-prime: EMA21 Proximity Long (near-miss, high-vol only) ----
+        signal_aprox = None
+        if signal_a is None:  # only evaluate when A missed
+            signal_aprox = self._check_ema21_proximity_long(
+                close, open_price, low, ema21, ema50, atr, adx,
+            )
+
         # ---- Signal B: OR Breakout Long ----
         signal_b = self._check_or_breakout(
             close, high, ema9, ema21, atr, adx, macd_hist,
@@ -384,11 +402,16 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         # ---- Signal D: EMA21 Pullback Short (downtrend mirror of A) ----
         signal_d = None
+        signal_dprox = None
         if self._shorts_enabled:
             signal_d = self._check_ema21_pullback_short(
                 close, open_price, high, ema21, ema50, atr, adx,
                 rsi, macd_hist,
             )
+            if signal_d is None:  # only evaluate when D missed
+                signal_dprox = self._check_ema21_proximity_short(
+                    close, open_price, high, ema21, ema50, atr, adx,
+                )
 
         # ---- Signal E: OR Breakdown Short (downtrend mirror of B) ----
         signal_e = None
@@ -413,15 +436,18 @@ class EsFifteenMinStrategy(BaseStrategy):
                     ema9, ema21, ema50, atr, adx, rsi, macd_hist,
                 )
 
-        # Priority: A (EMA21 PB Long) > C (EMA9 PB Long) > B (OR breakout Long)
-        #         > F_long (Trend Cont Long)
-        #         > D (EMA21 PB Short) > E (OR breakdown Short)
-        #         > F_short (Trend Cont Short)
+        # Priority: A (EMA21 PB Long) > A-prime (proximity long)
+        #         > C (EMA9 PB Long) > B (OR breakout Long) > F_long
+        #         > D (EMA21 PB Short) > D-prime (proximity short)
+        #         > E (OR breakdown Short) > F_short
         # Long signals take priority over short signals.
-        # If both fire on same bar, take higher priority.
         chosen = None
+        chosen_is_proximity = False
         if signal_a is not None:
             chosen = signal_a
+        elif signal_aprox is not None:
+            chosen = signal_aprox
+            chosen_is_proximity = True
         elif signal_c is not None:
             chosen = signal_c
         elif signal_b is not None:
@@ -430,6 +456,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             chosen = signal_f_long
         elif signal_d is not None:
             chosen = signal_d
+        elif signal_dprox is not None:
+            chosen = signal_dprox
+            chosen_is_proximity = True
         elif signal_e is not None:
             chosen = signal_e
         elif signal_f_short is not None:
@@ -478,6 +507,14 @@ class EsFifteenMinStrategy(BaseStrategy):
                         _diag_parts.append(f"D:adx({adx:.0f})out[{self._adx_min}-{self._adx_max}]")
             else:
                 _diag_parts.append("D:shorts_disabled")
+            # Signal A-prime / D-prime proximity diagnostics (only in high-vol)
+            if self._proximity_enabled and atr >= self._atr_high:
+                _tlong = self._regime_touch_threshold(ema21, atr, side="long")
+                _prox_outer = _tlong + self._proximity_gap_mult * atr
+                if low > _tlong and low <= _prox_outer and ema21 > ema50:
+                    _diag_parts.append(
+                        f"Aprox:near(low={low:.1f} thresh={_tlong:.1f} outer={_prox_outer:.1f})"
+                    )
             # Signal E diagnostics (Short OR Breakdown)
             if self._shorts_enabled:
                 if not self._or_computed or self._or_low <= 0:
@@ -529,6 +566,13 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         action, stop_loss, take_profit, reason = chosen
 
+        # T3: track proximity counter and mark reduced size in metadata
+        if chosen_is_proximity:
+            if action == "BUY":
+                self._proximity_long_count += 1
+            else:
+                self._proximity_short_count += 1
+
         is_short = action == "SELL"
         if is_short:
             if "TREND_CONT" in reason:
@@ -567,6 +611,7 @@ class EsFifteenMinStrategy(BaseStrategy):
             "or_low": self._or_low,
             "market_state": market_state,
             "position_size": 1.0,
+            "position_scaler": self._proximity_size_mult if chosen_is_proximity else 1.0,
             "entry_type": entry_type,
             "session_type": "RTH",
         }
@@ -851,6 +896,109 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
         return ("SELL", stop_loss, take_profit, reason)
+
+    # ------------------------------------------------------------------
+    #  Signal A-prime: EMA21 Proximity Long (near-miss recovery)
+    #  Signal D-prime: EMA21 Proximity Short (near-miss recovery)
+    #
+    #  MAR 2026 T3: Motivated by 29+43 near-misses in Feb-Mar 2026 high-vol
+    #  regime where price pulled back to within 0.3 ATR of the band but the
+    #  bar low didn't quite reach the touch threshold.  Enters at 70% size.
+    # ------------------------------------------------------------------
+    def _check_ema21_proximity_long(
+        self,
+        close: float, open_p: float, low: float,
+        ema21: float, ema50: float, atr: float, adx: float,
+    ) -> Optional[tuple]:
+        """Near-miss long entry when low just misses the EMA21 touch band.
+
+        Fires when ALL of:
+          1. High-vol regime: ATR > _atr_high (13 pts)
+          2. Uptrend: EMA21 > EMA50
+          3. Low is in the proximity zone:
+               touch_threshold < low ≤ touch_threshold + gap
+             where gap = _proximity_gap_mult × ATR (default 0.3 × ATR)
+             (i.e., price NEARLY touched but Signal A did NOT fire)
+          4. Close > EMA21 (bar already bounced above EMA21)
+          5. Bullish bar
+          6. ADX in [_adx_min, _adx_max]
+          7. Day count ≤ _proximity_max_per_day
+        """
+        if not self._proximity_enabled:
+            return None
+        if atr < self._atr_high:
+            return None
+        if self._proximity_long_count >= self._proximity_max_per_day:
+            return None
+        if ema21 <= ema50:
+            return None
+
+        touch_threshold = self._regime_touch_threshold(ema21, atr, side="long")
+        proximity_gap = self._proximity_gap_mult * atr
+        proximity_outer = touch_threshold + proximity_gap
+
+        # Near-miss zone: low is above touch_threshold (Signal A missed)
+        # but within proximity_gap of it
+        if low <= touch_threshold:
+            return None   # Signal A should have fired — don't double-count
+        if low > proximity_outer:
+            return None   # Too far away — not a near-miss
+
+        if close <= ema21:
+            return None
+        if close <= open_p:
+            return None
+        if adx < self._adx_min or adx > self._adx_max:
+            return None
+
+        sl = close - self._fixed_sl_points * self._proximity_sl_mult
+        tp = close + self._fixed_tp_points * self._proximity_tp_mult
+        reason = (
+            f"EMA21_PROX_LONG | ATR={atr:.1f} | ADX={adx:.0f} "
+            f"| low={low:.2f} thresh={touch_threshold:.2f} gap={proximity_gap:.1f} "
+            f"| SIZE={self._proximity_size_mult:.0%} | #{self._proximity_long_count + 1}"
+        )
+        return ("BUY", sl, tp, reason)
+
+    def _check_ema21_proximity_short(
+        self,
+        close: float, open_p: float, high: float,
+        ema21: float, ema50: float, atr: float, adx: float,
+    ) -> Optional[tuple]:
+        """Near-miss short entry — mirror of _check_ema21_proximity_long."""
+        if not self._proximity_enabled:
+            return None
+        if atr < self._atr_high:
+            return None
+        if self._proximity_short_count >= self._proximity_max_per_day:
+            return None
+        if ema21 >= ema50:
+            return None
+
+        touch_threshold = self._regime_touch_threshold(ema21, atr, side="short")
+        proximity_gap = self._proximity_gap_mult * atr
+        proximity_outer = touch_threshold - proximity_gap
+
+        if high >= touch_threshold:
+            return None   # Signal D should have fired
+        if high < proximity_outer:
+            return None   # Too far away
+
+        if close >= ema21:
+            return None
+        if close >= open_p:
+            return None
+        if adx < self._adx_min or adx > self._adx_max:
+            return None
+
+        sl = close + self._fixed_sl_points * self._proximity_sl_mult
+        tp = close - self._fixed_tp_points * self._proximity_tp_mult
+        reason = (
+            f"EMA21_PROX_SHORT | ATR={atr:.1f} | ADX={adx:.0f} "
+            f"| high={high:.2f} thresh={touch_threshold:.2f} gap={proximity_gap:.1f} "
+            f"| SIZE={self._proximity_size_mult:.0%} | #{self._proximity_short_count + 1}"
+        )
+        return ("SELL", sl, tp, reason)
 
     # ------------------------------------------------------------------
     #  Signal E: Opening Range Breakdown Short (mirror of Signal B)
@@ -1220,6 +1368,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Signal F counters
         self._trend_cont_long_count = 0
         self._trend_cont_short_count = 0
+        # Signal A-prime / D-prime (proximity) counters
+        self._proximity_long_count = 0
+        self._proximity_short_count = 0
 
     def _to_et(self, ts: pd.Timestamp) -> Any:
         """Convert timestamp to US/Eastern."""
