@@ -248,6 +248,26 @@ class OneMinuteStrategyConfig:
     ft_trend_cont_ema9_pct: float = 0.003    # EMA9 proximity tolerance (0.3%)
     ft_trend_cont_max_per_day: int = 2        # Max fires per day per side
 
+    # MAR 10 2026: Overnight SL/TP scaling for Signals A/B/C/D/E/F
+    # Outside 9:30-16:00 ET, overnight wicks are wider and moves extend less:
+    #   SL × 1.2  — widen to survive overnight noise band (RTH 6pt → 7.2pt)
+    #   TP × 0.85 — tighten to capture in slower, thinner markets (RTH 8pt → 6.8pt)
+    # Signal G (London) already has its own calibrated stops — NOT scaled.
+    ft_overnight_sl_mult: float = 1.2   # SL multiplier outside 9:30-16:00 ET
+    ft_overnight_tp_mult: float = 0.85  # TP multiplier outside 9:30-16:00 ET
+
+    # MAR 9 2026: London Momentum Breakout (Signal G) — captures first
+    # directional impulse when European liquidity arrives (2-5 AM CST)
+    ft_london_enabled: bool = True            # Toggle Signal G
+    ft_london_start_hour: int = 2             # London window start (CT)
+    ft_london_start_minute: int = 0
+    ft_london_end_hour: int = 5               # London window end (CT)
+    ft_london_end_minute: int = 0
+    ft_london_adx_min: float = 15.0           # Lower than RTH — emerging from chop
+    ft_london_sl_points: float = 4.0          # Tighter SL for low-vol overnight ($20)
+    ft_london_tp_points: float = 6.0          # Tighter TP ($30), R:R 1.5:1
+    ft_london_max_per_day: int = 1            # First impulse only
+
     # FEB 18 2026: 24-HOUR TRADING — entry/RTH gates effectively disabled
     # Maintenance (4-5 PM CT) is enforced by RiskGate separately
     ft_entry_start_hour: int = 0      # 24h: midnight ET

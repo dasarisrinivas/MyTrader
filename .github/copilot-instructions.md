@@ -61,13 +61,19 @@ tail -20 logs/journal_ingest.log                                  # Check ingest
 
 ---
 
-## Optimization Roadmap (Phase 3+4 Timeline)
+## Optimization Roadmap (Phase 3+4 Status — MAR 9 2026)
 
-See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full details. Key decision gates:
+Phase 3 changes deployed MAR 9 2026:
+- ✅ **T2: Regime-adaptive touch band** — 4-bucket ATR thresholds for A/D signals (Fix #6)
+- ✅ **T3: Proximity entry (A-prime / D-prime)** — near-miss recovery signals
+- ✅ **T4: Tiered drawdown** — 3-tier system replacing halt-all
+- ✅ **T4: Walk-forward optimization framework** — `backtest/walk_forward.py`
+- ✅ **CHOP exception enabled** — bidirectional 4-gate framework (was blocking 19 signals/week)
+
+See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full details. Remaining gates:
 
 | Date | Gate | Action |
 |---|---|---|
-| **Mar 10** | Touch-band near-misses ≥ 10? | → Implement Fix #6 (ATR touch band for A/D signals) |
 | **Mar 17** | 2-week review: trades/day < 2? | → Start Fix #3 (day-type classifier) |
 | **Mar 24** | Phase 3 checkpoint | → Deploy Fix #7 (doji) + #8 (F cap) if #3 is done |
 | **Apr 1** | Signal variety insufficient? | → Start Fix #9 (OR continuation pattern) |
@@ -86,7 +92,7 @@ ShreeBot is an autonomous **MES (Micro E-mini S&P 500) futures trading bot** con
 
 ```
 15m Bar Close
-  → es_fifteen_min.py :: generate()        # Signals A–F (deterministic)
+  → es_fifteen_min.py :: generate()        # Signals A–G (deterministic)
   → signal_processor.py                    # Hybrid overlay, sentiment, VX scaling, CHOP guard
   → hybrid_rag_pipeline.py :: process()    # Rule engine + RAG retriever + LLM (advisory)
   → live_trading_manager._process_hybrid_signal()  # Confidence threshold gate
@@ -95,25 +101,37 @@ ShreeBot is an autonomous **MES (Micro E-mini S&P 500) futures trading bot** con
   → exit_manager.py                        # Time stops, profit locks, emergency exits
 ```
 
-### Signal Types (A–F)
+### Signal Types (A–G + A-prime, D-prime)
 
 | Signal | Type | Direction | Entry Condition |
 |---|---|---|---|
-| **A** | EMA21 Pullback | LONG | EMA21 > EMA50, bar low touches EMA21, bullish close, ADX 18–45 |
+| **A** | EMA21 Pullback | LONG | EMA21 > EMA50, bar low touches EMA21 (regime-adaptive band), bullish close, ADX 18–45 |
+| **A-prime** | EMA21 Proximity | LONG | Same as A but price *nearly* touches band (within 0.3×ATR). 70% size, tighter SL/TP. Max 2/day. Only ATR ≥ 13. |
 | **B** | OR Breakout | LONG | Close crosses above OR High, EMA9 > EMA21, ADX > 18 |
 | **C** | EMA9 Pullback | LONG | Shallow dip to EMA9 in uptrend, MACD > 0, tighter stop |
 | **D** | EMA21 Pullback | SHORT | Mirror of A in downtrend (EMA21 < EMA50), ADX 18–45 |
+| **D-prime** | EMA21 Proximity | SHORT | Same as D but price *nearly* touches band. 70% size, tighter SL/TP. Max 2/day. Only ATR ≥ 13. |
 | **E** | OR Breakdown | SHORT | Close crosses below OR Low, EMA9 < EMA21, ADX > 18 |
 | **F** | Trend Continuation | LONG/SHORT | Price runs from EMA21, EMA stack aligned, 2+ ascending/descending closes, ADX >= 25, MACD confirms |
+| **G** | London Momentum | LONG/SHORT | EMA9 crosses EMA21 during London session (2–5 AM CST), ADX ≥ 15, directional bar confirmation, max 1/day |
 
 **Note (Mar 2026):** MACD and RSI filters removed from A/B/D/E signals to reduce over-filtering. MACD intentionally kept on C (shallow pullback needs momentum confirmation) and F (trend continuation needs momentum). RSI kept on C only.
 
-**Priority:** A > C > B > F_long > D > E > F_short
+**Priority:** A > A-prime > C > B > F_long > D > D-prime > E > F_short  
+**Note:** Signal G is evaluated *before* the RTH gate — it fires only during the London window (2–5 AM CST) and returns immediately if triggered.
+
+**Touch Band (T2 — Mar 9 2026):** Regime-adaptive 4-bucket system for A/D signal touch detection:
+- ATR < 8: tight pct band (0.0010) — low-vol, reduce false touches
+- ATR 8–13: normal pct band (0.0015) — standard regime
+- ATR 13–20: ATR × 0.75 — high-vol, wider band
+- ATR ≥ 20: ATR × 1.0 — extreme vol, widest band
 
 **Stop/Target (fixed-point system, Feb 2026):**
 - A/B/D/E: SL=6pts ($30), TP=8pts ($40) — R:R 1.33:1
+- A-prime/D-prime: SL=4.8pts ($24), TP=6.4pts ($32) — 80% of normal, 70% size
 - C: SL=ATR-adaptive (8–20pt), TP=SL x 1.25 — R:R 1.25:1
 - F: SL=ATR-adaptive (8–20pt), TP=SL x 1.25 — R:R 1.25:1
+- G: SL=4pts ($20), TP=6pts ($30) — R:R 1.5:1 (tighter for low-vol London session)
 
 ### Confidence Flow
 
@@ -128,8 +146,8 @@ Strategy base confidence (0.70)
       VX 28-35: breakout 0.0, others -0.08
       VX 35+:   breakout -0.03, others -0.15
   → CHOP guard (block-all): ALL pullback/trend_cont in CHOP → HOLD
-    Optional exception (OFF by default, ENABLE_CHOP_EXCEPTION=1):
-      LONG + ADX≥25 + BULLISH bias + conf≥0.70 + ATR expanding → dampen −0.05
+    Bidirectional exception (ENABLE_CHOP_EXCEPTION=1, enabled MAR 9 2026):
+      ADX≥25 + bias aligned (BULLISH→LONG, BEARISH→SHORT) + conf≥0.70 + ATR expanding → dampen −0.05
   → Final confidence must be >= 0.40 (min_confidence_for_trade in LTM)
 ```
 
@@ -142,7 +160,7 @@ Strategy base confidence (0.70)
 5. **Stop-loss bounds** — min 6pts, max 25pts
 6. **Risk per trade** — $25 min, $125 max (stop_distance x $5)
 7. **Consecutive losses** — 5 in a row → halt
-8. **Peak drawdown** — 4% intraday → halt + flatten
+8. **Peak drawdown** — tiered system (Mar 9 2026): 3% → 50% size, 5% → 25% size, 7% → halt + flatten
 9. **Max contracts** — hard cap at 1 MES contract
 
 ---
@@ -161,7 +179,7 @@ Strategy base confidence (0.70)
 | `shree/features/` | `feature_engineer.py` — computes EMA, RSI, ATR, ADX, MACD on OHLCV DataFrames. |
 | `shree/hybrid/` | `d_engine.py` (deterministic), `h_engine.py` (LLM+RAG), `confidence.py` (merger), `multi_factor_scorer.py` |
 | `shree/monitoring/` | `order_tracker.py` (SQLite order log), `pnl_calculator.py`, `trade_journal_db.py` (SQLite trade journal — signals, blocked, near-misses, trades, observations) |
-| `backtest/` | `engine.py` reuses same strategy/risk logic as live. Run via `python3 -m backtest.run`. |
+| `backtest/` | `engine.py` reuses same strategy/risk logic as live. `walk_forward.py` (WFO grid search). `regime_monitor.py` (rolling performance by ATR regime). Run via `python3 -m backtest.run`. |
 | `agent/` | Autonomous analysis agent (separate process, `start_analyst.sh`). |
 | `tools/` | Trade replay, order checking, historical data download utilities. |
 | `scripts/` | Ops scripts: backup, IB status check, metrics, data download, `daily_journal.py` (trade journal ingest + reports). |
@@ -197,6 +215,7 @@ SHREE_SIMULATION=1           # Simulation mode (no real orders)
 HIGH_IMPACT_DATES=2026-03-15,2026-03-20  # Block entries on event dates
 FF_ENTRY_RISK_GUARDS=1       # Feature flag: entry risk guards
 FF_EXIT_GUARDS=1             # Feature flag: exit guards
+ENABLE_CHOP_EXCEPTION=1      # Enable CHOP guard bidirectional exception (default ON since Mar 9)
 ```
 
 ### Adding a New Config Field
@@ -277,6 +296,7 @@ VX Neutral: VX=19.0 — no adjustment (signal_type=other)
 CHOP Block-All Guard Activated: blocking BUY pullback signal (EMA21_PB_LONG) in CHOP regime
 CHOP Block-All Guard Activated: blocking SELL trend_cont signal (TREND_CONT_SHORT) in CHOP regime
 CHOP Exception Activated: LONG allowed | ADX=28 | conf=0.700→0.650 | bias=BULLISH | ATR_expanding=True
+CHOP Exception Activated: SHORT allowed | ADX=30 | conf=0.700→0.650 | bias=BEARISH | ATR_expanding=True
 BLOCKED: Signal confidence 0.11 < threshold 0.15
 ```
 
@@ -451,7 +471,8 @@ assert not result.allowed
 Key test files:
 - `test_risk_gate.py` — risk gate logic (9 layers)
 - `test_dynamic_support_floor.py` — dynamic support floor (32 tests)
-- `test_chop_regime_guard.py` — CHOP regime guard (block-all + optional 5-gate exception framework, 24 tests)
+- `test_chop_regime_guard.py` — CHOP regime guard (block-all + bidirectional 4-gate exception framework, 24 tests)
+- `test_london_momentum.py` — Signal G London Momentum Breakout (12 tests)
 - `test_or_break_counter.py` — OR breakout counting
 - `test_trend_cont_guards.py` — trend continuation guards
 - `test_sentiment_aggregator.py` — multi-source sentiment
@@ -459,7 +480,7 @@ Key test files:
 - `test_vx_futures_feed.py` — VX volatility feed
 - `test_indicators.py` — EMA/RSI/ATR/ADX calculations
 
-Known pre-existing failures (~29): `test_backtest.py`, `test_exhaustion_dampening.py`, `test_jan2026_audit_fixes.py`, `test_vx_futures_feed.py`, `test_mes_one_minute_strategy.py`, `test_rsi_pullback_filter.py`, `test_trend_pullback_enhancer.py`, `test_reconciliation_and_exits.py` — unrelated to recent work.
+Known pre-existing failures (~29): `test_backtest.py`, `test_exhaustion_dampening.py`, `test_jan2026_audit_fixes.py`, `test_vx_futures_feed.py`, `test_mes_one_minute_strategy.py`, `test_rsi_pullback_filter.py`, `test_trend_pullback_enhancer.py`, `test_reconciliation_and_exits.py`, `test_trend_cont_atr_adaptive.py` — unrelated to recent work.
 
 ---
 

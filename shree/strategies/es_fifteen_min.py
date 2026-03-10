@@ -75,8 +75,10 @@ Author: Quantitative Trading Redesign — Feb 2026
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import time, timedelta, datetime
+from pathlib import Path
 from typing import Dict, Optional, Tuple, Any, List
 
 import numpy as np
@@ -200,6 +202,18 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema9_sl_ceiling: float = getattr(config, 'ft_ema9_sl_ceiling_pts', 20.0)
         self._ema9_rr_ratio: float = getattr(config, 'ft_ema9_rr_ratio', 1.25)
 
+        # MAR 10 2026: Overnight SL/TP scaling — Signals A/B/C/D/E/F
+        # Outside core RTH (9:30-16:00 ET), overnight wick noise is ~1.5-2×
+        # wider than RTH.  SL is widened so normal overnight swings don't stop
+        # out good setups; TP is tightened because overnight moves extend less.
+        # Signal G (London) is excluded — it already has its own calibrated stops.
+        self._overnight_sl_mult: float = getattr(config, 'ft_overnight_sl_mult', 1.2)
+        self._overnight_tp_mult: float = getattr(config, 'ft_overnight_tp_mult', 0.85)
+        # Core RTH bounds used ONLY for detecting whether to apply overnight scaling.
+        # These are hardcoded to true RTH hours regardless of the session-gate config.
+        self._core_rth_start: time = time(9, 30)
+        self._core_rth_end: time = time(16, 0)
+
         # FEB 24 2026: ATR-adaptive stops/targets for Signal F (TREND_CONT)
         # Backtest analysis (252 trades, Feb 2025 – Jan 2026):
         #   Fixed 8pt SL / 12pt TP → 50% WR, PnL = −$9 (break-even)
@@ -245,6 +259,34 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._trend_cont_short_count: int = 0
         self._trend_cont_max_per_day: int = getattr(config, 'ft_trend_cont_max_per_day', 2)
 
+        # MAR 9 2026: Signal G — London Momentum Breakout
+        # During London session (2-5 AM CST / 3-6 AM ET / 8-11 AM GMT),
+        # MES sits in tight range (ATR 2-4pts, ADX 16-18) until European
+        # liquidity injects momentum.  Pullback signals (A/D) fail because
+        # EMAs are too tight, and OR signals (B/E) can't fire (no OR yet).
+        #
+        # Signal G detects the FIRST directional impulse after London open:
+        #   - EMA9 crosses EMA21 (momentum shift in low-vol environment)
+        #   - ADX rising (was <18, now ≥ threshold) — confirms breakout from chop
+        #   - Close is beyond EMA9 in cross direction (momentum confirmed)
+        #   - Bullish/bearish bar (directional candle)
+        #   - Max 1 per day (first impulse only — don't chase)
+        #   - Tighter SL/TP for low-vol environment
+        self._london_enabled: bool = getattr(config, 'ft_london_enabled', False)
+        self._london_start_ct: time = time(
+            getattr(config, 'ft_london_start_hour', 2),
+            getattr(config, 'ft_london_start_minute', 0)
+        )
+        self._london_end_ct: time = time(
+            getattr(config, 'ft_london_end_hour', 5),
+            getattr(config, 'ft_london_end_minute', 0)
+        )
+        self._london_adx_min: float = getattr(config, 'ft_london_adx_min', 15.0)
+        self._london_sl_points: float = getattr(config, 'ft_london_sl_points', 4.0)   # Tighter: $20 SL
+        self._london_tp_points: float = getattr(config, 'ft_london_tp_points', 6.0)   # $30 TP → R:R 1.5:1
+        self._london_max_per_day: int = getattr(config, 'ft_london_max_per_day', 1)
+        self._london_fired_count: int = 0
+
         # FEB 7 2026: Entry time filter (ET)
         # Data analysis on DST-correct backtest shows:
         #   10:xx entries: -$1,208 (87 trades, 55% WR but terrible R:R)
@@ -269,6 +311,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             getattr(config, 'rth_end_hour', 16),
             getattr(config, 'rth_end_minute', 0)
         )
+
+        # MAR 10 2026: Load persisted counters from previous run (same CME session)
+        self._load_counters()
 
     # ------------------------------------------------------------------
     #  BaseStrategy interface
@@ -331,18 +376,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if not self._or_computed and self._opening_bars:
             self._compute_opening_range()
 
-        # ---- Must be within RTH ----
-        if not (self._rth_start <= et_time.time() < self._rth_end):
-            self._prev_close = float(latest["close"])
-            return Signal("HOLD", 0.0, {"reason": "OUTSIDE_RTH"})
-
-        # ---- Entry time filter (FEB 7 2026) ----
-        # Skip hours with negative expectancy (10:xx = -$1,208, 15:xx = -$397)
-        if not (self._entry_start_et <= et_time.time() < self._entry_end_et):
-            self._prev_close = float(latest["close"])
-            return Signal("HOLD", 0.0, {"reason": "OUTSIDE_ENTRY_WINDOW"})
-
-        # ---- Extract indicators ----
+        # ---- Extract indicators (needed for Signal G before RTH gate) ----
         close = float(latest["close"])
         open_price = float(latest.get("open", close))
         low = float(latest["low"])
@@ -373,6 +407,58 @@ class EsFifteenMinStrategy(BaseStrategy):
         if atr <= 0:
             self._prev_close = close
             return Signal("HOLD", 0.0, {"reason": "ZERO_ATR"})
+
+        # ---- Signal G: London Momentum Breakout (before RTH gate) ----
+        # Evaluated first because it fires during 2-5 AM CST (outside RTH).
+        # The method itself time-gates to London hours only.
+        signal_g = self._check_london_momentum(
+            enriched, current_time,
+            close, open_price, low, high,
+            ema9, ema21, ema50, atr, adx,
+        )
+        if signal_g is not None:
+            action, stop_loss, take_profit, reason = signal_g
+            is_short = action == "SELL"
+            metadata = {
+                "reason": reason,
+                "strategy_type": self.name,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "atr_value": atr,
+                "adx_value": adx,
+                "rsi": rsi,
+                "macd_hist": macd_hist,
+                "ema9": ema9,
+                "ema21": ema21,
+                "ema50": ema50,
+                "or_high": self._or_high,
+                "or_low": self._or_low,
+                "market_state": "LONDON_MOMENTUM_SHORT" if is_short else "LONDON_MOMENTUM_LONG",
+                "position_size": 1.0,
+                "position_scaler": 1.0,
+                "entry_type": "london_momentum",
+                "session_type": "LONDON",
+            }
+            logger.info(
+                f"📊 {current_time} | {action}: close={close:.2f} "
+                f"ema9={ema9:.2f} ema21={ema21:.2f} atr={atr:.1f} adx={adx:.0f} "
+                f"SL={stop_loss:.2f} TP={take_profit:.2f} | {reason}"
+            )
+            self._prev_close = close
+            return Signal(action=action, confidence=0.7, metadata=metadata)
+
+        # ---- Must be within RTH ----
+        if not (self._rth_start <= et_time.time() < self._rth_end):
+            self._prev_close = float(latest["close"])
+            return Signal("HOLD", 0.0, {"reason": "OUTSIDE_RTH"})
+
+        # ---- Entry time filter (FEB 7 2026) ----
+        # Skip hours with negative expectancy (10:xx = -$1,208, 15:xx = -$397)
+        if not (self._entry_start_et <= et_time.time() < self._entry_end_et):
+            self._prev_close = float(latest["close"])
+            return Signal("HOLD", 0.0, {"reason": "OUTSIDE_ENTRY_WINDOW"})
+
+        # (Indicators already extracted above, before Signal G / RTH gate)
 
         # ---- Signal A: EMA21 Pullback Long ----
         signal_a = self._check_ema21_pullback(
@@ -559,6 +645,26 @@ class EsFifteenMinStrategy(BaseStrategy):
                     else:
                         _f_reason = f"F:bars<4({len(enriched)})"
                 _diag_parts.append(_f_reason)
+            # Signal G diagnostics (London Momentum)
+            if self._london_enabled:
+                ct_time_diag = self._to_ct(current_time)
+                ct_t_diag = ct_time_diag.time()
+                if self._london_start_ct <= ct_t_diag < self._london_end_ct:
+                    if self._london_fired_count >= self._london_max_per_day:
+                        _diag_parts.append(f"G:maxed({self._london_fired_count})")
+                    elif len(enriched) >= 2:
+                        _pe9 = float(enriched.iloc[-2].get("EMA_9", 0))
+                        _pe21 = float(enriched.iloc[-2].get("EMA_21", 0))
+                        _bcross = _pe9 <= _pe21 and ema9 > ema21
+                        _scross = _pe9 >= _pe21 and ema9 < ema21
+                        if not _bcross and not _scross:
+                            _diag_parts.append(f"G:no_cross(e9={ema9:.1f},e21={ema21:.1f},pe9={_pe9:.1f},pe21={_pe21:.1f})")
+                        elif adx < self._london_adx_min:
+                            _diag_parts.append(f"G:adx({adx:.0f})<{self._london_adx_min:.0f}")
+                        else:
+                            _diag_parts.append(f"G:candle_check(c={close:.1f},o={open_price:.1f},e9={ema9:.1f})")
+                else:
+                    _diag_parts.append(f"G:outside_london({ct_t_diag})")
             _diag = " | ".join(_diag_parts) if _diag_parts else "unknown"
             logger.info(f"🔍 NO_SIGNAL diag: {_diag}")
             self._prev_close = close
@@ -566,12 +672,37 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         action, stop_loss, take_profit, reason = chosen
 
+        # ── Overnight SL/TP scaling ──────────────────────────────────────────
+        # Signals A/B/C/D/E/F are calibrated for RTH liquidity.  Outside core
+        # RTH (9:30-16:00 ET) the noise band is wider and moves extend less:
+        #   SL × overnight_sl_mult (1.2) — survive overnight wicks
+        #   TP × overnight_tp_mult (0.85) — capture in thinner markets
+        # Signal G is excluded — it fires before this block and returns early.
+        _et_t = et_time.time()
+        _is_core_rth = self._core_rth_start <= _et_t < self._core_rth_end
+        if not _is_core_rth and (self._overnight_sl_mult != 1.0 or self._overnight_tp_mult != 1.0):
+            _sl_pts = abs(close - stop_loss)
+            _tp_pts = abs(take_profit - close)
+            if action == "BUY":
+                stop_loss = close - _sl_pts * self._overnight_sl_mult
+                take_profit = close + _tp_pts * self._overnight_tp_mult
+            else:  # SELL
+                stop_loss = close + _sl_pts * self._overnight_sl_mult
+                take_profit = close - _tp_pts * self._overnight_tp_mult
+            reason = f"{reason} | ONAdj(SL×{self._overnight_sl_mult:.2f},TP×{self._overnight_tp_mult:.2f})"
+        _session_type = (
+            "RTH" if _is_core_rth
+            else "OVERNIGHT" if (_et_t >= time(23, 0) or _et_t < time(9, 30))
+            else "EVENING"
+        )
+
         # T3: track proximity counter and mark reduced size in metadata
         if chosen_is_proximity:
             if action == "BUY":
                 self._proximity_long_count += 1
             else:
                 self._proximity_short_count += 1
+            self._save_counters()
 
         is_short = action == "SELL"
         if is_short:
@@ -613,13 +744,14 @@ class EsFifteenMinStrategy(BaseStrategy):
             "position_size": 1.0,
             "position_scaler": self._proximity_size_mult if chosen_is_proximity else 1.0,
             "entry_type": entry_type,
-            "session_type": "RTH",
+            "session_type": _session_type,
         }
 
         logger.info(
             f"📊 {current_time} | {action}: close={close:.2f} "
             f"ema21={ema21:.2f} atr={atr:.1f} adx={adx:.0f} rsi={rsi:.0f} "
-            f"macd_h={macd_hist:.2f} SL={stop_loss:.2f} TP={take_profit:.2f} | {reason}"
+            f"macd_h={macd_hist:.2f} SL={stop_loss:.2f} TP={take_profit:.2f} "
+            f"[{_session_type}] | {reason}"
         )
 
         self._prev_close = close
@@ -766,6 +898,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
         self._or_break_long_count += 1
+        self._save_counters()
 
         tag = "" if self._or_break_long_count == 1 else f" | retest#{self._or_break_long_count}"
         reason = f"OR_BREAK_LONG | ADX={adx:.0f} | OR_H={self._or_high:.2f}{tag}"
@@ -1001,6 +1134,108 @@ class EsFifteenMinStrategy(BaseStrategy):
         return ("SELL", sl, tp, reason)
 
     # ------------------------------------------------------------------
+    #  Signal G: London Momentum Breakout
+    # ------------------------------------------------------------------
+    def _check_london_momentum(
+        self, df: pd.DataFrame, current_time: Any,
+        close: float, open_p: float, low: float, high: float,
+        ema9: float, ema21: float, ema50: float,
+        atr: float, adx: float,
+    ) -> Optional[tuple]:
+        """
+        London session momentum breakout — captures first directional
+        impulse when European liquidity arrives.
+
+        MAR 9 2026: During London session (2-5 AM CST), MES typically
+        sits in tight range (ATR 2-4pts, ADX 16-18).  When London opens,
+        volatility injects a directional move.  This signal detects the
+        first EMA9/EMA21 crossover during London hours.
+
+        Conditions:
+          1. London time window: ft_london_start_hour to ft_london_end_hour CT
+          2. EMA9 crossed EMA21 THIS bar (prev bar had opposite alignment)
+          3. ADX >= ft_london_adx_min (15) — lower than RTH signals because
+             London is emerging from chop, not already trending
+          4. Directional confirmation:
+             LONG:  EMA9 > EMA21, close > EMA9, bullish bar
+             SHORT: EMA9 < EMA21, close < EMA9, bearish bar
+          5. Max ft_london_max_per_day per day (default 1 — first impulse only)
+
+        Tighter SL/TP than RTH signals because overnight ATR is lower:
+          SL = ft_london_sl_points (4pts / $20)
+          TP = ft_london_tp_points (6pts / $30)
+          R:R = 1.5:1
+
+        Returns: (action, stop, target, reason) or None
+        """
+        if not self._london_enabled:
+            return None
+
+        # 5. Daily limit
+        if self._london_fired_count >= self._london_max_per_day:
+            return None
+
+        # 1. London time window (CT)
+        ct_time = self._to_ct(current_time)
+        ct_t = ct_time.time()
+        if not (self._london_start_ct <= ct_t < self._london_end_ct):
+            return None
+
+        # 2. EMA9/EMA21 crossover THIS bar — need previous bar to check
+        if len(df) < 2:
+            return None
+        prev = df.iloc[-2]
+        prev_ema9 = float(prev.get("EMA_9", 0))
+        prev_ema21 = float(prev.get("EMA_21", 0))
+
+        # Bullish cross: EMA9 was below EMA21, now above
+        bullish_cross = prev_ema9 <= prev_ema21 and ema9 > ema21
+        # Bearish cross: EMA9 was above EMA21, now below
+        bearish_cross = prev_ema9 >= prev_ema21 and ema9 < ema21
+
+        if not bullish_cross and not bearish_cross:
+            return None
+
+        # 3. ADX filter (lower bar than RTH — London is emerging from chop)
+        if adx < self._london_adx_min:
+            return None
+
+        # 4. Directional confirmation
+        if bullish_cross:
+            if close <= ema9:
+                return None  # Price must be above EMA9 to confirm momentum
+            if close <= open_p:
+                return None  # Must be bullish bar
+
+            sl = close - self._london_sl_points
+            tp = close + self._london_tp_points
+            self._london_fired_count += 1
+            self._save_counters()
+            reason = (
+                f"LONDON_MOMENTUM_LONG | ADX={adx:.0f} | ATR={atr:.1f} "
+                f"| EMA9_cross_above_EMA21 | #{self._london_fired_count}"
+            )
+            return ("BUY", sl, tp, reason)
+        else:
+            # bearish cross — only if shorts enabled
+            if not self._shorts_enabled:
+                return None
+            if close >= ema9:
+                return None  # Price must be below EMA9
+            if close >= open_p:
+                return None  # Must be bearish bar
+
+            sl = close + self._london_sl_points
+            tp = close - self._london_tp_points
+            self._london_fired_count += 1
+            self._save_counters()
+            reason = (
+                f"LONDON_MOMENTUM_SHORT | ADX={adx:.0f} | ATR={atr:.1f} "
+                f"| EMA9_cross_below_EMA21 | #{self._london_fired_count}"
+            )
+            return ("SELL", sl, tp, reason)
+
+    # ------------------------------------------------------------------
     #  Signal E: Opening Range Breakdown Short (mirror of Signal B)
     # ------------------------------------------------------------------
     def _check_or_breakdown(
@@ -1052,6 +1287,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
 
         self._or_break_short_count += 1
+        self._save_counters()
 
         tag = "" if self._or_break_short_count == 1 else f" | retest#{self._or_break_short_count}"
         reason = f"OR_BREAK_SHORT | ADX={adx:.0f} | OR_L={self._or_low:.2f}{tag}"
@@ -1157,6 +1393,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         take_profit = close + tp_pts
 
         self._trend_cont_long_count += 1
+        self._save_counters()
 
         reason = (f"TREND_CONT_LONG | ADX={adx:.0f} | RSI={rsi:.0f} "
                   f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_long_count}"
@@ -1248,6 +1485,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         take_profit = close - tp_pts
 
         self._trend_cont_short_count += 1
+        self._save_counters()
 
         reason = (f"TREND_CONT_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} "
                   f"| MACD_H={macd_hist:.2f} | e9={ema9:.1f} | #{self._trend_cont_short_count}"
@@ -1355,6 +1593,8 @@ class EsFifteenMinStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     #  Session management
     # ------------------------------------------------------------------
+    _COUNTER_FILE = Path("data/signal_counters.json")
+
     def _reset_session(self, date) -> None:
         """Reset all session state for a new trading day."""
         self._session_date = date
@@ -1371,12 +1611,144 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Signal A-prime / D-prime (proximity) counters
         self._proximity_long_count = 0
         self._proximity_short_count = 0
+        # Signal G (London momentum) counter
+        self._london_fired_count = 0
+        # Persist the zeroed counters
+        self._save_counters()
+
+    # ------------------------------------------------------------------
+    #  Counter persistence — survive bot restarts
+    # ------------------------------------------------------------------
+    def _get_cme_session_date(self) -> str:
+        """Return the CME trading session date as YYYY-MM-DD.
+
+        CME session starts at 17:00 CT.  A bar at 2026-03-10 02:00 CT
+        belongs to the session that opened on 2026-03-09 17:00 CT, so
+        its session date is '2026-03-09'.  A bar at 2026-03-10 18:00 CT
+        belongs to '2026-03-10'.
+        """
+        try:
+            from ..utils.timezone_utils import now_cst
+            ct_now = now_cst()
+        except Exception:
+            ct_now = datetime.now()
+        if ct_now.hour < 17:
+            # Before 5 PM CT → session started yesterday
+            session_date = (ct_now - timedelta(days=1)).date()
+        else:
+            session_date = ct_now.date()
+        return session_date.isoformat()
+
+    def _save_counters(self) -> None:
+        """Persist signal fire counters to disk."""
+        data = {
+            "cme_session_date": self._get_cme_session_date(),
+            "or_break_long": getattr(self, "_or_break_long_count", 0),
+            "or_break_short": getattr(self, "_or_break_short_count", 0),
+            "trend_cont_long": getattr(self, "_trend_cont_long_count", 0),
+            "trend_cont_short": getattr(self, "_trend_cont_short_count", 0),
+            "proximity_long": getattr(self, "_proximity_long_count", 0),
+            "proximity_short": getattr(self, "_proximity_short_count", 0),
+            "london_fired": getattr(self, "_london_fired_count", 0),
+        }
+        try:
+            self._COUNTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._COUNTER_FILE.write_text(json.dumps(data, indent=2))
+        except Exception as exc:
+            logger.warning(f"Failed to save signal counters: {exc}")
+
+    def _load_counters(self) -> None:
+        """Load signal fire counters from disk if same CME session."""
+        if not self._COUNTER_FILE.exists():
+            return
+        try:
+            data = json.loads(self._COUNTER_FILE.read_text())
+            saved_session = data.get("cme_session_date", "")
+            current_session = self._get_cme_session_date()
+            if saved_session != current_session:
+                logger.info(
+                    f"🔄 Counter file session {saved_session} != current {current_session}, "
+                    f"starting fresh"
+                )
+                return  # Different CME session → counters already zeroed in __init__
+            self._or_break_long_count = data.get("or_break_long", 0)
+            self._or_break_short_count = data.get("or_break_short", 0)
+            self._trend_cont_long_count = data.get("trend_cont_long", 0)
+            self._trend_cont_short_count = data.get("trend_cont_short", 0)
+            self._proximity_long_count = data.get("proximity_long", 0)
+            self._proximity_short_count = data.get("proximity_short", 0)
+            self._london_fired_count = data.get("london_fired", 0)
+            logger.info(
+                f"📂 Loaded signal counters from disk (session={saved_session}): "
+                f"B={self._or_break_long_count} E={self._or_break_short_count} "
+                f"F_L={self._trend_cont_long_count} F_S={self._trend_cont_short_count} "
+                f"A'={self._proximity_long_count} D'={self._proximity_short_count} "
+                f"G={self._london_fired_count}"
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to load signal counters: {exc}")
+
+    def rollback_counter(self, signal_reason: str) -> None:
+        """Undo a counter increment when signal is blocked downstream.
+
+        Called by signal_processor when CHOP guard, confidence gate, or
+        other post-strategy filters block a signal.  The strategy already
+        incremented the counter (needed for same-bar max-per-day gating),
+        so we decrement it back and re-persist.
+
+        MAR 10 2026: Fixes bug where CHOP-blocked signals consumed
+        daily counter slots — e.g. 2 CHOP-blocked F signals at 2:30+3:00
+        exhausted the 2/day limit, preventing valid RTH F signals.
+        """
+        rolled_back = False
+        if "TREND_CONT_LONG" in signal_reason:
+            if self._trend_cont_long_count > 0:
+                self._trend_cont_long_count -= 1
+                rolled_back = True
+        elif "TREND_CONT_SHORT" in signal_reason:
+            if self._trend_cont_short_count > 0:
+                self._trend_cont_short_count -= 1
+                rolled_back = True
+        elif "OR_BREAK_LONG" in signal_reason:
+            if self._or_break_long_count > 0:
+                self._or_break_long_count -= 1
+                rolled_back = True
+        elif "OR_BREAK_SHORT" in signal_reason:
+            if self._or_break_short_count > 0:
+                self._or_break_short_count -= 1
+                rolled_back = True
+        elif "LONDON_MOMENTUM" in signal_reason:
+            if self._london_fired_count > 0:
+                self._london_fired_count -= 1
+                rolled_back = True
+        elif "PROXIMITY" in signal_reason or "PRIME" in signal_reason:
+            if "LONG" in signal_reason or "BUY" in signal_reason:
+                if self._proximity_long_count > 0:
+                    self._proximity_long_count -= 1
+                    rolled_back = True
+            else:
+                if self._proximity_short_count > 0:
+                    self._proximity_short_count -= 1
+                    rolled_back = True
+
+        if rolled_back:
+            logger.info(f"↩️ Counter rolled back for blocked signal: {signal_reason}")
+            self._save_counters()
 
     def _to_et(self, ts: pd.Timestamp) -> Any:
         """Convert timestamp to US/Eastern."""
         if ts.tz is not None:
             try:
                 return ts.tz_convert("US/Eastern")
+            except Exception:
+                return ts
+        return ts
+
+    def _to_ct(self, ts: pd.Timestamp) -> Any:
+        """Convert timestamp to US/Central (CT) for London session check."""
+        if ts.tz is not None:
+            try:
+                return ts.tz_convert("America/Chicago")
             except Exception:
                 return ts
         return ts

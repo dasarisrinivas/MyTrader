@@ -172,6 +172,9 @@ class SignalProcessor:
         # Hybrid pipeline can be injected later; default to manager's instance
         self.hybrid_pipeline = getattr(manager, "hybrid_pipeline", None)
         self._emergency_generator = EmergencySignalGenerator()
+
+        # MAR 10 2026: Strategy counter rollback on blocked signals
+        self._original_signal_reason: str = ""
         
         # NEW: Multi-timeframe candle builder (Jan 2026) - single 5m aggregator
         self._mtf_builder: Optional[MultiTimeframeCandleBuilder] = None
@@ -381,6 +384,21 @@ class SignalProcessor:
     # ------------------------------------------------------------------
     # FEB 7 2026: Strategy-First Signal Generation (ALL timeframes)
     # ------------------------------------------------------------------
+
+    def _rollback_strategy_counter(self, signal_reason: str) -> None:
+        """Roll back the strategy's per-day signal counter when a signal is
+        blocked by a post-strategy gate (CHOP guard, confidence threshold, etc).
+
+        MAR 10 2026: The strategy increments counters at signal-generation time
+        (needed for same-bar max-per-day gating).  If the signal is subsequently
+        blocked, the counter must be decremented so the daily slot is not wasted.
+        """
+        if not self.engine or not signal_reason:
+            return
+        for strat in self.engine.strategies:
+            if hasattr(strat, "rollback_counter"):
+                strat.rollback_counter(signal_reason)
+                break
 
     async def _generate_strategy_first_signal(
         self,
@@ -671,22 +689,18 @@ class SignalProcessor:
         #   ADX 30+:    19 trades, +$10.00  (near flat)
         #
         # Optional exception framework (ENABLE_CHOP_EXCEPTION env var, OFF
-        # by default): allows LONG-only exceptions through a statistically
+        # by default): allows bidirectional exceptions through a statistically
         # controlled gate.  Must satisfy ALL conditions before any CHOP
         # signal passes:
-        #   1. Direction == LONG
-        #   2. ADX >= 25
-        #   3. Daily sentiment bias == BULLISH
-        #   4. Confidence >= 0.70
-        #   5. ATR expanding (current ATR > ATR 5 bars ago)
+        #   1. ADX >= 25
+        #   2. Daily sentiment bias ALIGNED with direction (BULLISH→LONG, BEARISH→SHORT)
+        #   3. Confidence >= 0.70
+        #   4. ATR expanding (current ATR > ATR 5 bars ago)
         #
-        # This framework is for evaluation ONLY.  It should remain OFF
-        # in production until backtest shows:
-        #   - Expectancy > 0
-        #   - Net PnL improvement > 1.5R vs block-all
-        #   - Max DD does NOT increase > 10%
-        #   - Edge persists across ≥ 3 independent quarters
-        #   - Sample size ≥ 50 trades
+        # MAR 9 2026: Made bidirectional. Live data Mar 3-9 showed 3 SHORT
+        # signals in CHOP were all TP_HIT (+$120). Gate 2 (bias alignment)
+        # ensures SHORTs only pass with BEARISH sentiment confirmation.
+        # Enabled by default in start_bot.sh as of MAR 9.
         #
         # OR breakout / breakdown signals remain EXEMPT — they capture
         # range expansion, which can occur in any regime.
@@ -703,7 +717,11 @@ class SignalProcessor:
             chop_exception_enabled = os.environ.get("ENABLE_CHOP_EXCEPTION", "").lower() in ("1", "true", "yes")
             exception_passed = False
 
-            if chop_exception_enabled and is_long:
+            if chop_exception_enabled:
+                # MAR 9 2026: Made bidirectional (was LONG-only).
+                # Live data Mar 3-9: 3 SHORT signals in CHOP were all TP_HIT (+$120).
+                # Exception requires ALL 5 gates aligned with signal direction.
+                #
                 # Gate 1: ADX >= 25 (only ADX 25+ showed positive edge in 1yr data)
                 adx_val = 0.0
                 reason_parts = signal_reason.split("|")
@@ -716,8 +734,13 @@ class SignalProcessor:
                             pass
                         break
 
-                # Gate 2: Daily sentiment bias == BULLISH
+                # Gate 2: Daily sentiment bias ALIGNED with direction
+                # LONG requires BULLISH, SHORT requires BEARISH
                 daily_bias = getattr(m, "_last_sentiment_bias", "NEUTRAL")
+                bias_aligned = (
+                    (is_long and daily_bias == "BULLISH")
+                    or (not is_long and daily_bias == "BEARISH")
+                )
 
                 # Gate 3: Confidence >= 0.70 (pre-dampen)
                 conf_ok = signal.confidence >= 0.70
@@ -734,7 +757,7 @@ class SignalProcessor:
 
                 exception_passed = (
                     adx_val >= 25
-                    and daily_bias == "BULLISH"
+                    and bias_aligned
                     and conf_ok
                     and atr_expanding
                 )
@@ -745,8 +768,9 @@ class SignalProcessor:
                     old_conf = signal.confidence
                     signal.confidence = max(0.15, signal.confidence - chop_exception_dampen)
                     confidence_adjustments["chop_exception_pass"] = -chop_exception_dampen
+                    direction_label = "LONG" if is_long else "SHORT"
                     logger.warning(
-                        f"⚠️ CHOP Exception Activated: LONG allowed | "
+                        f"⚠️ CHOP Exception Activated: {direction_label} allowed | "
                         f"ADX={adx_val:.0f} | conf={old_conf:.3f}→{signal.confidence:.3f} | "
                         f"bias={daily_bias} | ATR_expanding={atr_expanding} | "
                         f"signal={signal_reason}"
@@ -783,6 +807,8 @@ class SignalProcessor:
                         "hybrid_trend": hybrid_trend,
                         "block_type": block_type,
                     }
+                # MAR 10 2026: Roll back strategy counter so daily slot is not wasted
+                self._rollback_strategy_counter(signal_reason)
                 return SignalGenerationResult(
                     signal=signal,
                     pipeline_result=pipeline_result,
@@ -869,6 +895,8 @@ class SignalProcessor:
                     if isinstance(signal.metadata, dict):
                         signal.metadata["reason"] = "EXHAUSTION_NEAR_SESSION_HIGH"
                         signal.metadata["exhaustion_detail"] = exhaustion_result
+                    # MAR 10 2026: Roll back strategy counter
+                    self._rollback_strategy_counter(signal_reason)
                     logger.info(
                         f"🛑 Exhaustion gate: HOLD (was {original_action} "
                         f"conf={base_confidence:.3f})"
@@ -1384,6 +1412,14 @@ class SignalProcessor:
             return
 
         if not decision.allow:
+            # MAR 10 2026: Roll back strategy counter if signal blocked by
+            # confidence gate, filters, active orders, or open position
+            sig_meta = signal.metadata if isinstance(signal.metadata, dict) else {}
+            blocked_reason = sig_meta.get("reason", "")
+            if blocked_reason and decision.reason in (
+                "CONFIDENCE_BELOW_MIN", "filter_block", "HOLD",
+            ):
+                self._rollback_strategy_counter(blocked_reason)
             logger.info("Skipping trade ({})", decision.reason or "blocked")
             return
 

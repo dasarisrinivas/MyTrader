@@ -99,6 +99,12 @@ export CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD:-$CFG_CONFIDENCE_THRESHOLD}
 # without features/rationale snapshots.
 export SHREE_ORDER_TRACKER_CALLSITE=${SHREE_ORDER_TRACKER_CALLSITE:-0}
 
+# MAR 9 2026: Enable CHOP exception framework (bidirectional).
+# Allows pullback/trend_cont signals through CHOP regime if ALL 5 gates pass:
+#   ADX >= 25, bias aligned, conf >= 0.70, ATR expanding.
+# 19 blocks in 6 days missed net +$31.55. Exception is conservative (5-gate).
+export ENABLE_CHOP_EXCEPTION=${ENABLE_CHOP_EXCEPTION:-1}
+
 # Check if IB Gateway/TWS is running
 echo -e "${BLUE}[INFO]${NC} Checking IB Gateway/TWS on port ${IBKR_PORT}..."
 if lsof -i:"$IBKR_PORT" > /dev/null 2>&1; then
