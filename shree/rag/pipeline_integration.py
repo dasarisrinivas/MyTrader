@@ -400,6 +400,10 @@ class HybridPipelineIntegration:
             # Volatility
             "atr": float(row.get("ATR_14", row.get("atr", 0))),
             "atr_20_avg": float(row.get("ATR_20_avg", row.get("ATR_14", row.get("atr", 1)))),
+
+            # Trend strength — REQUIRED for is_trending gate in evaluate()
+            # Without this, adx=0 → is_trending=False → all trend labels blocked → always CHOP
+            "adx": float(row.get("ADX_14", row.get("ADX", row.get("adx", 0)))),
             
             # Levels: Use override values if set, otherwise fall back to feature-computed
             "pdh": self._override_pdh if self._override_pdh else float(row.get("PDH", row.get("pdh", 0))),
@@ -468,7 +472,29 @@ class HybridPipelineIntegration:
                 }
             )
         market_data["recent_bars"] = recent_bars
-        
+
+        # Compute today's session range/open for context-aware trend detection
+        # (Factor 7 in hybrid_rag_pipeline uses these to detect directional vs chop days)
+        try:
+            import pandas as pd
+            today_date = now_cst().date()
+            today_idx = [
+                i for i, idx in enumerate(features.index)
+                if (idx.date() if hasattr(idx, "date") else None) == today_date
+            ]
+            if len(today_idx) >= 2:
+                today_bars = features.iloc[today_idx]
+                if "high" in today_bars.columns and "low" in today_bars.columns:
+                    market_data["session_high"] = float(today_bars["high"].max())
+                    market_data["session_low"] = float(today_bars["low"].min())
+                    market_data["session_range_pts"] = (
+                        market_data["session_high"] - market_data["session_low"]
+                    )
+                    if "open" in today_bars.columns:
+                        market_data["day_open"] = float(today_bars.iloc[0]["open"])
+        except Exception:
+            pass
+
         market_data.update(self._compute_historical_structure(features))
         
         if historical_metrics:

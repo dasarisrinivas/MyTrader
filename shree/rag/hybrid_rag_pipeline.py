@@ -445,7 +445,39 @@ class RuleEngine:
         elif sentiment_bias == "BEARISH" or sentiment_score < -0.3:
             trend_score -= 5
             trend_factors.append("SENTIMENT_BEAR")
-        
+
+        # Factor 7: Day structure — PDH/PDL break + session range (up to 20%)
+        # A day trader checks PDH break and range size before labeling a session CHOP.
+        # e.g. price above PDH after a 177pt range = bullish trend day, not CHOP.
+        pdh = market_data.get("pdh", 0)
+        pdl = market_data.get("pdl", 0)
+        session_range_pts = market_data.get("session_range_pts", 0)
+        day_open = market_data.get("day_open", 0)
+        _LARGE_RANGE = 80  # pts — ES/MES: >80pt intraday range = directional session
+        if pdh > 0 and pdl > 0:
+            if price > pdh:
+                # Price broke above previous day's high — bullish structural context
+                trend_score += 15
+                trend_factors.append("ABOVE_PDH")
+                if session_range_pts > _LARGE_RANGE:
+                    trend_score += 5
+                    trend_factors.append("LARGE_RANGE_BULL")
+            elif price < pdl:
+                # Price broke below previous day's low — bearish structural context
+                trend_score -= 15
+                trend_factors.append("BELOW_PDL")
+                if session_range_pts > _LARGE_RANGE:
+                    trend_score -= 5
+                    trend_factors.append("LARGE_RANGE_BEAR")
+            elif session_range_pts > _LARGE_RANGE:
+                # Significant range but between levels — use day direction as tiebreaker
+                if day_open > 0 and price > day_open:
+                    trend_score += 5
+                    trend_factors.append("RANGE_DAY_UP")
+                elif day_open > 0 and price < day_open:
+                    trend_score -= 5
+                    trend_factors.append("RANGE_DAY_DOWN")
+
         # --- Determine final trend based on score ---
         # Strong trend: >= 60 or <= -60 (at least 3 confirming factors)
         # Micro trend: 30-60 range
@@ -480,7 +512,8 @@ class RuleEngine:
         
         logger.debug(
             f"Trend Detection: score={trend_score:.1f} factors={trend_factors} "
-            f"-> {result.market_trend} (HTF={htf_trend}, Sentiment={sentiment_bias})"
+            f"-> {result.market_trend} (HTF={htf_trend}, Sentiment={sentiment_bias}, "
+            f"PDH={pdh:.1f}, PDL={pdl:.1f}, range={session_range_pts:.0f}pts)"
         )
         
         # Determine volatility regime (ATR-based + VX futures overlay)
