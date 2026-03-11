@@ -282,9 +282,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             getattr(config, 'ft_london_end_minute', 0)
         )
         self._london_adx_min: float = getattr(config, 'ft_london_adx_min', 15.0)
-        self._london_sl_points: float = getattr(config, 'ft_london_sl_points', 4.0)   # Floor SL (pts from close)
+        self._london_sl_points: float = getattr(config, 'ft_london_sl_points', 5.0)   # Floor SL (pts from close)
         self._london_sl_atr_cap: float = getattr(config, 'ft_london_sl_atr_cap', 1.0) # Cap SL at N×ATR
-        self._london_tp_points: float = getattr(config, 'ft_london_tp_points', 10.0)  # TP — targets mid London range
+        self._london_tp_points: float = getattr(config, 'ft_london_tp_points', 8.0)   # TP — above median 8.2pt London move
         self._london_max_per_day: int = getattr(config, 'ft_london_max_per_day', 1)
         self._london_fired_count: int = 0
 
@@ -1166,8 +1166,9 @@ class EsFifteenMinStrategy(BaseStrategy):
           SL = structural: max(ft_london_sl_points floor, EMA21_gap + 0.5pt),
                capped at ft_london_sl_atr_cap × ATR.  Placed just beyond EMA21
                so a normal wick doesn't stop out a valid cross.
-          TP = ft_london_tp_points (10pts / $50) — targets mid of 8-20pt range
-          R:R ≈ 2:1 at typical SL of 4-5pts
+          TP = ft_london_tp_points (8pts / $40) — above median 8.2pt directional move;
+               ~55-60% hit rate vs 165-session MES London data (Feb 2025-Jan 2026)
+          R:R ≈ 1.6:1 (8pt TP / 5pt SL floor)
 
         Returns: (action, stop, target, reason) or None
         """
