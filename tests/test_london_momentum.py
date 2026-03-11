@@ -70,8 +70,9 @@ def _make_config(**overrides):
         "ft_london_end_hour": 5,
         "ft_london_end_minute": 0,
         "ft_london_adx_min": 15.0,
-        "ft_london_sl_points": 4.0,
-        "ft_london_tp_points": 6.0,
+        "ft_london_sl_points": 5.0,
+        "ft_london_sl_atr_cap": 1.0,
+        "ft_london_tp_points": 8.0,
         "ft_london_max_per_day": 1,
         # Overnight SL/TP scaling
         "ft_overnight_sl_mult": 1.2,
@@ -348,8 +349,8 @@ class TestLondonMomentumSignalG:
         assert "LONDON_MOMENTUM" not in signal.metadata.get("reason", "")
 
     def test_sl_tp_values(self):
-        """Signal G should use tighter SL/TP for low-vol overnight."""
-        cfg = _make_config(ft_london_sl_points=4.0, ft_london_tp_points=6.0)
+        """Signal G should use structural SL and data-driven TP."""
+        cfg = _make_config(ft_london_sl_points=5.0, ft_london_tp_points=8.0)
         strat = EsFifteenMinStrategy(cfg)
 
         bars = _pad_warmup([
@@ -369,9 +370,69 @@ class TestLondonMomentumSignalG:
         df = _make_df(bars)
         signal = strat.generate(df)
         assert signal.action == "BUY"
-        # SL = close - 4 = 6801, TP = close + 6 = 6811
-        assert abs(signal.metadata["stop_loss"] - 6801.0) < 0.01
-        assert abs(signal.metadata["take_profit"] - 6811.0) < 0.01
+        # Structural SL: max(5.0, (6805-6801)+0.5=4.5) = 5.0 (floor wins)
+        #   capped at ATR×1.0 = 3.5 → 3.5, re-floored to 5.0
+        # SL = 6805 - 5.0 = 6800.0
+        # TP = 6805 + 8 = 6813.0
+        assert abs(signal.metadata["stop_loss"] - 6800.0) < 0.01
+        assert abs(signal.metadata["take_profit"] - 6813.0) < 0.01
+
+    def test_sl_structural_wider_gap(self):
+        """Structural SL should widen when EMA21 gap is large and ATR allows."""
+        cfg = _make_config(ft_london_sl_points=5.0, ft_london_sl_atr_cap=1.0)
+        strat = EsFifteenMinStrategy(cfg)
+
+        # EMA21 gap = 8pts, ATR = 10 → structural = max(5, 8+0.5)=8.5,
+        # cap at 10×1.0=10 → stays 8.5
+        bars = _pad_warmup([
+            {
+                "time": "2026-03-10 03:00",
+                "close": 6800, "open": 6798, "high": 6802, "low": 6797,
+                "ema9": 6799.0, "ema21": 6800.5, "ema50": 6790.0,
+                "atr": 8.0, "adx": 16.0,
+            },
+            {
+                "time": "2026-03-10 03:15",
+                "close": 6810, "open": 6800, "high": 6811, "low": 6799,
+                "ema9": 6808.0, "ema21": 6802.0, "ema50": 6790.0,
+                "atr": 10.0, "adx": 17.0,
+            },
+        ])
+        df = _make_df(bars)
+        signal = strat.generate(df)
+        assert signal.action == "BUY"
+        # SL = max(4, (6810-6802)+0.5=8.5) = 8.5, cap=min(8.5, 10)=8.5
+        # SL price = 6810 - 8.5 = 6801.5
+        assert abs(signal.metadata["stop_loss"] - 6801.5) < 0.01
+
+    def test_sl_atr_cap_limits_wide_gap(self):
+        """ATR cap should prevent SL from being too wide on big-body bars."""
+        cfg = _make_config(ft_london_sl_points=5.0, ft_london_sl_atr_cap=1.0)
+        strat = EsFifteenMinStrategy(cfg)
+
+        # EMA21 gap = 12pts but ATR only 5 → structural=12.5, cap at 5 → floor=5
+        bars = _pad_warmup([
+            {
+                "time": "2026-03-10 03:00",
+                "close": 6800, "open": 6798, "high": 6802, "low": 6797,
+                "ema9": 6799.0, "ema21": 6800.5, "ema50": 6790.0,
+                "atr": 4.0, "adx": 16.0,
+            },
+            {
+                "time": "2026-03-10 03:15",
+                "close": 6815, "open": 6800, "high": 6816, "low": 6799,
+                "ema9": 6812.0, "ema21": 6803.0, "ema50": 6790.0,
+                "atr": 5.0, "adx": 17.0,
+            },
+        ])
+        df = _make_df(bars)
+        signal = strat.generate(df)
+        assert signal.action == "BUY"
+        # SL = max(5, (6815-6803)+0.5=12.5) = 12.5
+        #   cap at ATR×1.0 = 5.0 → 5.0
+        #   re-floor: max(5.0, 5.0) = 5.0
+        # SL price = 6815 - 5.0 = 6810.0
+        assert abs(signal.metadata["stop_loss"] - 6810.0) < 0.01
 
     def test_session_type_is_london(self):
         """Signal G metadata should indicate LONDON session."""

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(DATA=\"data/raw/MES/FUT_MESH6/15_mins/MES_15m_20250201_20260131.parquet\")",
+      "Bash(ARGS=\"--symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m --data-source file --data-file $DATA --capital 5000 --report md --no-optimizer\")",
+      "Bash(__NEW_LINE_f3760cce0815212a__ python3 -m backtest.run $ARGS --config configs/bt_t2_regime_band.yaml --output-dir reports/bt_t2_regime_band)",
+      "Bash(__NEW_LINE_ec485f81f653547b__ python3 -m backtest.run $ARGS --config configs/bt_t2_regime_band.yaml --output-dir reports/bt_t2_regime_band)",
+      "Bash(python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m --data-source file --data-file \"data/raw/MES/FUT_MESH6/15_mins/MES_15m_20250201_20260131.parquet\" --capital 5000 --report md --no-optimizer --config configs/bt_t2_regime_band.yaml --output-dir reports/bt_t2_regime_band)",
+      "Bash(ls -t reports/bt_t2_regime_band/*.json)",
+      "Bash(xargs python3 -c \":*)",
+      "Bash(git add shree/strategies/es_fifteen_min.py configs/bt_t2_regime_band.yaml reports/bt_t2_regime_band/)",
+      "Bash(python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m --data-source file --data-file \"data/raw/MES/FUT_MESH6/15_mins/MES_15m_20250201_20260131.parquet\" --capital 5000 --report md --no-optimizer --config configs/bt_t3_proximity.yaml --output-dir reports/bt_t3_proximity)",
+      "Bash(ls -t reports/bt_t3_proximity/*.json)",
+      "Bash(git add shree/strategies/es_fifteen_min.py configs/bt_t3_proximity.yaml reports/bt_t3_proximity/)",
+      "Bash(python3 -c \"from dateutil.relativedelta import relativedelta; print\\(''dateutil ok''\\)\")",
+      "Bash(python3 -m backtest.walk_forward --data-file data/raw/MES/FUT_MESH6/15_mins/MES_15m_20250201_20260131.parquet --atr-threshold 13.0 --is-months 3 --oos-months 1 --output-dir reports/wfo)",
+      "Bash(tee /tmp/wfo_run.log)",
+      "Bash(grep \"IS bars\\\\|done$\\\\|grid:\" /private/tmp/claude-501/-Users-svss-Documents-code-ShreeBot/tasks/bug5pgj7v.output)",
+      "Bash(python3 -c \":*)",
+      "Bash(python3 -m backtest.regime_monitor --trades reports/bt_t3_proximity/backtest_MES_2025-02-01_2026-01-31_20260309_142310_trades.csv --data-file data/raw/MES/FUT_MESH6/15_mins/MES_15m_20250201_20260131.parquet --output reports/wfo/regime_monitor_bt_t3_proxy.md)",
+      "Bash(git add backtest/walk_forward.py backtest/regime_monitor.py reports/wfo/)"
+    ]
+  }
+}

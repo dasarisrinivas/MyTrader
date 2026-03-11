@@ -1058,7 +1058,7 @@ class ReconcileManager:
             # previously-captured entry snapshots (features/rationale/trade_cycle_id).
             existing = conn.execute(
                 """
-                SELECT trade_cycle_id, features, rationale
+                SELECT trade_cycle_id, features, rationale, status
                 FROM orders
                 WHERE order_id = ?
                 """,
@@ -1068,6 +1068,25 @@ class ReconcileManager:
             existing_trade_cycle_id = existing[0] if existing else None
             existing_features = existing[1] if existing else None
             existing_rationale = existing[2] if existing else None
+            existing_status = existing[3] if existing else None
+
+            # Guard: never overwrite a Filled order with reconcile data.
+            # IBKR reuses order IDs across sessions — a stale order from months ago
+            # can share an ID with a completed trade, causing data loss.
+            if existing_status == "Filled":
+                incoming_status = details.get("status", "")
+                if incoming_status != "Filled":
+                    logger.warning(
+                        "⚠️ Reconcile skipping INSERT for order_id=%s: existing status=Filled "
+                        "(cycle=%s), incoming status=%s. Preserving historical trade.",
+                        details.get("order_id"),
+                        existing_trade_cycle_id or "unknown",
+                        incoming_status,
+                    )
+                    action.executed = False
+                    action.error = "Skipped: would overwrite Filled order"
+                    self._record_audit(action, backup_file, correlation_id, conn)
+                    return
             
             conn.execute(
                 """

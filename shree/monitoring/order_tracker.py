@@ -399,6 +399,24 @@ class OrderTracker:
             )
 
         with sqlite3.connect(self.db_path) as conn:
+            # Guard: never silently overwrite a Filled order with a new Placed record.
+            # IBKR reuses order IDs across sessions, so a new "Placed" may collide
+            # with a previously completed trade — losing the historical record.
+            existing_row = conn.execute(
+                "SELECT status, trade_cycle_id FROM orders WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+
+            if existing_row and existing_row[0] == "Filled":
+                logger.warning(
+                    "⚠️ Order ID %d already exists with status=Filled (cycle=%s). "
+                    "Skipping INSERT to preserve historical trade. "
+                    "IBKR may have reused the order ID.",
+                    order_id,
+                    existing_row[1] or "unknown",
+                )
+                return
+
             conn.execute("""
                 INSERT OR REPLACE INTO orders (
                     order_id, parent_order_id, timestamp, symbol, action, quantity,

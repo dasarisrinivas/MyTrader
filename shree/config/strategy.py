@@ -264,8 +264,9 @@ class OneMinuteStrategyConfig:
     ft_london_end_hour: int = 5               # London window end (CT)
     ft_london_end_minute: int = 0
     ft_london_adx_min: float = 15.0           # Lower than RTH — emerging from chop
-    ft_london_sl_points: float = 4.0          # Tighter SL for low-vol overnight ($20)
-    ft_london_tp_points: float = 6.0          # Tighter TP ($30), R:R 1.5:1
+    ft_london_sl_points: float = 5.0          # SL floor (pts) — structural SL uses max(floor, EMA21_gap+0.5)
+    ft_london_sl_atr_cap: float = 1.0         # SL ceiling = ATR × this mult (prevent over-wide SL)
+    ft_london_tp_points: float = 8.0          # TP ($40) — ~55-60% hit rate; R:R 1.6:1
     ft_london_max_per_day: int = 1            # First impulse only
 
     # FEB 18 2026: 24-HOUR TRADING — entry/RTH gates effectively disabled
