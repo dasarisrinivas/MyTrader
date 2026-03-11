@@ -282,8 +282,9 @@ class EsFifteenMinStrategy(BaseStrategy):
             getattr(config, 'ft_london_end_minute', 0)
         )
         self._london_adx_min: float = getattr(config, 'ft_london_adx_min', 15.0)
-        self._london_sl_points: float = getattr(config, 'ft_london_sl_points', 4.0)   # Tighter: $20 SL
-        self._london_tp_points: float = getattr(config, 'ft_london_tp_points', 6.0)   # $30 TP → R:R 1.5:1
+        self._london_sl_points: float = getattr(config, 'ft_london_sl_points', 4.0)   # Floor SL (pts from close)
+        self._london_sl_atr_cap: float = getattr(config, 'ft_london_sl_atr_cap', 1.0) # Cap SL at N×ATR
+        self._london_tp_points: float = getattr(config, 'ft_london_tp_points', 10.0)  # TP — targets mid London range
         self._london_max_per_day: int = getattr(config, 'ft_london_max_per_day', 1)
         self._london_fired_count: int = 0
 
@@ -1161,10 +1162,12 @@ class EsFifteenMinStrategy(BaseStrategy):
              SHORT: EMA9 < EMA21, close < EMA9, bearish bar
           5. Max ft_london_max_per_day per day (default 1 — first impulse only)
 
-        Tighter SL/TP than RTH signals because overnight ATR is lower:
-          SL = ft_london_sl_points (4pts / $20)
-          TP = ft_london_tp_points (6pts / $30)
-          R:R = 1.5:1
+        SL/TP sizing for London move (typical 8-20pts):
+          SL = structural: max(ft_london_sl_points floor, EMA21_gap + 0.5pt),
+               capped at ft_london_sl_atr_cap × ATR.  Placed just beyond EMA21
+               so a normal wick doesn't stop out a valid cross.
+          TP = ft_london_tp_points (10pts / $50) — targets mid of 8-20pt range
+          R:R ≈ 2:1 at typical SL of 4-5pts
 
         Returns: (action, stop, target, reason) or None
         """
@@ -1207,13 +1210,18 @@ class EsFifteenMinStrategy(BaseStrategy):
             if close <= open_p:
                 return None  # Must be bullish bar
 
-            sl = close - self._london_sl_points
+            # Structural SL: just below EMA21 (level that invalidates the cross),
+            # floored at ft_london_sl_points and capped at ft_london_sl_atr_cap×ATR.
+            sl_pts = max(self._london_sl_points, (close - ema21) + 0.5)
+            sl_pts = min(sl_pts, atr * self._london_sl_atr_cap)
+            sl_pts = max(sl_pts, self._london_sl_points)  # re-apply floor after cap
+            sl = close - sl_pts
             tp = close + self._london_tp_points
             self._london_fired_count += 1
             self._save_counters()
             reason = (
                 f"LONDON_MOMENTUM_LONG | ADX={adx:.0f} | ATR={atr:.1f} "
-                f"| EMA9_cross_above_EMA21 | #{self._london_fired_count}"
+                f"| SL={sl_pts:.1f}pt | EMA9_cross_above_EMA21 | #{self._london_fired_count}"
             )
             return ("BUY", sl, tp, reason)
         else:
@@ -1225,13 +1233,17 @@ class EsFifteenMinStrategy(BaseStrategy):
             if close >= open_p:
                 return None  # Must be bearish bar
 
-            sl = close + self._london_sl_points
+            # Mirror of long-side structural SL
+            sl_pts = max(self._london_sl_points, (ema21 - close) + 0.5)
+            sl_pts = min(sl_pts, atr * self._london_sl_atr_cap)
+            sl_pts = max(sl_pts, self._london_sl_points)  # re-apply floor after cap
+            sl = close + sl_pts
             tp = close - self._london_tp_points
             self._london_fired_count += 1
             self._save_counters()
             reason = (
                 f"LONDON_MOMENTUM_SHORT | ADX={adx:.0f} | ATR={atr:.1f} "
-                f"| EMA9_cross_below_EMA21 | #{self._london_fired_count}"
+                f"| SL={sl_pts:.1f}pt | EMA9_cross_below_EMA21 | #{self._london_fired_count}"
             )
             return ("SELL", sl, tp, reason)
 
