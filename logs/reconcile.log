@@ -1349,3 +1349,4 @@
 {"timestamp": "2026-03-10T20:04:17.343292+00:00", "correlation_id": "0cc29f3881fb", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
 {"timestamp": "2026-03-10T20:38:32.005665+00:00", "correlation_id": "699c6f1807fa", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
 {"timestamp": "2026-03-11T03:15:28.166764+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "BUY", "quantity": 1, "limit_price": null, "stop_loss": 6809.0, "take_profit": 6824.25, "symbol": "MES", "signature": "af0737ef741f5aefd481f6c14e390812"}}
+{"timestamp": "2026-03-11T10:15:17.925617+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "SELL", "quantity": 1, "limit_price": null, "stop_loss": 6794.0, "take_profit": 6778.75, "symbol": "MES", "signature": "08b011604e1c7f74007312d42812080f"}}

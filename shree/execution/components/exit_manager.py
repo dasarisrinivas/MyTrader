@@ -379,19 +379,44 @@ class ExitManager:
                                 "pnl": total_pnl,
                             }
 
-                    # BREAKEVEN PROTECTION: Move stop to breakeven when 60%+ to TP
-                    # PARTIAL PROFIT TAKING: Exit 50% when 60%+ to TP (for 2+ contracts)
+                    # BREAKEVEN PROTECTION: Move stop to breakeven when price moves
+                    # ft_breakeven_trigger_pts in favour (default 3 pts / $15 for 1 contract).
+                    #
+                    # MAR 11 2026 Fix #13: Replaced the old "60% to TP AND pnl > $50" gate with a
+                    # simpler point-based trigger so 1-contract overnight trades get protection
+                    # earlier.  Trade 7 (Mar 10) reached +$25 (5 pts) but the old gate required
+                    # pnl > $50 (10 pts) — so it never fired and the full gain reversed to a loss.
+                    #
+                    # Thresholds (configurable via config.yaml):
+                    #   ft_breakeven_trigger_pts: 3.0  → move SL to entry+1 tick once +3 pts
+                    #   ft_profit_lock_pts:       5.0  → same move, but noted separately for logging
+                    # Both thresholds work the same way for a 1-contract position: move SL to BE.
+                    # Partial profit taking (2+ contracts) keeps the original 60%-to-TP logic.
+                    _be_trigger_pts = float(
+                        getattr(
+                            getattr(getattr(self._m, "settings", None), "trading", None),
+                            "ft_breakeven_trigger_pts",
+                            None,
+                        ) or 3.0
+                    )
+                    # MES: $5/pt, so convert pts → dollars for comparison with total_pnl
+                    _be_trigger_usd = _be_trigger_pts * 5.0
+
                     if take_profit is not None and stop_loss is not None:
-                        # Calculate distance to TP
+                        # Calculate distance to TP (still used for partial-profit multi-contract path)
                         if qty > 0:  # Long position
                             tp_distance = take_profit - entry_price
                             current_distance = current_price - entry_price
                             percent_to_tp = (current_distance / tp_distance) * 100 if tp_distance > 0 else 0
 
-                            # Check if we're 60-100% to TP and meaningfully profitable
-                            if 60 <= percent_to_tp < 100 and total_pnl > 50:
+                            # Point-based breakeven trigger (Fix #13) OR 60%-to-TP (existing)
+                            _breakeven_triggered = (
+                                (total_pnl >= _be_trigger_usd)           # new: simpler point-based
+                                or (60 <= percent_to_tp < 100 and total_pnl > 50)  # keep legacy for safety
+                            )
+                            if _breakeven_triggered:
                                 if not hasattr(self._m, "_breakeven_stop_set") or not self._m._breakeven_stop_set:
-                                    # For 2+ contracts: Partial profit taking
+                                    # For 2+ contracts: Partial profit taking (unchanged)
                                     if contracts >= 2:
                                         partial_qty = contracts // 2  # Exit 50%
                                         logger.warning(
@@ -412,8 +437,8 @@ class ExitManager:
                                         breakeven_stop = entry_price + 1.0  # +1 point buffer
                                         if breakeven_stop > stop_loss:
                                             logger.warning(
-                                                f"🔒 BREAKEVEN PROTECTION: {percent_to_tp:.1f}% to TP "
-                                                f"({current_price:.2f}/{take_profit:.2f}). "
+                                                f"🔒 BREAKEVEN PROTECTION (Fix#13): P&L=${total_pnl:.2f} "
+                                                f"(trigger=${_be_trigger_usd:.0f} / {_be_trigger_pts:.1f}pts). "
                                                 f"Moving stop to breakeven +1: {breakeven_stop:.2f}"
                                             )
                                             self._m._breakeven_stop_set = True
@@ -429,9 +454,13 @@ class ExitManager:
                             current_distance = entry_price - current_price
                             percent_to_tp = (current_distance / tp_distance) * 100 if tp_distance > 0 else 0
 
-                            if 60 <= percent_to_tp < 100 and total_pnl > 50:
+                            _breakeven_triggered = (
+                                (total_pnl >= _be_trigger_usd)
+                                or (60 <= percent_to_tp < 100 and total_pnl > 50)
+                            )
+                            if _breakeven_triggered:
                                 if not hasattr(self._m, "_breakeven_stop_set") or not self._m._breakeven_stop_set:
-                                    # For 2+ contracts: Partial profit taking
+                                    # For 2+ contracts: Partial profit taking (unchanged)
                                     if contracts >= 2:
                                         partial_qty = contracts // 2
                                         logger.warning(
@@ -452,8 +481,8 @@ class ExitManager:
                                         breakeven_stop = entry_price - 1.0  # -1 point buffer
                                         if breakeven_stop < stop_loss:
                                             logger.warning(
-                                                f"🔒 BREAKEVEN PROTECTION: {percent_to_tp:.1f}% to TP "
-                                                f"({current_price:.2f}/{take_profit:.2f}). "
+                                                f"🔒 BREAKEVEN PROTECTION (Fix#13): P&L=${total_pnl:.2f} "
+                                                f"(trigger=${_be_trigger_usd:.0f} / {_be_trigger_pts:.1f}pts). "
                                                 f"Moving stop to breakeven -1: {breakeven_stop:.2f}"
                                             )
                                             self._m._breakeven_stop_set = True

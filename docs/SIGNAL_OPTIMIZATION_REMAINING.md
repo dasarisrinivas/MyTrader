@@ -109,29 +109,77 @@ Currently sentiment only penalizes (REDUCE_SIZE at 0.7x, BLOCK). Adding a small 
 
 ---
 
+## ⬜ Phase 5 — Expectancy / Risk-Math Fixes (NEW — Mar 11, 2026)
+
+Identified from live trade analysis (see `docs/daily/2026-03-11.md` Fundamental Takeaway). These are **not** signal-quality fixes — they address the structural R:R and profit-protection math that determines whether the strategy has positive expected value at all.
+
+> At the current running rate: 3W / 5L (37.5% WR) × ~1:1 R:R → **negative expected value per trade**.
+> Regime and signal-quality fixes reduce frequency of bad trades but do not repair the underlying edge.
+
+### Fix #12: Overnight Minimum R:R Gate
+**Priority:** HIGH — directly addresses root cause identified Mar 11
+**Files:** `config.yaml`, `shree/execution/components/order_coordinator.py`
+
+Currently: `min_risk_reward_ratio: 1.0` applies uniformly across all sessions.
+Problem: Overnight pullbacks at 1.03:1 R:R pass the gate but have negative EV at sub-50% win rate.
+
+The current overnight SL/TP setup widens risk without widening reward:
+- `ft_overnight_sl_mult: 1.2` (SL widens to 7.2 pts)
+- `ft_overnight_tp_mult: 1.0` (TP stays at 8.0 pts)
+- Effective overnight R:R ≈ 8.0 / 7.2 = **1.11:1** — barely above the floor
+
+Proposed:
+- Add `ft_overnight_min_rr: 1.7` config param (session-specific R:R floor)
+- When outside RTH, require R:R ≥ 1.7 before placing order
+- To achieve 1.7:1 with a 7.2 pt overnight SL, TP must be ≥ 12.2 pts
+- Either raise `ft_overnight_tp_mult` to ~1.5, or tighten `ft_overnight_sl_mult` back toward 1.0
+
+Break-even WR at 1.7:1 R:R = 1 / (1 + 1.7) ≈ **37%**, which matches current live WR.
+Break-even WR at 2.0:1 R:R = 1 / (1 + 2.0) ≈ **33%**, which gives margin of safety.
+
+### Fix #13: Breakeven / Profit-Lock on Open Trades
+**Priority:** HIGH — prevents giving back unrealized profits (demonstrated by Trade 7, Mar 10)
+**Files:** `shree/execution/components/exit_manager.py`
+
+Currently: There is no trailing stop or breakeven trigger once a trade is open.
+Problem: Trade 7 reached +$25 unrealized (at 11:00 PM) but was stopped out at the original SL (-$36.25) by midnight — a swing of $61.25 from peak.
+
+Proposed:
+- When unrealized P&L exceeds `breakeven_trigger_pts` (e.g. 3.0 pts / $15), move SL to entry + 1 tick (breakeven)
+- When unrealized P&L exceeds `profit_lock_pts` (e.g. 5.0 pts / $25), move SL to lock in 50% of the gain
+- Parameterize separately for overnight vs RTH (overnight could use lower threshold since moves are slower)
+- Example: `ft_breakeven_trigger_pts: 3.0`, `ft_profit_lock_pts: 5.0`, `ft_profit_lock_pct: 0.5`
+
+This is especially important for overnight trades where the bot holds through 1–2 hour reversals.
+
+---
+
 ## Implementation Order (Recommended)
 
-1. **Fix #6** (ATR touch band) — standalone, biggest impact, no dependencies
-2. **Fix #3** (day-type classifier) — enables #7 and #8
-3. **Fix #7** (doji allowance) — requires #3
-4. **Fix #8** (F max cap on trend days) — requires #3
-5. **Fix #9** (OR continuation) — standalone new pattern
-6. **Fix #10** (EMA9/21 relaxation for B) — low risk, standalone
-7. **Fix #11** (sentiment alignment boost) — low risk, standalone
+1. **Fix #12** (overnight R:R gate) — standalone, directly fixes root cause, no dependencies
+2. **Fix #13** (breakeven / profit-lock) — standalone, prevents profit givebacks
+3. **Fix #6** (ATR touch band) — ✅ already deployed Mar 9 as T2 regime-adaptive band
+4. **Fix #3** (day-type classifier) — enables #7 and #8
+5. **Fix #7** (doji allowance) — requires #3
+6. **Fix #8** (F max cap on trend days) — requires #3
+7. **Fix #9** (OR continuation) — standalone new pattern
+8. **Fix #10** (EMA9/21 relaxation for B) — low risk, standalone
+9. **Fix #11** (sentiment alignment boost) — low risk, standalone
 
 ---
 
 ## Timeline & Decision Gates
 
-| Date | Milestone | Action |
-|---|---|---|
-| **Mar 3** | Phase 1+2 deployed live | Monitor signal fire rate, VX additive behavior, hybrid dampen |
-| **Mar 3–14** | Observation period | Collect data: trades/day, near-miss diagnostics, VX adjustments |
-| **Mar 10** | Touch-band review | Run `grep "A:low.*>touch\|D:high.*<touch" logs/live_trading.log \| wc -l`. If 10+ near-misses → implement **Fix #6 (ATR touch band)** immediately |
-| **Mar 17** | 2-week review | Evaluate: Is trade frequency ≥ 2/day? If YES → Phase 3 is lower priority. If NO → start **Fix #3 (day-type classifier)** |
-| **Mar 24** | Phase 3 checkpoint | If Phase 3 started: deploy Fix #3, then #7 and #8. If not needed: skip to Phase 4 evaluation |
-| **Apr 1** | Phase 4 evaluation | Only if signal variety is insufficient after Phase 3. Start with **Fix #9 (OR continuation)** |
-| **Ongoing** | Skip Phase 3+4 entirely if | Phase 1+2 achieves 2+ trades/day consistently with ~45-50% win rate |
+| Date | Milestone | Status | Action |
+|---|---|---|---|
+| **Mar 3** | Phase 1+2 deployed live | ✅ Done | Monitor signal fire rate, VX additive behavior, hybrid dampen |
+| **Mar 3–14** | Observation period | ✅ Done | Data collected — see Mar 11 findings below |
+| **Mar 10** | Touch-band review | ✅ Closed — Fix #6 already deployed Mar 9 | Near-miss count: **240 total** in live log. T2 regime-adaptive touch band active. |
+| **Mar 11** | Expectancy analysis | ✅ Added Fix #12 + Fix #13 | Root-cause review: trades/day since go-live = **1.40/day**. Since Mar 9 = **2.00/day**. Near-miss count = 240. VX penalty on pullbacks firing correctly at -0.05. **New structural issue found:** negative EV at ~1:1 R:R + 37.5% WR. Fix #12 (overnight R:R gate) and Fix #13 (breakeven/profit-lock) added. |
+| **Mar 17** | 2-week review | ⏳ Upcoming | Evaluate: Is trade frequency ≥ 2/day? Current: 2.00/day since Mar 9 (exactly at threshold). **Recommendation: start Fix #12 + Fix #13 now (expectancy fixes). Hold Fix #3 until Mar 17 review.** If trades/day drops below 2 again → start Fix #3 (day-type classifier). |
+| **Mar 24** | Phase 3 checkpoint | ⏳ Pending | If Phase 3 started: deploy Fix #3, then #7 and #8. If not needed: skip to Phase 4 evaluation |
+| **Apr 1** | Phase 4 evaluation | ⏳ Pending | Only if signal variety is insufficient after Phase 3. Start with **Fix #9 (OR continuation)** |
+| **Ongoing** | Skip Phase 3+4 entirely if | — | Phase 1+2 achieves 2+ trades/day consistently with ~45-50% win rate |
 
 ### Quick Decision Commands
 ```bash

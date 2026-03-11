@@ -208,7 +208,13 @@ class EsFifteenMinStrategy(BaseStrategy):
         # out good setups; TP is tightened because overnight moves extend less.
         # Signal G (London) is excluded — it already has its own calibrated stops.
         self._overnight_sl_mult: float = getattr(config, 'ft_overnight_sl_mult', 1.2)
-        self._overnight_tp_mult: float = getattr(config, 'ft_overnight_tp_mult', 0.85)
+        self._overnight_tp_mult: float = getattr(config, 'ft_overnight_tp_mult', 1.5)  # MAR 11 2026: raised from 0.85 → 1.5
+        # MAR 11 2026 Fix #12: Hard minimum R:R for overnight trades.
+        # After overnight scaling, a trade that still doesn't meet this floor is HOLD'd.
+        # At 1.2× SL and 1.5× TP: R:R = (8×1.5)/(6×1.2) = 12/7.2 = 1.67:1
+        # Break-even WR at 1.67:1 = 1/(1+1.67) = 37.5% — matches current live rate,
+        # so the floor ensures any improvement in WR directly converts to profit.
+        self._overnight_min_rr: float = float(getattr(config, 'ft_overnight_min_rr', 1.5) or 1.5)
         # Core RTH bounds used ONLY for detecting whether to apply overnight scaling.
         # These are hardcoded to true RTH hours regardless of the session-gate config.
         self._core_rth_start: time = time(9, 30)
@@ -677,7 +683,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Signals A/B/C/D/E/F are calibrated for RTH liquidity.  Outside core
         # RTH (9:30-16:00 ET) the noise band is wider and moves extend less:
         #   SL × overnight_sl_mult (1.2) — survive overnight wicks
-        #   TP × overnight_tp_mult (0.85) — capture in thinner markets
+        #   TP × overnight_tp_mult (1.5) — wider TP to match and improve R:R
         # Signal G is excluded — it fires before this block and returns early.
         _et_t = et_time.time()
         _is_core_rth = self._core_rth_start <= _et_t < self._core_rth_end
@@ -691,6 +697,22 @@ class EsFifteenMinStrategy(BaseStrategy):
                 stop_loss = close + _sl_pts * self._overnight_sl_mult
                 take_profit = close - _tp_pts * self._overnight_tp_mult
             reason = f"{reason} | ONAdj(SL×{self._overnight_sl_mult:.2f},TP×{self._overnight_tp_mult:.2f})"
+
+        # MAR 11 2026 Fix #12: Overnight minimum R:R gate.
+        # After scaling, compute actual R:R and block trades that don't meet the floor.
+        # This catches edge cases where ATR-adaptive SL (signals C/F) or proximity
+        # signals (A-prime/D-prime) produce a sub-floor R:R even after overnight scaling.
+        if not _is_core_rth and self._overnight_min_rr > 0:
+            _scaled_sl = abs(close - stop_loss)
+            _scaled_tp = abs(take_profit - close)
+            _actual_rr = _scaled_tp / _scaled_sl if _scaled_sl > 0 else 0.0
+            if _actual_rr < self._overnight_min_rr:
+                logger.info(
+                    f"🚫 OVERNIGHT_RR_GATE: R:R {_actual_rr:.2f} < floor {self._overnight_min_rr:.2f} "
+                    f"(SL={_scaled_sl:.1f}pts, TP={_scaled_tp:.1f}pts) | {reason}"
+                )
+                self._prev_close = close
+                return Signal("HOLD", 0.0, {"reason": f"OVERNIGHT_RR_BELOW_FLOOR | rr={_actual_rr:.2f} floor={self._overnight_min_rr:.2f}"})
         _session_type = (
             "RTH" if _is_core_rth
             else "OVERNIGHT" if (_et_t >= time(23, 0) or _et_t < time(9, 30))

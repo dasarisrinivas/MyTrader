@@ -1,0 +1,31 @@
+{
+  "trade_cycle_id": "cea9a4826806",
+  "symbol": "MES",
+  "contract": "MES",
+  "quantity": 1,
+  "side": "SELL",
+  "entry_time": "2026-03-11T05:15:21.182638-05:00",
+  "entry_price": 6787.0,
+  "exit_time": "2026-03-11T10:35:10.713930+00:00",
+  "exit_price": 6793.75,
+  "stop_loss": 6794.0,
+  "take_profit": 6778.75,
+  "signal_type": "SELL",
+  "signal_confidence": 0.7749999999999999,
+  "regime": "DOWNTREND",
+  "volatility": "MEDIUM",
+  "advisory": null,
+  "risk_parameters": {
+    "distance_points": 7.0,
+    "target_points": 8.25
+  },
+  "features": {},
+  "execution_metrics": {
+    "slippage": 0.0,
+    "latency_ms": null,
+    "immediate_fill": false
+  },
+  "reason_codes": [],
+  "outcome": "BREAKEVEN",
+  "pnl": 0.0
+}

@@ -1,0 +1,31 @@
+{
+  "trade_cycle_id": "dc4dac59e2d5",
+  "symbol": "MES",
+  "contract": "MES",
+  "quantity": 1,
+  "side": "BUY",
+  "entry_time": "2026-03-10T22:15:31.634365-05:00",
+  "entry_price": 6816.5,
+  "exit_time": "2026-03-11T05:09:06.782223+00:00",
+  "exit_price": 6809.25,
+  "stop_loss": 6809.0,
+  "take_profit": 6824.25,
+  "signal_type": "BUY",
+  "signal_confidence": 0.7614999999999998,
+  "regime": "UPTREND",
+  "volatility": "MEDIUM",
+  "advisory": null,
+  "risk_parameters": {
+    "distance_points": 7.5,
+    "target_points": 7.75
+  },
+  "features": {},
+  "execution_metrics": {
+    "slippage": 0.0,
+    "latency_ms": null,
+    "immediate_fill": false
+  },
+  "reason_codes": [],
+  "outcome": "BREAKEVEN",
+  "pnl": 0.0
+}
