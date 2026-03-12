@@ -1259,6 +1259,42 @@ TRADING GUIDANCE:
             direction: "LONG" or "SHORT"
             pnl: Realized P&L
         """
+        # Fix #14 (MAR 12 2026): Consecutive-loss cooldown.
+        # After ft_consecutive_loss_trigger (default 3) SL hits in a row,
+        # impose an extended cooldown of cooldown_on_consecutive_losses_minutes (default 30).
+        # Resets on any win or breakeven.
+        #
+        # NOTE: IB often reports 0.0 via finalize_trade_exit ("no root order" bug).
+        # The real P&L is computed in order_coordinator.finalize_trade (price fallback)
+        # and re-invokes this method with the correct value. Skip the consecutive-loss
+        # accounting when pnl==0.0 to avoid the false-reset that would otherwise fire
+        # from the first (zero-pnl) call from LTM's position-transition path.
+        _trading_cfg = getattr(getattr(self, "settings", None), "trading", None)
+        _loss_trigger = int(getattr(_trading_cfg, "ft_consecutive_loss_trigger", 3))
+        _loss_cooldown_mins = int(getattr(_trading_cfg, "cooldown_on_consecutive_losses_minutes", 30))
+        if pnl != 0.0:
+            if pnl < 0:
+                self._consecutive_loss_count = getattr(self, "_consecutive_loss_count", 0) + 1
+                logger.warning(
+                    f"📉 Consecutive losses: {self._consecutive_loss_count} "
+                    f"(trigger at {_loss_trigger})"
+                )
+                if self._consecutive_loss_count >= _loss_trigger:
+                    self._extra_cooldown_until = (
+                        datetime.now(timezone.utc) + timedelta(minutes=_loss_cooldown_mins)
+                    )
+                    logger.warning(
+                        f"🚫 CONSECUTIVE_LOSS_COOLDOWN: {self._consecutive_loss_count} losses "
+                        f"→ blocking entries for {_loss_cooldown_mins} min "
+                        f"(until {self._extra_cooldown_until.strftime('%H:%M:%S')} UTC)"
+                    )
+            else:
+                if getattr(self, "_consecutive_loss_count", 0) > 0:
+                    logger.info(
+                        f"✅ Consecutive loss streak reset (was {self._consecutive_loss_count})"
+                    )
+                self._consecutive_loss_count = 0
+
         if hasattr(self, "signal_processor") and self.signal_processor:
             self.signal_processor.notify_position_closed(
                 close_reason=close_reason,
@@ -1269,7 +1305,7 @@ TRADING GUIDANCE:
                 f"📊 MTF Gate notified of position close: {direction} {close_reason} "
                 f"(pnl=${pnl:.2f})"
             )
-    
+
     def _notify_position_opened(self, direction: str) -> None:
         """Notify signal processor about position open.
         
@@ -1312,6 +1348,15 @@ TRADING GUIDANCE:
                 f"Entry blocked: waiting for {self._startup_completed_bars}/{self._startup_min_completed_bars} completed bars after startup"
             )
             return True
+        # Fix #14: Consecutive-loss cooldown extended block
+        _extra_until = getattr(self, "_extra_cooldown_until", None)
+        if _extra_until and datetime.now(timezone.utc) < _extra_until:
+            remaining_m = (_extra_until - datetime.now(timezone.utc)).total_seconds() / 60
+            logger.warning(
+                f"Entry blocked: consecutive-loss cooldown {remaining_m:.0f}m remaining"
+            )
+            return True
+
         # Order lock
         if self.executor and self.executor.is_order_locked():
             logger.info("Entry blocked: order lock active ({})", self.executor.get_order_lock_reason())

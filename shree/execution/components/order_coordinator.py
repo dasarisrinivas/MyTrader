@@ -147,6 +147,28 @@ class OrderCoordinator:
         ctx = self.manager._open_trade_context
         direction = 1 if ctx.get("is_long") else -1
         contract = getattr(self.manager.settings.data, "ibkr_symbol", "ES")
+
+        # IB's commissionReport.realizedPNL is often 0.0 for bracket child fills
+        # (SL/TP orders), because the commission report arrives before the P&L
+        # settlement. Fall back to computing P&L from entry/exit prices.
+        if realized_pnl == 0.0 and ctx.get("entry_price") and exit_price:
+            _side = ctx.get("action", "")
+            _qty = ctx.get("quantity", 1) or 1
+            _point_value = float(getattr(
+                getattr(getattr(self.manager, "settings", None), "trading", None),
+                "point_value", 5.0,
+            ) or 5.0)
+            if _side == "BUY":
+                realized_pnl = (exit_price - ctx["entry_price"]) * _qty * _point_value
+            elif _side == "SELL":
+                realized_pnl = (ctx["entry_price"] - exit_price) * _qty * _point_value
+            if realized_pnl != 0.0:
+                logger.info(
+                    f"💡 PnL fallback: IB reported 0 — computed from prices: "
+                    f"{_side} entry={ctx['entry_price']:.2f} exit={exit_price:.2f} "
+                    f"→ pnl=${realized_pnl:.2f}"
+                )
+
         payload = TradeLearningPayload(
             trade_cycle_id=ctx["cycle_id"],
             symbol=contract,
@@ -197,6 +219,24 @@ class OrderCoordinator:
         self.manager._cycle_context.pop(payload.trade_cycle_id, None)
         if self.manager._current_entry_cycle_id == payload.trade_cycle_id:
             self.manager._current_entry_cycle_id = None
+
+        # Fix #14 hook (MAR 12 2026): Feed the real computed P&L into
+        # _notify_position_closed so the consecutive-loss cooldown works
+        # correctly.  IB often reports 0.0 via finalize_trade_exit (the
+        # "no root order" bug), so LTM's position-transition path calls
+        # _notify_position_closed(pnl=0.0) — Fix #14's `if pnl < 0` never
+        # fires.  Here we have the price-fallback P&L, so we re-invoke with
+        # the correct value.
+        try:
+            if hasattr(self.manager, "_notify_position_closed"):
+                _direction = "LONG" if payload.side == "BUY" else "SHORT"
+                self.manager._notify_position_closed(
+                    close_reason=payload.outcome,
+                    direction=_direction,
+                    pnl=realized_pnl,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"_notify_position_closed hook skipped: {exc}")
 
     async def handle_order_fill(self, trade, fill) -> None:
         """Handle execution details to persist fills and outcomes."""
