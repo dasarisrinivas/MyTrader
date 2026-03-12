@@ -1,7 +1,7 @@
 {
-  "cme_session_date": "2026-03-10",
+  "cme_session_date": "2026-03-11",
   "or_break_long": 0,
-  "or_break_short": 0,
+  "or_break_short": 1,
   "trend_cont_long": 0,
   "trend_cont_short": 0,
   "proximity_long": 0,
