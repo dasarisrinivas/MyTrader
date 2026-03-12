@@ -56,6 +56,50 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 export SHREE_CONFIG_FILE="$CONFIG_FILE"
+
+# ── Economic calendar check ──────────────────────────────────────────
+# Warn if today is a high-impact release day and HIGH_IMPACT_DATES is unset.
+# Covered events (8:30 AM ET releases that whipsaw OR signals at the open):
+#   CPI  — day 10-15 of month
+#   NFP  — first Friday of month
+#   Core PCE — last Friday of month
+#   FOMC — Wednesday in Jan/Mar/May/Jun/Jul/Sep/Nov/Dec (approximate)
+_TODAY_DOW=$("$PYTHON_BIN" -c "import datetime; print(datetime.date.today().strftime('%u %d %m %A'))")
+_DAY_NUM=$(echo $_TODAY_DOW | awk '{print $2}')
+_MONTH_NUM=$(echo $_TODAY_DOW | awk '{print $3}')
+_DOW=$(echo $_TODAY_DOW | awk '{print $1}')   # 1=Mon … 5=Fri … 7=Sun
+
+_ECON_EVENT=""
+# CPI window: day 10-15
+if [ "$_DAY_NUM" -ge 10 ] 2>/dev/null && [ "$_DAY_NUM" -le 15 ] 2>/dev/null; then
+    _ECON_EVENT="📰 CPI release likely today (day ${_DAY_NUM})"
+fi
+# NFP: first Friday (day 1-7)
+if [ "$_DOW" -eq 5 ] 2>/dev/null && [ "$_DAY_NUM" -le 7 ] 2>/dev/null; then
+    _ECON_EVENT="📰 NFP (Non-Farm Payroll) likely today (first Friday)"
+fi
+# FOMC: Wednesday in key months
+if [ "$_DOW" -eq 3 ] 2>/dev/null; then
+    case "$_MONTH_NUM" in 01|03|05|06|07|09|11|12)
+        _ECON_EVENT="📰 Possible FOMC Wednesday (month ${_MONTH_NUM})"
+    ;; esac
+fi
+
+if [ -n "$_ECON_EVENT" ]; then
+    if [ -z "$HIGH_IMPACT_DATES" ]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  ECONOMIC RELEASE DAY WARNING${NC}"
+        echo -e "   ${_ECON_EVENT}"
+        echo -e "   The bot will auto-block 8:00–10:00 AM ET (heuristic window)."
+        echo -e "   To block ALL entries today, restart with:"
+        echo -e "   ${BLUE}HIGH_IMPACT_DATES=$(date +%Y-%m-%d) . start_bot.sh${NC}"
+        echo ""
+    else
+        echo -e "${GREEN}✅ HIGH_IMPACT_DATES set: ${HIGH_IMPACT_DATES} — full-day entry block active${NC}"
+    fi
+fi
+# ── End economic calendar check ─────────────────────────────────────
+
 CONFIG_VALUES=$("$PYTHON_BIN" - <<'PY'
 import os
 import yaml

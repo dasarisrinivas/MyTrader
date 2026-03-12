@@ -336,23 +336,33 @@ class MarketRegimeFilter:
         import calendar as _cal
         
         # ── Manual override dates (from config or env HIGH_IMPACT_DATES) ──
+        # MAR 12 2026: Extended post-release window to 10:00 AM ET.
+        # Rationale: CPI/NFP at 8:30 ET causes market whipsaw through the
+        # full RTH open period (9:30 ET open + 30 min). Previous 9:15 ET
+        # cutoff left the bot exposed to post-open continuation spikes.
         if self._high_impact_override_dates and dt_et.date() in self._high_impact_override_dates:
-            if time(8, 0) <= current_time <= time(9, 15):
+            if time(8, 0) <= current_time <= time(10, 0):
                 logger.info(f"🚫 High-impact event: manual override for {dt_et.date()}")
                 return True
-        
-        # ── 8:30 AM ET window (block 8:00 – 9:15 AM ET) ──────────────
-        if time(8, 0) <= current_time <= time(9, 15):
+
+        # ── 8:30 AM ET window (block 8:00 – 10:00 AM ET) ─────────────
+        # MAR 12 2026: Extended from 9:15 → 10:00 AM ET.
+        # 8:30 releases (CPI, NFP, PCE, GDP) drive volatility through the
+        # 9:30 RTH open and the first 30 min of cash trading.  Entering at
+        # 9:00–9:30 ET (8:00–8:30 CST) on these days is the highest-risk
+        # window — OR breakout signals fire on the post-release spike which
+        # then reverses sharply once the initial reaction exhausts.
+        if time(8, 0) <= current_time <= time(10, 0):
             # NFP — First Friday of month, 8:30 AM ET
             if dt_et.day <= 7 and dt_et.weekday() == 4:
                 logger.info("🚫 High-impact event: NFP (first Friday)")
                 return True
-            
+
             # CPI — Typically 10th-15th of month, 8:30 AM ET
             if 10 <= dt_et.day <= 15:
                 logger.info("🚫 High-impact event: CPI window (mid-month)")
                 return True
-            
+
             # Core PCE — Last Friday of month, 8:30 AM ET
             # Detect last Friday: the next Friday would be in the next month
             if dt_et.weekday() == 4:  # Friday
@@ -360,7 +370,7 @@ class MarketRegimeFilter:
                 if dt_et.day + 7 > month_last_day:
                     logger.info("🚫 High-impact event: Core PCE (last Friday)")
                     return True
-            
+
             # GDP Advance Estimate — Typically last week of month, 8:30 AM ET
             _, month_last_day = _cal.monthrange(dt_et.year, dt_et.month)
             if dt_et.day >= month_last_day - 6:
