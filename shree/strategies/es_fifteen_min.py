@@ -233,6 +233,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._trend_sl_floor: float = getattr(config, 'ft_trend_sl_floor_pts', 6.0)
         self._trend_sl_ceiling: float = getattr(config, 'ft_trend_sl_ceiling_pts', 20.0)
         self._trend_rr_ratio: float = getattr(config, 'ft_trend_rr_ratio', 1.25)
+        # MAR 12 2026 Fix #16: Trend exhaustion guard for TREND_CONT signals.
+        # Block TREND_CONT when session has already moved > N×ATR from OR midpoint.
+        self._trend_exhaustion_atr_multiple: float = float(
+            getattr(config, 'ft_trend_exhaustion_atr_multiple', 8.0) or 8.0
+        )
 
         # FEB 13 2026: Trend continuation signal (Signal F) — captures
         # strong rally / selloff days when price runs away from EMA21
@@ -1366,6 +1371,25 @@ class EsFifteenMinStrategy(BaseStrategy):
         if self._trend_cont_long_count >= self._trend_cont_max_per_day:
             return None
 
+        # Fix #16 (MAR 12 2026): Trend exhaustion guard.
+        # Block TREND_CONT_LONG when the session has already moved > N×ATR
+        # from the OR midpoint — price is overextended, not a continuation entry.
+        _exhaustion_mult = getattr(self, "_trend_exhaustion_atr_multiple", 8.0)
+        _or_computed = getattr(self, "_or_computed", False)
+        _or_high = getattr(self, "_or_high", 0.0)
+        _or_low = getattr(self, "_or_low", 0.0)
+        if _exhaustion_mult > 0 and _or_computed and _or_high > 0 and atr > 0:
+            _session_ref = (_or_high + _or_low) / 2.0
+            _session_move = close - _session_ref  # positive = upside move
+            _move_in_atr = abs(_session_move) / atr
+            if _move_in_atr > _exhaustion_mult:
+                logger.info(
+                    f"TREND_EXHAUSTION_LONG: move={_session_move:+.1f}pts "
+                    f"({_move_in_atr:.1f}×ATR) > {_exhaustion_mult}×ATR threshold — "
+                    f"blocking TREND_CONT_LONG"
+                )
+                return None
+
         # 1. Full EMA stack
         if not (ema9 > ema21 > ema50):
             return None
@@ -1464,6 +1488,25 @@ class EsFifteenMinStrategy(BaseStrategy):
         # 8. Daily limit
         if self._trend_cont_short_count >= self._trend_cont_max_per_day:
             return None
+
+        # Fix #16 (MAR 12 2026): Trend exhaustion guard.
+        # Block TREND_CONT_SHORT when the session has already moved > N×ATR
+        # from the OR midpoint — the selloff is spent, not a continuation entry.
+        _exhaustion_mult = getattr(self, "_trend_exhaustion_atr_multiple", 8.0)
+        _or_computed = getattr(self, "_or_computed", False)
+        _or_high = getattr(self, "_or_high", 0.0)
+        _or_low = getattr(self, "_or_low", 0.0)
+        if _exhaustion_mult > 0 and _or_computed and _or_high > 0 and atr > 0:
+            _session_ref = (_or_high + _or_low) / 2.0
+            _session_move = _session_ref - close  # positive = downside move
+            _move_in_atr = abs(_session_move) / atr
+            if _move_in_atr > _exhaustion_mult:
+                logger.info(
+                    f"TREND_EXHAUSTION_SHORT: move={_session_move:+.1f}pts "
+                    f"({_move_in_atr:.1f}×ATR) > {_exhaustion_mult}×ATR threshold — "
+                    f"blocking TREND_CONT_SHORT"
+                )
+                return None
 
         # 1. Full EMA stack (bearish)
         if not (ema9 < ema21 < ema50):
