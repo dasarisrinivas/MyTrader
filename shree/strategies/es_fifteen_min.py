@@ -177,6 +177,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         # requires price to retest the OR level before re-triggering — a high-
         # probability pattern when the initial OR break confirms the trend.
         self._or_break_max_per_day: int = getattr(config, 'ft_or_break_max_per_day', 2)
+        # MAR 12 2026 Fix A: RSI guards on OR signals
+        # OR_BREAK_SHORT: block if RSI < threshold (already oversold → high bounce risk)
+        # OR_BREAK_LONG:  block if RSI > threshold (already overbought → high reversal risk)
+        self._or_break_short_rsi_min: float = getattr(config, 'ft_or_break_short_rsi_min', 40.0)
+        self._or_break_long_rsi_max: float = getattr(config, 'ft_or_break_long_rsi_max', 60.0)
 
         # FEB 18 2026: Fixed-point take-profit system
         # FEB 19 2026: Fixed-point stop-loss system (matching TP for consistent R:R)
@@ -219,6 +224,15 @@ class EsFifteenMinStrategy(BaseStrategy):
         # These are hardcoded to true RTH hours regardless of the session-gate config.
         self._core_rth_start: time = time(9, 30)
         self._core_rth_end: time = time(16, 0)
+
+        # MAR 12 2026: ATR-adaptive stops for OR_BREAK signals (B/E)
+        # Root cause of 3 losses today: ATR=10-12pt, fixed SL=6pt → sub-ATR stop = noise-band stop.
+        # Fix: SL = clamp(ATR × 0.75, floor=6, ceiling=12), TP = SL × rr_ratio (default 1.33)
+        # At ATR=10: SL=7.5pt → above noise, TP=10pt. At ATR=6: SL=6pt (floor), TP=8pt.
+        self._or_break_sl_atr_mult: float = getattr(config, 'ft_or_break_sl_atr_mult', 0.75)
+        self._or_break_sl_floor: float = getattr(config, 'ft_or_break_sl_floor_pts', 6.0)
+        self._or_break_sl_ceiling: float = getattr(config, 'ft_or_break_sl_ceiling_pts', 12.0)
+        self._or_break_rr_ratio: float = getattr(config, 'ft_or_break_rr_ratio', 1.33)
 
         # FEB 24 2026: ATR-adaptive stops/targets for Signal F (TREND_CONT)
         # Backtest analysis (252 trades, Feb 2025 – Jan 2026):
@@ -487,7 +501,7 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         # ---- Signal B: OR Breakout Long ----
         signal_b = self._check_or_breakout(
-            close, high, ema9, ema21, atr, adx, macd_hist,
+            close, high, ema9, ema21, atr, adx, macd_hist, rsi,
         )
 
         # ---- Signal C: EMA9 Pullback Long (faster trend) ----
@@ -515,7 +529,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         signal_e = None
         if self._shorts_enabled:
             signal_e = self._check_or_breakdown(
-                close, low, ema9, ema21, atr, adx, macd_hist,
+                close, low, ema9, ema21, atr, adx, macd_hist, rsi,
             )
 
         # ---- Signal F: Trend Continuation (strong momentum days) ----
@@ -880,6 +894,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self, close: float, high: float,
         ema9: float, ema21: float, atr: float, adx: float,
         macd_hist: float = 0.0,
+        rsi: float = 50.0,
     ) -> Optional[tuple]:
         """
         Opening Range breakout long (up to N per day, default 2).
@@ -920,16 +935,26 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx > self._adx_max:
             return None
 
+        # MAR 12 2026 Fix A: RSI overbought guard — don't buy breakout into overbought
+        if rsi > self._or_break_long_rsi_max:
+            logger.info(
+                f"OR_BREAK_LONG blocked: RSI={rsi:.1f} > {self._or_break_long_rsi_max:.0f} (overbought)"
+            )
+            return None
+
         # ---- Compute stops/targets ----
-        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
-        stop_loss = close - self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
-        take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
+        # MAR 12 2026: ATR-adaptive SL — fixed 6pt SL at ATR=10-12 is sub-ATR (noise band).
+        # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio
+        sl_pts = min(self._or_break_sl_ceiling, max(self._or_break_sl_floor, atr * self._or_break_sl_atr_mult))
+        tp_pts = round(sl_pts * self._or_break_rr_ratio * 4) / 4  # round to 0.25-pt tick
+        stop_loss = close - sl_pts
+        take_profit = close + tp_pts
 
         self._or_break_long_count += 1
         self._save_counters()
 
         tag = "" if self._or_break_long_count == 1 else f" | retest#{self._or_break_long_count}"
-        reason = f"OR_BREAK_LONG | ADX={adx:.0f} | OR_H={self._or_high:.2f}{tag}"
+        reason = f"OR_BREAK_LONG | ADX={adx:.0f} | OR_H={self._or_high:.2f} | SL={sl_pts:.1f}pt | TP={tp_pts:.1f}pt{tag}"
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -1282,6 +1307,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self, close: float, low: float,
         ema9: float, ema21: float, atr: float, adx: float,
         macd_hist: float = 0.0,
+        rsi: float = 50.0,
     ) -> Optional[tuple]:
         """
         Opening Range breakdown short (up to N per day, default 2).
@@ -1321,16 +1347,26 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx > self._adx_max:
             return None
 
+        # MAR 12 2026 Fix A: RSI oversold guard — don't short breakdown into oversold
+        if rsi < self._or_break_short_rsi_min:
+            logger.info(
+                f"OR_BREAK_SHORT blocked: RSI={rsi:.1f} < {self._or_break_short_rsi_min:.0f} (oversold — high bounce risk)"
+            )
+            return None
+
         # ---- Compute stops/targets (inverted) ----
-        # FEB 19 2026: Fixed-point SL/TP for consistent R:R
-        stop_loss = close + self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
-        take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
+        # MAR 12 2026: ATR-adaptive SL — fixed 6pt SL at ATR=10-12 is sub-ATR (noise band).
+        # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio
+        sl_pts = min(self._or_break_sl_ceiling, max(self._or_break_sl_floor, atr * self._or_break_sl_atr_mult))
+        tp_pts = round(sl_pts * self._or_break_rr_ratio * 4) / 4  # round to 0.25-pt tick
+        stop_loss = close + sl_pts
+        take_profit = close - tp_pts
 
         self._or_break_short_count += 1
         self._save_counters()
 
         tag = "" if self._or_break_short_count == 1 else f" | retest#{self._or_break_short_count}"
-        reason = f"OR_BREAK_SHORT | ADX={adx:.0f} | OR_L={self._or_low:.2f}{tag}"
+        reason = f"OR_BREAK_SHORT | ADX={adx:.0f} | OR_L={self._or_low:.2f} | SL={sl_pts:.1f}pt | TP={tp_pts:.1f}pt{tag}"
         return ("SELL", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------

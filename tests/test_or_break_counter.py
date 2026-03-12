@@ -50,6 +50,18 @@ def _make_strategy(or_break_max=2, adx_min=20.0, adx_max=999.0,
     strat._fixed_sl_points = fixed_sl
     strat._fixed_tp_points = fixed_tp
 
+    # MAR 12 2026: ATR-adaptive OR_BREAK SL/TP params
+    strat._or_break_sl_atr_mult = 0.75
+    strat._or_break_sl_floor = 6.0
+    strat._or_break_sl_ceiling = 12.0
+    strat._or_break_rr_ratio = 1.33
+
+    # RSI guards (MAR 12 2026 Fix A)
+    strat._or_break_short_rsi_min = 40.0
+    strat._or_break_long_rsi_max = 60.0
+
+    strat._save_counters = lambda: None
+
     return strat
 
 
@@ -254,7 +266,7 @@ class TestORBreakStopTarget:
     """SL/TP are computed correctly on OR break signals."""
 
     def test_long_sl_tp(self):
-        """Signal B: SL = close - 6, TP = close + 8."""
+        """Signal B: SL/TP are ATR-adaptive. ATR=10 → sl_pts=7.5, tp_pts=10.0."""
         strat = _make_strategy(fixed_sl=6.0, fixed_tp=8.0)
         strat._prev_close = 6949.00
         result = strat._check_or_breakout(
@@ -264,11 +276,12 @@ class TestORBreakStopTarget:
         )
         assert result is not None
         _, sl, tp, _ = result
-        assert sl == pytest.approx(6945.00)  # 6951 - 6
-        assert tp == pytest.approx(6959.00)  # 6951 + 8
+        # ATR=10: sl_pts = clamp(10*0.75, 6, 12) = 7.5; tp_pts = round(7.5*1.33*4)/4 = 10.0
+        assert sl == pytest.approx(6943.50)  # 6951 - 7.5
+        assert tp == pytest.approx(6961.00)  # 6951 + 10.0
 
     def test_short_sl_tp(self):
-        """Signal E: SL = close + 6, TP = close - 8."""
+        """Signal E: SL/TP are ATR-adaptive. ATR=10 → sl_pts=7.5, tp_pts=10.0."""
         strat = _make_strategy(fixed_sl=6.0, fixed_tp=8.0)
         strat._prev_close = 6941.00
         result = strat._check_or_breakdown(
@@ -278,8 +291,9 @@ class TestORBreakStopTarget:
         )
         assert result is not None
         _, sl, tp, _ = result
-        assert sl == pytest.approx(6945.00)  # 6939 + 6
-        assert tp == pytest.approx(6931.00)  # 6939 - 8
+        # ATR=10: sl_pts = clamp(10*0.75, 6, 12) = 7.5; tp_pts = round(7.5*1.33*4)/4 = 10.0
+        assert sl == pytest.approx(6946.50)  # 6939 + 7.5
+        assert tp == pytest.approx(6929.00)  # 6939 - 10.0
 
 
 # ===========================================================================
