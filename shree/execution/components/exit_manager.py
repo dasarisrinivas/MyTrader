@@ -388,17 +388,24 @@ class ExitManager:
                     # pnl > $50 (10 pts) — so it never fired and the full gain reversed to a loss.
                     #
                     # Thresholds (configurable via config.yaml):
-                    #   ft_breakeven_trigger_pts: 3.0  → move SL to entry+1 tick once +3 pts
-                    #   ft_profit_lock_pts:       5.0  → same move, but noted separately for logging
+                    #   ft_breakeven_trigger_pts:         3.0  → RTH: move SL to entry+1 tick once +3 pts
+                    #   ft_overnight_breakeven_trigger_pts: 2.0 → Fix #15: tighter trigger outside RTH
                     # Both thresholds work the same way for a 1-contract position: move SL to BE.
                     # Partial profit taking (2+ contracts) keeps the original 60%-to-TP logic.
-                    _be_trigger_pts = float(
-                        getattr(
-                            getattr(getattr(self._m, "settings", None), "trading", None),
-                            "ft_breakeven_trigger_pts",
-                            None,
-                        ) or 3.0
-                    )
+                    _trading_cfg = getattr(getattr(self._m, "settings", None), "trading", None)
+                    _rth_be_pts = float(getattr(_trading_cfg, "ft_breakeven_trigger_pts", None) or 3.0)
+                    # Fix #15 (MAR 12 2026): use tighter trigger during overnight/evening sessions
+                    try:
+                        _et_now_t = datetime.now(ET).time()
+                        _is_rth = time(9, 30) <= _et_now_t < time(16, 0)
+                    except Exception:
+                        _is_rth = True
+                    if _is_rth:
+                        _be_trigger_pts = _rth_be_pts
+                    else:
+                        _be_trigger_pts = float(
+                            getattr(_trading_cfg, "ft_overnight_breakeven_trigger_pts", None) or 2.0
+                        )
                     # MES: $5/pt, so convert pts → dollars for comparison with total_pnl
                     _be_trigger_usd = _be_trigger_pts * 5.0
 
@@ -545,6 +552,24 @@ class ExitManager:
         # to maintain parity with the validated backtest.
         # ──────────────────────────────────────────────────────────────
         is_15m = getattr(self._m, "_active_timeframe", "1m") == "15m"
+
+        # ──────────────────────────────────────────────────────────────
+        # MAR 12 2026: 15m SIGNAL FLIP EXIT
+        #
+        # When a position is open, evaluate the current EMA9/EMA21
+        # crossover and MACD histogram to detect a directional reversal.
+        # If indicators flip against the position and we have minimum
+        # open profit, exit at market instead of waiting for full
+        # trend reversal to hit the stop loss.
+        #
+        # Config:
+        #   ft_trend_flip_exit_enabled: true/false (default: false)
+        #   ft_trend_flip_exit_min_profit_pts: float (default: 2.0)
+        # ──────────────────────────────────────────────────────────────
+        if is_15m:
+            flip_exit = self._check_15m_signal_flip_exit(qty, current_price, total_pnl, contracts)
+            if flip_exit:
+                return flip_exit
 
         if not is_15m:
             # Trend-based exit: if trend flips against position
@@ -710,8 +735,8 @@ class ExitManager:
                 return False
         logger.info("🔄 Executing position exit: {} {} (reason={}, pnl={:.2f})", action, quantity, reason, pnl)
         try:
-            # If this is a profit protection exit, cancel the TP bracket order first
-            if reason == "PROFIT_PROTECTION" and self.executor:
+            # Cancel bracket orders before market exit (prevent SL/TP racing the exit fill)
+            if reason in ("PROFIT_PROTECTION", "SIGNAL_FLIP_EXIT") and self.executor:
                 try:
                     logger.info("🚫 Cancelling TP bracket order before profit protection exit")
                     await self.executor.cancel_all_orders()
@@ -774,6 +799,105 @@ class ExitManager:
         except Exception as exc:  # noqa: BLE001
             logger.error(f"❌ Error executing position exit: {exc}")
             return False
+
+    def _check_15m_signal_flip_exit(
+        self,
+        qty: int,
+        current_price: float,
+        total_pnl: float,
+        contracts: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Check if 15m indicators signal a reversal against the current position.
+
+        Uses EMA9/EMA21 crossover + MACD histogram sign to detect a trend flip.
+        Returns an exit dict if flip is confirmed and minimum profit condition is met.
+
+        Config (under trading:):
+          ft_trend_flip_exit_enabled: true/false
+          ft_trend_flip_exit_min_profit_pts: float (MES points, default 2.0)
+        """
+        _trading_cfg = getattr(getattr(self._m, "settings", None), "trading", None)
+        if not getattr(_trading_cfg, "ft_trend_flip_exit_enabled", False):
+            return None
+
+        _min_profit_pts = float(getattr(_trading_cfg, "ft_trend_flip_exit_min_profit_pts", 2.0) or 2.0)
+        _min_profit_usd = _min_profit_pts * 5.0  # MES $5/point
+        if total_pnl < _min_profit_usd:
+            return None
+
+        if len(self.price_history) < 30:
+            return None
+
+        try:
+            import pandas as pd
+            from ...features.feature_engineer import engineer_features
+
+            df = pd.DataFrame(self.price_history)
+            df.set_index("timestamp", inplace=True)
+            features = engineer_features(df[["open", "high", "low", "close", "volume"]], None)
+            if features.empty:
+                return None
+            latest = features.iloc[-1]
+            ema9 = float(latest.get("EMA_9", 0.0) or 0.0)
+            ema21 = float(latest.get("EMA_21", 0.0) or 0.0)
+            macd_h = float(latest.get("MACDhist_12_26_9", 0.0) or 0.0)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Trend-flip exit: indicator computation skipped: {exc}")
+            return None
+
+        if ema9 == 0.0 or ema21 == 0.0:
+            return None
+
+        is_bearish_flip = (ema9 < ema21) and (macd_h < 0)
+        is_bullish_flip = (ema9 > ema21) and (macd_h > 0)
+
+        if qty > 0 and is_bearish_flip:
+            logger.warning(
+                f"🔄 SIGNAL_FLIP_EXIT (LONG→FLAT): EMA9={ema9:.2f} < EMA21={ema21:.2f}, "
+                f"MACD_H={macd_h:.3f} — bearish flip detected, exiting {contracts} contracts "
+                f"(open P&L=${total_pnl:.2f})"
+            )
+            try:
+                log_structured_event(
+                    agent="exit_manager",
+                    event_type="SIGNAL_FLIP_EXIT",
+                    message="Bearish flip: exiting LONG position",
+                    payload={
+                        "ema9": ema9,
+                        "ema21": ema21,
+                        "macd_h": macd_h,
+                        "pnl": total_pnl,
+                        "current_price": current_price,
+                    },
+                )
+            except Exception:
+                pass
+            return {"reason": "SIGNAL_FLIP_EXIT", "action": "SELL", "quantity": contracts, "pnl": total_pnl}
+
+        if qty < 0 and is_bullish_flip:
+            logger.warning(
+                f"🔄 SIGNAL_FLIP_EXIT (SHORT→FLAT): EMA9={ema9:.2f} > EMA21={ema21:.2f}, "
+                f"MACD_H={macd_h:.3f} — bullish flip detected, exiting {contracts} contracts "
+                f"(open P&L=${total_pnl:.2f})"
+            )
+            try:
+                log_structured_event(
+                    agent="exit_manager",
+                    event_type="SIGNAL_FLIP_EXIT",
+                    message="Bullish flip: exiting SHORT position",
+                    payload={
+                        "ema9": ema9,
+                        "ema21": ema21,
+                        "macd_h": macd_h,
+                        "pnl": total_pnl,
+                        "current_price": current_price,
+                    },
+                )
+            except Exception:
+                pass
+            return {"reason": "SIGNAL_FLIP_EXIT", "action": "BUY", "quantity": contracts, "pnl": total_pnl}
+
+        return None
 
     async def place_exit_order(
         self, action: str, quantity: int, exit_price: Optional[float] = None

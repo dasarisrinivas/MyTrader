@@ -358,10 +358,15 @@ class MarketRegimeFilter:
                 logger.info("🚫 High-impact event: NFP (first Friday)")
                 return True
 
-            # CPI — Typically 10th-15th of month, 8:30 AM ET
-            if 10 <= dt_et.day <= 15:
-                logger.info("🚫 High-impact event: CPI window (mid-month)")
-                return True
+            # CPI — Typically released on ONE weekday between the 10th-15th.
+            # MAR 13 2026 FIX: Removed the day-range heuristic (10–15) that
+            # was blocking multiple days around CPI (e.g., Mar 13 blocked
+            # even though CPI was Mar 12).  CPI exact dates vary month to
+            # month and cannot be reliably inferred from a day range.
+            # Use the HIGH_IMPACT_DATES env var to pin the exact date:
+            #   HIGH_IMPACT_DATES=2026-03-12 . start_bot.sh
+            # The manual override block above handles it precisely.
+            # No fallback heuristic — too many false positives.
 
             # Core PCE — Last Friday of month, 8:30 AM ET
             # Detect last Friday: the next Friday would be in the next month

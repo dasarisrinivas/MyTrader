@@ -70,18 +70,21 @@ _MONTH_NUM=$(echo $_TODAY_DOW | awk '{print $3}')
 _DOW=$(echo $_TODAY_DOW | awk '{print $1}')   # 1=Mon … 5=Fri … 7=Sun
 
 _ECON_EVENT=""
-# CPI window: day 10-15
+# MAR 13 2026: CPI heuristic removed from market_regime_filter.py — too many
+# false positives (blocked Mar 13 when CPI was Mar 12). CPI exact date MUST
+# be set via HIGH_IMPACT_DATES env var. This startup check now REQUIRES it.
+# CPI window: day 10-15 — warn only, bot will NOT auto-block without HIGH_IMPACT_DATES
 if [ "$_DAY_NUM" -ge 10 ] 2>/dev/null && [ "$_DAY_NUM" -le 15 ] 2>/dev/null; then
-    _ECON_EVENT="📰 CPI release likely today (day ${_DAY_NUM})"
+    _ECON_EVENT="📰 CPI release window (day ${_DAY_NUM}/month) — set HIGH_IMPACT_DATES if today is the release"
 fi
 # NFP: first Friday (day 1-7)
 if [ "$_DOW" -eq 5 ] 2>/dev/null && [ "$_DAY_NUM" -le 7 ] 2>/dev/null; then
-    _ECON_EVENT="📰 NFP (Non-Farm Payroll) likely today (first Friday)"
+    _ECON_EVENT="📰 NFP (Non-Farm Payroll) likely today (first Friday) — auto-block active 8–10 AM ET"
 fi
 # FOMC: Wednesday in key months
 if [ "$_DOW" -eq 3 ] 2>/dev/null; then
     case "$_MONTH_NUM" in 01|03|05|06|07|09|11|12)
-        _ECON_EVENT="📰 Possible FOMC Wednesday (month ${_MONTH_NUM})"
+        _ECON_EVENT="📰 Possible FOMC Wednesday (month ${_MONTH_NUM}) — auto-block active 1:30–2:45 PM ET"
     ;; esac
 fi
 
@@ -90,12 +93,11 @@ if [ -n "$_ECON_EVENT" ]; then
         echo ""
         echo -e "${YELLOW}⚠️  ECONOMIC RELEASE DAY WARNING${NC}"
         echo -e "   ${_ECON_EVENT}"
-        echo -e "   The bot will auto-block 8:00–10:00 AM ET (heuristic window)."
-        echo -e "   To block ALL entries today, restart with:"
+        echo -e "   NFP/FOMC have auto-heuristics. CPI requires explicit date:"
         echo -e "   ${BLUE}HIGH_IMPACT_DATES=$(date +%Y-%m-%d) . start_bot.sh${NC}"
         echo ""
     else
-        echo -e "${GREEN}✅ HIGH_IMPACT_DATES set: ${HIGH_IMPACT_DATES} — full-day entry block active${NC}"
+        echo -e "${GREEN}✅ HIGH_IMPACT_DATES set: ${HIGH_IMPACT_DATES} — 8:00–10:00 AM ET entry block active${NC}"
     fi
 fi
 # ── End economic calendar check ─────────────────────────────────────
