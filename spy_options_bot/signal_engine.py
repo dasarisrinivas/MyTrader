@@ -45,6 +45,13 @@ _EVENT_DATES: set[date] = {
     date(2026, 4, 3), date(2026, 5, 1), date(2026, 6, 5),
     date(2026, 7, 10), date(2026, 8, 7), date(2026, 9, 4),
     date(2026, 10, 2), date(2026, 11, 6), date(2026, 12, 4),
+    # SPY Ex-Dividend dates 2026 — short call positions risk early assignment
+    # the day before ex-div as call holders exercise to capture the dividend.
+    # Verify exact dates at etf.com before each quarter.
+    date(2026, 3, 20),   # Q1 ex-div (approximate mid-March)
+    date(2026, 6, 19),   # Q2 ex-div (approximate mid-June)
+    date(2026, 9, 18),   # Q3 ex-div (approximate mid-September)
+    date(2026, 12, 18),  # Q4 ex-div (approximate mid-December)
 }
 
 
