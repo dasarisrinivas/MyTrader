@@ -3,7 +3,8 @@
 Responsible for:
 - Fetching available expirations and strikes from IBKR
 - Requesting market data (Greeks, bid/ask, OI, volume) for candidates
-- Filtering contracts by delta, theta, liquidity, and spread criteria
+- Filtering contracts by: delta, expected move, theta/delta efficiency,
+  liquidity (volume + OI), spread, and skew
 """
 from __future__ import annotations
 
@@ -203,7 +204,8 @@ async def fetch_option_chain(ib: IB) -> list[OptionCandidate]:
                 ib.cancelMktData(opt)
 
     logger.info(f"Raw candidates before filtering: {len(candidates)}")
-    filtered = _apply_filters(candidates)
+    filtered = _apply_filters(candidates, spy_price=spy_price, dte=dte)
+    _log_skew(filtered)
     logger.info(f"Candidates after filtering: {len(filtered)}")
     return filtered
 
@@ -252,11 +254,37 @@ def _extract_candidate(
     )
 
 
-def _apply_filters(candidates: list[OptionCandidate]) -> list[OptionCandidate]:
+def _expected_move(spy_price: float, iv: float, dte_trading_days: int) -> float:
+    """1-sigma expected move in dollars.
+
+    Uses actual IV from ATM options if available, else falls back to the
+    candidate's own IV. Formula: price × iv × sqrt(dte / 365).
+    """
+    import math
+    dte_years = dte_trading_days / 252  # trading-day convention
+    return spy_price * iv * math.sqrt(dte_years)
+
+
+def _apply_filters(
+    candidates: list[OptionCandidate],
+    spy_price: float,
+    dte: int,
+) -> list[OptionCandidate]:
     """Apply all selection criteria filters."""
+    # ATM IV estimate: median IV of all raw candidates (before delta filter)
+    if candidates:
+        atm_iv = sorted(c.iv for c in candidates)[len(candidates) // 2]
+    else:
+        atm_iv = 0.15  # fallback
+
+    em = _expected_move(spy_price, atm_iv, dte)
+    logger.info(
+        f"Expected move: ±${em:.2f} (SPY=${spy_price:.2f}, ATM_IV={atm_iv:.3f}, DTE={dte})"
+    )
+
     result = []
     for c in candidates:
-        # Delta filter
+        # 1. Delta filter
         if c.right == "P":
             target = config.TARGET_DELTA_PUT
             if not (target - config.DELTA_TOLERANCE <= c.delta <= target + config.DELTA_TOLERANCE):
@@ -266,17 +294,39 @@ def _apply_filters(candidates: list[OptionCandidate]) -> list[OptionCandidate]:
             if not (target - config.DELTA_TOLERANCE <= c.delta <= target + config.DELTA_TOLERANCE):
                 continue
 
-        # Theta filter (theta should be negative — decay in our favor)
+        # 2. Expected move — strike must be at or beyond EXPECTED_MOVE_BUFFER × EM from spot
+        min_distance = em * config.EXPECTED_MOVE_BUFFER
+        actual_distance = abs(c.strike - spy_price)
+        if actual_distance < min_distance:
+            logger.debug(
+                f"Skip {c.right}{c.strike}: distance ${actual_distance:.2f} "
+                f"< expected move ${min_distance:.2f}"
+            )
+            continue
+
+        # 3. Theta filter — must be decaying (negative theta)
         if c.theta > config.MIN_THETA:
             continue
 
-        # Liquidity filters
+        # 4. Theta / delta efficiency ratio
+        #    theta is negative, delta is positive for calls / negative for puts
+        #    ratio = |theta| / |delta| — higher = more decay per unit of directional risk
+        if c.delta != 0:
+            ratio = abs(c.theta) / abs(c.delta)
+            if ratio < config.MIN_THETA_DELTA_RATIO:
+                logger.debug(
+                    f"Skip {c.right}{c.strike}: theta/delta={ratio:.3f} "
+                    f"< {config.MIN_THETA_DELTA_RATIO} minimum"
+                )
+                continue
+
+        # 5. Liquidity filters
         if c.open_interest < config.MIN_OPEN_INTEREST:
             continue
         if c.volume < config.MIN_VOLUME:
             continue
 
-        # Spread filter
+        # 6. Spread filter
         if c.spread_pct > config.MAX_SPREAD_PCT:
             continue
         if (c.ask - c.bid) > config.MAX_SPREAD_ABS:
@@ -287,18 +337,46 @@ def _apply_filters(candidates: list[OptionCandidate]) -> list[OptionCandidate]:
     return result
 
 
+def _log_skew(candidates: list[OptionCandidate]) -> None:
+    """Log put-call IV skew from filtered candidates."""
+    puts = [c for c in candidates if c.right == "P"]
+    calls = [c for c in candidates if c.right == "C"]
+    if not puts or not calls:
+        return
+    avg_put_iv = sum(c.iv for c in puts) / len(puts)
+    avg_call_iv = sum(c.iv for c in calls) / len(calls)
+    skew = avg_put_iv - avg_call_iv
+    direction = "normal (puts richer)" if skew > 0 else "inverted (calls richer)"
+    logger.info(
+        f"Chain skew: {skew:+.4f} — {direction} "
+        f"(put_iv={avg_put_iv:.4f}, call_iv={avg_call_iv:.4f})"
+    )
+
+
 def select_best_put(candidates: list[OptionCandidate]) -> OptionCandidate | None:
-    """Select the put with delta closest to target, maximizing theta."""
+    """Select the put with best theta/delta efficiency closest to target delta."""
     puts = [c for c in candidates if c.right == "P"]
     if not puts:
         return None
-    # Sort: closest delta first, then most theta (most negative)
-    return min(puts, key=lambda c: (abs(c.delta - config.TARGET_DELTA_PUT), -abs(c.theta)))
+    # Primary: closest to target delta. Tiebreak: highest theta/delta ratio.
+    return min(
+        puts,
+        key=lambda c: (
+            abs(c.delta - config.TARGET_DELTA_PUT),
+            -(abs(c.theta) / abs(c.delta)) if c.delta != 0 else 0,
+        ),
+    )
 
 
 def select_best_call(candidates: list[OptionCandidate]) -> OptionCandidate | None:
-    """Select the call with delta closest to target, maximizing theta."""
+    """Select the call with best theta/delta efficiency closest to target delta."""
     calls = [c for c in candidates if c.right == "C"]
     if not calls:
         return None
-    return min(calls, key=lambda c: (abs(c.delta - config.TARGET_DELTA_CALL), -abs(c.theta)))
+    return min(
+        calls,
+        key=lambda c: (
+            abs(c.delta - config.TARGET_DELTA_CALL),
+            -(abs(c.theta) / abs(c.delta)) if c.delta != 0 else 0,
+        ),
+    )

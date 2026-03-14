@@ -66,6 +66,31 @@ MIN_VIX: float = 12.0             # Don't sell premium in extremely low-vol envi
 MAX_VIX: float = 30.0             # Circuit breaker — skip entry on panic-spike days (VIX > 30)
 TREND_SMA_DAYS: int = 20          # Days for SPY trend SMA
 
+# IV Rank — only sell when VIX is elevated relative to its 1-year range
+# 0.20 = VIX must be in at least the 20th percentile of its 52-week range
+MIN_IV_RANK: float = 0.20
+
+# Skew — put IV minus call IV (at similar delta). If calls are much more expensive
+# than puts (negative skew), market is pricing in upside risk → skip puts.
+# -0.03 = allow slight call skew but block entry if calls >3% more expensive than puts
+MIN_PUT_CALL_SKEW: float = -0.03
+
+# Expected move buffer — strike must be at or beyond N × expected move from spot.
+# 1.0 = must be at least 1 standard deviation OTM
+EXPECTED_MOVE_BUFFER: float = 1.0
+
+# Theta efficiency — theta must be at least this fraction of delta per day.
+# Ensures we're collecting meaningful decay relative to the directional risk taken.
+MIN_THETA_DELTA_RATIO: float = 0.08
+
+# Support / resistance — block put entry when SPY is within this % of its 52-week low
+# (too close to a major floor = gap-down risk). Block call entry near 52-week high.
+SR_LOW_BUFFER_PCT: float = 0.05   # block puts if SPY < 52w_low × 1.05
+SR_HIGH_BUFFER_PCT: float = 0.03  # block calls if SPY > 52w_high × 0.97
+
+# Event risk — number of calendar days around FOMC/CPI/NFP where we skip entry
+EVENT_BLACKOUT_DAYS: int = 1
+
 # ---------------------------------------------------------------------------
 # Order execution
 # ---------------------------------------------------------------------------
