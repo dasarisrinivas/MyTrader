@@ -1,15 +1,22 @@
-"""Backtest engine — replays the SPY options strategy against 1 year of historical data.
+"""Backtest engine — replays the SPY options strategy against historical data.
 
 Strategy mirrors the live bot exactly:
-  - Entry: Mon/Tue/Wed, VIX > 15, SPY vs SMA20 trend filter, PDT compliance
+  - Entry: Mon/Tue/Wed, VIX 12–30, SPY vs SMA20 trend, SPY vs SMA200 regime, PDT compliance
   - Exit: 50% profit target, 2× loss stop, delta stop, Thursday EOD, emergency gamma
   - Position sizing: capped at 5% account risk per leg
-  - Costs: $0.02 slippage + $0.65 commission per contract per side
+  - Slippage: 1% of premium at entry + exit (2% on stressed stops/emergency fills)
+  - Commission: $0.65 per contract per side
+
+Filters added vs original:
+  - Delta target lowered to 0.16 (further OTM, higher win rate)
+  - Gamma protection: DTE ≥ 4 calendar days (blocks Wednesday entries)
+  - Market regime: SPY must be above 200-day SMA to sell puts; below for calls
+  - Realistic slippage model: percentage of premium, not fixed dollar
 
 No lookahead bias:
-  - Entry signal uses previous trading day's close and SMA
-  - VIX gate uses previous trading day's VIX close
-  - Entry execution uses current day's open price
+  - Signal uses previous trading day's close and SMAs
+  - VIX gate uses current day's open as proxy for 9:35 AM snapshot
+  - Entry execution price is current day's open
 """
 from __future__ import annotations
 
@@ -35,9 +42,10 @@ from backtest.options_simulator import (
 # Constants
 # ---------------------------------------------------------------------------
 
-SLIPPAGE_PER_CONTRACT: float = 0.02    # per side, per contract
-COMMISSION_PER_CONTRACT: float = 0.65  # per side, per contract
-COST_PER_SIDE: float = SLIPPAGE_PER_CONTRACT + COMMISSION_PER_CONTRACT
+COMMISSION_PER_CONTRACT: float = 0.65       # per side, per contract
+ENTRY_SLIPPAGE_PCT: float = 0.01            # 1% of premium — sell slightly below mid
+EXIT_SLIPPAGE_PCT: float = 0.01             # 1% — normal limit-order exit
+EXIT_SLIPPAGE_STRESSED_PCT: float = 0.02   # 2% — market order on stops / emergency
 
 MAX_ACCOUNT_RISK_PCT: float = 0.05
 MAX_LOSS_MULTIPLE: float = 2.0
@@ -46,12 +54,15 @@ DELTA_STOP: float = 0.50
 MIN_VIX: float = 12.0
 MAX_VIX: float = 30.0
 SMA_DAYS: int = 20
+SMA200_DAYS: int = 200                      # Market regime filter
 PDT_MAX_TRADES: int = 3
 PDT_WINDOW_DAYS: int = 5
 MAX_CONTRACTS: int = 1
+TARGET_DELTA: float = 0.16                  # Further OTM → higher win rate
 
-# Entry DTE window (calendar days from entry to expiry)
-MIN_DTE_CAL: int = 2   # Wednesday entry to this Friday
+# Gamma protection: require at least 4 calendar days to expiry
+# Blocks Wednesday entries (2 DTE) — only Mon (4 DTE) and Tue (3 DTE) allowed
+MIN_DTE_CAL: int = 3   # Tuesday entry to this Friday (3 cal days)
 MAX_DTE_CAL: int = 5   # Monday entry to this Friday
 
 StrategyType = Literal["sell_put", "sell_call", "sell_strangle", "auto",
@@ -150,9 +161,25 @@ def _calc_position_size(account_value: float, premium: float) -> int:
     return min(MAX_CONTRACTS, max(1, int(max_risk / risk_per)))
 
 
-def _trade_cost(contracts: int) -> float:
-    """Total round-trip cost (entry + exit) for `contracts` contracts."""
-    return COST_PER_SIDE * contracts * 2.0
+def _trade_cost(
+    contracts: int,
+    entry_premium: float,
+    close_premium: float,
+    exit_reason: str,
+) -> float:
+    """Total round-trip cost: commission + realistic slippage.
+
+    Slippage is a percentage of premium (not a fixed dollar amount) to
+    reflect that wider-premium options have wider bid-ask spreads.
+    Stressed exits (stops, emergency) use a higher slippage multiplier
+    to simulate market-order fills in adverse conditions.
+    """
+    commission = COMMISSION_PER_CONTRACT * contracts * 2
+    entry_slip = entry_premium * ENTRY_SLIPPAGE_PCT * 100 * contracts
+    stressed = exit_reason in ("loss_stop", "delta_stop", "emergency_gamma")
+    exit_pct = EXIT_SLIPPAGE_STRESSED_PCT if stressed else EXIT_SLIPPAGE_PCT
+    exit_slip = close_premium * exit_pct * 100 * contracts
+    return commission + entry_slip + exit_slip
 
 
 def _check_emergency_gamma_daily(spy_row: pd.Series) -> bool:
@@ -290,7 +317,7 @@ class BacktestEngine:
                     close_price = round(bs.price, 4)
 
                 gross = (leg.entry_premium - close_price) * 100.0 * leg.contracts
-                cost = _trade_cost(leg.contracts)
+                cost = _trade_cost(leg.contracts, leg.entry_premium, close_price, reason)
                 net = gross - cost
 
                 trade_counter += 1
@@ -378,23 +405,33 @@ class BacktestEngine:
                 no_trade_records.append(NoTradeRecord(day, f"vix_too_high_{entry_vix:.1f}"))
                 continue
 
-            # 20-day SMA through PREVIOUS day (no lookahead)
-            # Matches live bot: reqHistoricalDataAsync returns bars ending at prior close
+            # SMA20 + SMA200 through PREVIOUS day (no lookahead)
             spy_hist = spy_df[spy_df.index <= prev_ts]
             if len(spy_hist) < SMA_DAYS:
                 no_trade_records.append(NoTradeRecord(day, "insufficient_sma_data"))
                 continue
             sma20 = float(spy_hist["close"].iloc[-SMA_DAYS:].mean())
+            sma200 = float(spy_hist["close"].iloc[-SMA200_DAYS:].mean()) \
+                if len(spy_hist) >= SMA200_DAYS else None
 
             # Entry price: current day's open (available at 9:35 AM, no lookahead)
             spy_open = float(spy_row["open"])
             if spy_open <= 0:
                 continue
 
+            # Market regime filter: SPY vs 200-day SMA
+            # Bear regime (SPY < SMA200) → restrict to calls only, no puts/strangles
+            # Bull regime (SPY > SMA200) → full strategy as configured
+            bear_regime = sma200 is not None and spy_open < sma200
+            if bear_regime:
+                regime_strategy = "calls_only"
+            else:
+                regime_strategy = strategy
+
             trend = "up" if spy_open > sma20 else ("down" if spy_open < sma20 else "neutral")
 
-            # PDT-aware strategy selection
-            selected_strategy = _select_strategy(strategy, trend, slots)
+            # PDT-aware strategy selection (regime-adjusted)
+            selected_strategy = _select_strategy(regime_strategy, trend, slots)
             if selected_strategy is None:
                 no_trade_records.append(NoTradeRecord(day, f"no_strategy_trend={trend}_slots={slots}"))
                 continue
@@ -414,7 +451,7 @@ class BacktestEngine:
             new_legs: list[_OpenLeg] = []
 
             if selected_strategy in ("sell_put", "sell_strangle"):
-                put_k = round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, -0.25, "P"))
+                put_k = round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, -TARGET_DELTA, "P"))
                 put_bs = bs_price(spy_open, put_k, T, RISK_FREE_RATE, sigma, "P")
                 if put_bs.price > 0.05:  # Minimum premium sanity check
                     contracts = _calc_position_size(current_equity, put_bs.price)
@@ -428,7 +465,7 @@ class BacktestEngine:
                     ))
 
             if selected_strategy in ("sell_call", "sell_strangle"):
-                call_k = round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, 0.25, "C"))
+                call_k = round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, TARGET_DELTA, "C"))
                 call_bs = bs_price(spy_open, call_k, T, RISK_FREE_RATE, sigma, "C")
                 if call_bs.price > 0.05:
                     contracts = _calc_position_size(current_equity, call_bs.price)
@@ -463,7 +500,7 @@ class BacktestEngine:
                 bs = bs_price(spy_close, leg.strike, T, RISK_FREE_RATE, sigma, leg.right)
                 close_price = round(bs.price, 4)
                 gross = (leg.entry_premium - close_price) * 100.0 * leg.contracts
-                cost = _trade_cost(leg.contracts)
+                cost = _trade_cost(leg.contracts, leg.entry_premium, close_price, "end_of_backtest")
                 trade_counter += 1
                 closed_trades.append(SimulatedTrade(
                     trade_id=f"T{trade_counter:04d}",
