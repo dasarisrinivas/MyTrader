@@ -1,13 +1,15 @@
-"""Run the strategy through 3 historical crash / bear market periods.
+"""Run the strategy through multiple historical regimes.
 
 Downloads data for each period via yfinance (no IBKR needed) into
 separate cache subdirectories, runs the backtest, and prints a
 side-by-side comparison table.
 
 Periods covered:
-  2018  Q4 crash      : Oct 2018 – Mar 2019  (-20% peak-to-trough)
-  2020  COVID crash   : Jan 2020 – Aug 2020  (-34% peak-to-trough)
-  2022  Bear market   : Jan 2022 – Dec 2022  (-25% peak-to-trough)
+  2013–2015  Low-vol bull  : Jan 2013 – Dec 2015  (VIX <15 most of year)
+  2018  Q4 crash           : Oct 2018 – Mar 2019  (-20% peak-to-trough)
+  2020  COVID crash        : Jan 2020 – Aug 2020  (-34% peak-to-trough)
+  2022  Bear market        : Jan 2022 – Dec 2022  (-25% peak-to-trough)
+  2023  Bull recovery      : Jan 2023 – Dec 2023  (+24% recovery year)
 
 Usage:
     python spy_options_bot/backtest/run_crash_tests.py
@@ -38,8 +40,15 @@ OUTPUT_DIR = _repo_root / "backtest_results"
 
 CRASH_PERIODS = [
     {
+        "label": "2013-2015 Low Vol",
+        "download_start": date(2012, 6, 1),   # need SMA200 lookback
+        "backtest_start": date(2013, 1, 1),
+        "backtest_end":   date(2015, 12, 31),
+        "note": "Low-vol bull run, VIX <15 most of 2013-14 — ideal premium-selling env",
+    },
+    {
         "label": "2018 Q4 Crash",
-        "download_start": date(2017, 6, 1),   # need SMA200 lookback
+        "download_start": date(2017, 6, 1),
         "backtest_start": date(2018, 9, 1),
         "backtest_end":   date(2019, 3, 31),
         "note": "Fed rate hike + trade war selloff, -20%",
@@ -57,6 +66,13 @@ CRASH_PERIODS = [
         "backtest_start": date(2022, 1, 1),
         "backtest_end":   date(2022, 12, 31),
         "note": "Fed tightening cycle, -25% over full year",
+    },
+    {
+        "label": "2023 Bull Recovery",
+        "download_start": date(2022, 6, 1),
+        "backtest_start": date(2023, 1, 1),
+        "backtest_end":   date(2023, 12, 31),
+        "note": "Post-bear recovery, +24% SPY — moderate vol, trend following",
     },
 ]
 
@@ -155,7 +171,7 @@ def main() -> None:
                         help="Starting capital (default: 5000)")
     args = parser.parse_args()
 
-    print("\nRunning crash backtests (3 periods)...")
+    print("\nRunning regime backtests (5 periods)...")
     rows = []
     for period in CRASH_PERIODS:
         print(f"\n[{period['label']}]")

@@ -53,28 +53,28 @@ class RiskManager:
         self.order_manager = order_manager
         self.notifier = notifier
         self._session_start_nlv: float | None = None
+        self._last_roll_time: datetime | None = None  # set when a roll-close fires
+
+    def last_roll_was_recent(self) -> bool:
+        """True if a roll-close happened within ROLL_REENTRY_DELAY_MINUTES."""
+        if self._last_roll_time is None:
+            return False
+        elapsed = (_now_et() - self._last_roll_time).total_seconds() / 60.0
+        return elapsed < config.ROLL_REENTRY_DELAY_MINUTES
 
     # ------------------------------------------------------------------
     # Dynamic poll interval
     # ------------------------------------------------------------------
 
     def get_poll_interval(self) -> int:
-        """Return polling interval in seconds based on day-of-week and DTE."""
-        now = _now_et()
-        dte = self._get_dte()
+        """Return polling interval in seconds.
 
-        if now.weekday() == 3:  # Thursday
-            interval = 60
-            label = "Thursday gamma mode"
-        elif dte is not None and dte <= 2:
-            interval = 120
-            label = f"DTE={dte} ≤ 2"
-        else:
-            interval = config.POLL_INTERVAL
-            label = "standard"
-
-        logger.info(f"[RiskManager] Poll interval: {interval}s ({label})")
-        return interval
+        60s across the board during market hours — the 5-minute gap between
+        checks creates real execution risk on stop conditions (SPY can move
+        0.5–1% in a single candle). IBKR's rate limits handle 60s polling fine.
+        """
+        logger.info("[RiskManager] Poll interval: 60s")
+        return 60
 
     def _get_dte(self) -> int | None:
         """Return calendar days to nearest open-position expiry, or None."""
@@ -272,15 +272,18 @@ class RiskManager:
 
         # Roll trigger — close early and let the bot re-enter next week.
         # Fires when delta crosses ROLL_DELTA_TRIGGER (0.40) before DELTA_STOP (0.50).
-        # Only active on Mon–Wed so a new spread can be opened in the same cycle.
+        # Mon/Tue only — not Wed (entering on Wed gives only 2 DTE to next Friday).
+        # Records roll time so run_cycle enforces a 30-min re-entry cooldown.
         if delta is not None and config.ROLL_DELTA_TRIGGER <= abs(delta) < config.DELTA_STOP:
             now = _now_et()
-            if now.weekday() in config.ENTRY_DAYS:
+            if now.weekday() in (0, 1):  # Monday=0, Tuesday=1 only
                 logger.info(
                     f"Roll trigger: |delta|={abs(delta):.3f} >= {config.ROLL_DELTA_TRIGGER} "
                     f"(below hard stop {config.DELTA_STOP}) — closing to re-enter next week"
                 )
-                await self.order_manager.close_position(pos, "roll_close")
+                closed = await self.order_manager.close_position(pos, "roll_close")
+                if closed:
+                    self._last_roll_time = _now_et()
                 if self.notifier:
                     self.notifier.on_risk_stop({"label": label}, "roll_close")
                 return

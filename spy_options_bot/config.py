@@ -51,9 +51,11 @@ MAX_LOSS_MULTIPLE: float = 2.0    # Close if loss reaches 2× premium received
 DELTA_STOP: float = 0.50          # Close if |delta| exceeds this (position gone ITM)
 # Roll trigger: when |delta| crosses this threshold, close current spread and
 # re-enter next week rather than waiting for the hard stop at DELTA_STOP.
-# Only fires during the entry window (Mon–Wed) so the bot can immediately open
-# a fresh spread for next Friday in the same cycle.
+# Only fires Mon–Tue (not Wed: too close to expiry for a safe re-entry).
+# After a roll close, the bot waits ROLL_REENTRY_DELAY_MINUTES before evaluating
+# a new entry — prevents chased re-entry directly after an adverse move.
 ROLL_DELTA_TRIGGER: float = 0.40
+ROLL_REENTRY_DELAY_MINUTES: float = 30.0
 MAX_ACCOUNT_RISK_PCT: float = 0.05  # Max 5% of NLV in margin for this bot
 DAILY_LOSS_LIMIT_PCT: float = 0.03  # Pause new entries if account drops >3% on the day
 

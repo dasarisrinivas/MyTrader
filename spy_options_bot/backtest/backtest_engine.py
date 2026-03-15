@@ -187,7 +187,9 @@ def _trade_cost(
     """
     sides = 4 if is_spread else 2
     commission = COMMISSION_PER_CONTRACT * contracts * sides
-    stressed = exit_reason in ("loss_stop", "delta_stop", "emergency_gamma")
+    # Thursday EOD closes are also "motivated seller" exits — market makers know
+    # weekly options sellers are closing at 3:45 PM; bid/ask widens accordingly.
+    stressed = exit_reason in ("loss_stop", "delta_stop", "emergency_gamma", "thursday_eod")
     exit_slip = EXIT_SLIPPAGE_STRESSED_FLAT if stressed else EXIT_SLIPPAGE_FLAT
     # entry_premium / close_premium kept in signature for API compatibility
     _ = entry_premium, close_premium

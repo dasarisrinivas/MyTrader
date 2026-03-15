@@ -116,6 +116,16 @@ async def run_cycle(
         logger.info(f"Entry blocked by risk check: {reason}")
         return
 
+    # Roll cooldown — after a roll-close, wait ROLL_REENTRY_DELAY_MINUTES before
+    # re-entering. A roll means the market just moved against us; immediate re-entry
+    # is a chased trade at a price zone the market just demonstrated it's willing to visit.
+    if risk_mgr.last_roll_was_recent():
+        logger.info(
+            f"Roll cooldown active — skipping entry for {config.ROLL_REENTRY_DELAY_MINUTES:.0f} min "
+            "after roll-close"
+        )
+        return
+
     # Signal evaluation (PDT-aware + guard-aware)
     signal = await evaluate_signals(ib_conn.ib, pdt=pdt, guards=guards)
     if signal.strategy == Strategy.NO_TRADE:
