@@ -1,9 +1,11 @@
-"""Signal engine — determines strategy direction using 6 filters.
+"""Signal engine — determines strategy direction using 9 filters.
 
 Filter order (all must pass to enter):
-  1. Event Risk     — block entry around FOMC / CPI / NFP dates
+  1. Event Risk     — block entry around FOMC / CPI / NFP / SPY ex-div dates
   2. VIX gate       — VIX must be within [MIN_VIX, MAX_VIX]
+  2b. VIX spike     — VIX not >1.25× its 5-day average (early panic guard)
   3. IV Rank        — VIX must be elevated vs its own 52-week range
+  3b. Large move    — SPY not moved >2% from prior close (gap guard)
   4. SPY Trend      — SMA20 determines put / call / strangle bias
   5. Support/Res.   — block puts near 52-week low, calls near 52-week high
   6. Skew           — skip puts if calls are significantly more expensive
@@ -21,6 +23,7 @@ from ib_insync import IB, Index, Stock
 
 from logger import logger
 import config
+from guard_tracker import GuardTracker
 
 if TYPE_CHECKING:
     from pdt_tracker import PDTTracker
@@ -112,6 +115,7 @@ def select_strategy(trend: str, pdt: "PDTTracker | None" = None) -> Strategy | N
 async def evaluate_signals(
     ib: IB,
     pdt: "PDTTracker | None" = None,
+    guards: GuardTracker | None = None,
 ) -> SignalResult:
     """Run all filters and return a PDT-aware trading signal."""
 
@@ -121,12 +125,19 @@ async def evaluate_signals(
         logger.warning(f"Event risk block: {event_reason}")
         return SignalResult(Strategy.NO_TRADE, None, None, None, "unknown", event_reason)
 
+    # Guard tracker: check persistent cooldown from prior spike/move
+    if guards is not None and guards.is_blocked():
+        msg = f"Guard cooldown active: {guards.block_reason()}"
+        logger.warning(msg)
+        return SignalResult(Strategy.NO_TRADE, None, None, None, "unknown", msg)
+
     # 2. Fetch market data in parallel
-    vix, (spy_price, sma20, week_high, week_low), iv_rank = await asyncio.gather(
-        _get_vix(ib),
-        _get_spy_data(ib),
-        _get_iv_rank(ib),
-    )
+    vix, (spy_price, sma20, week_high, week_low, prev_close, spy_open), iv_rank = \
+        await asyncio.gather(
+            _get_vix(ib),
+            _get_spy_data(ib),
+            _get_iv_rank(ib),
+        )
 
     # 3. VIX gate
     if vix is None:
@@ -147,6 +158,20 @@ async def evaluate_signals(
         return SignalResult(Strategy.NO_TRADE, vix, spy_price, sma20, "unknown", msg,
                             iv_rank, None, week_high, week_low)
 
+    # 3b. VIX spike guard — VIX accelerating >1.25× its own 5-day average
+    vix_5d_avg = await _get_vix_5day_avg(ib)
+    if vix_5d_avg is not None and vix > vix_5d_avg * config.VIX_SPIKE_MULTIPLIER:
+        msg = (
+            f"VIX spike guard: VIX={vix:.2f} > "
+            f"{config.VIX_SPIKE_MULTIPLIER}× 5-day avg {vix_5d_avg:.2f} — "
+            f"pausing {config.VIX_SPIKE_SKIP_DAYS} days"
+        )
+        logger.warning(msg)
+        if guards is not None:
+            guards.set_vix_skip(config.VIX_SPIKE_SKIP_DAYS)
+        return SignalResult(Strategy.NO_TRADE, vix, spy_price, sma20, "unknown", msg,
+                            iv_rank, None, week_high, week_low)
+
     # 4. IV Rank gate
     if iv_rank is not None and iv_rank < config.MIN_IV_RANK:
         msg = (
@@ -159,6 +184,20 @@ async def evaluate_signals(
 
     if iv_rank is not None:
         logger.info(f"IV Rank: {iv_rank:.2f} (VIX={vix:.2f}) — premium environment acceptable")
+
+    # 4b. Large move guard — SPY gapped or moved >2% from prior close
+    if spy_open is not None and prev_close is not None and prev_close > 0:
+        move_pct = abs(spy_open - prev_close) / prev_close
+        if move_pct > config.LARGE_MOVE_PCT:
+            msg = (
+                f"Large move guard: SPY moved {move_pct:.1%} from prior close ${prev_close:.2f} "
+                f"to open ${spy_open:.2f} — pausing {config.LARGE_MOVE_SKIP_DAYS} days"
+            )
+            logger.warning(msg)
+            if guards is not None:
+                guards.set_move_skip(config.LARGE_MOVE_SKIP_DAYS)
+            return SignalResult(Strategy.NO_TRADE, vix, spy_price, sma20, "unknown", msg,
+                                iv_rank, None, week_high, week_low)
 
     # 5. SPY trend
     if spy_price is None or sma20 is None:
@@ -366,18 +405,45 @@ async def _get_iv_rank(ib: IB) -> float | None:
         return None
 
 
-async def _get_spy_data(
-    ib: IB,
-) -> tuple[float | None, float | None, float | None, float | None]:
-    """Fetch SPY price, SMA20, 52-week high, and 52-week low.
+async def _get_vix_5day_avg(ib: IB) -> float | None:
+    """Fetch 5-day VIX close average for spike guard."""
+    try:
+        vix_contract = Index("VIX", "CBOE", "USD")
+        qualified = await ib.qualifyContractsAsync(vix_contract)
+        if not qualified:
+            return None
+        bars = await ib.reqHistoricalDataAsync(
+            qualified[0],
+            endDateTime="",
+            durationStr="10 D",
+            barSizeSetting="1 day",
+            whatToShow="MIDPOINT",
+            useRTH=True,
+            formatDate=1,
+        )
+        if len(bars) < 5:
+            return None
+        avg = sum(b.close for b in bars[-5:]) / 5
+        logger.debug(f"VIX 5-day avg: {avg:.2f}")
+        return round(avg, 2)
+    except Exception as exc:
+        logger.error(f"Error fetching VIX 5-day avg: {exc}")
+        return None
 
-    Returns (spy_price, sma20, week_high, week_low).
+
+async def _get_spy_data(ib: IB) -> tuple[
+    float | None, float | None, float | None, float | None, float | None, float | None
+]:
+    """Fetch SPY price, SMA20, 52-week high, 52-week low, prev_close, today_open.
+
+    Returns (spy_price, sma20, week_high, week_low, prev_close, spy_open).
+    prev_close and spy_open are used for the large move guard.
     """
     try:
         spy = Stock(config.SYMBOL, config.EXCHANGE, config.CURRENCY)
         qualified = await ib.qualifyContractsAsync(spy)
         if not qualified:
-            return None, None, None, None
+            return None, None, None, None, None, None
         spy_q = qualified[0]
 
         ticker = ib.reqMktData(spy_q, "", snapshot=True)
@@ -385,7 +451,7 @@ async def _get_spy_data(
         ib.cancelMktData(spy_q)
         spy_price = ticker.last or ticker.close
         if not spy_price or spy_price <= 0:
-            return None, None, None, None
+            return None, None, None, None, None, None
 
         bars = await ib.reqHistoricalDataAsync(
             spy_q,
@@ -397,11 +463,12 @@ async def _get_spy_data(
             formatDate=1,
         )
         if not bars:
-            return float(spy_price), None, None, None
+            return float(spy_price), None, None, None, None, None
 
         closes = [b.close for b in bars]
         highs = [b.high for b in bars]
         lows = [b.low for b in bars]
+        opens = [b.open for b in bars]
 
         sma20 = round(sum(closes[-config.TREND_SMA_DAYS:]) / config.TREND_SMA_DAYS, 2) \
             if len(closes) >= config.TREND_SMA_DAYS else None
@@ -409,12 +476,16 @@ async def _get_spy_data(
         week_high = round(max(highs), 2)
         week_low = round(min(lows), 2)
 
+        # For large move guard: today's open vs yesterday's close
+        prev_close = round(closes[-2], 2) if len(closes) >= 2 else None
+        spy_open = round(opens[-1], 2) if opens else None
+
         logger.debug(
-            f"SPY ${spy_price:.2f} | SMA20 ${sma20} | "
-            f"52w {week_low:.2f}–{week_high:.2f}"
+            f"SPY ${spy_price:.2f} | open ${spy_open} | prev_close ${prev_close} | "
+            f"SMA20 ${sma20} | 52w {week_low:.2f}–{week_high:.2f}"
         )
-        return float(spy_price), sma20, week_high, week_low
+        return float(spy_price), sma20, week_high, week_low, prev_close, spy_open
 
     except Exception as exc:
         logger.error(f"Error fetching SPY data: {exc}")
-        return None, None, None, None
+        return None, None, None, None, None, None

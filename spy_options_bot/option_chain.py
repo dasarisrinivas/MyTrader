@@ -50,6 +50,11 @@ class OptionCandidate:
     volume: int
     open_interest: int
     spread_pct: float    # (ask - bid) / mid
+    # Credit spread fields — populated by fetch_hedge_leg(), None if not yet fetched
+    hedge_contract: Option | None = None
+    hedge_strike: float = 0.0
+    hedge_mid: float = 0.0
+    net_credit: float = 0.0   # mid - hedge_mid (net credit collected)
 
 
 def _next_friday() -> date:
@@ -358,7 +363,6 @@ def select_best_put(candidates: list[OptionCandidate]) -> OptionCandidate | None
     puts = [c for c in candidates if c.right == "P"]
     if not puts:
         return None
-    # Primary: closest to target delta. Tiebreak: highest theta/delta ratio.
     return min(
         puts,
         key=lambda c: (
@@ -380,3 +384,82 @@ def select_best_call(candidates: list[OptionCandidate]) -> OptionCandidate | Non
             -(abs(c.theta) / abs(c.delta)) if c.delta != 0 else 0,
         ),
     )
+
+
+async def fetch_hedge_leg(ib: IB, candidate: OptionCandidate) -> OptionCandidate:
+    """Find the protective hedge leg for a credit spread and attach it to the candidate.
+
+    For a put spread: buy a put SPREAD_WIDTH strikes below the short put.
+    For a call spread: buy a call SPREAD_WIDTH strikes above the short call.
+
+    Returns the candidate with hedge fields populated. If the hedge cannot be
+    found, returns candidate unchanged (net_credit = mid = naked position).
+    """
+    width = int(config.SPREAD_WIDTH)
+    if candidate.right == "P":
+        hedge_strike = round(candidate.strike - width)
+    else:
+        hedge_strike = round(candidate.strike + width)
+
+    opt = Option(
+        config.SYMBOL,
+        candidate.expiry,
+        hedge_strike,
+        candidate.right,
+        config.EXCHANGE,
+        multiplier="100",
+        currency=config.CURRENCY,
+    )
+    try:
+        qualified = await ib.qualifyContractsAsync(opt)
+        if not qualified:
+            logger.warning(f"Could not qualify hedge leg {candidate.right}{hedge_strike}")
+            candidate.net_credit = candidate.mid
+            return candidate
+
+        hedge_contract = qualified[0]
+        ticker = ib.reqMktData(hedge_contract, genericTickList="100,101", snapshot=False)
+
+        for attempt in range(_GREEKS_MAX_RETRIES):
+            await asyncio.sleep(_GREEKS_RETRY_DELAY)
+            bid = ticker.bid if ticker.bid and ticker.bid > 0 else 0.0
+            ask = ticker.ask if ticker.ask and ticker.ask > 0 else 0.0
+            if bid > 0 and ask > 0:
+                break
+
+        ib.cancelMktData(hedge_contract)
+
+        bid = ticker.bid if ticker.bid and ticker.bid > 0 else 0.0
+        ask = ticker.ask if ticker.ask and ticker.ask > 0 else 0.0
+        if bid <= 0 or ask <= 0:
+            logger.warning(f"No valid market data for hedge {candidate.right}{hedge_strike}")
+            candidate.net_credit = candidate.mid
+            return candidate
+
+        hedge_mid = (bid + ask) / 2
+        net_credit = round(candidate.mid - hedge_mid, 4)
+
+        candidate.hedge_contract = hedge_contract
+        candidate.hedge_strike = float(hedge_strike)
+        candidate.hedge_mid = round(hedge_mid, 4)
+        candidate.net_credit = net_credit
+
+        logger.info(
+            f"Spread: SELL {candidate.right}{candidate.strike} ${candidate.mid:.2f} | "
+            f"BUY {candidate.right}{hedge_strike} ${hedge_mid:.2f} | "
+            f"net credit ${net_credit:.2f}"
+        )
+
+        # Apply minimum net credit floor
+        if net_credit < config.MIN_NET_CREDIT:
+            logger.info(
+                f"Net credit ${net_credit:.2f} < floor ${config.MIN_NET_CREDIT:.2f} — "
+                "skipping this week"
+            )
+            return None  # type: ignore[return-value]
+
+    except Exception as exc:
+        logger.error(f"Error fetching hedge leg: {exc}")
+        candidate.net_credit = candidate.mid
+
+    return candidate

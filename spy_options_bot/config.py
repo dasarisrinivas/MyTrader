@@ -92,6 +92,24 @@ SR_HIGH_BUFFER_PCT: float = 0.03  # block calls if SPY > 52w_high × 0.97
 EVENT_BLACKOUT_DAYS: int = 1
 
 # ---------------------------------------------------------------------------
+# VIX spike guard — catches early panic before SMA200 reacts (price-based)
+# ---------------------------------------------------------------------------
+VIX_SPIKE_MULTIPLIER: float = 1.25   # Block if VIX > 5-day avg × this
+VIX_SPIKE_SKIP_DAYS: int = 3         # Calendar days to pause after spike
+
+# ---------------------------------------------------------------------------
+# Large move guard — catches gap scenarios that VIX spike misses
+# ---------------------------------------------------------------------------
+LARGE_MOVE_PCT: float = 0.02         # Block if SPY moved >2% from prior close
+LARGE_MOVE_SKIP_DAYS: int = 2        # Calendar days to pause after large move
+
+# ---------------------------------------------------------------------------
+# Credit spread
+# ---------------------------------------------------------------------------
+SPREAD_WIDTH: float = 10.0           # Dollar-width of put/call spread (hedge 10 strikes away)
+MIN_NET_CREDIT: float = 0.60         # Minimum net credit after buying the hedge
+
+# ---------------------------------------------------------------------------
 # Order execution
 # ---------------------------------------------------------------------------
 ORDER_FILL_TIMEOUT: int = 60      # Seconds before adjusting limit price

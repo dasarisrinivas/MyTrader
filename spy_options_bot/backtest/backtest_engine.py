@@ -3,13 +3,14 @@
 Strategy mirrors the live bot exactly:
   - Entry: Mon/Tue/Wed, VIX 12–30, SPY vs SMA20 trend, SPY vs SMA200 regime, PDT compliance
   - Exit: 50% profit target, 2× loss stop, delta stop, Thursday EOD, emergency gamma
-  - Position sizing: capped at 5% account risk per leg
+  - Position sizing: capped at 5% account risk per net credit
   - Slippage: 1% of premium at entry + exit (2% on stressed stops/emergency fills)
-  - Commission: $0.65 per contract per side
+  - Commission: $0.65 per contract per side (×4 for spreads — 2 legs × 2 sides)
 
 Filters added vs original:
-  - Delta target lowered to 0.16 (further OTM, higher win rate)
-  - Gamma protection: DTE ≥ 4 calendar days (blocks Wednesday entries)
+  - Credit spreads: bull put spread / bear call spread; skip if net credit < $0.60
+  - Delta target 0.25 (short leg); long leg is SPREAD_WIDTH ($10) further OTM
+  - Gamma protection: DTE ≥ 3 calendar days (blocks Wednesday entries)
   - Market regime: SPY must be above 200-day SMA to sell puts; below for calls
   - Realistic slippage model: percentage of premium, not fixed dollar
 
@@ -58,7 +59,9 @@ SMA200_DAYS: int = 200                      # Market regime filter
 PDT_MAX_TRADES: int = 3
 PDT_WINDOW_DAYS: int = 5
 MAX_CONTRACTS: int = 1
-TARGET_DELTA: float = 0.16                  # Further OTM → higher win rate
+TARGET_DELTA: float = 0.25                  # Reverted — 0.16 destroyed return/DD ratio
+MIN_NET_CREDIT: float = 0.60               # Skip trade if spread net credit < $0.60
+SPREAD_WIDTH: float = 10.0                  # Dollar-width of credit spread
 
 # Gamma protection: require at least 4 calendar days to expiry
 # Blocks Wednesday entries (2 DTE) — only Mon (4 DTE) and Tue (3 DTE) allowed
@@ -166,6 +169,7 @@ def _trade_cost(
     entry_premium: float,
     close_premium: float,
     exit_reason: str,
+    is_spread: bool = False,
 ) -> float:
     """Total round-trip cost: commission + realistic slippage.
 
@@ -173,8 +177,10 @@ def _trade_cost(
     reflect that wider-premium options have wider bid-ask spreads.
     Stressed exits (stops, emergency) use a higher slippage multiplier
     to simulate market-order fills in adverse conditions.
+    Spreads have 2 legs × 2 sides = 4 contract fills per spread.
     """
-    commission = COMMISSION_PER_CONTRACT * contracts * 2
+    sides = 4 if is_spread else 2
+    commission = COMMISSION_PER_CONTRACT * contracts * sides
     entry_slip = entry_premium * ENTRY_SLIPPAGE_PCT * 100 * contracts
     stressed = exit_reason in ("loss_stop", "delta_stop", "emergency_gamma")
     exit_pct = EXIT_SLIPPAGE_STRESSED_PCT if stressed else EXIT_SLIPPAGE_PCT
@@ -290,8 +296,14 @@ class BacktestEngine:
                 T = dte_years(dte_remaining)
                 sigma = vix_to_sigma(vix_row["close"])
                 bs = bs_price(spy_row["close"], leg.strike, T, RISK_FREE_RATE, sigma, leg.right)
-                current_price = bs.price
                 current_delta = bs.delta
+
+                if leg.hedge_strike != 0.0:
+                    # Spread: current value = short_price - hedge_price, capped at spread width
+                    hedge_bs = bs_price(spy_row["close"], leg.hedge_strike, T, RISK_FREE_RATE, sigma, leg.right)
+                    current_price = max(0.0, min(bs.price - hedge_bs.price, SPREAD_WIDTH))
+                else:
+                    current_price = bs.price
 
                 if emergency:
                     legs_to_close.append((leg, "emergency_gamma"))
@@ -310,14 +322,21 @@ class BacktestEngine:
                 sigma = vix_to_sigma(vix_row["close"])
                 bs = bs_price(spy_row["close"], leg.strike, T, RISK_FREE_RATE, sigma, leg.right)
 
+                is_spread = leg.hedge_strike != 0.0
+                if is_spread:
+                    hedge_bs = bs_price(spy_row["close"], leg.hedge_strike, T, RISK_FREE_RATE, sigma, leg.right)
+                    market_price = max(0.0, min(bs.price - hedge_bs.price, SPREAD_WIDTH))
+                else:
+                    market_price = bs.price
+
                 # Profit target closes at exactly the target price (realistic mid fill)
                 if reason == "profit_target":
                     close_price = round(leg.entry_premium * PROFIT_TARGET_PCT, 4)
                 else:
-                    close_price = round(bs.price, 4)
+                    close_price = round(market_price, 4)
 
                 gross = (leg.entry_premium - close_price) * 100.0 * leg.contracts
-                cost = _trade_cost(leg.contracts, leg.entry_premium, close_price, reason)
+                cost = _trade_cost(leg.contracts, leg.entry_premium, close_price, reason, is_spread=is_spread)
                 net = gross - cost
 
                 trade_counter += 1
@@ -357,7 +376,12 @@ class BacktestEngine:
                 T = dte_years(dte_remaining)
                 sigma = vix_to_sigma(vix_row["close"])
                 bs = bs_price(spy_row["close"], leg.strike, T, RISK_FREE_RATE, sigma, leg.right)
-                unrealized += (leg.entry_premium - bs.price) * 100.0 * leg.contracts
+                if leg.hedge_strike != 0.0:
+                    hedge_bs = bs_price(spy_row["close"], leg.hedge_strike, T, RISK_FREE_RATE, sigma, leg.right)
+                    current_val = max(0.0, min(bs.price - hedge_bs.price, SPREAD_WIDTH))
+                else:
+                    current_val = bs.price
+                unrealized += (leg.entry_premium - current_val) * 100.0 * leg.contracts
 
             equity = initial_capital + realized_pnl + unrealized
             equity_rows.append({"date": day, "equity": round(equity, 2),
@@ -451,31 +475,47 @@ class BacktestEngine:
             new_legs: list[_OpenLeg] = []
 
             if selected_strategy in ("sell_put", "sell_strangle"):
-                put_k = round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, -TARGET_DELTA, "P"))
+                put_k = float(round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, -TARGET_DELTA, "P")))
                 put_bs = bs_price(spy_open, put_k, T, RISK_FREE_RATE, sigma, "P")
-                if put_bs.price > 0.05:  # Minimum premium sanity check
-                    contracts = _calc_position_size(current_equity, put_bs.price)
+                # Credit spread: buy protective put SPREAD_WIDTH below short strike
+                put_hedge_k = put_k - SPREAD_WIDTH
+                put_hedge_bs = bs_price(spy_open, put_hedge_k, T, RISK_FREE_RATE, sigma, "P")
+                net_credit_put = put_bs.price - put_hedge_bs.price
+                if net_credit_put < MIN_NET_CREDIT:
+                    no_trade_records.append(NoTradeRecord(day, f"put_net_credit_low_{net_credit_put:.2f}"))
+                else:
+                    contracts = _calc_position_size(current_equity, net_credit_put)
                     new_legs.append(_OpenLeg(
                         entry_date=day, expiry=target_expiry, right="P",
-                        strike=float(put_k), contracts=contracts,
-                        entry_premium=put_bs.price, entry_delta=put_bs.delta,
+                        strike=put_k, contracts=contracts,
+                        entry_premium=net_credit_put,   # net credit is the effective premium
+                        entry_delta=put_bs.delta,
                         entry_theta=put_bs.theta, entry_iv=sigma,
                         entry_spy_price=spy_open, entry_vix=entry_vix,
-                        strategy="sell_put",
+                        strategy="sell_put_spread",
+                        hedge_strike=put_hedge_k,
                     ))
 
             if selected_strategy in ("sell_call", "sell_strangle"):
-                call_k = round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, TARGET_DELTA, "C"))
+                call_k = float(round(find_strike_for_delta(spy_open, T, RISK_FREE_RATE, sigma, TARGET_DELTA, "C")))
                 call_bs = bs_price(spy_open, call_k, T, RISK_FREE_RATE, sigma, "C")
-                if call_bs.price > 0.05:
-                    contracts = _calc_position_size(current_equity, call_bs.price)
+                # Credit spread: buy protective call SPREAD_WIDTH above short strike
+                call_hedge_k = call_k + SPREAD_WIDTH
+                call_hedge_bs = bs_price(spy_open, call_hedge_k, T, RISK_FREE_RATE, sigma, "C")
+                net_credit_call = call_bs.price - call_hedge_bs.price
+                if net_credit_call < MIN_NET_CREDIT:
+                    no_trade_records.append(NoTradeRecord(day, f"call_net_credit_low_{net_credit_call:.2f}"))
+                else:
+                    contracts = _calc_position_size(current_equity, net_credit_call)
                     new_legs.append(_OpenLeg(
                         entry_date=day, expiry=target_expiry, right="C",
-                        strike=float(call_k), contracts=contracts,
-                        entry_premium=call_bs.price, entry_delta=call_bs.delta,
+                        strike=call_k, contracts=contracts,
+                        entry_premium=net_credit_call,  # net credit is the effective premium
+                        entry_delta=call_bs.delta,
                         entry_theta=call_bs.theta, entry_iv=sigma,
                         entry_spy_price=spy_open, entry_vix=entry_vix,
-                        strategy="sell_call",
+                        strategy="sell_call_spread",
+                        hedge_strike=call_hedge_k,
                     ))
 
             if not new_legs:
@@ -498,9 +538,14 @@ class BacktestEngine:
                 sigma = vix_to_sigma(float(vix_last["close"])) if vix_last is not None else 0.20
                 spy_close = float(spy_last["close"]) if spy_last is not None else leg.entry_spy_price
                 bs = bs_price(spy_close, leg.strike, T, RISK_FREE_RATE, sigma, leg.right)
-                close_price = round(bs.price, 4)
+                is_spread = leg.hedge_strike != 0.0
+                if is_spread:
+                    hedge_bs = bs_price(spy_close, leg.hedge_strike, T, RISK_FREE_RATE, sigma, leg.right)
+                    close_price = round(max(0.0, min(bs.price - hedge_bs.price, SPREAD_WIDTH)), 4)
+                else:
+                    close_price = round(bs.price, 4)
                 gross = (leg.entry_premium - close_price) * 100.0 * leg.contracts
-                cost = _trade_cost(leg.contracts, leg.entry_premium, close_price, "end_of_backtest")
+                cost = _trade_cost(leg.contracts, leg.entry_premium, close_price, "end_of_backtest", is_spread=is_spread)
                 trade_counter += 1
                 closed_trades.append(SimulatedTrade(
                     trade_id=f"T{trade_counter:04d}",
@@ -544,13 +589,14 @@ class _OpenLeg:
     right: str
     strike: float
     contracts: int
-    entry_premium: float
+    entry_premium: float    # = net_credit for spreads
     entry_delta: float
     entry_theta: float
     entry_iv: float
     entry_spy_price: float
     entry_vix: float
     strategy: str
+    hedge_strike: float = 0.0  # 0 = naked; non-zero = spread long leg strike
 
 
 def _select_strategy(

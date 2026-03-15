@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from ib_insync import IB, LimitOrder, Option, Trade
+from ib_insync import IB, LimitOrder, Option, Trade, Contract, ComboLeg
 
 from logger import logger
 import config
@@ -63,6 +63,13 @@ class OpenPosition:
     close_premium: float | None = None
     pnl: float | None = None
     close_reason: str | None = None
+    # Credit spread fields (populated when hedge leg is used)
+    is_spread: bool = False
+    hedge_conid: int = 0
+    hedge_strike: float = 0.0
+    hedge_premium: float = 0.0   # Premium paid for the long leg
+    net_credit: float = 0.0      # entry_premium - hedge_premium
+    max_spread_loss: float = 0.0 # (SPREAD_WIDTH - net_credit) × 100
 
 
 # ---------------------------------------------------------------------------
@@ -164,28 +171,50 @@ class OrderManager:
         side = f"SELL {'PUT' if candidate.right == 'P' else 'CALL'}"
         label = f"{config.SYMBOL} {candidate.expiry} {candidate.right}{candidate.strike}"
 
+        is_spread = candidate.hedge_contract is not None and candidate.net_credit > 0
+        net_credit = candidate.net_credit if is_spread else mid
+
         if self.dry_run:
-            logger.info(f"[DRY RUN] Would place: {side} {qty}x {label} @ ${mid:.2f}")
+            spread_note = f" [spread net credit ${net_credit:.2f}]" if is_spread else ""
+            logger.info(f"[DRY RUN] Would place: {side} {qty}x {label} @ ${mid:.2f}{spread_note}")
             return None
 
-        logger.info(f"Placing {side} {qty}x {label} @ ${mid:.2f} limit")
-        trade = await self._place_limit(contract, "SELL", qty, mid)
+        if is_spread:
+            trade = await self._place_spread(candidate, qty)
+            fill_price = net_credit   # For spreads, fill price = net credit received
+        else:
+            logger.info(f"Placing {side} {qty}x {label} @ ${mid:.2f} limit (naked)")
+            trade = await self._place_limit(contract, "SELL", qty, mid)
+
         if trade is None:
             return None
 
-        filled = await self._wait_for_fill(trade, contract, "SELL", qty, initial_mid=mid)
+        if is_spread:
+            filled = await self._wait_for_fill(trade, None, "SELL", qty, initial_mid=net_credit)
+        else:
+            filled = await self._wait_for_fill(trade, contract, "SELL", qty, initial_mid=mid)
+
         if not filled:
             logger.warning(f"Order for {label} could not be filled — cancelling")
             self.ib.cancelOrder(trade.order)
             return None
 
-        fill_price = trade.orderStatus.avgFillPrice
+        fill_price = trade.orderStatus.avgFillPrice or fill_price
         logger.info(
             f"Filled: {label} @ ${fill_price:.2f} | "
-            f"premium received: ${fill_price * 100:.2f} | strategy: {strategy_type}"
+            f"{'spread net credit' if is_spread else 'premium received'}: "
+            f"${fill_price * 100:.2f} | strategy: {strategy_type}"
         )
 
         position_id = f"{config.SYMBOL}_{candidate.right}_{candidate.expiry}_{int(candidate.strike)}"
+
+        # For spreads: exits based on net credit (spread value), not raw premium
+        entry_ref = fill_price if is_spread else fill_price
+        max_loss_price = min(
+            round(entry_ref * config.MAX_LOSS_MULTIPLE, 4),
+            round(config.SPREAD_WIDTH - entry_ref, 4),
+        ) if is_spread else round(entry_ref * config.MAX_LOSS_MULTIPLE, 4)
+
         position = OpenPosition(
             position_id=position_id,
             symbol=config.SYMBOL,
@@ -199,10 +228,16 @@ class OrderManager:
             entry_theta=candidate.theta,
             entry_iv=candidate.iv,
             profit_target_price=round(fill_price * config.PROFIT_TARGET_PCT, 4),
-            stop_loss_price=round(fill_price * config.MAX_LOSS_MULTIPLE, 4),
+            stop_loss_price=max_loss_price,
             strategy_type=strategy_type,
             conid=contract.conId,
             order_id=trade.order.orderId,
+            is_spread=is_spread,
+            hedge_conid=candidate.hedge_contract.conId if is_spread else 0,
+            hedge_strike=candidate.hedge_strike if is_spread else 0.0,
+            hedge_premium=candidate.hedge_mid if is_spread else 0.0,
+            net_credit=net_credit if is_spread else 0.0,
+            max_spread_loss=round((config.SPREAD_WIDTH - net_credit) * 100, 2) if is_spread else 0.0,
         )
 
         _append_position(position)
@@ -304,9 +339,51 @@ class OrderManager:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def _place_spread(
+        self, candidate: "OptionCandidate", qty: int
+    ) -> "Trade | None":
+        """Place a credit spread as a BAG (combo) order."""
+        from option_chain import OptionCandidate as OC  # avoid circular at module level
+
+        bag = Contract()
+        bag.symbol = config.SYMBOL
+        bag.secType = "BAG"
+        bag.currency = config.CURRENCY
+        bag.exchange = config.EXCHANGE
+
+        sell_leg = ComboLeg()
+        sell_leg.conId = candidate.contract.conId
+        sell_leg.ratio = 1
+        sell_leg.action = "SELL"
+        sell_leg.exchange = config.EXCHANGE
+
+        buy_leg = ComboLeg()
+        buy_leg.conId = candidate.hedge_contract.conId
+        buy_leg.ratio = 1
+        buy_leg.action = "BUY"
+        buy_leg.exchange = config.EXCHANGE
+
+        bag.comboLegs = [sell_leg, buy_leg]
+
+        label = (
+            f"SELL {candidate.right}{candidate.strike} / "
+            f"BUY {candidate.right}{candidate.hedge_strike} "
+            f"net credit ${candidate.net_credit:.2f}"
+        )
+        logger.info(f"Placing spread (BAG): {label}")
+        # For credit spreads placed as BAG, action="SELL" means net credit
+        order = LimitOrder("SELL", qty, round(candidate.net_credit, 2), tif="DAY")
+        try:
+            trade = self.ib.placeOrder(bag, order)
+            await asyncio.sleep(0.5)
+            return trade
+        except Exception as exc:
+            logger.error(f"BAG placeOrder error: {exc}")
+            return None
+
     async def _place_limit(
         self, contract, action: str, qty: int, price: float
-    ) -> Trade | None:
+    ) -> "Trade | None":
         order = LimitOrder(action, qty, round(price, 2), tif="DAY")
         try:
             trade = self.ib.placeOrder(contract, order)

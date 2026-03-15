@@ -23,10 +23,11 @@ _here = Path(__file__).parent
 sys.path.insert(0, str(_here))
 
 import config
+from guard_tracker import GuardTracker
 from ibkr_connection import IBKRConnection
 from logger import configure_logging, logger
 from notifier import Notifier
-from option_chain import fetch_option_chain, select_best_call, select_best_put
+from option_chain import fetch_hedge_leg, fetch_option_chain, select_best_call, select_best_put
 from order_manager import OrderManager, load_open_positions
 from pdt_tracker import PDTTracker
 from risk_manager import RiskManager
@@ -77,6 +78,7 @@ async def run_cycle(
     risk_mgr: RiskManager,
     pdt: PDTTracker,
     notifier: Notifier,
+    guards: GuardTracker,
     dry_run: bool,
 ) -> None:
     """One evaluation cycle: monitor positions, then consider new entry."""
@@ -114,8 +116,8 @@ async def run_cycle(
         logger.info(f"Entry blocked by risk check: {reason}")
         return
 
-    # Signal evaluation (PDT-aware: strangle downgrades if slots < 2)
-    signal = await evaluate_signals(ib_conn.ib, pdt=pdt)
+    # Signal evaluation (PDT-aware + guard-aware)
+    signal = await evaluate_signals(ib_conn.ib, pdt=pdt, guards=guards)
     if signal.strategy == Strategy.NO_TRADE:
         logger.info(f"No trade signal: {signal.reason}")
         return
@@ -137,13 +139,18 @@ async def run_cycle(
     if signal.strategy in (Strategy.SELL_PUT, Strategy.SELL_STRANGLE):
         put = select_best_put(candidates)
         if put:
-            logger.info(
-                f"Selected PUT: strike={put.strike} delta={put.delta:.3f} "
-                f"theta={put.theta:.4f} mid=${put.mid:.2f}"
-            )
-            pos = await order_mgr.sell_option(put, strategy_type=strategy_type)
-            if pos:
-                opened_positions.append(pos)
+            put = await fetch_hedge_leg(ib_conn.ib, put)
+            if put is None:
+                logger.info("PUT skipped: net credit below minimum floor")
+            else:
+                logger.info(
+                    f"Selected PUT: strike={put.strike} delta={put.delta:.3f} "
+                    f"theta={put.theta:.4f} mid=${put.mid:.2f} "
+                    f"net_credit=${put.net_credit:.2f}"
+                )
+                pos = await order_mgr.sell_option(put, strategy_type=strategy_type)
+                if pos:
+                    opened_positions.append(pos)
         else:
             logger.warning("No suitable PUT found")
 
@@ -152,13 +159,18 @@ async def run_cycle(
         if signal.strategy == Strategy.SELL_CALL or opened_positions:
             call = select_best_call(candidates)
             if call:
-                logger.info(
-                    f"Selected CALL: strike={call.strike} delta={call.delta:.3f} "
-                    f"theta={call.theta:.4f} mid=${call.mid:.2f}"
-                )
-                pos = await order_mgr.sell_option(call, strategy_type=strategy_type)
-                if pos:
-                    opened_positions.append(pos)
+                call = await fetch_hedge_leg(ib_conn.ib, call)
+                if call is None:
+                    logger.info("CALL skipped: net credit below minimum floor")
+                else:
+                    logger.info(
+                        f"Selected CALL: strike={call.strike} delta={call.delta:.3f} "
+                        f"theta={call.theta:.4f} mid=${call.mid:.2f} "
+                        f"net_credit=${call.net_credit:.2f}"
+                    )
+                    pos = await order_mgr.sell_option(call, strategy_type=strategy_type)
+                    if pos:
+                        opened_positions.append(pos)
             else:
                 logger.warning("No suitable CALL found")
 
@@ -230,6 +242,7 @@ async def main(dry_run: bool = False, run_once: bool = False) -> None:
     logger.info("=" * 60)
 
     notifier = Notifier()
+    guards = GuardTracker()
 
     pdt = PDTTracker(filepath=config.PDT_LOG_FILE, max_trades=config.MAX_WEEKLY_TRADES)
     slots = pdt.slots_remaining()
@@ -283,7 +296,7 @@ async def main(dry_run: bool = False, run_once: bool = False) -> None:
     order_mgr.close_position = _close_with_pdt  # type: ignore[method-assign]
 
     if run_once:
-        await run_cycle(ib_conn, order_mgr, risk_mgr, pdt, notifier, dry_run)
+        await run_cycle(ib_conn, order_mgr, risk_mgr, pdt, notifier, guards, dry_run)
         await _graceful_shutdown(ib_conn, order_mgr)
         return
 
@@ -295,7 +308,7 @@ async def main(dry_run: bool = False, run_once: bool = False) -> None:
     logger.info("Starting main loop...")
     while not shutdown_event.is_set():
         try:
-            await run_cycle(ib_conn, order_mgr, risk_mgr, pdt, notifier, dry_run)
+            await run_cycle(ib_conn, order_mgr, risk_mgr, pdt, notifier, guards, dry_run)
         except Exception as exc:
             logger.exception(f"Unhandled error in cycle: {exc}")
 
