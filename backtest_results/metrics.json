@@ -5,26 +5,26 @@
   "initial_capital": 5000.0,
   "pdt_blocked_weeks": 6,
   "no_trade_days": 39,
-  "final_equity": 6390.53,
-  "total_return_pct": 27.81,
-  "annualized_return_pct": 28.06,
+  "final_equity": 6237.45,
+  "total_return_pct": 24.75,
+  "annualized_return_pct": 24.97,
   "winning_trades": 56,
   "losing_trades": 11,
   "win_rate_pct": 83.6,
-  "avg_win": 64.78,
-  "avg_loss": -203.38,
-  "profit_factor": 1.62,
-  "expected_value": 20.75,
-  "max_drawdown_pct": -12.96,
-  "max_drawdown_duration_days": 85,
-  "sharpe_ratio": 1.28,
-  "sortino_ratio": 1.4,
-  "calmar_ratio": 2.16,
-  "var_95": -1.13,
+  "avg_win": 61.97,
+  "avg_loss": -202.96,
+  "profit_factor": 1.55,
+  "expected_value": 18.47,
+  "max_drawdown_pct": -13.4,
+  "max_drawdown_duration_days": 90,
+  "sharpe_ratio": 1.13,
+  "sortino_ratio": 1.22,
+  "calmar_ratio": 1.86,
+  "var_95": -1.15,
   "avg_days_held": 1.8,
   "avg_premium_collected": 1.44,
-  "avg_pnl_per_trade": 20.75,
-  "total_commissions": 383.11,
+  "avg_pnl_per_trade": 18.47,
+  "total_commissions": 536.2,
   "exit_reason_counts": {
     "profit_target": 52,
     "loss_stop": 8,
@@ -38,8 +38,8 @@
       "wins": 4,
       "losses": 1,
       "gross_pnl": 97.95,
-      "net_pnl": 65.8,
-      "return_pct": 1.32
+      "net_pnl": 56.95,
+      "return_pct": 1.14
     },
     {
       "month": "2025-05",
@@ -47,8 +47,8 @@
       "wins": 5,
       "losses": 1,
       "gross_pnl": 37.14,
-      "net_pnl": 0.16,
-      "return_pct": 0.0
+      "net_pnl": -11.46,
+      "return_pct": -0.23
     },
     {
       "month": "2025-06",
@@ -56,8 +56,8 @@
       "wins": 7,
       "losses": 0,
       "gross_pnl": 493.29,
-      "net_pnl": 460.3,
-      "return_pct": 9.21
+      "net_pnl": 440.09,
+      "return_pct": 8.8
     },
     {
       "month": "2025-07",
@@ -65,8 +65,8 @@
       "wins": 4,
       "losses": 1,
       "gross_pnl": 239.29,
-      "net_pnl": 214.46,
-      "return_pct": 4.29
+      "net_pnl": 201.29,
+      "return_pct": 4.03
     },
     {
       "month": "2025-08",
@@ -74,8 +74,8 @@
       "wins": 4,
       "losses": 1,
       "gross_pnl": 109.55,
-      "net_pnl": 81.3,
-      "return_pct": 1.63
+      "net_pnl": 68.55,
+      "return_pct": 1.37
     },
     {
       "month": "2025-09",
@@ -83,8 +83,8 @@
       "wins": 3,
       "losses": 1,
       "gross_pnl": 38.68,
-      "net_pnl": 16.0,
-      "return_pct": 0.32
+      "net_pnl": 5.28,
+      "return_pct": 0.11
     },
     {
       "month": "2025-10",
@@ -92,8 +92,8 @@
       "wins": 6,
       "losses": 1,
       "gross_pnl": 299.73,
-      "net_pnl": 261.29,
-      "return_pct": 5.23
+      "net_pnl": 243.53,
+      "return_pct": 4.87
     },
     {
       "month": "2025-11",
@@ -101,8 +101,8 @@
       "wins": 5,
       "losses": 3,
       "gross_pnl": -330.72,
-      "net_pnl": -390.25,
-      "return_pct": -7.8
+      "net_pnl": -400.52,
+      "return_pct": -8.01
     },
     {
       "month": "2025-12",
@@ -110,8 +110,8 @@
       "wins": 5,
       "losses": 1,
       "gross_pnl": -83.21,
-      "net_pnl": -121.59,
-      "return_pct": -2.43
+      "net_pnl": -131.81,
+      "return_pct": -2.64
     },
     {
       "month": "2026-01",
@@ -119,8 +119,8 @@
       "wins": 7,
       "losses": 1,
       "gross_pnl": 412.93,
-      "net_pnl": 374.19,
-      "return_pct": 7.48
+      "net_pnl": 352.13,
+      "return_pct": 7.04
     },
     {
       "month": "2026-02",
@@ -128,8 +128,8 @@
       "wins": 4,
       "losses": 0,
       "gross_pnl": 282.48,
-      "net_pnl": 262.83,
-      "return_pct": 5.26
+      "net_pnl": 252.08,
+      "return_pct": 5.04
     },
     {
       "month": "2026-03",
@@ -137,10 +137,10 @@
       "wins": 2,
       "losses": 0,
       "gross_pnl": 176.57,
-      "net_pnl": 166.07,
-      "return_pct": 3.32
+      "net_pnl": 161.37,
+      "return_pct": 3.23
     }
   ],
   "drawdown_peak_date": "2025-10-29",
-  "drawdown_recovery_date": "2026-03-05"
+  "drawdown_recovery_date": "2026-03-12"
 }
