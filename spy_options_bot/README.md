@@ -4,7 +4,7 @@ Sells credit spreads on SPY every week to collect theta premium.
 Runs automatically during NYSE market hours via IBKR TWS API.
 
 > **Account:** $5,000 | **Mode:** Live | **Max position:** 1 spread
-> **Backtest (1 yr, $5k, delta 0.25, credit spreads):** +27.81% return · Sharpe 1.28 · Max DD -13.0%
+> **Backtest (1 yr, $5k, delta 0.25, credit spreads, realistic slippage):** +24.39% return · Sharpe 1.11 · Max DD -13.4%
 
 ---
 
@@ -183,6 +183,7 @@ Wednesday 2 PM  → Spread now worth $0.38 → profit target hit → close for $
 | Profit target | **50%** of credit | `PROFIT_TARGET_PCT = 0.50` |
 | Loss stop | **2×** credit | `MAX_LOSS_MULTIPLE = 2.0` |
 | Delta stop | **0.50** | `DELTA_STOP = 0.50` |
+| Roll trigger | **0.40** delta → close, wait 30 min, re-enter Mon/Tue only | `ROLL_DELTA_TRIGGER = 0.40` |
 | VIX floor | **12.0** | `MIN_VIX = 12.0` |
 | VIX ceiling | **30.0** | `MAX_VIX = 30.0` |
 | IV Rank minimum | **20th percentile** | `MIN_IV_RANK = 0.20` |
@@ -196,7 +197,7 @@ Wednesday 2 PM  → Spread now worth $0.38 → profit target hit → close for $
 | Entry days | **Mon, Tue** only | `ENTRY_DAYS = (0, 1)` |
 | Entry time | **9:35 – 15:30 ET** | `MARKET_OPEN/CLOSE_MINUTE` |
 | Thursday force-close | **15:45 ET** | `EOD_CLOSE_HOUR/MINUTE` |
-| Monitoring interval | **5 min** (60s Thursday) | `POLL_INTERVAL = 300` |
+| Monitoring interval | **60s** across the board | `get_poll_interval()` hardcoded |
 | IBKR port | **4001** (live) | `IBKR_LIVE_PORT = 4001` |
 | Client ID | **20** | `CLIENT_ID = 20` |
 
@@ -204,31 +205,30 @@ Wednesday 2 PM  → Spread now worth $0.38 → profit target hit → close for $
 
 ## Backtest Results
 
-**1-year baseline ($5k, delta 0.25, credit spreads):**
+**1-year baseline ($5k, delta 0.25, credit spreads, realistic slippage):**
 
 | Metric | Value |
 |---|---|
-| Total Return | **+27.81%** |
-| Sharpe Ratio | **1.28** |
+| Total Return | **+24.39%** |
+| Sharpe Ratio | **1.11** |
 | Win Rate | **83.6%** (56/67 trades) |
-| Max Drawdown | **-13.0%** |
-| Avg P&L / Trade | **+$20.75** |
+| Max Drawdown | **-13.4%** |
+| Avg P&L / Trade | **+$18.20** |
 | Trades / Year | **67** |
 
-**Crash period stress tests ($5k, credit spreads):**
+**5-regime stress tests ($5k):**
 
-| Period | Return | Max DD | Win Rate | Note |
-|---|---|---|---|---|
-| 2018 Q4 Crash | **-43.4%** | -46.2% | 60.9% | Fed rate hike + trade war, VIX spiked above 30 most days |
-| 2020 COVID Crash | **-10.1%** | -20.8% | 80.0% | Spread cap limited losses vs naked; -34% SPY in 33 days |
-| 2022 Bear Market | **-39.1%** | -40.1% | 67.2% | Regime filter forced calls-only; slow grind hurt call spreads |
+| Period | Return | Max DD | Win Rate | Trades | Note |
+|---|---|---|---|---|---|
+| 2013–2015 Low Vol | **-11.4%** | -11.4% | 42.9% | 7 | VIX gate + IV rank blocked most entries — only 7 trades, statistically meaningless |
+| 2018 Q4 Crash | **-44.6%** | -46.9% | 60.9% | 23 | Fed rate hike + trade war, VIX > 30 most days |
+| 2020 COVID Crash | **-11.5%** | -21.5% | 76.0% | 26 | Spread cap contained losses vs prior naked version (-23%) |
+| 2022 Bear Market | **-42.0%** | -42.9% | 67.2% | 58 | Regime filter forced calls-only during full-year grind |
+| 2023 Bull Recovery | **-23.6%** | -35.2% | 75.3% | 81 | ⚠️ 75% win rate is below the 80% break-even for 1:4 payoff ratio |
 
-**Key insight:** The 2020 result (-10.1%) improved significantly from prior naked-option version (-23%)
-because the spread's $10 width caps the max loss per contract. 2022 is worse because the SMA200
-regime filter switches to calls-only during the full-year bear grind — a known trade-off.
+**The 2023 result is the most important number in this table.** SPY gained +24% in 2023 — a strong bull year that should be ideal for put spreads. Yet the strategy lost -23.6% with 81 trades and 75.3% win rate. This confirms the analysis's warning: the 1:4 reward/risk ratio (50% profit target vs 2× loss stop) requires a *sustained live win rate above 80%* to be profitable. 75% is not enough — every losing trade erases 4 winners. Do not fund this strategy live until paper trading demonstrates 80%+ over 30+ trades.
 
-**Limitations:** Greeks reconstructed via Black-Scholes (VIX as IV proxy). Slippage modeled as 1–2%
-of premium. Does not model assignment, early exercise, or dividend events.
+**Slippage model:** Flat $3 entry / $2 normal exit / $5 stressed exit per spread contract ($5 applies to loss stops, delta stops, emergency closes, and all Thursday EOD closes — motivated-seller fills into wide bid/ask). Does not model assignment, early exercise, or dividend events.
 
 ---
 
