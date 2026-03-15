@@ -1,230 +1,249 @@
 # SPY Weekly Options Bot
 
-Sells short-dated SPY options every week to collect theta premium.
+Sells credit spreads on SPY every week to collect theta premium.
 Runs automatically during NYSE market hours via IBKR TWS API.
 
-> **Account:** $5,000 | **Mode:** Live | **Max position:** 1 contract
-> **Backtest (1 yr, $5k, delta 0.16):** +6.4% return · Sharpe 0.15 · Max DD -12.9%
+> **Account:** $5,000 | **Mode:** Live | **Max position:** 1 spread
+> **Backtest (1 yr, $5k, delta 0.25, credit spreads):** +27.81% return · Sharpe 1.28 · Max DD -13.0%
 
 ---
 
 ## ⚠️ Critical Risks — Read Before Running Live
 
-These are not generic disclaimers. They are specific failure modes for this
-exact strategy that will cost real money if not understood.
+### 1. Max Loss Is Defined — But It's Not Zero
+Each trade is a **credit spread** (not a naked option). Your max loss per trade is:
 
-### 1. Assignment Risk (Most Important)
-Selling a put means you may be **forced to buy 100 SPY shares** if the option
-expires in-the-money. At ~$560/share, that's a $56,000 obligation on a $5,000
-account — triggering a margin call and forced liquidation by IBKR.
+```
+Max Loss = (Spread Width − Net Credit) × 100 × contracts
+         = ($10.00 − $0.80) × 100 × 1 = $920 worst case
+```
 
-**This bot mitigates assignment risk by:**
-- Closing all positions by Thursday 3:45 PM ET (never holds through Friday expiry)
-- Applying a 2× premium loss stop well before deep ITM territory
-- Delta stop at 0.50 — exits before probability of assignment gets dangerous
+This is capped. Unlike a naked put, SPY cannot drop past the long hedge leg.
+But the 2× premium stop should exit at roughly $160 (2 × $0.80 × 100) long before max loss is reached.
 
-**You must still:** Ensure your IBKR account has margin enabled and understand
-that a bot crash on Thursday could leave a position open through expiry.
-If the bot crashes Thursday and you can't restart it, **close the position manually.**
+### 2. Assignment Risk (Still Possible)
+Selling a put spread means you may still be assigned on the short leg if it expires ITM.
+The long leg offsets your obligation but the broker still processes the assignment first.
+**The bot always closes positions by Thursday 3:45 PM ET** — this eliminates assignment risk
+for the short leg in normal operation. A bot crash Thursday = close manually.
 
-### 2. Gap Risk
-The bot's stops are checked every 5 minutes (60 seconds on Thursdays). An
-overnight gap or a halt + resume can move SPY through your stop price without
-triggering an exit. The 2× premium stop is a *target* price, not a guaranteed
-fill price. In a flash crash, you may stop out at 3× or 4× premium.
+### 3. Gap Risk
+Stops are checked every 5 minutes (every 60 seconds on Thursdays). A flash crash can move
+SPY through the stop price between checks. The 2× stop is a target, not a guaranteed fill.
 
-### 3. Naked Call Risk
-When SPY is below its 20-day SMA, the bot sells calls. Unlike puts (which have
-a floor at zero), calls have theoretically unlimited loss if SPY gaps up sharply.
-The delta stop (0.50) and 2× premium stop limit this in practice, but a
-surprise takeover bid or macro shock overnight can gap through both stops.
+### 4. Bear Regime Call Spreads
+When SPY is below its 200-day SMA, the bot sells **call spreads** only. Call spreads lose
+if SPY rallies sharply. A strong bear-market bounce (like March 2020 recovery) can trigger
+the loss stop on call spreads.
 
-### 4. Correlation With MES Bot
-Both bots are **short volatility** — they lose money when markets move
-sharply in either direction. In a crisis (VIX > 30), the MES bot may also
-be under pressure simultaneously. Do not assume the two bots are uncorrelated.
+### 5. Correlation With MES Bot
+Both bots are short volatility. In a VIX > 30 event the MES bot may also be under pressure.
+The SPY bot halts new entries at VIX > 30 and triggers the VIX spike guard at VIX > 25% above
+its 5-day average — but an open position can still be caught in a spike.
 
-### 5. Ex-Dividend Dates
-SPY pays quarterly dividends (~$1.50/quarter). Short call positions are
-vulnerable to **early assignment** the day before the ex-dividend date as
-call holders exercise to capture the dividend.
-
-The bot **blocks all entries** 1 day before each SPY ex-dividend date.
-SPY ex-dividend dates (approximate): mid-March, mid-June, mid-September,
-mid-December. Verify exact dates at etf.com each quarter and update
-`_EVENT_DATES` in `signal_engine.py` if they shift.
+### 6. Ex-Dividend Dates
+Short call positions are vulnerable to early assignment the day before SPY's ex-dividend date.
+The bot blocks all entries 1 day before each SPY ex-div date. Verify exact dates each quarter
+at etf.com and update `_EVENT_DATES` in `signal_engine.py` if they shift.
 
 ---
 
-## What It Does
+## How A Trade Happens (Step by Step)
 
-1. **Monday–Tuesday at 9:35 AM ET** — evaluates market conditions (Wed blocked: gamma risk)
-2. Runs 9 filters in sequence — first failure stops evaluation immediately
-3. If all pass → scans option chain → selects best contract → sells 1 contract
-4. Collects premium upfront (credited to account same day)
-5. Monitors position every 5 min (every 60s on Thursdays)
-6. Closes automatically when profit target or stop is hit
-7. **Thursday 3:45 PM ET** — force-closes any open position regardless of P&L
+### Step 1 — Cycle Starts (9:35 AM ET, Mon–Tue)
+
+The bot wakes up after market open settles. Wednesday entries are blocked (only 2 DTE to
+Friday expiry = dangerously high gamma). The cycle runs one check sequence:
+
+```
+9:35 AM ET → Run entry filters → Select strike → Build spread → Place order → Monitor
+```
 
 ---
 
-## Strategy
+### Step 2 — Entry Filters (11 checks, first failure = skip day)
 
-Sell premium on the side of the market that is less likely to be reached.
-
-| SPY vs 20-day SMA | SPY vs 200-day SMA | PDT Slots | Action |
+| # | Check | Rule | What Happens on Fail |
 |---|---|---|---|
-| Above SMA20 (uptrend) | Above SMA200 (bull) | Any | Sell put ~0.25 delta |
-| Below SMA20 (downtrend) | Above SMA200 (bull) | Any | Sell call ~0.25 delta |
-| Within 0.5% of SMA20 (neutral) | Above SMA200 (bull) | ≥ 2 | Sell strangle (put + call) |
-| Within 0.5% of SMA20 (neutral) | Above SMA200 (bull) | 1 | Sell put (default to safer leg) |
-| Any trend | Below SMA200 (bear) | Any | Sell call only — no puts in bear market |
-
-**Why the 200-day SMA regime filter?**
-In a bear market (SPY below SMA200), selling puts is directionally wrong — you're
-selling downside protection into a confirmed downtrend. The regime filter blocks
-puts entirely and restricts to calls (or no trade if trend is also down).
-
-**What is selling a put?**
-You receive cash (premium) upfront. You profit if SPY closes *above* the
-strike price at expiry. Your maximum profit is the premium received. Your
-risk is if SPY falls sharply below the strike — mitigated by the 2× stop.
-
-**What is a strangle?**
-Selling both a put and a call simultaneously. You collect premium on both
-sides and profit if SPY stays in the range between the two strikes. Counts
-as 2 PDT round-trips (open + close each leg).
+| 1 | **Event risk** | No FOMC / CPI / NFP / SPY ex-div today or tomorrow | Skip day, log reason |
+| 2 | **Guard cooldown** | No active VIX spike or large-move pause | Skip until cooldown expires |
+| 3 | **VIX gate** | 12.0 ≤ VIX ≤ 30.0 | Skip: premium too thin (<12) or panic regime (>30) |
+| 4 | **VIX spike guard** | VIX ≤ 5-day avg × 1.25 | If breached → pause 3 calendar days, write to guard_state.json |
+| 5 | **IV Rank** | VIX ≥ 20th percentile of its 52-week range | Skip: premium cheap relative to recent history |
+| 6 | **Large move guard** | SPY open ≤ prior close × 1.02 (both directions) | If breached → pause 2 calendar days, write to guard_state.json |
+| 7 | **SPY trend** | SPY vs 20-day SMA → determines which side to sell | No fail; sets direction (put/call/strangle) |
+| 8 | **Market regime** | SPY vs 200-day SMA → bear regime = calls only | Restricts strategy; no puts in confirmed downtrend |
+| 9 | **Support / Resistance** | No puts within 5% of 52w low; no calls within 3% of 52w high | Skip that leg |
+| 10 | **Skew** | Skip puts if call IV > put IV by > 3% | Inverted skew = institutional upside hedging |
+| 11 | **PDT limit** | < 3 round-trips in rolling 5-trading-day window | Skip: regulatory limit for accounts < $25k |
 
 ---
 
-## Entry Filters — All 9 Must Pass
+### Step 3 — Strike Selection
 
-Checked every cycle in this order. First failure stops evaluation immediately.
+Once entry is approved, scan the live SPY option chain and apply:
 
-| # | Filter | Rule | Why |
+| Filter | Rule |
+|---|---|
+| **Delta** | 0.18 – 0.32 (target 0.25) on the short leg |
+| **DTE** | 5 – 7 calendar days (nearest Friday expiry) |
+| **Expected move** | Strike must be ≥ 1σ OTM (σ = SPY × VIX/100 × √(DTE/365)) |
+| **Theta/Delta ratio** | \|θ\|/\|Δ\| ≥ 0.08 — decay must justify the directional risk |
+| **Volume** | ≥ 200 contracts traded today |
+| **Open interest** | ≥ 500 contracts |
+| **Bid/ask spread** | ≤ 15% of mid price and ≤ $0.10 absolute |
+
+Among all passing strikes → select closest to delta 0.25, ranked by theta/delta efficiency.
+
+---
+
+### Step 4 — Credit Spread Pricing
+
+The bot does **not** sell a naked option. It builds a spread:
+
+**Bull Put Spread (uptrend — most common):**
+```
+Sell SPY 565 Put  (delta ~0.25) → receive $0.95 premium
+Buy  SPY 555 Put  (10 strikes lower, the hedge) → pay $0.15 premium
+                              ─────────────────────────────────────
+Net credit received = $0.80/share = $80 per spread (1 contract = 100 shares)
+Max loss = ($10.00 - $0.80) × 100 = $920 (if both legs expire deep ITM)
+```
+
+**Bear Call Spread (downtrend / bear regime):**
+```
+Sell SPY 580 Call (delta ~0.25) → receive $0.90 premium
+Buy  SPY 590 Call (10 strikes higher, the hedge) → pay $0.20 premium
+                              ─────────────────────────────────────
+Net credit received = $0.70/share = $70 per spread
+Max loss = ($10.00 - $0.70) × 100 = $930
+```
+
+**Floor check:** If net credit < $0.60, skip the trade. Low credit = not worth the margin.
+
+---
+
+### Step 5 — Order Placement
+
+The order is a single **BAG (combo)** order sent to IBKR — both legs fill atomically. No leg risk.
+
+```
+Order type: Limit (SELL), price = net credit (e.g. $0.80)
+TIF: DAY
+If unfilled after 60 seconds → adjust limit by $0.01 toward market
+Retry up to 3 times → cancel if still unfilled
+```
+
+Commission: $0.65 × 4 (2 legs × 2 sides) = $2.60 per spread round-trip.
+
+---
+
+### Step 6 — Position Monitoring
+
+After fill, the bot monitors every **5 minutes** (every **60 seconds on Thursdays**).
+
+| Exit Trigger | Condition | Action |
+|---|---|---|
+| **Profit target** | Cost to close ≤ 50% of net credit received | Buy to close → lock profit |
+| **Loss stop** | Cost to close ≥ 2× net credit received | Buy to close → limit loss |
+| **Delta stop** | Short leg \|delta\| > 0.50 (deep ITM) | Buy to close → assignment risk rising |
+| **Thursday EOD** | 3:45 PM ET Thursday, any open position | Force close — never hold through Friday expiry |
+| **Emergency gamma** | SPY moves >1.5% in any single 5-min bar on Thursday | Immediate close |
+
+**Example trade lifecycle:**
+```
+Monday 9:35 AM  → Buy SPY 565/555 Put Spread, credit $0.80, target close at $0.40
+Wednesday 2 PM  → Spread now worth $0.38 → profit target hit → close for $42 profit
+                  ($0.80 - $0.38) × 100 - $2.60 commissions = $39.40 net
+```
+
+---
+
+## Strategy Summary
+
+| SPY vs SMA20 | SPY vs SMA200 | PDT Slots | Trade |
 |---|---|---|---|
-| 1 | **Event Risk** | No entry 1 calendar day before FOMC, CPI, NFP, SPY ex-div | Binary events cause IV spikes that invalidate any premium model |
-| 2 | **VIX Gate** | 12 ≤ VIX ≤ 30 at 9:35 AM (intraday snapshot) | <12 = premium too thin; >30 = panic regime, realized vol exceeds implied |
-| 3 | **IV Rank** | VIX in top 20% of its own 1-year range | Only sell when premium is historically elevated vs recent baseline |
-| 4 | **SPY Trend** | SPY price vs 20-day SMA | Determines which side to sell — avoids fighting the trend |
-| 5 | **Market Regime** | SPY vs 200-day SMA — bear regime restricts to calls only | Prevents selling puts into a confirmed downtrend |
-| 6 | **Support / Resistance** | No puts within 5% of 52-week low; no calls within 3% of 52-week high | Avoids selling into major technical levels where reversals accelerate |
-| 7 | **Skew** | Skip puts if call IV > put IV by meaningful margin | Inverted put/call skew signals institutional hedging of upside — respect it |
-| 8 | **PDT Limit** | < 3 round-trips in rolling 5-trading-day window | FINRA Pattern Day Trader rule — violation risks account restriction |
-| 9 | **Time / Day** | Monday–Tuesday, 9:35 AM–3:30 PM ET only | Wednesday blocked (2 DTE = high gamma risk); needs ≥ 3 days of theta decay |
-
-**Filter 3 — IV Rank vs VIX Gate:**
-Filter 2 checks absolute level. Filter 3 checks relative level vs the past year.
-Both must pass. Example: VIX=18 passes Filter 2 but if VIX has been 25–35 all year,
-18 is in the bottom 20% of its range — Filter 3 blocks entry because premium is
-cheap relative to recent history.
-
-**Filter 8 — PDT explained:**
-A round-trip = 1 open + 1 close. A strangle = 2 round-trips.
-The 5-day window is rolling (not calendar week).
+| Above (uptrend) | Bull market | Any | Bull put spread (sell put + buy put 10 lower) |
+| Below (downtrend) | Bull market | Any | Bear call spread (sell call + buy call 10 higher) |
+| Neutral | Bull market | ≥ 2 | Iron condor (both put spread + call spread) |
+| Neutral | Bull market | 1 | Bull put spread only |
+| Any | Bear market (below SMA200) | Any | Bear call spread only — no put spreads |
 
 ---
 
-## Strike Selection
+## Key Parameters
 
-Once entry is approved, the bot scans the SPY option chain and applies these
-filters to find the best contract. All must pass:
-
-| Filter | Rule | Why |
+| Parameter | Value | Where Set |
 |---|---|---|
-| **Delta** | 0.18–0.32 (target 0.25) | ~25% probability of expiring ITM |
-| **Expected Move** | Strike ≥ 1σ OTM (σ = SPY × VIX/100 × √(DTE/365)) | Never sell inside the market's own priced move |
-| **Theta/Delta ratio** | \|θ\|/\|Δ\| ≥ 0.08 | Decay rate must justify directional risk taken |
-| **Volume** | ≥ 200 contracts today | Active market — ensures fills |
-| **Open Interest** | ≥ 500 contracts | Established strike — ensures exit liquidity |
-| **Bid/Ask Spread** | ≤ 15% of mid price | Wide spreads erode premium before the trade starts |
-
-**Best contract selection:** Among all strikes passing every filter, select the
-one closest to 0.25 delta, then ranked by theta/delta efficiency (highest first).
-
-**Order type:** Limit order at mid-price. If unfilled after 60 seconds, adjust
-by $0.01 toward market. Repeat up to 3 times, then cancel if still unfilled.
-
----
-
-## Exit Rules
-
-Checked every **5 minutes** during market hours (every **60 seconds on Thursdays**).
-
-| Trigger | Condition | Action |
-|---|---|---|
-| **Profit target** | Current cost to close ≤ 50% of premium collected | Buy to close — lock in profit |
-| **Loss stop** | Current cost to close ≥ 2× premium collected | Buy to close — limit loss |
-| **Delta stop** | \|delta\| > 0.50 (deep ITM) | Buy to close — assignment risk rising |
-| **Thursday EOD** | 3:45 PM ET Thursday, any open position | Buy to close — never hold through expiry |
-| **Emergency gamma** | SPY moves >1.5% in any single 5-min bar on Thursday | Buy to close immediately |
-
-**Why 50% profit target?**
-Closing at 50% of max profit captures most available theta while cutting time-in-trade
-by ~60%. Less time in trade = less exposure to adverse moves.
+| Max contracts | **1** | `MAX_CONTRACTS = 1` |
+| Short leg delta target | **0.25** | `TARGET_DELTA_PUT/CALL = 0.25` |
+| Delta acceptance range | **0.18 – 0.32** | `DELTA_TOLERANCE = 0.07` |
+| Spread width | **$10** | `SPREAD_WIDTH = 10.0` |
+| Min net credit | **$0.60** | `MIN_NET_CREDIT = 0.60` |
+| Profit target | **50%** of credit | `PROFIT_TARGET_PCT = 0.50` |
+| Loss stop | **2×** credit | `MAX_LOSS_MULTIPLE = 2.0` |
+| Delta stop | **0.50** | `DELTA_STOP = 0.50` |
+| VIX floor | **12.0** | `MIN_VIX = 12.0` |
+| VIX ceiling | **30.0** | `MAX_VIX = 30.0` |
+| IV Rank minimum | **20th percentile** | `MIN_IV_RANK = 0.20` |
+| VIX spike guard | VIX > 5-day avg × **1.25** → pause **3 days** | `VIX_SPIKE_MULTIPLIER / SKIP_DAYS` |
+| Large move guard | SPY gap > **2%** → pause **2 days** | `LARGE_MOVE_PCT / SKIP_DAYS` |
+| Max account risk/trade | **5%** of NLV | `MAX_ACCOUNT_RISK_PCT = 0.05` |
+| Daily loss limit | **3%** of account | `DAILY_LOSS_LIMIT_PCT = 0.03` |
+| PDT max trades | **3** in 5-day window | `MAX_WEEKLY_TRADES = 3` |
+| Trend SMA | **20-day** | `TREND_SMA_DAYS = 20` |
+| Regime SMA | **200-day** | hardcoded in signal engine |
+| Entry days | **Mon, Tue** only | `ENTRY_DAYS = (0, 1)` |
+| Entry time | **9:35 – 15:30 ET** | `MARKET_OPEN/CLOSE_MINUTE` |
+| Thursday force-close | **15:45 ET** | `EOD_CLOSE_HOUR/MINUTE` |
+| Monitoring interval | **5 min** (60s Thursday) | `POLL_INTERVAL = 300` |
+| IBKR port | **4001** (live) | `IBKR_LIVE_PORT = 4001` |
+| Client ID | **20** | `CLIENT_ID = 20` |
 
 ---
 
 ## Backtest Results
 
-**1-year baseline ($5k, delta 0.25 live / 0.16 backtest):**
+**1-year baseline ($5k, delta 0.25, credit spreads):**
 
 | Metric | Value |
 |---|---|
-| Total Return | **+6.4%** |
-| Sharpe Ratio | **0.15** |
-| Win Rate | **82.2%** (60/73 trades) |
-| Max Drawdown | **-12.9%** (= -$645 on $5k) |
-| Avg P&L / Trade | **+$4.41** |
-| Trades / Year | **73** |
+| Total Return | **+27.81%** |
+| Sharpe Ratio | **1.28** |
+| Win Rate | **83.6%** (56/67 trades) |
+| Max Drawdown | **-13.0%** |
+| Avg P&L / Trade | **+$20.75** |
+| Trades / Year | **67** |
 
-**Crash period stress tests ($5k):**
+**Crash period stress tests ($5k, credit spreads):**
 
 | Period | Return | Max DD | Win Rate | Note |
 |---|---|---|---|---|
-| 2018 Q4 Crash | **-42.5%** | -44.0% | 66.7% | Fed rate hike + trade war selloff |
-| 2020 COVID Crash | **-23.1%** | -31.0% | 82.8% | -34% SPY drop in 33 days |
-| 2022 Bear Market | **-19.8%** | -23.2% | 70.0% | Full-year Fed tightening cycle |
+| 2018 Q4 Crash | **-43.4%** | -46.2% | 60.9% | Fed rate hike + trade war, VIX spiked above 30 most days |
+| 2020 COVID Crash | **-10.1%** | -20.8% | 80.0% | Spread cap limited losses vs naked; -34% SPY in 33 days |
+| 2022 Bear Market | **-39.1%** | -40.1% | 67.2% | Regime filter forced calls-only; slow grind hurt call spreads |
 
-**What crash tests tell you:** Short premium selling loses money in every crash
-scenario even with all filters active. The 1-contract hard limit is your real
-crash protection — your maximum loss per trade is bounded by 2× the premium
-collected (~$100–200 per trade), not by SPY's move.
+**Key insight:** The 2020 result (-10.1%) improved significantly from prior naked-option version (-23%)
+because the spread's $10 width caps the max loss per contract. 2022 is worse because the SMA200
+regime filter switches to calls-only during the full-year bear grind — a known trade-off.
 
-**Backtest limitations:**
-- Greeks reconstructed via Black-Scholes (VIX as IV proxy) — not actual historical quotes
-- Slippage modeled as % of premium (1% entry, 1–2% exit) — real fills may be wider in fast markets
-- Does not model assignment risk, early exercise, or dividend events
-- Past performance does not guarantee future results
-
----
-
-## Risk Limits
-
-| Limit | Value | Rationale |
-|---|---|---|
-| Max contracts | **1** | Hard ceiling — never changes regardless of account growth |
-| Max account risk | **5%** ($250) | Caps max loss per trade at $250 on $5k |
-| VIX floor | **12.0** | Below = premium too thin to justify risk |
-| VIX ceiling | **30.0** | Above = panic regime, stops get run |
-| PDT trades/week | **3** | Regulatory maximum for accounts < $25k |
-| Max loss per trade | **2× premium** | Defined before entry, stored in position log |
-| Daily loss limit | **3% of account** | If account drops $150 in a day, pause new entries |
+**Limitations:** Greeks reconstructed via Black-Scholes (VIX as IV proxy). Slippage modeled as 1–2%
+of premium. Does not model assignment, early exercise, or dividend events.
 
 ---
 
 ## Margin Requirements
 
-Selling naked puts and calls requires a **margin account** with options Level 3+
-at IBKR. Approximate margin requirements per 1 SPY contract:
+Credit spreads require **defined-risk margin** — much lower than naked options.
 
-- **Short put:** ~$1,500–2,500 (varies with strike and volatility)
-- **Short call:** ~$1,500–2,500
-- **Strangle:** ~$2,500–4,000 (IBKR uses the larger leg + premium of smaller leg)
+| Trade | Approximate Margin |
+|---|---|
+| Bull put spread (10-wide) | **~$1,000** (spread width − credit × 100) |
+| Bear call spread (10-wide) | **~$1,000** |
+| Iron condor (both) | **~$1,000** (IBKR takes the larger leg only) |
 
-At $5k account size, a strangle may consume 50–80% of account margin. IBKR will
-reject the order if margin is insufficient — the bot logs this and skips the trade.
-Monitor available margin via TWS.
+At $5k account this is 20% of capital per spread — manageable. IBKR rejects the order if
+margin is insufficient and the bot logs the skip. Monitor available margin via TWS.
 
 ---
 
@@ -232,85 +251,75 @@ Monitor available margin via TWS.
 
 | Situation | Action |
 |---|---|
-| **Crashes with no open position** | Restart normally — no urgency |
-| **Crashes Mon–Tue with open position** | Restart bot; it reloads position from JSON and resumes monitoring |
-| **Crashes Thursday with open position** | **Close manually in TWS immediately** — do not wait for restart |
-| **Can't restart before market close Thursday** | Close manually. This is the assignment risk scenario. |
-| **Crashes during order placement** | Check TWS manually — order may or may not have filled. Reconcile before restarting. |
+| Crashes, no open position | Restart normally — no urgency |
+| Crashes Mon–Tue, open position | Restart; position reloads from JSON and monitoring resumes |
+| Crashes Thursday, open position | **Close manually in TWS immediately** — assignment risk |
+| Can't restart before 3:45 PM Thursday | Close manually. Do not wait. |
+| Crashes during order entry | Check TWS — order may or may not have filled. Reconcile first. |
 
 ---
 
 ## Monitoring
 
 **Telegram alerts fire on:**
-- Trade opened (strike, premium, Greeks, PDT count)
+- Trade opened (strikes, net credit, Greeks, PDT count, spread type)
 - Trade closed (reason, P&L, running total)
+- Guard triggered (VIX spike or large move — with resume date)
 - PDT warning at 2/3 trades used
-- Any risk stop triggered
 - Bot crash / reconnection
 
 **Log file:** `logs/spy_options_bot.log`
 
-**Key things to check daily (takes 2 minutes):**
+**Daily checks (2 minutes):**
 ```
-1. Check Telegram — any overnight alerts?
-2. tail -f logs/spy_options_bot.log | grep "ERROR\|WARN\|TRADE"
-3. Monday morning: confirm PDT count reset correctly
-4. Every trade week: verify no SPY ex-dividend date falls in the week
+1. Check Telegram — any alerts overnight?
+2. tail -f logs/spy_options_bot.log | grep "ERROR\|WARN\|TRADE\|GUARD"
+3. Monday: confirm PDT count reset correctly
+4. Each week: verify no SPY ex-dividend date falls this week
 ```
 
 ---
 
 ## Performance Tracking
 
-Track these weekly alongside the bot log:
-
 | Metric | Target | Action if missed |
 |---|---|---|
-| Win rate (rolling 20 trades) | ≥ 65% | Review if filters are firing correctly |
-| Avg premium collected | ≥ $0.50/contract | VIX may be too low — check IV rank filter |
-| Avg fill vs mid-price | ≤ $0.03 slippage | Liquidity filters may need tightening |
+| Win rate (rolling 20 trades) | ≥ 65% | Audit filter settings — do not adjust blindly |
+| Avg net credit collected | ≥ $0.60 / spread | IV Rank filter may be blocking too aggressively |
+| Avg fill vs mid | ≤ $0.03 slippage | Widen liquidity filters or adjust limit retry step |
 | Thursday force-close rate | ≤ 30% of trades | Profit target may be too tight |
+| Guard cooldown days / month | ≤ 6 | Normal; if > 10 days/month check VIX regime |
 
-If win rate drops below 60% over 20 consecutive trades, **pause the bot and audit**.
-Do not adjust parameters — diagnose first.
+If win rate drops below 60% over 20 consecutive trades — **pause and audit, do not tune parameters**.
 
 ---
 
 ## Scale-Up Rules
 
-Do not increase position size until **both** conditions are met:
+Do not increase contracts until both conditions hold:
 
 ```
-1. Account has grown to ≥ $10,000 (organic growth, not deposits)
-2. Live trading win rate ≥ 65% over at least 20 trades (~3 months)
+1. Account grown to ≥ $10,000 (organic, not deposits)
+2. Live win rate ≥ 65% over at least 20 trades (~3 months live data)
 ```
 
-At $10k → 2 contracts. At $15k → 3 contracts. Linear from there.
-Never increase contracts mid-month based on a winning streak.
-
----
-
-## Tax Notes
-
-All trades are short-term (held < 1 week). All P&L is **ordinary income**, not
-capital gains. SPY ETF options are **not** Section 1256 contracts (that treatment
-applies to SPX index options only) — no 60/40 tax treatment. Consult a tax advisor.
-Export trade log from IBKR Flex Query at year-end for reporting.
+At $10k → 2 contracts. At $15k → 3 contracts.
+Never increase mid-month based on a winning streak.
 
 ---
 
 ## Start / Stop
 
 ```bash
-./start_spy_bot.sh          # Start (live trading)
+./start_spy_bot.sh          # Start (live trading, port 4001, clientId 20)
 ./stop_spy_bot.sh           # Graceful stop — waits for open order to resolve
-./stop_spy_bot.sh --force   # Immediate stop — use only if no open position
+./stop_spy_bot.sh --force   # Immediate kill — use only if no open position
 ```
 
-**Never force-stop with an open position.** Use graceful stop only.
+**Never force-stop with an open position on Thursday.**
 
 Logs → `logs/spy_options_bot.log`
+PID file → `logs/spy_options_bot.pid`
 
 ---
 
@@ -318,31 +327,41 @@ Logs → `logs/spy_options_bot.log`
 
 ```
 spy_options_bot/
-  main.py           ← entry point, main loop, CLI flags (--dry-run, --once, --reset-pdt)
-  config.py         ← all settings, env var overrides
-  signal_engine.py  ← 9 entry filters (event risk, VIX, IV rank, trend, regime, S/R, skew, PDT, time)
-  option_chain.py   ← strike selection (delta, expected move, theta/delta, liquidity)
-  order_manager.py  ← places/tracks orders, position log JSON, entry premium persistence
-  risk_manager.py   ← exit monitoring (profit target, stops, Thursday EOD, emergency gamma)
-  pdt_tracker.py    ← rolling 5-day PDT compliance, strangle-aware (2 slots), JSON persistence
-  ibkr_connection.py← ib_insync wrapper, exponential backoff reconnect (10 retries)
-  logger.py         ← Loguru, ET timestamps, rotating file handler
-  notifier.py       ← Telegram alerts (optional — bot runs fine without it)
-  backtest/         ← historical simulation (run separately, never touches live account)
+  main.py             ← entry point, main loop, --dry-run / --once / --reset-pdt flags
+  config.py           ← all constants and env-var overrides
+  signal_engine.py    ← 11 entry filters (event, guards, VIX, IV rank, trend, regime, S/R, skew, PDT)
+  guard_tracker.py    ← JSON-persisted VIX spike + large-move cooldowns (guard_state.json)
+  option_chain.py     ← strike selection + fetch_hedge_leg() for spread pricing
+  order_manager.py    ← BAG/ComboLeg spread orders, position tracking, stop monitoring
+  pdt_tracker.py      ← rolling 5-day PDT compliance, strangle-aware (2 slots)
+  ibkr_connection.py  ← ib_insync wrapper, exponential backoff reconnect
+  notifier.py         ← Telegram alerts (optional)
+  backtest/
+    backtest_engine.py   ← full spread simulation (BS pricing, slippage, credit floor)
+    run_backtest.py      ← run 1-year backtest, outputs HTML report + trades.csv
+    run_crash_tests.py   ← 2018/2020/2022 crash period comparison table
+    options_simulator.py ← Black-Scholes, find_strike_for_delta, vix_to_sigma
+    data_downloader.py   ← yfinance SPY + VIX downloader with file caching
 ```
 
 ---
 
 ## Related Bots
 
-This bot runs alongside the **MES Futures Bot** on the same IBKR account.
-
 | Bot | clientId | Port | Asset |
 |---|---|---|---|
-| MES Futures Bot | 11 | 4001 | /MES (E-mini S&P futures) |
-| SPY Options Bot | 20 | 4001 | SPY weekly options |
-| Backtest module | 3 | — | Offline only — never connects live |
+| MES Futures Bot | 11 | 4001 | /MES (Micro E-mini S&P futures) |
+| SPY Options Bot | 20 | 4001 | SPY weekly credit spreads |
+| Backtest module | — | — | Offline only — never connects live |
 
-**Combined risk note:** Both bots lose money during sharp, unexpected moves.
-They are not hedges for each other. In a VIX > 30 event, the options bot stops
-trading but an existing MES position may be under stress simultaneously.
+**Combined risk:** Both bots lose in sharp unexpected moves. They are not hedges.
+In a VIX > 30 event, the options bot halts new entries but an open spread position
+can still reach max loss. The MES bot may also be under simultaneous stress.
+
+---
+
+## Tax Notes
+
+All trades held < 1 week → **ordinary income** (short-term). SPY ETF options are **not**
+Section 1256 contracts (SPX index options get 60/40 treatment — SPY does not). Consult a
+tax advisor. Export trade log via IBKR Flex Query at year-end.
