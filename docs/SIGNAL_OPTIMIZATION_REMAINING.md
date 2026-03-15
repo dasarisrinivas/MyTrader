@@ -1,7 +1,8 @@
 # Signal Optimization — Remaining Phases
 
 **Created:** Mar 3, 2026
-**Status:** Phase 1+2 COMPLETE → Phase 3+4 PENDING
+**Last Updated:** Mar 12, 2026
+**Status:** Phase 1+2 COMPLETE ✅ | Phase 3+4 PENDING | Phase 5 COMPLETE ✅ (Fix #12+#13+#14+#15) | Phase 6 IN PROGRESS (Fix #16 deployed)
 
 ---
 
@@ -152,19 +153,60 @@ Proposed:
 
 This is especially important for overnight trades where the bot holds through 1–2 hour reversals.
 
+> **✅ DEPLOYED Mar 11, 2026:** `ft_breakeven_trigger_pts: 3.0` active. Trigger lowered from `total_pnl > $50` to `pnl >= $15 (3pts)`. See `exit_manager.py` breakeven block.
+> **⚠️ NEAR-MISS Mar 12:** Trade 4 (0b26cf0639ee) peaked at +$9.38 (~1.87 pts) — below the 3pt trigger — then reversed to full SL (-$34.99). 2pt trigger would have saved ~$45. → Feeds into Fix #15.
+
+---
+
+## ⬜ Phase 6 — Consecutive Loss & Exhaustion Guards (NEW — Mar 12, 2026)
+
+Identified from live trade analysis (see `docs/daily/2026-03-12.md`). Four consecutive SL hits in 5 hours (19:15–01:34 CST) totaling **-$176.64**. All were high-confidence (0.742–0.903) SELL signals in a market that had already completed its primary 100-pt sell leg and entered overnight chop.
+
+### Fix #14: Lower Consecutive-Loss Cooldown Trigger (3 losses, not 5)
+**Priority:** 🔴 HIGH — would have saved ~$74 on Mar 12 night
+**Files:** `shree/execution/live_trading_manager.py`, `config.yaml`
+
+> **✅ DEPLOYED Mar 12, 2026:** `ft_consecutive_loss_trigger: 3` active. After 3 consecutive SL hits,
+> `_extra_cooldown_until` is set in `_notify_position_closed`, blocking entries in `_should_block_new_entry`
+> for `cooldown_on_consecutive_losses_minutes` (now 30 min). Counter resets on any win/breakeven.
+> Note: `cooldown_on_consecutive_losses_minutes` was previously dead config — now wired up.
+
+Break-even math: If we had stopped after Trade 2 at -$102.48, we'd have saved $74.16 (Trades 3+4).
+
+### Fix #15: Overnight Breakeven Trigger — 2pts Instead of 3pts
+**Priority:** 🔴 HIGH — direct follow-up to Fix #13 near-miss
+**Files:** `config.yaml`, `shree/execution/components/exit_manager.py`
+
+> **✅ DEPLOYED Mar 12, 2026:** `ft_overnight_breakeven_trigger_pts: 2.0` active.
+> `exit_manager.py` now detects session via ET time: if outside 09:30–16:00 ET, uses 2 pt trigger
+> instead of the RTH 3 pt trigger. RTH path unchanged.
+
+### Fix #16: Trend Exhaustion Filter for TREND_CONT Signals
+**Priority:** 🟡 MEDIUM — prevents re-entering spent moves
+**Files:** `shree/strategies/es_fifteen_min.py` → `_check_trend_continuation_short()` / `_check_trend_continuation_long()`
+
+> **✅ DEPLOYED Mar 12, 2026:** `ft_trend_exhaustion_atr_multiple: 8.0` active.
+> Both `_check_trend_continuation_short` and `_check_trend_continuation_long` check the session
+> move from OR midpoint `(or_high + or_low) / 2`. If `abs(move) / atr > 8.0`, signal returns None.
+> Guard only activates when `_or_computed = True` (RTH OR available); overnight-only sessions exempt.
+> Logs `TREND_EXHAUSTION_SHORT` / `TREND_EXHAUSTION_LONG` when triggered.
+
 ---
 
 ## Implementation Order (Recommended)
 
-1. **Fix #12** (overnight R:R gate) — standalone, directly fixes root cause, no dependencies
-2. **Fix #13** (breakeven / profit-lock) — standalone, prevents profit givebacks
-3. **Fix #6** (ATR touch band) — ✅ already deployed Mar 9 as T2 regime-adaptive band
-4. **Fix #3** (day-type classifier) — enables #7 and #8
-5. **Fix #7** (doji allowance) — requires #3
-6. **Fix #8** (F max cap on trend days) — requires #3
-7. **Fix #9** (OR continuation) — standalone new pattern
-8. **Fix #10** (EMA9/21 relaxation for B) — low risk, standalone
-9. **Fix #11** (sentiment alignment boost) — low risk, standalone
+1. ~~**Fix #12** (overnight R:R gate)~~ ✅ **DEPLOYED Mar 11**
+2. ~~**Fix #13** (breakeven / profit-lock)~~ ✅ **DEPLOYED Mar 11**
+3. ~~**Fix #14** (consecutive-loss cooldown at 3)~~ ✅ **DEPLOYED Mar 12**
+4. ~~**Fix #15** (overnight breakeven at 2pts)~~ ✅ **DEPLOYED Mar 12**
+5. ~~**Fix #16** (trend exhaustion filter)~~ ✅ **DEPLOYED Mar 12**
+6. **Fix #6** (ATR touch band) — ✅ already deployed Mar 9 as T2 regime-adaptive band
+7. **Fix #3** (day-type classifier) — enables #7 and #8, pending Mar 17 gate decision
+8. **Fix #7** (doji allowance) — requires #3
+9. **Fix #8** (F max cap on trend days) — requires #3
+10. **Fix #9** (OR continuation) — standalone new pattern
+11. **Fix #10** (EMA9/21 relaxation for B) — low risk, standalone
+12. **Fix #11** (sentiment alignment boost) — low risk, standalone
 
 ---
 
@@ -175,11 +217,12 @@ This is especially important for overnight trades where the bot holds through 1�
 | **Mar 3** | Phase 1+2 deployed live | ✅ Done | Monitor signal fire rate, VX additive behavior, hybrid dampen |
 | **Mar 3–14** | Observation period | ✅ Done | Data collected — see Mar 11 findings below |
 | **Mar 10** | Touch-band review | ✅ Closed — Fix #6 already deployed Mar 9 | Near-miss count: **240 total** in live log. T2 regime-adaptive touch band active. |
-| **Mar 11** | Expectancy analysis | ✅ Added Fix #12 + Fix #13 | Root-cause review: trades/day since go-live = **1.40/day**. Since Mar 9 = **2.00/day**. Near-miss count = 240. VX penalty on pullbacks firing correctly at -0.05. **New structural issue found:** negative EV at ~1:1 R:R + 37.5% WR. Fix #12 (overnight R:R gate) and Fix #13 (breakeven/profit-lock) added. |
-| **Mar 17** | 2-week review | ⏳ Upcoming | Evaluate: Is trade frequency ≥ 2/day? Current: 2.00/day since Mar 9 (exactly at threshold). **Recommendation: start Fix #12 + Fix #13 now (expectancy fixes). Hold Fix #3 until Mar 17 review.** If trades/day drops below 2 again → start Fix #3 (day-type classifier). |
-| **Mar 24** | Phase 3 checkpoint | ⏳ Pending | If Phase 3 started: deploy Fix #3, then #7 and #8. If not needed: skip to Phase 4 evaluation |
-| **Apr 1** | Phase 4 evaluation | ⏳ Pending | Only if signal variety is insufficient after Phase 3. Start with **Fix #9 (OR continuation)** |
-| **Ongoing** | Skip Phase 3+4 entirely if | — | Phase 1+2 achieves 2+ trades/day consistently with ~45-50% win rate |
+| **Mar 11** | Expectancy analysis | ✅ Fix #12 + Fix #13 deployed | Root-cause review: negative EV at ~1:1 R:R + 37.5% WR. Fix #12 (overnight TP×1.5 + R:R gate) and Fix #13 (breakeven at 3pts) deployed. Both confirmed live in Mar 12 overnight logs. |
+| **Mar 12** | Consecutive-loss crisis | ✅ Identified Fix #14+#15+#16 | 4 consecutive SL hits overnight (-$176.64). All high-conf (0.742–0.903) SELLs into a spent move. No cooldown fired (5-loss threshold never reached). Fix #13 near-miss at +$9.38 (2pts below trigger). Three new fixes identified: **Fix #14** (cooldown at 3), **Fix #15** (overnight BE at 2pts), **Fix #16** (exhaustion filter). |
+| **Mar 12** | Phase 6 deployed | ✅ Done | Fix #14 (consecutive-loss cooldown), Fix #15 (overnight BE 2pt), Fix #16 (trend exhaustion filter), Bug fix (BREAKEVEN misclassification in finalize_trade) |
+| **Mar 17** | 2-week review | ⏳ Upcoming | Evaluate: Is trade frequency ≥ 2/day? Current: 2.00/day since Mar 9 (exactly at threshold). If trades/day drops below 2 → start Fix #3 (day-type classifier). |
+| **Mar 24** | Phase 3 checkpoint | ⏳ Pending | If Phase 3 started: deploy Fix #3, then #7 and #8. |
+| **Apr 1** | Phase 4 evaluation | ⏳ Pending | Only if signal variety insufficient after Phase 3. Start with Fix #9. |
 
 ### Quick Decision Commands
 ```bash

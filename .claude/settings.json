@@ -18,7 +18,25 @@
       "Bash(grep \"IS bars\\\\|done$\\\\|grid:\" /private/tmp/claude-501/-Users-svss-Documents-code-ShreeBot/tasks/bug5pgj7v.output)",
       "Bash(python3 -c \":*)",
       "Bash(python3 -m backtest.regime_monitor --trades reports/bt_t3_proximity/backtest_MES_2025-02-01_2026-01-31_20260309_142310_trades.csv --data-file data/raw/MES/FUT_MESH6/15_mins/MES_15m_20250201_20260131.parquet --output reports/wfo/regime_monitor_bt_t3_proxy.md)",
-      "Bash(git add backtest/walk_forward.py backtest/regime_monitor.py reports/wfo/)"
+      "Bash(git add backtest/walk_forward.py backtest/regime_monitor.py reports/wfo/)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//Users/svss/Documents/code/ShreeBot/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f''''  action={d.get\\(action\\)} entry={d.get\\(entry_price\\)} exit={d.get\\(exit_price\\)} pnl={d.get\\(realized_pnl_net\\)} signal={d.get\\(signal_type\\)} exit_reason={d.get\\(exit_reason\\)}''''\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(open\\(''''$f''''\\)\\); print\\(d\\)\")",
+      "Bash(done)",
+      "Bash(grep -v \"^$\\\\|INFO\\\\|WARNING\\\\|DEBUG\")",
+      "Bash(python -m pytest tests/test_mes_one_minute_strategy.py tests/ -x -q --tb=short)",
+      "Bash(python3 -m pytest tests/ -x -q --tb=short)",
+      "Bash(python3 -m pytest tests/ -x -q --tb=short --ignore=tests/test_backtest.py)",
+      "Bash(python3 -m pytest tests/ -q --tb=short --ignore=tests/test_backtest.py --ignore=tests/test_exhaustion_dampening.py)",
+      "Bash(python3 -m pytest tests/test_fifteen_min_strategy.py tests/test_or_break.py -q --tb=short)",
+      "Bash(python3 -m pytest tests/test_or_break_counter.py tests/test_vx_or_breakout_exempt.py -q --tb=short)",
+      "Bash(python3 -m pytest tests/test_or_break_counter.py::TestORBreakStopTarget -v --tb=long)",
+      "Bash(python3 -m pytest tests/test_or_break_counter.py::TestORBreakStopTarget::test_short_sl_tp -v --tb=long)",
+      "Bash(python3 -m pytest tests/test_or_break_counter.py -q --tb=short)",
+      "Bash(python3 -m pytest tests/test_or_break_counter.py tests/test_mes_one_minute_strategy.py -q --tb=line)",
+      "Bash(git push:*)"
     ]
   }
 }
