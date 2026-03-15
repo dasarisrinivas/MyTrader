@@ -325,6 +325,17 @@ def _apply_filters(
                 )
                 continue
 
+        # 4b. Vega filter — cap IV-expansion exposure on the short leg.
+        #     vega × 100 = dollars lost per 1-point VIX increase per contract.
+        #     The hedge partially offsets this, but short leg drives the exposure.
+        vega_loss = c.vega * 100.0
+        if vega_loss > config.MAX_VEGA_LOSS_PER_VIX_POINT:
+            logger.debug(
+                f"Skip {c.right}{c.strike}: vega loss ${vega_loss:.2f}/VIX pt "
+                f"> ${config.MAX_VEGA_LOSS_PER_VIX_POINT:.0f} maximum"
+            )
+            continue
+
         # 5. Liquidity filters
         if c.open_interest < config.MIN_OPEN_INTEREST:
             continue

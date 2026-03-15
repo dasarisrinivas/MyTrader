@@ -49,6 +49,11 @@ MAX_SPREAD_ABS: float = 0.10      # Max bid/ask spread in absolute dollars
 PROFIT_TARGET_PCT: float = 0.50   # Close at 50% of max profit (buy back at 50% of credit)
 MAX_LOSS_MULTIPLE: float = 2.0    # Close if loss reaches 2× premium received
 DELTA_STOP: float = 0.50          # Close if |delta| exceeds this (position gone ITM)
+# Roll trigger: when |delta| crosses this threshold, close current spread and
+# re-enter next week rather than waiting for the hard stop at DELTA_STOP.
+# Only fires during the entry window (Mon–Wed) so the bot can immediately open
+# a fresh spread for next Friday in the same cycle.
+ROLL_DELTA_TRIGGER: float = 0.40
 MAX_ACCOUNT_RISK_PCT: float = 0.05  # Max 5% of NLV in margin for this bot
 DAILY_LOSS_LIMIT_PCT: float = 0.03  # Pause new entries if account drops >3% on the day
 
@@ -82,6 +87,11 @@ EXPECTED_MOVE_BUFFER: float = 1.0
 # Theta efficiency — theta must be at least this fraction of delta per day.
 # Ensures we're collecting meaningful decay relative to the directional risk taken.
 MIN_THETA_DELTA_RATIO: float = 0.08
+
+# Vega exposure — skip if short leg's vega × 100 > this value.
+# Units: dollars lost per 1-point VIX increase per contract (100 shares).
+# At $10, a 5-point VIX spike costs at most $50 on the short leg before hedge offset.
+MAX_VEGA_LOSS_PER_VIX_POINT: float = 10.0
 
 # Support / resistance — block put entry when SPY is within this % of its 52-week low
 # (too close to a major floor = gap-down risk). Block call entry near 52-week high.

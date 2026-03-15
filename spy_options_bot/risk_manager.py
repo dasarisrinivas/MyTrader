@@ -270,7 +270,22 @@ class RiskManager:
                 self.notifier.on_risk_stop({"label": label}, "loss_stop")
             return
 
-        # Delta stop
+        # Roll trigger — close early and let the bot re-enter next week.
+        # Fires when delta crosses ROLL_DELTA_TRIGGER (0.40) before DELTA_STOP (0.50).
+        # Only active on Mon–Wed so a new spread can be opened in the same cycle.
+        if delta is not None and config.ROLL_DELTA_TRIGGER <= abs(delta) < config.DELTA_STOP:
+            now = _now_et()
+            if now.weekday() in config.ENTRY_DAYS:
+                logger.info(
+                    f"Roll trigger: |delta|={abs(delta):.3f} >= {config.ROLL_DELTA_TRIGGER} "
+                    f"(below hard stop {config.DELTA_STOP}) — closing to re-enter next week"
+                )
+                await self.order_manager.close_position(pos, "roll_close")
+                if self.notifier:
+                    self.notifier.on_risk_stop({"label": label}, "roll_close")
+                return
+
+        # Delta stop — hard exit when position has gone deeply ITM
         if delta is not None and abs(delta) >= config.DELTA_STOP:
             logger.warning(
                 f"Delta stop: |delta|={abs(delta):.3f} >= {config.DELTA_STOP}"

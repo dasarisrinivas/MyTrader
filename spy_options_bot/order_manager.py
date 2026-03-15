@@ -34,6 +34,7 @@ CLOSE_REASONS = frozenset({
     "profit_target",
     "loss_stop",
     "delta_stop",
+    "roll_close",      # delta 0.40–0.50: close early to re-enter next week
     "thursday_eod",
     "emergency_gamma",
     "manual",

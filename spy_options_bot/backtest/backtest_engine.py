@@ -44,9 +44,14 @@ from backtest.options_simulator import (
 # ---------------------------------------------------------------------------
 
 COMMISSION_PER_CONTRACT: float = 0.65       # per side, per contract
-ENTRY_SLIPPAGE_PCT: float = 0.01            # 1% of premium — sell slightly below mid
-EXIT_SLIPPAGE_PCT: float = 0.01             # 1% — normal limit-order exit
-EXIT_SLIPPAGE_STRESSED_PCT: float = 0.02   # 2% — market order on stops / emergency
+# Flat-dollar slippage per spread contract (both legs combined).
+# Reflects realistic bid-ask friction: SPY weekly options at 0.25 delta
+# typically have $0.03–0.08 bid-ask per leg; combo orders add another $0.01–0.03.
+# $3 entry / $2 normal exit / $5 stressed exit approximates mid-market fills
+# in liquid vs illiquid (stop/Thursday) conditions.
+ENTRY_SLIPPAGE_FLAT: float = 3.00           # dollars per spread contract at entry
+EXIT_SLIPPAGE_FLAT: float = 2.00            # dollars per spread at normal limit-exit
+EXIT_SLIPPAGE_STRESSED_FLAT: float = 5.00  # dollars per spread on stops/emergency fills
 
 MAX_ACCOUNT_RISK_PCT: float = 0.05
 MAX_LOSS_MULTIPLE: float = 2.0
@@ -171,21 +176,22 @@ def _trade_cost(
     exit_reason: str,
     is_spread: bool = False,
 ) -> float:
-    """Total round-trip cost: commission + realistic slippage.
+    """Total round-trip cost: commission + realistic flat-dollar slippage.
 
-    Slippage is a percentage of premium (not a fixed dollar amount) to
-    reflect that wider-premium options have wider bid-ask spreads.
-    Stressed exits (stops, emergency) use a higher slippage multiplier
-    to simulate market-order fills in adverse conditions.
+    Slippage uses flat-dollar amounts per contract rather than a percentage of
+    premium. A percentage model produces unrealistically low costs on small
+    credits ($0.80 × 1% = $0.008/share = $0.80 per contract, vs real-world
+    bid-ask friction of ~$3–5 per spread combo round-trip).
+
     Spreads have 2 legs × 2 sides = 4 contract fills per spread.
     """
     sides = 4 if is_spread else 2
     commission = COMMISSION_PER_CONTRACT * contracts * sides
-    entry_slip = entry_premium * ENTRY_SLIPPAGE_PCT * 100 * contracts
     stressed = exit_reason in ("loss_stop", "delta_stop", "emergency_gamma")
-    exit_pct = EXIT_SLIPPAGE_STRESSED_PCT if stressed else EXIT_SLIPPAGE_PCT
-    exit_slip = close_premium * exit_pct * 100 * contracts
-    return commission + entry_slip + exit_slip
+    exit_slip = EXIT_SLIPPAGE_STRESSED_FLAT if stressed else EXIT_SLIPPAGE_FLAT
+    # entry_premium / close_premium kept in signature for API compatibility
+    _ = entry_premium, close_premium
+    return commission + ENTRY_SLIPPAGE_FLAT * contracts + exit_slip * contracts
 
 
 def _check_emergency_gamma_daily(spy_row: pd.Series) -> bool:
