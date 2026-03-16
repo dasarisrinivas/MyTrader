@@ -61,7 +61,7 @@ tail -20 logs/journal_ingest.log                                  # Check ingest
 
 ---
 
-## Optimization Roadmap (Phase 3+4 Status — MAR 9 2026)
+## Optimization Roadmap (Phase 3+4 Status — MAR 15 2026)
 
 Phase 3 changes deployed MAR 9 2026:
 - ✅ **T2: Regime-adaptive touch band** — 4-bucket ATR thresholds for A/D signals (Fix #6)
@@ -69,6 +69,10 @@ Phase 3 changes deployed MAR 9 2026:
 - ✅ **T4: Tiered drawdown** — 3-tier system replacing halt-all
 - ✅ **T4: Walk-forward optimization framework** — `backtest/walk_forward.py`
 - ✅ **CHOP exception enabled** — bidirectional 4-gate framework (was blocking 19 signals/week)
+
+MAR 15 2026 additions:
+- ✅ **Session gate fix** — removed `classify_session` day-of-week guard that blocked overnight bars on fresh Sunday/evening restarts. Now only blocks CME maintenance window (16:00–17:00 CT).
+- ✅ **Overnight entry-quality guards** — two new guards in `es_fifteen_min.generate()`, active outside 09:30–16:00 ET only (see "Overnight Entry Guards" section below).
 
 See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full details. Remaining gates:
 
@@ -132,6 +136,38 @@ ShreeBot is an autonomous **MES (Micro E-mini S&P 500) futures trading bot** con
 - C: SL=ATR-adaptive (8–20pt), TP=SL x 1.25 — R:R 1.25:1
 - F: SL=ATR-adaptive (8–20pt), TP=SL x 1.25 — R:R 1.25:1
 - G: SL=4pts ($20), TP=6pts ($30) — R:R 1.5:1 (tighter for low-vol London session)
+
+**Overnight scaling (outside 09:30–16:00 ET):**
+- `ft_overnight_sl_mult: 1.2` — SL widened 20% (e.g. A/D: 6pt → 7.2pt)
+- `ft_overnight_tp_mult: 1.5` — TP extended 50% (e.g. A/D: 8pt → 12pt), R:R = 1.67:1
+- `ft_overnight_min_rr: 1.5` — hard R:R floor after scaling; blocks if still below
+- Entry-quality guards (MAR 15 2026) — see "Overnight Entry Guards" section below
+
+### Overnight Entry Guards (MAR 15 2026)
+
+Two guards in `es_fifteen_min.generate()`, evaluated **after** all signals are computed, **before** the priority selection block. Only active outside core RTH (09:30–16:00 ET). Controlled by `_is_core_rth_guard` computed from `et_time`.
+
+**Guard 1 — RSI Extreme (`ft_overnight_rsi_extreme_block`, default 35.0):**
+- Block `TREND_CONT_SHORT` (signal_f_short) overnight when RSI < 35 — oversold exhaustion, not continuation
+- Block `TREND_CONT_LONG` (signal_f_long) overnight when RSI > 65 — overbought exhaustion
+- Rationale: DB forensic — 2 losing TREND_CONT overnight trades had RSI=30 and RSI=32
+- Log pattern: `🚫 ON_RSI_EXTREME: blocking TREND_CONT_SHORT overnight (RSI=32.0 < 35.0)`
+
+**Guard 2 — MACD Divergence (`ft_overnight_macd_divergence_threshold`, default 0.5):**
+- Block D/D-prime/E short overnight when MACD histogram > +0.5 (bullish momentum opposes short)
+- Block A/C long overnight when MACD histogram < −0.5 (bearish momentum opposes long)
+- Rationale: MACD was removed globally from D/E in Mar 2026 to reduce RTH over-filtering, but divergence is reliable in thin overnight markets. These two guards restore it for overnight only.
+- Log pattern: `🚫 ON_MACD_DIVERGE: blocking D-short overnight (MACD=+1.03 > +0.5)`
+
+**Both guards are RTH-exempt** — `_is_core_rth_guard = (9:30 ET ≤ et_time < 16:00 ET)`. If true, the entire guard block is skipped. Zero impact on daytime signals.
+
+**Config params** (in `one_minute:` section of `config.yaml`):
+```yaml
+ft_overnight_rsi_extreme_block: 35.0    # Guard 1. Set to 0 to disable.
+ft_overnight_macd_divergence_threshold: 0.5  # Guard 2. Set to 0 to disable.
+```
+
+**Threshold history:** Originally set to 30.0 on Mar 15, corrected to 35.0 after forensic check showed `RSI=30 < 30.0 = False` — the boundary case was not blocked. Lesson: always set threshold *above* the highest known failing value, not equal to it.
 
 ### Confidence Flow
 
@@ -478,7 +514,7 @@ Key test files:
 - `test_sentiment_aggregator.py` — multi-source sentiment
 - `test_vx_or_breakout_exempt.py` — VX additive signal-type-aware scaling (12 tests)
 - `test_vx_futures_feed.py` — VX volatility feed
-- `test_indicators.py` — EMA/RSI/ATR/ADX calculations
+- `test_overnight_entry_guards.py` — overnight RSI extreme + MACD divergence guards (18 tests)
 
 Known pre-existing failures (~29): `test_backtest.py`, `test_exhaustion_dampening.py`, `test_jan2026_audit_fixes.py`, `test_vx_futures_feed.py`, `test_mes_one_minute_strategy.py`, `test_rsi_pullback_filter.py`, `test_trend_pullback_enhancer.py`, `test_reconciliation_and_exits.py`, `test_trend_cont_atr_adaptive.py` — unrelated to recent work.
 
@@ -496,3 +532,4 @@ Known pre-existing failures (~29): `test_backtest.py`, `test_exhaustion_dampenin
 - The hybrid pipeline (RAG) is **advisory only** — it dampens confidence but capped at -0.05. It does NOT have veto power.
 - VX futures use a separate IBKR client connection (client_id=71) — if VX feed disconnects, bot continues with no VX adjustment (additive 0.0).
 - Sentiment sources: Stocktwits (55%) + Reddit (45%). Twitter is disabled (0%). VIX regime blended in separately.
+- **Overnight guard thresholds are strict inequalities (`<`, not `<=`)** — when setting `ft_overnight_rsi_extreme_block`, the threshold must be *above* the highest known failing RSI value, not equal to it. E.g. RSI=32 requires threshold > 32, so 35 is correct; 30 or 32 would be a boundary miss.
