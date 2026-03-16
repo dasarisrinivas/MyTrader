@@ -220,6 +220,27 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Break-even WR at 1.67:1 = 1/(1+1.67) = 37.5% — matches current live rate,
         # so the floor ensures any improvement in WR directly converts to profit.
         self._overnight_min_rr: float = float(getattr(config, 'ft_overnight_min_rr', 1.5) or 1.5)
+        # MAR 15 2026: Overnight entry quality guards — block signals that have
+        # no edge during low-liquidity hours (EVENING 16:00-23:00 ET, OVERNIGHT).
+        #
+        # Guard 1 — RSI extreme: TREND_CONT shorts with RSI < threshold are
+        # oversold exhaustion; TREND_CONT longs with RSI > (100-threshold) are
+        # overbought. Both are counter-trend re-entry traps overnight.
+        # Evidence: 2 overnight TREND_CONT losses (RSI=30, RSI=32) totalling −$110.
+        self._overnight_rsi_extreme_block: float = float(
+            getattr(config, 'ft_overnight_rsi_extreme_block', 30.0) or 30.0
+        )
+        # Guard 2 — MACD divergence: Block D/E (short) signals overnight when
+        # MACD histogram is positive (momentum opposes direction). MACD was removed
+        # from D/E signals globally (Mar 2026) to reduce over-filtering, but during
+        # overnight low-liquidity periods a MACD divergence is a reliable reversal
+        # warning that outweighs the weaker trend signal.
+        # Evidence: 2 overnight D/E short losses with MACD=+1.03 and +1.63 totalling −$78.
+        # Symmetric: block A/C (long) overnight when MACD is negative.
+        # Set to 0.0 to disable; default 0.5 catches meaningful divergence only.
+        self._overnight_macd_divergence_threshold: float = float(
+            getattr(config, 'ft_overnight_macd_divergence_threshold', 0.5) or 0.0
+        )
         # Core RTH bounds used ONLY for detecting whether to apply overnight scaling.
         # These are hardcoded to true RTH hours regardless of the session-gate config.
         self._core_rth_start: time = time(9, 30)
@@ -547,6 +568,69 @@ class EsFifteenMinStrategy(BaseStrategy):
                     enriched, close, open_price, low, high,
                     ema9, ema21, ema50, atr, adx, rsi, macd_hist,
                 )
+
+        # ── Overnight entry-quality guards (MAR 15 2026) ────────────────────
+        # During low-liquidity hours (outside core RTH 9:30-16:00 ET), two
+        # additional filters protect against signal patterns with no overnight edge.
+        _et_t_guard = et_time.time()
+        _is_core_rth_guard = self._core_rth_start <= _et_t_guard < self._core_rth_end
+        if not _is_core_rth_guard:
+            _rsi_ext = self._overnight_rsi_extreme_block  # default 30
+            _macd_thr = self._overnight_macd_divergence_threshold  # default 0.5
+
+            # Guard 1: RSI extreme — TREND_CONT exhaustion trap overnight.
+            # SELL continuation at RSI < threshold = already oversold, not continuing.
+            # BUY  continuation at RSI > (100-threshold) = already overbought.
+            if _rsi_ext > 0:
+                if signal_f_short is not None and rsi < _rsi_ext:
+                    logger.info(
+                        f"🚫 ON_RSI_EXTREME: blocking TREND_CONT_SHORT overnight "
+                        f"(RSI={rsi:.1f} < {_rsi_ext}) | oversold exhaustion trap"
+                    )
+                    signal_f_short = None
+                if signal_f_long is not None and rsi > (100.0 - _rsi_ext):
+                    logger.info(
+                        f"🚫 ON_RSI_EXTREME: blocking TREND_CONT_LONG overnight "
+                        f"(RSI={rsi:.1f} > {100.0 - _rsi_ext:.0f}) | overbought exhaustion trap"
+                    )
+                    signal_f_long = None
+
+            # Guard 2: MACD divergence — D/E/A short (long) with opposing momentum overnight.
+            # MACD removed from D/E globally (Mar 2026) to reduce RTH over-filtering.
+            # Overnight, a positive MACD on a SHORT entry is a reliable reversal warning.
+            if _macd_thr > 0:
+                if signal_d is not None and macd_hist > _macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking D-short overnight "
+                        f"(MACD={macd_hist:+.2f} > +{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_d = None
+                    signal_dprox = None  # proximity variant blocked together
+                elif signal_dprox is not None and macd_hist > _macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking D-prime-short overnight "
+                        f"(MACD={macd_hist:+.2f} > +{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_dprox = None
+                if signal_e is not None and macd_hist > _macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking E-short overnight "
+                        f"(MACD={macd_hist:+.2f} > +{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_e = None
+                # Symmetric: block A/C long when MACD is negative overnight
+                if signal_a is not None and macd_hist < -_macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking A-long overnight "
+                        f"(MACD={macd_hist:+.2f} < -{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_a = None
+                if signal_c is not None and macd_hist < -_macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking C-long overnight "
+                        f"(MACD={macd_hist:+.2f} < -{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_c = None
 
         # Priority: A (EMA21 PB Long) > A-prime (proximity long)
         #         > C (EMA9 PB Long) > B (OR breakout Long) > F_long
