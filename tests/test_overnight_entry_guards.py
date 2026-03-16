@@ -143,6 +143,7 @@ def _make_config(**overrides) -> MagicMock:
         "ft_ema21_sl_floor_pts": 6.0,
         "ft_ema21_sl_ceiling_pts": 15.0,
         "ft_ema21_rr_ratio": 1.33,
+        "ft_ema21_macd_divergence_block": 0.0,  # disabled — not testing this here
         "ft_exhaustion_cooldown_bars": 0,  # disabled — not testing this here
         "ft_ema9_pb_macd_min": 0.3,
         "ft_or_break_short_rsi_min": 40.0,

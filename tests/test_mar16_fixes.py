@@ -1,4 +1,4 @@
-"""Tests for MAR 16 2026 fixes: ATR-adaptive SL, exhaustion cooldown, MACD floor.
+"""Tests for MAR 16 2026 fixes: ATR-adaptive SL, exhaustion cooldown, MACD floor, MACD divergence.
 
 Fix 1 — ATR-adaptive SL for Signal A/D:
   SL = clamp(ATR × 1.0, 6pt floor, 15pt ceiling), TP = SL × 1.33 (ticked to 0.25pt)
@@ -11,6 +11,11 @@ Fix 2 — Post-exhaustion cooldown:
 Fix 3 — Signal C MACD floor:
   Raised from `macd_hist > 0` to `macd_hist >= 0.3`. Near-zero MACD
   has no edge for shallow EMA9 pullbacks.
+
+Fix 5 — MACD divergence filter for Signal A/D:
+  Block A when MACD_H < -1.0 (bearish momentum opposes long pullback).
+  Block D when MACD_H > +1.0 (bullish momentum opposes short pullback).
+  Set to 0 to disable.
 
 Tests:
   Fix 1 — ATR-adaptive SL (A/D):
@@ -33,6 +38,17 @@ Tests:
     [13] MACD=0.2 < 0.3 → Signal C blocked
     [14] MACD=0.0 < 0.3 → Signal C blocked (was allowed under old > 0)
     [15] Custom threshold=0.0 → reverts to old behaviour (any positive MACD)
+
+  Fix 5 — MACD divergence filter (A/D):
+    [16] Signal A: MACD=-1.40 < -1.0 → blocked
+    [17] Signal A: MACD=-0.5 > -1.0 → fires
+    [18] Signal A: MACD=+2.0 → fires
+    [19] Signal A: MACD=-1.0 (boundary) → fires (strict <)
+    [20] Signal D: MACD=+1.50 > +1.0 → blocked
+    [21] Signal D: MACD=+0.5 < +1.0 → fires
+    [22] Signal D: MACD=+1.0 (boundary) → fires (strict >)
+    [23] threshold=0 disables A filter
+    [24] threshold=0 disables D filter
 """
 from __future__ import annotations
 
@@ -130,6 +146,8 @@ def _make_config(**overrides) -> MagicMock:
         "ft_ema21_sl_floor_pts": 6.0,
         "ft_ema21_sl_ceiling_pts": 15.0,
         "ft_ema21_rr_ratio": 1.33,
+        # Fix 5: MACD divergence filter for A/D (default=1.0)
+        "ft_ema21_macd_divergence_block": 1.0,
         # Fix 1 prereq: A/D caps
         "ft_ema21_pb_max_overnight": 10,  # high cap so not hit in tests
         "ft_ema21_pb_max_rth": 10,
@@ -465,3 +483,99 @@ class TestSignalCMacdFloor:
         sig = strat.generate(df)
         assert sig.action == "BUY", f"Signal C should fire with MACD=0.05 at floor=0.0, got {sig.action}"
         assert "EMA9_PB" in sig.metadata.get("reason", "")
+
+
+# ===========================================================================
+#  Fix 5: MACD divergence filter for Signal A/D
+#
+#  Block Signal A (BUY) when MACD_H < -threshold (bearish momentum opposes
+#  the long pullback). Block Signal D (SELL) when MACD_H > +threshold
+#  (bullish momentum opposes the short pullback).
+#  Default threshold = 1.0. Set to 0 to disable.
+#
+#  Root cause: Mar 16 12:30 trade — Signal A fired BUY with MACD_H = -1.40.
+#  Price was in a momentum slide, not a healthy pullback. Lost -$57.50.
+# ===========================================================================
+
+class TestMacdDivergenceAD:
+    """MACD divergence filter for Signal A/D (Fix #5)."""
+
+    # ── Signal A (Long) ──────────────────────────────────────────────
+
+    def test_16_a_blocked_when_macd_deeply_negative(self):
+        """Signal A: MACD=-1.40 < -1.0 threshold → BUY blocked."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _a_signal_df(macd_hist=-1.40)
+        sig = strat.generate(df)
+        reason = sig.metadata.get("reason", "")
+        assert "EMA21_PB_LONG" not in reason, \
+            f"Signal A should be BLOCKED with MACD=-1.40, got {reason}"
+
+    def test_17_a_fires_when_macd_mildly_negative(self):
+        """Signal A: MACD=-0.5 > -1.0 → BUY fires (mild negative OK)."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _a_signal_df(macd_hist=-0.5)
+        sig = strat.generate(df)
+        assert sig.action == "BUY", f"Signal A should fire with MACD=-0.5, got {sig.action}"
+        assert "EMA21_PB_LONG" in sig.metadata.get("reason", "")
+
+    def test_18_a_fires_when_macd_positive(self):
+        """Signal A: MACD=+2.0 → BUY fires (momentum aligned)."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _a_signal_df(macd_hist=2.0)
+        sig = strat.generate(df)
+        assert sig.action == "BUY", f"Signal A should fire with MACD=+2.0, got {sig.action}"
+        assert "EMA21_PB_LONG" in sig.metadata.get("reason", "")
+
+    def test_19_a_boundary_exactly_at_threshold(self):
+        """Signal A: MACD=-1.0 is NOT < -1.0 → BUY fires (strict inequality)."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _a_signal_df(macd_hist=-1.0)
+        sig = strat.generate(df)
+        assert sig.action == "BUY", f"Signal A should fire at MACD exactly -1.0, got {sig.action}"
+        assert "EMA21_PB_LONG" in sig.metadata.get("reason", "")
+
+    # ── Signal D (Short) ─────────────────────────────────────────────
+
+    def test_20_d_blocked_when_macd_deeply_positive(self):
+        """Signal D: MACD=+1.50 > +1.0 threshold → SELL blocked."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _d_signal_df(macd_hist=1.50)
+        sig = strat.generate(df)
+        reason = sig.metadata.get("reason", "")
+        assert "EMA21_PB_SHORT" not in reason, \
+            f"Signal D should be BLOCKED with MACD=+1.50, got {reason}"
+
+    def test_21_d_fires_when_macd_mildly_positive(self):
+        """Signal D: MACD=+0.5 < +1.0 → SELL fires (mild positive OK)."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _d_signal_df(macd_hist=0.5)
+        sig = strat.generate(df)
+        assert sig.action == "SELL", f"Signal D should fire with MACD=+0.5, got {sig.action}"
+        assert "EMA21_PB_SHORT" in sig.metadata.get("reason", "")
+
+    def test_22_d_boundary_exactly_at_threshold(self):
+        """Signal D: MACD=+1.0 is NOT > +1.0 → SELL fires (strict inequality)."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=1.0)
+        df = _d_signal_df(macd_hist=1.0)
+        sig = strat.generate(df)
+        assert sig.action == "SELL", f"Signal D should fire at MACD exactly +1.0, got {sig.action}"
+        assert "EMA21_PB_SHORT" in sig.metadata.get("reason", "")
+
+    # ── Disable (threshold=0) ────────────────────────────────────────
+
+    def test_23_threshold_zero_disables_a(self):
+        """ft_ema21_macd_divergence_block=0 → A fires even with deeply negative MACD."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=0.0)
+        df = _a_signal_df(macd_hist=-5.0)  # extremely negative
+        sig = strat.generate(df)
+        assert sig.action == "BUY", f"Signal A should fire with MACD=-5.0 when filter disabled, got {sig.action}"
+        assert "EMA21_PB_LONG" in sig.metadata.get("reason", "")
+
+    def test_24_threshold_zero_disables_d(self):
+        """ft_ema21_macd_divergence_block=0 → D fires even with deeply positive MACD."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=0.0)
+        df = _d_signal_df(macd_hist=5.0)  # extremely positive
+        sig = strat.generate(df)
+        assert sig.action == "SELL", f"Signal D should fire with MACD=+5.0 when filter disabled, got {sig.action}"
+        assert "EMA21_PB_SHORT" in sig.metadata.get("reason", "")

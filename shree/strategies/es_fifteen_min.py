@@ -294,6 +294,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema21_sl_ceiling: float = getattr(config, 'ft_ema21_sl_ceiling_pts', 15.0)
         self._ema21_rr_ratio: float = getattr(config, 'ft_ema21_rr_ratio', 1.33)
 
+        # MAR 16 2026 Fix #5: MACD divergence filter for Signal A/D.
+        # Root cause: Mar 16 12:30 trade — Signal A fired BUY with MACD_H=-1.40
+        # (bearish momentum opposing long pullback). Lost -$57.50 in 20 min.
+        # MACD was globally removed from A/D in Mar 2026 to reduce over-filtering,
+        # but deep-negative MACD reliably signals "this is a slide, not a pullback".
+        # Block A when MACD_H < -threshold (bearish opposes long).
+        # Block D when MACD_H > +threshold (bullish opposes short).
+        # Threshold=1.0: only blocks strong divergence, not mild readings.
+        # Set to 0 to disable.
+        self._ema21_macd_divergence_block: float = float(
+            getattr(config, 'ft_ema21_macd_divergence_block', 1.0) or 0.0
+        )
+
         # FEB 24 2026: ATR-adaptive stops/targets for Signal F (TREND_CONT)
         # Backtest analysis (252 trades, Feb 2025 – Jan 2026):
         #   Fixed 8pt SL / 12pt TP → 50% WR, PnL = −$9 (break-even)
@@ -792,6 +805,8 @@ class EsFifteenMinStrategy(BaseStrategy):
                     _diag_parts.append(f"A:bearish(c={close:.1f},o={open_price:.1f})")
                 elif adx < self._adx_min or adx > self._adx_max:
                     _diag_parts.append(f"A:adx({adx:.0f})out[{self._adx_min}-{self._adx_max}]")
+                elif self._ema21_macd_divergence_block > 0 and macd_hist < -self._ema21_macd_divergence_block:
+                    _diag_parts.append(f"A:macd_div({macd_hist:.2f})<-{self._ema21_macd_divergence_block:.1f}")
             # Signal B diagnostics (Long OR Breakout)
             if not self._or_computed or self._or_high <= 0:
                 _diag_parts.append(f"B:no_OR(computed={self._or_computed},h={self._or_high:.1f})")
@@ -817,6 +832,8 @@ class EsFifteenMinStrategy(BaseStrategy):
                         _diag_parts.append(f"D:bullish(c={close:.1f},o={open_price:.1f})")
                     elif adx < self._adx_min or adx > self._adx_max:
                         _diag_parts.append(f"D:adx({adx:.0f})out[{self._adx_min}-{self._adx_max}]")
+                    elif self._ema21_macd_divergence_block > 0 and macd_hist > self._ema21_macd_divergence_block:
+                        _diag_parts.append(f"D:macd_div({macd_hist:.2f})>+{self._ema21_macd_divergence_block:.1f}")
             else:
                 _diag_parts.append("D:shorts_disabled")
             # Signal A-prime / D-prime proximity diagnostics (only in high-vol)
@@ -1057,8 +1074,8 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. Close > EMA21 (bounced back above)
           4. Close > Open (bullish bar)
           5. ADX > threshold (trending)
-          6. (REMOVED MAR 3 2026: MACD histogram — redundant with EMA alignment)
-          7. (REMOVED MAR 3 2026: RSI filter — covered by exhaustion gate in signal_processor)
+          6. MACD histogram not deeply negative (MAR 16 2026 Fix #5 — restored)
+             Block when MACD_H < -threshold (default -1.0). Set to 0 to disable.
         
         Returns: (action, stop, target, reason) or None
         """
@@ -1088,6 +1105,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx < self._adx_min:
             return None
         if adx > self._adx_max:
+            return None
+
+        # 6. MACD divergence filter (MAR 16 2026 Fix #5)
+        # Block BUY when MACD strongly negative — momentum opposes the pullback
+        if self._ema21_macd_divergence_block > 0 and macd_hist < -self._ema21_macd_divergence_block:
             return None
 
         # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
@@ -1269,8 +1291,8 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. Close < EMA21 (rejected back below)
           4. Close < Open (bearish bar)
           5. ADX > threshold (trending)
-          6. (REMOVED MAR 3 2026: MACD histogram — redundant with EMA alignment)
-          7. (REMOVED MAR 3 2026: RSI filter — covered by exhaustion gate)
+          6. MACD histogram not deeply positive (MAR 16 2026 Fix #5 — restored)
+             Block when MACD_H > +threshold (default +1.0). Set to 0 to disable.
 
         Returns: (action, stop, target, reason) or None
         """
@@ -1300,6 +1322,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx < self._adx_min:
             return None
         if adx > self._adx_max:
+            return None
+
+        # 6. MACD divergence filter (MAR 16 2026 Fix #5)
+        # Block SELL when MACD strongly positive — momentum opposes the pullback
+        if self._ema21_macd_divergence_block > 0 and macd_hist > self._ema21_macd_divergence_block:
             return None
 
         # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----

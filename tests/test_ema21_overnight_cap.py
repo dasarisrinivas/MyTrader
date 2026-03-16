@@ -130,6 +130,8 @@ def _make_config(**overrides) -> MagicMock:
         "ft_ema21_sl_floor_pts": 6.0,
         "ft_ema21_sl_ceiling_pts": 15.0,
         "ft_ema21_rr_ratio": 1.33,
+        # Fix #5 — MACD divergence filter for A/D (disabled for cap tests)
+        "ft_ema21_macd_divergence_block": 0.0,
         # Fix — post-exhaustion cooldown (disabled for cap tests)
         "ft_exhaustion_cooldown_bars": 0,
         # Fix — Signal C MACD floor

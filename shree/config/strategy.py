@@ -271,6 +271,10 @@ class OneMinuteStrategyConfig:
     ft_ema21_sl_floor_pts: float = 6.0    # Minimum SL (pts) — protects against ultra-low ATR
     ft_ema21_sl_ceiling_pts: float = 15.0 # Maximum SL (pts) — caps risk in high-vol
     ft_ema21_rr_ratio: float = 1.33       # TP = SL × this — R:R 1.33:1
+    # MAR 16 2026: MACD divergence filter for Signal A/D (Fix #5)
+    # Block A when MACD_H < -threshold (bearish opposes long pullback)
+    # Block D when MACD_H > +threshold (bullish opposes short pullback)
+    ft_ema21_macd_divergence_block: float = 1.0  # Set to 0 to disable
     # MAR 16 2026: Post-exhaustion cooldown (Fix — blocks same-direction after TREND_EXHAUSTION)
     ft_exhaustion_cooldown_bars: int = 4  # Block all same-direction signals for N bars (60 min) after exhaustion
     # MAR 16 2026: Signal C MACD floor (Fix — raised from >0 to >=0.3)

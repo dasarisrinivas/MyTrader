@@ -88,6 +88,7 @@ def _make_config(**overrides):
         "ft_ema21_sl_floor_pts": 6.0,
         "ft_ema21_sl_ceiling_pts": 15.0,
         "ft_ema21_rr_ratio": 1.33,
+        "ft_ema21_macd_divergence_block": 0.0,
         "ft_exhaustion_cooldown_bars": 0,
         "ft_ema9_pb_macd_min": 0.3,
         "ft_or_break_sl_atr_mult": 0.75,
