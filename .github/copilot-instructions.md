@@ -61,7 +61,7 @@ tail -20 logs/journal_ingest.log                                  # Check ingest
 
 ---
 
-## Optimization Roadmap (Phase 3+4 Status — MAR 15 2026)
+## Optimization Roadmap (Phase 3+4 Status — MAR 16 2026)
 
 Phase 3 changes deployed MAR 9 2026:
 - ✅ **T2: Regime-adaptive touch band** — 4-bucket ATR thresholds for A/D signals (Fix #6)
@@ -74,13 +74,36 @@ MAR 15 2026 additions:
 - ✅ **Session gate fix** — removed `classify_session` day-of-week guard that blocked overnight bars on fresh Sunday/evening restarts. Now only blocks CME maintenance window (16:00–17:00 CT).
 - ✅ **Overnight entry-quality guards** — two new guards in `es_fifteen_min.generate()`, active outside 09:30–16:00 ET only (see "Overnight Entry Guards" section below).
 
+MAR 16 2026 additions:
+- ⏳ **Fix #17: Overnight sentiment conflict block** — pending 10+ overnight A/D outcomes. Block overnight BUY when combined sentiment < −0.25. See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` Phase 7.
+- ⏳ **Fix #18: Overnight ATR floor for A/D** — pending 10+ overnight A/D outcomes. Block overnight A/D when ATR < 6.0. See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` Phase 7.
+
+### ⚠️ Contract Roll — Action Required This Week
+
+| Date | Day | Action |
+|---|---|---|
+| **Mar 17** | **Tuesday** | ✅ Restart bot pre-RTH (~8:00 AM CT) → rolls MESH6→MESM6 automatically |
+| **Mar 18** | **Wednesday** | ⚠️ **Hard deadline** — VXH6 expires. VX feed breaks if not restarted before this. Also FOMC day — set `HIGH_IMPACT_DATES=2026-03-18,2026-03-19` |
+| **Mar 20** | **Friday** | MESH6 final expiry |
+
+```bash
+# Roll procedure (run Tue Mar 17 pre-RTH):
+. stop.sh && sleep 2 && . start_bot.sh
+# Verify roll:
+grep "Qualified contract" logs/live_trading.log | tail -2
+# Expected: MESM6 (exp: 20260619) and VXJ6
+```
+
+**Date awareness rule for Copilot:** Always verify day-of-week with `python3 -c "from datetime import date; d=date(YYYY,M,D); print(d.strftime('%A'))"` before stating what day a date falls on. Never assume.
+
 See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full details. Remaining gates:
 
-| Date | Gate | Action |
-|---|---|---|
-| **Mar 17** | 2-week review: trades/day < 2? | → Start Fix #3 (day-type classifier) |
-| **Mar 24** | Phase 3 checkpoint | → Deploy Fix #7 (doji) + #8 (F cap) if #3 is done |
-| **Apr 1** | Signal variety insufficient? | → Start Fix #9 (OR continuation pattern) |
+| Date | Day | Gate | Action |
+|---|---|---|---|
+| **Mar 17** | **Tue** | 2-week review: trades/day < 2? | → Start Fix #3 (day-type classifier) |
+| **Mar 18** | **Wed** | VXH6 expires + FOMC | → Must restart before RTH. Set HIGH_IMPACT_DATES. |
+| **Mar 24** | **Mon** | Phase 3 checkpoint | → Deploy Fix #7 (doji) + #8 (F cap) if #3 is done |
+| **Apr 1** | **Wed** | Signal variety insufficient? | → Start Fix #9 (OR continuation pattern) |
 
 When the current date matches or passes a gate date, **proactively suggest** checking the gate criteria and starting the corresponding work.
 
