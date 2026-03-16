@@ -1,0 +1,31 @@
+{
+  "trade_cycle_id": "a5def3b6b301",
+  "symbol": "MES",
+  "contract": "MES",
+  "quantity": 1,
+  "side": "BUY",
+  "entry_time": "2026-03-16T00:00:35.766680-05:00",
+  "entry_price": 6667.25,
+  "exit_time": "2026-03-16T05:52:37.136166+00:00",
+  "exit_price": 6678.5,
+  "stop_loss": 6659.25,
+  "take_profit": 6678.5,
+  "signal_type": "BUY",
+  "signal_confidence": 0.5049999999999999,
+  "regime": "MICRO_UP",
+  "volatility": "MEDIUM",
+  "advisory": null,
+  "risk_parameters": {
+    "distance_points": 8.0,
+    "target_points": 11.25
+  },
+  "features": {},
+  "execution_metrics": {
+    "slippage": 0.0,
+    "latency_ms": null,
+    "immediate_fill": false
+  },
+  "reason_codes": [],
+  "outcome": "WIN",
+  "pnl": 55.01
+}
