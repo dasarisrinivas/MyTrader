@@ -262,6 +262,10 @@ class OneMinuteStrategyConfig:
     # oversold" zone where TREND_CONT signals become exhaustion traps overnight.
     ft_overnight_rsi_extreme_block: float = 35.0  # Block TREND_CONT short if RSI < this; long if RSI > (100-this)
     ft_overnight_macd_divergence_threshold: float = 0.5  # Block D/E short if MACD > this; A/C long if MACD < -this. 0=disabled.
+    # MAR 16 2026: A/D per-session cap (Fix #1) + slippage buffer (Fix #2)
+    ft_ema21_pb_max_overnight: int = 1    # Max A (long) or D (short) signals overnight per direction per session
+    ft_ema21_pb_max_rth: int = 3          # RTH allows multiple valid pullbacks in a trending session
+    ft_entry_slippage_pts: float = 0.5   # Expected market-order slippage (pts); applied to R:R gate to prevent overstating R:R from close price
 
     # MAR 9 2026: London Momentum Breakout (Signal G) — captures first
     # directional impulse when European liquidity arrives (2-5 AM CST)

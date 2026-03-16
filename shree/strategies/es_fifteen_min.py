@@ -159,6 +159,18 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._proximity_short_count: int = 0
         self._or_minutes: int = getattr(config, 'ft_or_minutes', 30)
 
+        # MAR 16 2026 Fix #1: A/D per-session overnight cap.
+        # Signal A (EMA21_PB_LONG) and D (EMA21_PB_SHORT) have no daily counter,
+        # unlike every other signal (B, E, F, G all have max_per_day guards).
+        # Root cause of the 01:30 CT duplicate trade on Mar 16: second A-signal
+        # fired identically to the first with nothing changed except a 90-min gap.
+        # Overnight: max=1 (one pullback per direction is enough in thin market).
+        # RTH: max=3 (multiple valid pullbacks can occur in a trending RTH session).
+        self._ema21_pb_long_count: int = 0
+        self._ema21_pb_short_count: int = 0
+        self._ema21_pb_max_overnight: int = int(getattr(config, 'ft_ema21_pb_max_overnight', 1))
+        self._ema21_pb_max_rth: int = int(getattr(config, 'ft_ema21_pb_max_rth', 3))
+
         # FEB 7 2026: EMA9 pullback parameters (Signal C)
         self._ema9_pb_enabled: bool = getattr(config, 'ft_ema9_pb_enabled', False)
         self._ema9_pb_stop_mult: float = getattr(config, 'ft_ema9_pb_stop_mult', 1.2)
@@ -220,6 +232,15 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Break-even WR at 1.67:1 = 1/(1+1.67) = 37.5% — matches current live rate,
         # so the floor ensures any improvement in WR directly converts to profit.
         self._overnight_min_rr: float = float(getattr(config, 'ft_overnight_min_rr', 1.5) or 1.5)
+        # MAR 16 2026 Fix #2: Slippage buffer in overnight R:R gate.
+        # The gate computes R:R from `close` (signal price), but market orders
+        # fill above/below close. Both Mar 16 trades were computed at R:R=1.67
+        # from close but actually filled at 1.41/1.48 due to market-order slippage.
+        # This adds an expected slippage buffer to SL (widens it) and subtracts
+        # it from TP (shrinks it) before checking vs overnight_min_rr floor.
+        # Default 0.5 pts: (12.0-0.5)/(7.2+0.5) = 11.5/7.7 = 1.49 — just below 1.5 floor.
+        # Set to 0.0 to disable. Tune based on observed average slippage from trade journal.
+        self._entry_slippage_pts: float = float(getattr(config, 'ft_entry_slippage_pts', 0.5) or 0.0)
         # MAR 15 2026: Overnight entry quality guards — block signals that have
         # no edge during low-liquidity hours (EVENING 16:00-23:00 ET, OVERNIGHT).
         #
@@ -509,10 +530,15 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         # (Indicators already extracted above, before Signal G / RTH gate)
 
+        # MAR 16 2026 Fix #1: Compute overnight flag for A/D cap.
+        # True when outside core RTH (9:30-16:00 ET). Same boundary used for
+        # overnight scaling and the overnight guards block below.
+        _is_overnight_pb = not (self._core_rth_start <= et_time.time() < self._core_rth_end)
+
         # ---- Signal A: EMA21 Pullback Long ----
         signal_a = self._check_ema21_pullback(
             close, open_price, low, ema21, ema50, atr, adx,
-            rsi, macd_hist,
+            rsi, macd_hist, is_overnight=_is_overnight_pb,
         )
 
         # ---- Signal A-prime: EMA21 Proximity Long (near-miss, high-vol only) ----
@@ -541,7 +567,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if self._shorts_enabled:
             signal_d = self._check_ema21_pullback_short(
                 close, open_price, high, ema21, ema50, atr, adx,
-                rsi, macd_hist,
+                rsi, macd_hist, is_overnight=_is_overnight_pb,
             )
             if signal_d is None:  # only evaluate when D missed
                 signal_dprox = self._check_ema21_proximity_short(
@@ -807,14 +833,18 @@ class EsFifteenMinStrategy(BaseStrategy):
         # After scaling, compute actual R:R and block trades that don't meet the floor.
         # This catches edge cases where ATR-adaptive SL (signals C/F) or proximity
         # signals (A-prime/D-prime) produce a sub-floor R:R even after overnight scaling.
+        # MAR 16 2026 Fix #2: Add slippage buffer before comparing to floor.
+        # Market orders fill above/below close; gate computed from close overstates R:R.
+        # ft_entry_slippage_pts (default 0.5) widens effective SL and shrinks effective TP.
         if not _is_core_rth and self._overnight_min_rr > 0:
-            _scaled_sl = abs(close - stop_loss)
-            _scaled_tp = abs(take_profit - close)
+            _slippage = self._entry_slippage_pts
+            _scaled_sl = abs(close - stop_loss) + _slippage
+            _scaled_tp = abs(take_profit - close) - _slippage
             _actual_rr = _scaled_tp / _scaled_sl if _scaled_sl > 0 else 0.0
             if _actual_rr < self._overnight_min_rr:
                 logger.info(
                     f"🚫 OVERNIGHT_RR_GATE: R:R {_actual_rr:.2f} < floor {self._overnight_min_rr:.2f} "
-                    f"(SL={_scaled_sl:.1f}pts, TP={_scaled_tp:.1f}pts) | {reason}"
+                    f"(SL={_scaled_sl:.1f}pts+slip, TP={_scaled_tp:.1f}pts-slip) | {reason}"
                 )
                 self._prev_close = close
                 return Signal("HOLD", 0.0, {"reason": f"OVERNIGHT_RR_BELOW_FLOOR | rr={_actual_rr:.2f} floor={self._overnight_min_rr:.2f}"})
@@ -928,6 +958,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self, close: float, open_p: float, low: float,
         ema21: float, ema50: float, atr: float, adx: float,
         rsi: float = 50.0, macd_hist: float = 0.0,
+        is_overnight: bool = False,
     ) -> Optional[tuple]:
         """
         EMA21 pullback in uptrend.
@@ -943,6 +974,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         
         Returns: (action, stop, target, reason) or None
         """
+        # MAR 16 2026 Fix #1: Per-session cap — overnight max=1, RTH max=3.
+        _max = self._ema21_pb_max_overnight if is_overnight else self._ema21_pb_max_rth
+        if self._ema21_pb_long_count >= _max:
+            return None
+
         # 1. Uptrend
         if ema21 <= ema50:
             return None
@@ -969,6 +1005,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         # ---- Compute stops/targets ----
         stop_loss = close - self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
         take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
+
+        self._ema21_pb_long_count += 1
+        self._save_counters()
 
         reason = f"EMA21_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
         return ("BUY", stop_loss, take_profit, reason)
@@ -1124,6 +1163,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self, close: float, open_p: float, high: float,
         ema21: float, ema50: float, atr: float, adx: float,
         rsi: float = 50.0, macd_hist: float = 0.0,
+        is_overnight: bool = False,
     ) -> Optional[tuple]:
         """
         EMA21 pullback in downtrend — short-side mirror of Signal A.
@@ -1139,6 +1179,11 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         Returns: (action, stop, target, reason) or None
         """
+        # MAR 16 2026 Fix #1: Per-session cap — overnight max=1, RTH max=3.
+        _max = self._ema21_pb_max_overnight if is_overnight else self._ema21_pb_max_rth
+        if self._ema21_pb_short_count >= _max:
+            return None
+
         # 1. Downtrend
         if ema21 >= ema50:
             return None
@@ -1165,6 +1210,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         # ---- Compute stops/targets (inverted) ----
         stop_loss = close + self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
         take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
+
+        self._ema21_pb_short_count += 1
+        self._save_counters()
 
         reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
         return ("SELL", stop_loss, take_profit, reason)
@@ -1808,6 +1856,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Signal F counters
         self._trend_cont_long_count = 0
         self._trend_cont_short_count = 0
+        # Signal A/D (EMA21 pullback) counters — MAR 16 2026 Fix #1
+        self._ema21_pb_long_count = 0
+        self._ema21_pb_short_count = 0
         # Signal A-prime / D-prime (proximity) counters
         self._proximity_long_count = 0
         self._proximity_short_count = 0
@@ -1850,6 +1901,8 @@ class EsFifteenMinStrategy(BaseStrategy):
             "proximity_long": getattr(self, "_proximity_long_count", 0),
             "proximity_short": getattr(self, "_proximity_short_count", 0),
             "london_fired": getattr(self, "_london_fired_count", 0),
+            "ema21_pb_long": getattr(self, "_ema21_pb_long_count", 0),
+            "ema21_pb_short": getattr(self, "_ema21_pb_short_count", 0),
         }
         try:
             self._COUNTER_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -1878,8 +1931,11 @@ class EsFifteenMinStrategy(BaseStrategy):
             self._proximity_long_count = data.get("proximity_long", 0)
             self._proximity_short_count = data.get("proximity_short", 0)
             self._london_fired_count = data.get("london_fired", 0)
+            self._ema21_pb_long_count = data.get("ema21_pb_long", 0)
+            self._ema21_pb_short_count = data.get("ema21_pb_short", 0)
             logger.info(
                 f"📂 Loaded signal counters from disk (session={saved_session}): "
+                f"A={self._ema21_pb_long_count} D={self._ema21_pb_short_count} "
                 f"B={self._or_break_long_count} E={self._or_break_short_count} "
                 f"F_L={self._trend_cont_long_count} F_S={self._trend_cont_short_count} "
                 f"A'={self._proximity_long_count} D'={self._proximity_short_count} "
@@ -1908,6 +1964,14 @@ class EsFifteenMinStrategy(BaseStrategy):
         elif "TREND_CONT_SHORT" in signal_reason:
             if self._trend_cont_short_count > 0:
                 self._trend_cont_short_count -= 1
+                rolled_back = True
+        elif "EMA21_PB_LONG" in signal_reason:
+            if self._ema21_pb_long_count > 0:
+                self._ema21_pb_long_count -= 1
+                rolled_back = True
+        elif "EMA21_PB_SHORT" in signal_reason:
+            if self._ema21_pb_short_count > 0:
+                self._ema21_pb_short_count -= 1
                 rolled_back = True
         elif "OR_BREAK_LONG" in signal_reason:
             if self._or_break_long_count > 0:
