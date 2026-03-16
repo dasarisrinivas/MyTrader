@@ -3,7 +3,7 @@
 Two guards added to es_fifteen_min.py to block signal patterns with no
 overnight edge (outside core RTH 9:30–16:00 ET):
 
-Guard 1 — RSI extreme (ft_overnight_rsi_extreme_block, default 30):
+Guard 1 — RSI extreme (ft_overnight_rsi_extreme_block, default 35):
   Block TREND_CONT_SHORT overnight when RSI < threshold (oversold exhaustion).
   Block TREND_CONT_LONG  overnight when RSI > (100-threshold) (overbought exhaustion).
   Evidence: 2 overnight TREND_CONT losses at RSI=30 and RSI=32 → −$110.
@@ -133,7 +133,7 @@ def _make_config(**overrides) -> MagicMock:
         "ft_overnight_tp_mult": 1.5,
         "ft_overnight_min_rr": 1.5,
         # Overnight entry-quality guards (MAR 15 2026)
-        "ft_overnight_rsi_extreme_block": 30.0,
+        "ft_overnight_rsi_extreme_block": 35.0,  # MAR 15: raised from 30 → 35
         "ft_overnight_macd_divergence_threshold": 0.5,
         # 24h RTH / entry windows
         "ft_entry_start_hour": 0,
@@ -439,17 +439,17 @@ class TestRsiExtremeGuard:
             f"Expected HOLD (RSI=32 overnight), got {sig.action} | {sig.metadata}"
         )
 
-    # [3] RSI=35 on TREND_CONT_SHORT overnight → signal passes (above threshold)
+    # [3] RSI=38 on TREND_CONT_SHORT overnight → signal passes (above threshold=35)
     def test_trend_cont_short_rsi_35_overnight_passes(self):
         strat = _make_strategy()
-        df = _trend_cont_short_df(rsi=35.0, macd=-2.0, atr=10.0, last_ts=_overnight_ts())
+        df = _trend_cont_short_df(rsi=38.0, macd=-2.0, atr=10.0, last_ts=_overnight_ts())
         sig = _call_generate(strat, df)
-        # RSI=35 > threshold=30, guard does NOT block
+        # RSI=38 > threshold=35, guard does NOT block
         assert sig.action in ("SELL", "HOLD"), "signal_f_short should be unaffected by RSI guard"
         # If it returns HOLD it must NOT be due to RSI guard
         if sig.action == "HOLD":
             reason = sig.metadata.get("reason", "")
-            assert "ON_RSI_EXTREME" not in reason, f"RSI=35 should not trigger RSI extreme guard"
+            assert "ON_RSI_EXTREME" not in reason, f"RSI=38 should not trigger RSI extreme guard"
 
     # [4] RSI=30 on TREND_CONT_SHORT during RTH → signal passes (RTH exempt)
     def test_trend_cont_short_rsi_30_rth_not_blocked(self):
