@@ -135,6 +135,18 @@ def _make_config(**overrides) -> MagicMock:
         # Overnight entry-quality guards (MAR 15 2026)
         "ft_overnight_rsi_extreme_block": 35.0,  # MAR 15: raised from 30 → 35
         "ft_overnight_macd_divergence_threshold": 0.5,
+        # MAR 16 2026: A/D caps + ATR-adaptive SL + exhaustion cooldown + MACD floor
+        "ft_ema21_pb_max_overnight": 1,
+        "ft_ema21_pb_max_rth": 3,
+        "ft_entry_slippage_pts": 0.0,
+        "ft_ema21_sl_atr_mult": 1.0,
+        "ft_ema21_sl_floor_pts": 6.0,
+        "ft_ema21_sl_ceiling_pts": 15.0,
+        "ft_ema21_rr_ratio": 1.33,
+        "ft_exhaustion_cooldown_bars": 0,  # disabled — not testing this here
+        "ft_ema9_pb_macd_min": 0.3,
+        "ft_or_break_short_rsi_min": 40.0,
+        "ft_or_break_long_rsi_max": 60.0,
         # 24h RTH / entry windows
         "ft_entry_start_hour": 0,
         "ft_entry_start_minute": 0,

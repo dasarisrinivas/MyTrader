@@ -125,6 +125,15 @@ def _make_config(**overrides) -> MagicMock:
         # Fix #1 fields
         "ft_ema21_pb_max_overnight": 1,
         "ft_ema21_pb_max_rth": 3,
+        # Fix — ATR-adaptive SL for A/D (replaces fixed 6pt)
+        "ft_ema21_sl_atr_mult": 1.0,
+        "ft_ema21_sl_floor_pts": 6.0,
+        "ft_ema21_sl_ceiling_pts": 15.0,
+        "ft_ema21_rr_ratio": 1.33,
+        # Fix — post-exhaustion cooldown (disabled for cap tests)
+        "ft_exhaustion_cooldown_bars": 0,
+        # Fix — Signal C MACD floor
+        "ft_ema9_pb_macd_min": 0.3,
         # Fix #2 field — disabled by default so Fix #1 tests are not contaminated;
         # Fix #2 tests override this explicitly.
         "ft_entry_slippage_pts": 0.0,

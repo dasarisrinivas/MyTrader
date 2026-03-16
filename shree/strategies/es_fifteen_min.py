@@ -176,6 +176,12 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema9_pb_stop_mult: float = getattr(config, 'ft_ema9_pb_stop_mult', 1.2)
         self._ema9_pb_target_mult: float = getattr(config, 'ft_ema9_pb_target_mult', 1.5)
         self._ema9_touch_pct: float = getattr(config, 'ft_ema9_touch_pct', 0.0015)  # 0.15%
+        # MAR 16 2026 Fix #3: MACD floor for Signal C.
+        # Was `macd_hist > 0` — fires on near-zero momentum (e.g. MACD=0.20)
+        # which has no edge. Raised to 0.3 to require meaningful momentum.
+        self._ema9_pb_macd_min: float = float(
+            getattr(config, 'ft_ema9_pb_macd_min', 0.3) or 0.0
+        )
 
         # FEB 12 2026: Short-side signals (D, E) — mirror of long signals
         self._shorts_enabled: bool = getattr(config, 'ft_shorts_enabled', False)
@@ -278,6 +284,16 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._or_break_sl_ceiling: float = getattr(config, 'ft_or_break_sl_ceiling_pts', 12.0)
         self._or_break_rr_ratio: float = getattr(config, 'ft_or_break_rr_ratio', 1.33)
 
+        # MAR 16 2026 Fix: ATR-adaptive stops for EMA21 pullback signals (A/D)
+        # Root cause: Mar 16 Trade #3 had fixed SL=6pt at ATR=10 → sub-ATR noise
+        # stopped out in 2 min.  SL = clamp(ATR × 1.0, 6pt floor, 15pt ceiling).
+        # At ATR=10: SL=10pt (above noise band), TP=10×1.33=13.25pt.
+        # At ATR=6:  SL=6pt (floor), TP=8pt.  At ATR=18: SL=15pt (ceiling), TP=20pt.
+        self._ema21_sl_atr_mult: float = getattr(config, 'ft_ema21_sl_atr_mult', 1.0)
+        self._ema21_sl_floor: float = getattr(config, 'ft_ema21_sl_floor_pts', 6.0)
+        self._ema21_sl_ceiling: float = getattr(config, 'ft_ema21_sl_ceiling_pts', 15.0)
+        self._ema21_rr_ratio: float = getattr(config, 'ft_ema21_rr_ratio', 1.33)
+
         # FEB 24 2026: ATR-adaptive stops/targets for Signal F (TREND_CONT)
         # Backtest analysis (252 trades, Feb 2025 – Jan 2026):
         #   Fixed 8pt SL / 12pt TP → 50% WR, PnL = −$9 (break-even)
@@ -296,6 +312,18 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._trend_exhaustion_atr_multiple: float = float(
             getattr(config, 'ft_trend_exhaustion_atr_multiple', 8.0) or 8.0
         )
+
+        # MAR 16 2026 Fix #2: Post-exhaustion cooldown — when TREND_EXHAUSTION
+        # fires, block ALL same-direction signals for N bars (default 4 = 60 min).
+        # Root cause: Mar 16 Trade #3 at 09:45 — exhaustion fired at 09:15 but
+        # only blocked TREND_CONT, not the A-signal that fired 30 min later into
+        # the same exhausted trend.
+        self._exhaustion_cooldown_bars: int = int(
+            getattr(config, 'ft_exhaustion_cooldown_bars', 4)
+        )
+        # Runtime state — bars remaining in cooldown (0 = no cooldown active)
+        self._exhaustion_long_bars_left: int = 0
+        self._exhaustion_short_bars_left: int = 0
 
         # FEB 13 2026: Trend continuation signal (Signal F) — captures
         # strong rally / selloff days when price runs away from EMA21
@@ -535,6 +563,43 @@ class EsFifteenMinStrategy(BaseStrategy):
         # overnight scaling and the overnight guards block below.
         _is_overnight_pb = not (self._core_rth_start <= et_time.time() < self._core_rth_end)
 
+        # ── MAR 16 2026 Fix #2: Post-exhaustion cooldown tick ───────────────
+        # Decrement cooldown counters each bar. When TREND_EXHAUSTION fires
+        # (inside _check_trend_continuation_long/short), we set the counter
+        # to _exhaustion_cooldown_bars. While > 0, same-direction signals
+        # are nulled after signal evaluation (see block below priority select).
+        if self._exhaustion_long_bars_left > 0:
+            self._exhaustion_long_bars_left -= 1
+        if self._exhaustion_short_bars_left > 0:
+            self._exhaustion_short_bars_left -= 1
+
+        # Pre-compute exhaustion state for this bar (used to set cooldowns
+        # when TREND_CONT exhaustion fires in check methods AND to block
+        # same-direction non-TREND_CONT signals in the priority block below).
+        _exh_mult = self._trend_exhaustion_atr_multiple
+        _exh_cooldown_n = self._exhaustion_cooldown_bars
+        _exh_or_ok = (_exh_cooldown_n > 0 and self._or_computed
+                      and self._or_high > 0 and atr > 0 and _exh_mult > 0)
+        if _exh_or_ok:
+            _exh_ref = (self._or_high + self._or_low) / 2.0
+            _exh_move = close - _exh_ref
+            _exh_atr_ratio = abs(_exh_move) / atr
+            if _exh_atr_ratio > _exh_mult:
+                if _exh_move > 0 and self._exhaustion_long_bars_left == 0:
+                    self._exhaustion_long_bars_left = self._exhaustion_cooldown_bars
+                    logger.info(
+                        f"🚫 EXHAUSTION_COOLDOWN: LONG exhaustion detected | "
+                        f"move={_exh_move:+.1f}pts ({_exh_atr_ratio:.1f}×ATR) "
+                        f"— blocking BUY signals for {self._exhaustion_cooldown_bars} bars"
+                    )
+                elif _exh_move < 0 and self._exhaustion_short_bars_left == 0:
+                    self._exhaustion_short_bars_left = self._exhaustion_cooldown_bars
+                    logger.info(
+                        f"🚫 EXHAUSTION_COOLDOWN: SHORT exhaustion detected | "
+                        f"move={_exh_move:+.1f}pts ({_exh_atr_ratio:.1f}×ATR) "
+                        f"— blocking SELL signals for {self._exhaustion_cooldown_bars} bars"
+                    )
+
         # ---- Signal A: EMA21 Pullback Long ----
         signal_a = self._check_ema21_pullback(
             close, open_price, low, ema21, ema50, atr, adx,
@@ -659,6 +724,29 @@ class EsFifteenMinStrategy(BaseStrategy):
                         f"(MACD={macd_hist:+.2f} < -{_macd_thr}) | momentum opposes direction"
                     )
                     signal_c = None
+
+        # ── MAR 16 2026 Fix #2: Post-exhaustion cooldown block ─────────────
+        # When exhaustion cooldown is active, null ALL same-direction signals.
+        if self._exhaustion_long_bars_left > 0:
+            _blocked = [s for s in ["A", "A'", "C", "B", "F_long"]
+                        if {"A": signal_a, "A'": signal_aprox, "C": signal_c,
+                            "B": signal_b, "F_long": signal_f_long}.get(s) is not None]
+            if _blocked:
+                logger.info(
+                    f"🚫 EXHAUSTION_COOLDOWN: blocking BUY signals {_blocked} "
+                    f"({self._exhaustion_long_bars_left} bars remaining)"
+                )
+            signal_a = signal_aprox = signal_c = signal_b = signal_f_long = None
+        if self._exhaustion_short_bars_left > 0:
+            _blocked = [s for s in ["D", "D'", "E", "F_short"]
+                        if {"D": signal_d, "D'": signal_dprox,
+                            "E": signal_e, "F_short": signal_f_short}.get(s) is not None]
+            if _blocked:
+                logger.info(
+                    f"🚫 EXHAUSTION_COOLDOWN: blocking SELL signals {_blocked} "
+                    f"({self._exhaustion_short_bars_left} bars remaining)"
+                )
+            signal_d = signal_dprox = signal_e = signal_f_short = None
 
         # Priority: A (EMA21 PB Long) > A-prime (proximity long)
         #         > C (EMA9 PB Long) > B (OR breakout Long) > F_long
@@ -1002,14 +1090,20 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx > self._adx_max:
             return None
 
-        # ---- Compute stops/targets ----
-        stop_loss = close - self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
-        take_profit = close + self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
+        # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
+        # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio, ticked to 0.25pt
+        # At ATR=10: SL=10pt($50), TP=13.25pt($66.25). Eliminates sub-ATR noise stops.
+        sl_pts = min(self._ema21_sl_ceiling,
+                     max(self._ema21_sl_floor, atr * self._ema21_sl_atr_mult))
+        tp_pts = round(sl_pts * self._ema21_rr_ratio * 4) / 4  # tick to 0.25pt
+
+        stop_loss = close - sl_pts
+        take_profit = close + tp_pts
 
         self._ema21_pb_long_count += 1
         self._save_counters()
 
-        reason = f"EMA21_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
+        reason = f"EMA21_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f} | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts"
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -1139,8 +1233,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         if low <= ema21_touch:
             return None
 
-        # 8. MACD histogram must be positive (momentum confirming)
-        if macd_hist <= 0:
+        # 8. MACD histogram must show meaningful momentum (MAR 16 2026: raised floor)
+        # Was `macd_hist > 0` — near-zero (e.g. 0.20) has no edge. Default 0.3.
+        if macd_hist < self._ema9_pb_macd_min:
             return None
 
         # ---- Compute ATR-adaptive stops/targets (FEB 20 2026) ----
@@ -1207,14 +1302,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         if adx > self._adx_max:
             return None
 
-        # ---- Compute stops/targets (inverted) ----
-        stop_loss = close + self._fixed_sl_points    # Fixed-point SL ($30 at 6 pts)
-        take_profit = close - self._fixed_tp_points  # Fixed-point TP ($40 at 8 pts)
+        # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
+        # Mirror of Signal A: SL = clamp(ATR × mult, floor, ceiling), ticked to 0.25pt
+        sl_pts = min(self._ema21_sl_ceiling,
+                     max(self._ema21_sl_floor, atr * self._ema21_sl_atr_mult))
+        tp_pts = round(sl_pts * self._ema21_rr_ratio * 4) / 4  # tick to 0.25pt
+
+        stop_loss = close + sl_pts
+        take_profit = close - tp_pts
 
         self._ema21_pb_short_count += 1
         self._save_counters()
 
-        reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f}"
+        reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f} | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts"
         return ("SELL", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -1864,6 +1964,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._proximity_short_count = 0
         # Signal G (London momentum) counter
         self._london_fired_count = 0
+        # MAR 16 2026 Fix #2: Reset exhaustion cooldown
+        self._exhaustion_long_bars_left = 0
+        self._exhaustion_short_bars_left = 0
         # Persist the zeroed counters
         self._save_counters()
 
