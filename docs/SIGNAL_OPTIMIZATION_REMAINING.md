@@ -1,8 +1,8 @@
 # Signal Optimization — Remaining Phases
 
 **Created:** Mar 3, 2026
-**Last Updated:** Mar 12, 2026
-**Status:** Phase 1+2 COMPLETE ✅ | Phase 3+4 PENDING | Phase 5 COMPLETE ✅ (Fix #12+#13+#14+#15) | Phase 6 IN PROGRESS (Fix #16 deployed)
+**Last Updated:** Mar 16, 2026
+**Status:** Phase 1+2 COMPLETE ✅ | Phase 3+4 PENDING | Phase 5 COMPLETE ✅ (Fix #12+#13+#14+#15) | Phase 6 IN PROGRESS (Fix #16 deployed) | Phase 7 PENDING DATA (Fix #17+#18)
 
 ---
 
@@ -193,6 +193,60 @@ Break-even math: If we had stopped after Trade 2 at -$102.48, we'd have saved $7
 
 ---
 
+## ⬜ Phase 7 — Overnight Entry Quality (NEW — Mar 16, 2026)
+
+Identified from live trade forensic: Mar 16 01:30 CT trade (Signal A, EMA21_PB_LONG) entered into strongly bearish sentiment and was stopped out after a thin-market reversal.
+
+### Fix #17: Overnight Sentiment Conflict Block for BUY signals
+**Priority:** 🟡 MEDIUM — needs more data before implementing
+**Files:** `shree/execution/components/signal_processor.py` or `shree/strategies/es_fifteen_min.py`
+
+**Forensic (Mar 16 01:30 CT):**
+- Signal: EMA21_PB_LONG, ATR=5.4, ADX=23, RSI=58, MACD_h=+0.30
+- Sentiment: Stocktwits=−0.23, Reddit=−0.49, VIX=−0.40 → **Combined=−0.33**
+- Outcome: SL hit at 02:34 CT after reaching +$20.63 unrealized peak
+- Same setup 90 min earlier (ATR=6.4, sentiment unknown) → TP hit cleanly
+
+**Proposed guard:** Block overnight BUY signals when combined sentiment < −0.25. Block overnight SELL signals when combined sentiment > +0.25.
+
+**⚠️ Hold criteria — do NOT implement until:**
+1. At least 10 overnight A/D signal outcomes collected (currently only 2 confirmed)
+2. Confirm the 00:00 CT TP-hit trade did NOT have sentiment < −0.25 (if it did, the guard would have blocked a winner — net negative)
+3. Check: would this guard have blocked any of the Mar 10–12 overnight winners?
+
+```bash
+# Check sentiment at 00:00 CT entry (the winner)
+grep "2026-03-16 00:00" logs/live_trading.log | grep "SENTIMENT\|Blended\|Combined"
+
+# When enough overnight A/D trades accumulate, cross-reference sentiment vs outcome:
+sqlite3 data/trade_journal.db "SELECT t.entry_time, t.direction, t.outcome, t.pnl FROM trades t WHERE strftime('%H', t.entry_time) < '09' ORDER BY t.entry_time DESC LIMIT 20"
+```
+
+### Fix #18: Overnight Minimum ATR Guard for A/D Signals
+**Priority:** 🟡 MEDIUM — needs more data before implementing
+**Files:** `shree/strategies/es_fifteen_min.py` → `_check_ema21_pullback()` / `_check_ema21_pullback_short()`
+
+**Forensic (Mar 16 01:30 CT):** ATR=5.4 → TP required +11.5 pts (~2.1×ATR). In a thin overnight market with ATR=5.4, that's an outsized move requirement. The SL (7.2 pts = 1.3×ATR) sits comfortably within normal overnight noise.
+
+Known overnight A/D ATR distribution (n=9, current log): `4.1, 5.2, 5.3, 5.4, 5.8, 5.8, 6.0, 6.2, 6.4`
+
+**Proposed guard:** Block overnight A/D signals when `ATR < 6.0` (below median).
+
+**⚠️ Hold criteria — do NOT implement until:**
+1. At least 10 overnight A/D outcomes known — need to confirm ATR < 6 correlates with losses
+2. Check: the A-prime guard already requires `ATR ≥ 13` for proximity signals — a base A guard at ATR < 6 is a separate, lower threshold
+3. Confirm no overlap with existing `ft_overnight_min_rr: 1.5` gate (low ATR may already fail R:R check post-scaling)
+
+```bash
+# When outcomes are available, cross-reference ATR vs outcome:
+sqlite3 data/trade_journal.db "SELECT t.entry_time, t.signal_type, t.outcome, t.pnl FROM trades t WHERE strftime('%H', t.entry_time) < '09' ORDER BY t.entry_time DESC"
+
+# Check ATR of all overnight A-signal entries in current log
+grep "OVERNIGHT.*EMA21_PB" logs/live_trading.log | grep -oE "atr=[0-9.]+"
+```
+
+---
+
 ## Implementation Order (Recommended)
 
 1. ~~**Fix #12** (overnight R:R gate)~~ ✅ **DEPLOYED Mar 11**
@@ -206,7 +260,9 @@ Break-even math: If we had stopped after Trade 2 at -$102.48, we'd have saved $7
 9. **Fix #8** (F max cap on trend days) — requires #3
 10. **Fix #9** (OR continuation) — standalone new pattern
 11. **Fix #10** (EMA9/21 relaxation for B) — low risk, standalone
-12. **Fix #11** (sentiment alignment boost) — low risk, standalone
+10. **Fix #11** (sentiment alignment boost) — low risk, standalone
+11. **Fix #17** (overnight sentiment conflict block) — pending 10 overnight outcomes
+12. **Fix #18** (overnight ATR floor for A/D) — pending 10 overnight outcomes
 
 ---
 
@@ -220,6 +276,7 @@ Break-even math: If we had stopped after Trade 2 at -$102.48, we'd have saved $7
 | **Mar 11** | Expectancy analysis | ✅ Fix #12 + Fix #13 deployed | Root-cause review: negative EV at ~1:1 R:R + 37.5% WR. Fix #12 (overnight TP×1.5 + R:R gate) and Fix #13 (breakeven at 3pts) deployed. Both confirmed live in Mar 12 overnight logs. |
 | **Mar 12** | Consecutive-loss crisis | ✅ Identified Fix #14+#15+#16 | 4 consecutive SL hits overnight (-$176.64). All high-conf (0.742–0.903) SELLs into a spent move. No cooldown fired (5-loss threshold never reached). Fix #13 near-miss at +$9.38 (2pts below trigger). Three new fixes identified: **Fix #14** (cooldown at 3), **Fix #15** (overnight BE at 2pts), **Fix #16** (exhaustion filter). |
 | **Mar 12** | Phase 6 deployed | ✅ Done | Fix #14 (consecutive-loss cooldown), Fix #15 (overnight BE 2pt), Fix #16 (trend exhaustion filter), Bug fix (BREAKEVEN misclassification in finalize_trade) |
+| **Mar 16** | Overnight sentinel forensic | ⏳ Pending data | Fix #17 (overnight sentiment block) + Fix #18 (overnight ATR floor) identified. Hold until 10+ overnight A/D outcomes collected. Check sentiment at 00:00 CT TP-hit entry first. |
 | **Mar 17** | 2-week review | ⏳ Upcoming | Evaluate: Is trade frequency ≥ 2/day? Current: 2.00/day since Mar 9 (exactly at threshold). If trades/day drops below 2 → start Fix #3 (day-type classifier). |
 | **Mar 24** | Phase 3 checkpoint | ⏳ Pending | If Phase 3 started: deploy Fix #3, then #7 and #8. |
 | **Apr 1** | Phase 4 evaluation | ⏳ Pending | Only if signal variety insufficient after Phase 3. Start with Fix #9. |
