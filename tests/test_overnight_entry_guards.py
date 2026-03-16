@@ -18,7 +18,7 @@ Tests:
   RSI extreme guard:
     [1]  TREND_CONT_SHORT overnight RSI=30 → HOLD (guard fires)
     [2]  TREND_CONT_SHORT overnight RSI=32 → HOLD (guard fires)
-    [3]  TREND_CONT_SHORT overnight RSI=35 → signal passes (above threshold)
+    [3]  TREND_CONT_SHORT overnight RSI=38 → signal passes (above threshold)
     [4]  TREND_CONT_SHORT RTH       RSI=30 → signal passes (RTH exempt)
     [5]  TREND_CONT_LONG  overnight RSI=71 → HOLD (guard fires)
     [6]  TREND_CONT_LONG  overnight RSI=68 → signal passes
@@ -440,7 +440,7 @@ class TestRsiExtremeGuard:
         )
 
     # [3] RSI=38 on TREND_CONT_SHORT overnight → signal passes (above threshold=35)
-    def test_trend_cont_short_rsi_35_overnight_passes(self):
+    def test_trend_cont_short_rsi_38_overnight_passes(self):
         strat = _make_strategy()
         df = _trend_cont_short_df(rsi=38.0, macd=-2.0, atr=10.0, last_ts=_overnight_ts())
         sig = _call_generate(strat, df)
