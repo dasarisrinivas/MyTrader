@@ -94,7 +94,18 @@ grep "Qualified contract" logs/live_trading.log | tail -2
 # Expected: MESM6 (exp: 20260619) and VXJ6
 ```
 
-**Date awareness rule for Copilot:** Always verify day-of-week with `python3 -c "from datetime import date; d=date(YYYY,M,D); print(d.strftime('%A'))"` before stating what day a date falls on. Never assume.
+**⛔ Date awareness rule — MANDATORY:** Copilot MUST NOT state a day-of-week from a date without first running the Python check below. No exceptions. Hallucinating "Monday" vs "Tuesday" causes real operational errors (missed contract rolls, wrong FOMC prep).
+
+```bash
+python3 -c "from datetime import date; d=date(YYYY,M,D); print(d.strftime('%A %b %d %Y'))"
+```
+
+Current verified dates (do not re-derive from memory — run the check for any new date):
+- Mar 16 2026 → **Monday** (today)
+- Mar 17 2026 → **Tuesday** (contract roll day)
+- Mar 18 2026 → **Wednesday** (VXH6 expiry + FOMC)
+- Mar 19 2026 → **Thursday** (FOMC day 2)
+- Mar 20 2026 → **Friday** (MESH6 final expiry)
 
 See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full details. Remaining gates:
 
