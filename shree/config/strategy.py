@@ -251,12 +251,16 @@ class OneMinuteStrategyConfig:
     # MAR 10 2026: Overnight SL/TP scaling for Signals A/B/C/D/E/F
     # Outside 9:30-16:00 ET, overnight wicks are wider and moves extend less:
     #   SL × 1.2  — widen to survive overnight noise band (RTH 6pt → 7.2pt)
-    #   TP × 0.85 — tighten to capture in slower, thinner markets (RTH 8pt → 6.8pt)
+    #   TP × 1.5  — extend target; overnight trend moves carry further than originally thought
+    # MAR 11 2026: TP raised from 0.85 → 1.5 (wider overnight ranges support larger targets).
     # Signal G (London) already has its own calibrated stops — NOT scaled.
     ft_overnight_sl_mult: float = 1.2   # SL multiplier outside 9:30-16:00 ET
-    ft_overnight_tp_mult: float = 0.85  # TP multiplier outside 9:30-16:00 ET
+    ft_overnight_tp_mult: float = 1.5   # TP multiplier outside 9:30-16:00 ET (MAR 11 2026: raised from 0.85)
     # MAR 15 2026: Overnight entry-quality guards
-    ft_overnight_rsi_extreme_block: float = 30.0  # Block TREND_CONT short if RSI < this (oversold); long if RSI > (100-this)
+    # RSI threshold: original 30 caught neither problem trade (RSI=30 strict-< boundary miss;
+    # RSI=32 above threshold). Raised to 35 — catches ≤34 with margin, matches "approaching
+    # oversold" zone where TREND_CONT signals become exhaustion traps overnight.
+    ft_overnight_rsi_extreme_block: float = 35.0  # Block TREND_CONT short if RSI < this; long if RSI > (100-this)
     ft_overnight_macd_divergence_threshold: float = 0.5  # Block D/E short if MACD > this; A/C long if MACD < -this. 0=disabled.
 
     # MAR 9 2026: London Momentum Breakout (Signal G) — captures first

@@ -227,8 +227,10 @@ class EsFifteenMinStrategy(BaseStrategy):
         # oversold exhaustion; TREND_CONT longs with RSI > (100-threshold) are
         # overbought. Both are counter-trend re-entry traps overnight.
         # Evidence: 2 overnight TREND_CONT losses (RSI=30, RSI=32) totalling −$110.
+        # Threshold raised from 30 → 35: original 30 caught neither problem trade
+        # (RSI=30 strict-< boundary miss; RSI=32 above 30). 35 catches ≤34.
         self._overnight_rsi_extreme_block: float = float(
-            getattr(config, 'ft_overnight_rsi_extreme_block', 30.0) or 30.0
+            getattr(config, 'ft_overnight_rsi_extreme_block', 35.0) or 35.0
         )
         # Guard 2 — MACD divergence: Block D/E (short) signals overnight when
         # MACD histogram is positive (momentum opposes direction). MACD was removed
