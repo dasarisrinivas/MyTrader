@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ..utils.logger import logger
+from ..utils.timezone_utils import now_cst
 
 
 @dataclass
@@ -75,7 +76,7 @@ class LivePerformanceTracker:
         # Daily tracking
         self.daily_start_equity = initial_capital
         self.daily_pnl = 0.0
-        self.last_reset_date = datetime.utcnow().date()
+        self.last_reset_date = now_cst().date()  # CST date, consistent with bot_state.py
         
         # Drawdown tracking
         self.peak_equity = initial_capital
@@ -89,11 +90,12 @@ class LivePerformanceTracker:
         """Update equity based on current position and price."""
         now = datetime.utcnow()
         
-        # Reset daily tracking if new day
-        if now.date() != self.last_reset_date:
+        # Reset daily tracking if new day (CST, consistent with bot_state.py)
+        cst_today = now_cst().date()
+        if cst_today != self.last_reset_date:
             self.daily_start_equity = self.get_current_equity()
             self.daily_pnl = 0.0
-            self.last_reset_date = now.date()
+            self.last_reset_date = cst_today
         
         # Calculate unrealized PnL
         if self.current_position != 0:

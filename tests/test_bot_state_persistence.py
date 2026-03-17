@@ -376,3 +376,155 @@ class TestDailyPnlPersistence:
             save_bot_state(0, None, realized_pnl_today=-55.123456, path=path)
         data = json.loads(path.read_text())
         assert data["realized_pnl_today"] == -55.12
+
+
+# ── Fix #6b: Trade P&L accumulation into tracker.daily_pnl ──────────────────
+
+class TestDailyPnlAccumulation:
+    """MAR 17 2026 Fix #6b: _notify_position_closed must update tracker.daily_pnl
+    so that bot_state persists the correct cumulative daily P&L, not a stale value.
+    """
+
+    def _make_manager_stub(self, initial_daily_pnl=0.0):
+        """Create a minimal LTM-like object with the fields _notify_position_closed needs."""
+
+        class FakeTracker:
+            def __init__(self):
+                self.daily_pnl = initial_daily_pnl
+                self.total_realized_pnl = initial_daily_pnl
+
+        class FakeSettings:
+            class trading:
+                ft_consecutive_loss_trigger = 3
+                cooldown_on_consecutive_losses_minutes = 30
+
+        _tracker = FakeTracker()
+
+        class FakeManager:
+            def __init__(self):
+                self.tracker = _tracker
+                self.settings = FakeSettings()
+                self._consecutive_loss_count = 0
+                self._extra_cooldown_until = None
+                self.signal_processor = None  # skip signal_processor notify
+
+            def _get_daily_pnl_for_persist(self):
+                return float(getattr(self.tracker, "daily_pnl", 0.0))
+
+        return FakeManager()
+
+    def test_loss_updates_daily_pnl(self):
+        """A trade loss should be accumulated into tracker.daily_pnl."""
+        from shree.execution.live_trading_manager import LiveTradingManager
+        mgr = self._make_manager_stub(initial_daily_pnl=-55.0)
+
+        # Call _notify_position_closed with a -$40 loss
+        with patch("shree.utils.bot_state.save_bot_state"):
+            LiveTradingManager._notify_position_closed(mgr, "SL", "SHORT", -40.0)
+
+        assert mgr.tracker.daily_pnl == pytest.approx(-95.0)
+        assert mgr.tracker.total_realized_pnl == pytest.approx(-95.0)
+
+    def test_win_updates_daily_pnl(self):
+        """A trade win should be accumulated into tracker.daily_pnl."""
+        from shree.execution.live_trading_manager import LiveTradingManager
+        mgr = self._make_manager_stub(initial_daily_pnl=-55.0)
+
+        with patch("shree.utils.bot_state.save_bot_state"):
+            LiveTradingManager._notify_position_closed(mgr, "TP", "LONG", 40.0)
+
+        assert mgr.tracker.daily_pnl == pytest.approx(-15.0)
+
+    def test_zero_pnl_skipped(self):
+        """pnl=0.0 (IB bug) should NOT touch tracker.daily_pnl."""
+        from shree.execution.live_trading_manager import LiveTradingManager
+        mgr = self._make_manager_stub(initial_daily_pnl=-55.0)
+
+        LiveTradingManager._notify_position_closed(mgr, "SL", "LONG", 0.0)
+
+        assert mgr.tracker.daily_pnl == pytest.approx(-55.0)  # unchanged
+
+    def test_persisted_value_includes_latest_trade(self, tmp_path):
+        """The value passed to save_bot_state should include the latest trade P&L."""
+        from shree.execution.live_trading_manager import LiveTradingManager
+        saved_calls = []
+
+        def capture_save(**kwargs):
+            saved_calls.append(kwargs.copy())
+
+        mgr = self._make_manager_stub(initial_daily_pnl=-55.0)
+
+        with patch("shree.utils.bot_state.save_bot_state", side_effect=capture_save):
+            LiveTradingManager._notify_position_closed(mgr, "SL", "SHORT", -40.0)
+
+        # save_bot_state is called inside _notify_position_closed with positional+keyword args
+        assert len(saved_calls) >= 1
+        last_call = saved_calls[-1]
+        assert last_call["realized_pnl_today"] == pytest.approx(-95.0)
+
+    def test_multiple_trades_accumulate(self):
+        """Multiple trades in a day should all accumulate."""
+        from shree.execution.live_trading_manager import LiveTradingManager
+        mgr = self._make_manager_stub(initial_daily_pnl=0.0)
+
+        with patch("shree.utils.bot_state.save_bot_state"):
+            LiveTradingManager._notify_position_closed(mgr, "SL", "LONG", -40.0)
+            LiveTradingManager._notify_position_closed(mgr, "TP", "LONG", 55.0)
+            LiveTradingManager._notify_position_closed(mgr, "SL", "SHORT", -30.0)
+
+        assert mgr.tracker.daily_pnl == pytest.approx(-15.0)  # -40 + 55 - 30
+
+
+# ── Fix #6b: LivePerformanceTracker CST day rollover ─────────────────────────
+
+class TestTrackerCstDayRollover:
+    """MAR 17 2026: Tracker must use CST for day rollover, not UTC."""
+
+    def test_tracker_init_uses_cst(self):
+        """last_reset_date should be set from CST, not UTC."""
+        from shree.monitoring.live_tracker import LivePerformanceTracker
+        from shree.utils.timezone_utils import now_cst
+        tracker = LivePerformanceTracker(initial_capital=5000.0)
+        assert tracker.last_reset_date == now_cst().date()
+
+    def test_day_rollover_uses_cst(self):
+        """update_equity should roll over daily_pnl based on CST date, not UTC date."""
+        from shree.monitoring.live_tracker import LivePerformanceTracker
+        from datetime import date
+
+        tracker = LivePerformanceTracker(initial_capital=5000.0)
+        tracker.daily_pnl = -55.0
+        tracker.last_reset_date = date(2026, 3, 16)  # yesterday in CST
+
+        # Mock now_cst to return Mar 17 CST
+        def _mock_cst():
+            class _D:
+                def date(self):
+                    return date(2026, 3, 17)
+            return _D()
+
+        with patch("shree.monitoring.live_tracker.now_cst", _mock_cst):
+            tracker.update_equity(6750.0, realized_pnl=0.0)
+
+        assert tracker.daily_pnl == 0.0  # rolled over
+        assert tracker.last_reset_date == date(2026, 3, 17)
+
+    def test_no_rollover_same_cst_day(self):
+        """daily_pnl should NOT reset if still the same CST day."""
+        from shree.monitoring.live_tracker import LivePerformanceTracker
+        from datetime import date
+
+        tracker = LivePerformanceTracker(initial_capital=5000.0)
+        tracker.daily_pnl = -55.0
+        tracker.last_reset_date = date(2026, 3, 17)
+
+        def _mock_cst():
+            class _D:
+                def date(self):
+                    return date(2026, 3, 17)
+            return _D()
+
+        with patch("shree.monitoring.live_tracker.now_cst", _mock_cst):
+            tracker.update_equity(6750.0, realized_pnl=0.0)
+
+        assert tracker.daily_pnl == -55.0  # NOT rolled over

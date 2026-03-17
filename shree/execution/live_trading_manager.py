@@ -1288,6 +1288,20 @@ TRADING GUIDANCE:
         _trading_cfg = getattr(getattr(self, "settings", None), "trading", None)
         _loss_trigger = int(getattr(_trading_cfg, "ft_consecutive_loss_trigger", 3))
         _loss_cooldown_mins = int(getattr(_trading_cfg, "cooldown_on_consecutive_losses_minutes", 30))
+
+        # Fix #6b MAR 17 2026: Accumulate trade P&L into tracker.daily_pnl
+        # BEFORE reading it for bot_state persistence. Previously,
+        # tracker.daily_pnl was never updated with trade results (update_equity
+        # was only called with realized_pnl=0.0), so the persisted daily P&L
+        # was always stale — missing the most recent trade's result.
+        if pnl != 0.0 and self.tracker:
+            self.tracker.daily_pnl += pnl
+            self.tracker.total_realized_pnl += pnl
+            logger.info(
+                f"📊 Daily P&L updated: ${pnl:+.2f} → "
+                f"daily=${self.tracker.daily_pnl:.2f}"
+            )
+
         if pnl != 0.0:
             if pnl < 0:
                 self._consecutive_loss_count = getattr(self, "_consecutive_loss_count", 0) + 1
