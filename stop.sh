@@ -70,7 +70,7 @@ if [[ "$STOP_BOT" == "true" ]]; then
 
     pkill -f "dashboard_api.py" 2>/dev/null && echo "✅ Stopped dashboard_api.py"
     pkill -f "vite" 2>/dev/null && echo "✅ Stopped vite"
-    pkill -f "main.py live" 2>/dev/null && echo "✅ Stopped main.py"
+
     pkill -f "run_autonomous_trading.py" 2>/dev/null && echo "✅ Stopped autonomous trading"
     pkill -f "run_llm_trading.py" 2>/dev/null && echo "✅ Stopped LLM trading"
     rm -f "$LOGS_DIR/backend.pid" "$LOGS_DIR/frontend.pid"

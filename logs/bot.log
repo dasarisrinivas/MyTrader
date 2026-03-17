@@ -257,7 +257,13 @@ RISK CONSOLIDATION: Daily loss limit mismatch detected. RiskGate=$250, TradingCo
 
 2026-03-16 20:22:16 CST | INFO     | shree.data.vx_futures_feed:_background_main:301 - 📈 VX Feed: Price=23.85 (multiplier=0.6x)
 
-ST | INFO     | shree.execution.components.trading_session_manager:start:253 - 🔁 Entering main loop: running=True, stop_requested=False, tf=15m, poll=30s
+2026-03-16 20:27:11 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=61 | price=None
 
-2026-03-16 20:22:16 CST | INFO     | shree.data.vx_futures_feed:_background_main:301 - 📈 VX Feed: Price=23.85 (multiplier=0.6x)
+2026-03-16 20:29:06 CST | INFO     | shree.data.vx_futures_feed:_background_main:301 - 📈 VX Feed: Price=23.80 (multiplier=0.6x)
+
+2026-03-16 20:30:12 CST | INFO     | shree.execution.live_trading_manager:_should_block_new_entry:1384 - Entry blocked: waiting for 1/2 completed bars after startup
+
+16 20:29:06 CST | INFO     | shree.data.vx_futures_feed:_background_main:301 - 📈 VX Feed: Price=23.80 (multiplier=0.6x)
+
+2026-03-16 20:30:12 CST | INFO     | shree.execution.live_trading_manager:_should_block_new_entry:1384 - Entry blocked: waiting for 1/2 completed bars after startup
 

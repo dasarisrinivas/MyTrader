@@ -41,7 +41,8 @@
       "Read(//tmp/**)",
       "Bash(git mv:*)",
       "Bash(.venv/bin/python -c \":*)",
-      "Bash(.venv/bin/pytest tests/ -x -q)"
+      "Bash(.venv/bin/pytest tests/ -x -q)",
+      "Bash(__NEW_LINE_1c2bc02d1ed46122__ git:*)"
     ],
     "additionalDirectories": [
       "/Users/svss/Documents/code/ShreeBot/archive/shree"
