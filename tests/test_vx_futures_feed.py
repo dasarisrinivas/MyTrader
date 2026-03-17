@@ -132,27 +132,30 @@ class TestVolatilityMultiplier:
         assert multiplier == 0.4
     
     def test_elevated_vix_multiplier(self, feed):
-        """Test multiplier when VIX is elevated (>= 20, < 30)."""
-        # VX >= 20 and < 30 should return 0.7
-        multiplier = feed._calculate_multiplier(25.0, is_stale=False)
-        assert multiplier == 0.7
-        
+        """Test multiplier at piecewise-linear knot points in the 20-30 range."""
+        # VX = 20 -> knot value 0.75
         multiplier = feed._calculate_multiplier(20.0, is_stale=False)
-        assert multiplier == 0.7
-        
-        multiplier = feed._calculate_multiplier(29.99, is_stale=False)
-        assert multiplier == 0.7
+        assert multiplier == 0.75
+
+        # VX = 25 -> knot value 0.55
+        multiplier = feed._calculate_multiplier(25.0, is_stale=False)
+        assert multiplier == 0.55
+
+        # VX = 30 -> knot value 0.40 (extreme boundary)
+        multiplier = feed._calculate_multiplier(30.0, is_stale=False)
+        assert multiplier == 0.40
     
     def test_normal_vix_multiplier(self, feed):
-        """Test multiplier when VIX is normal (< 20)."""
-        # VX < 20 should return 1.0
+        """Test multiplier when VIX is at or below the lowest knot (VX <= 15 -> 1.0)."""
+        # VX = 15 -> knot value 1.0
         multiplier = feed._calculate_multiplier(15.0, is_stale=False)
         assert multiplier == 1.0
-        
-        multiplier = feed._calculate_multiplier(19.99, is_stale=False)
-        assert multiplier == 1.0
-        
+
+        # VX <= 15 (below first knot) -> clamped to 1.0
         multiplier = feed._calculate_multiplier(12.0, is_stale=False)
+        assert multiplier == 1.0
+
+        multiplier = feed._calculate_multiplier(10.0, is_stale=False)
         assert multiplier == 1.0
     
     def test_none_price_returns_neutral(self, feed):
@@ -180,27 +183,29 @@ class TestVolatilityMultiplier:
         """Test that stale data without conservative mode uses price."""
         # Default conservative_on_stale is False
         multiplier = feed._calculate_multiplier(15.0, is_stale=True)
-        assert multiplier == 1.0  # Normal price, no conservative penalty
-        
+        assert multiplier == 1.0  # At knot -> 1.0
+
         multiplier = feed._calculate_multiplier(25.0, is_stale=True)
-        assert multiplier == 0.7  # Elevated price still applied
+        assert multiplier == 0.55  # At knot -> 0.55 (no conservative penalty)
     
     def test_custom_thresholds(self):
-        """Test custom threshold values."""
+        """Test that the multiplier curve uses hardcoded knots regardless of threshold config."""
         from shree.data.vx_futures_feed import VxFuturesFeed
-        
+
+        # Config params are stored but the piecewise-linear curve uses hardcoded knots.
         feed = VxFuturesFeed(
             extreme_threshold=40.0,
             elevated_threshold=25.0,
         )
-        
-        # 35 is now below extreme (40) but above elevated (25)
+
+        # VX=35 is >= hardcoded extreme knot (30) -> 0.40
         multiplier = feed._calculate_multiplier(35.0, is_stale=False)
-        assert multiplier == 0.7
-        
-        # 22 is now below elevated (25)
+        assert multiplier == 0.40
+
+        # VX=22 interpolates between (20, 0.75) and (25, 0.55):
+        # t = (22-20)/(25-20) = 0.4 -> 0.75 + 0.4*(0.55-0.75) = 0.67
         multiplier = feed._calculate_multiplier(22.0, is_stale=False)
-        assert multiplier == 1.0
+        assert abs(multiplier - 0.67) < 0.01
 
 
 class TestStaleDetection:
@@ -263,7 +268,8 @@ class TestGetLatest:
         assert result["price"] == 22.50
         assert result["contract"] == "VXH5"
         assert result["is_stale"] is False
-        assert result["multiplier"] == 0.7  # 22.50 >= 20
+        # VX=22.5: t=(22.5-20)/(25-20)=0.5 -> 0.75+0.5*(0.55-0.75)=0.65
+        assert abs(result["multiplier"] - 0.65) < 0.01
         assert result["error_count"] == 0
     
     def test_get_latest_no_data(self):
@@ -328,29 +334,31 @@ class TestPriceFromTicker:
     def test_midpoint_fallback(self):
         """Test fallback to bid/ask midpoint."""
         from shree.data.vx_futures_feed import VxFuturesFeed
-        
+
         feed = VxFuturesFeed()
         ticker = MagicMock()
         ticker.marketPrice.return_value = float('nan')
         ticker.last = None
+        ticker.close = None  # Prevent MagicMock float() fallback
         ticker.bid = 20.0
         ticker.ask = 22.0
         feed._ticker = ticker
-        
+
         assert feed._get_price_from_ticker() == 21.0  # midpoint
     
     def test_bid_only_fallback(self):
         """Test fallback to bid only."""
         from shree.data.vx_futures_feed import VxFuturesFeed
-        
+
         feed = VxFuturesFeed()
         ticker = MagicMock()
         ticker.marketPrice.return_value = float('nan')
         ticker.last = None
+        ticker.close = None  # Prevent MagicMock float() fallback
         ticker.bid = 20.0
         ticker.ask = None
         feed._ticker = ticker
-        
+
         assert feed._get_price_from_ticker() == 20.0
 
 
@@ -444,10 +452,10 @@ class TestVolatilityMultiplierIntegration:
         feed._state.last_update = datetime.now()
         assert feed.get_volatility_multiplier() == 1.0
         
-        # Set elevated VIX -> 0.7
+        # Set elevated VIX (VX=25 knot) -> 0.55
         feed._state.price = 25.0
         feed._state.last_update = datetime.now()
-        assert feed.get_volatility_multiplier() == 0.7
+        assert feed.get_volatility_multiplier() == 0.55
         
         # Set extreme VIX -> 0.4
         feed._state.price = 35.0

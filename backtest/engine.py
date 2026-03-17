@@ -37,7 +37,7 @@ from shree.config import (
 )
 from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy, StrategyDecision
 from shree.strategies.mes_one_minute_scoring import MesOneMinuteScoringStrategy
-from shree.strategies.mes_structural_reversion import MesStructuralReversionStrategy
+
 from shree.strategies.es_fifteen_min import EsFifteenMinStrategy
 from shree.strategies.base import Signal
 from shree.risk.manager import RiskManager
@@ -234,7 +234,10 @@ class BacktestEngine:
             self.strategy = EsFifteenMinStrategy(strategy_cfg)
             logger.info(f"Initialized 15-MIN strategy: {self.strategy.name}")
         elif use_structural_reversion:
-            self.strategy = MesStructuralReversionStrategy(strategy_cfg)
+            raise NotImplementedError(
+                "MesStructuralReversionStrategy has been archived. "
+                "Use use_15m_strategy=True (EsFifteenMinStrategy) instead."
+            )
             logger.info(f"Initialized STRUCTURAL REVERSION strategy: {self.strategy.name}")
         elif use_scoring:
             self.strategy = MesOneMinuteScoringStrategy(strategy_cfg)

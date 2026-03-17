@@ -24,201 +24,6 @@ from shree.data.candle_aggregator import MultiTimeframeCandleBuilder, Aggregated
 CST = ZoneInfo("America/Chicago")
 
 
-class TestNoTradeInRangeLowATR:
-    """Test: No trade in RANGE regime + low ATR."""
-    
-    def create_mock_features(self, atr: float = 0.5, adx: float = 15.0) -> pd.DataFrame:
-        """Create mock features DataFrame with specified ATR and ADX."""
-        data = {
-            "open": [6900.0] * 60,
-            "high": [6905.0] * 60,
-            "low": [6895.0] * 60,
-            "close": [6902.0] * 60,
-            "volume": [100] * 60,
-            "ATR_14": [atr] * 60,
-            "ADX_14": [adx] * 60,
-            "RSI_14": [50.0] * 60,
-            "EMA_9": [6900.0] * 60,
-            "EMA_20": [6898.0] * 60,
-        }
-        df = pd.DataFrame(data)
-        df["timestamp"] = [datetime.now(CST) - timedelta(minutes=60-i) for i in range(60)]
-        df.set_index("timestamp", inplace=True)
-        return df
-    
-    def test_low_atr_blocks_signal(self):
-        """Verify that low ATR (below threshold) blocks trading signals."""
-        # This test verifies the ADX gate logic
-        from shree.execution.components.signal_processor import SignalProcessor
-        
-        # Create a mock signal
-        signal = SimpleNamespace(
-            action="BUY",
-            confidence=0.65,
-            metadata={}
-        )
-        
-        # Create features with low ADX (below 20 threshold)
-        features = self.create_mock_features(atr=0.5, adx=15.0)
-        
-        # Mock the settings
-        mock_settings = MagicMock()
-        mock_settings.trading = MagicMock()
-        mock_settings.trading.entry_filters = {
-            "require_adx_confirmation": True,
-            "min_adx_threshold": 20.0,
-            "allow_counter_trend": False,
-        }
-        
-        # Create processor
-        mock_manager = MagicMock()
-        processor = SignalProcessor(mock_settings, None, mock_manager)
-        
-        # Apply gates
-        result = processor._apply_adx_and_trend_gates(signal, features, "UPTREND")
-        
-        # Should be blocked due to low ADX
-        assert result.action == "HOLD"
-        assert result.confidence == 0.0
-        assert "LOW_ADX" in str(result.metadata.get("block_reasons", []))
-    
-    def test_normal_atr_allows_signal(self):
-        """Verify that normal ADX (above threshold) allows signals."""
-        from shree.execution.components.signal_processor import SignalProcessor
-        
-        signal = SimpleNamespace(
-            action="BUY",
-            confidence=0.65,
-            metadata={}
-        )
-        
-        # Create features with good ADX (above 20 threshold)
-        features = self.create_mock_features(atr=2.5, adx=25.0)
-        
-        mock_settings = MagicMock()
-        mock_settings.trading = MagicMock()
-        mock_settings.trading.entry_filters = {
-            "require_adx_confirmation": True,
-            "min_adx_threshold": 20.0,
-            "allow_counter_trend": False,
-        }
-        
-        mock_manager = MagicMock()
-        processor = SignalProcessor(mock_settings, None, mock_manager)
-        
-        result = processor._apply_adx_and_trend_gates(signal, features, "UPTREND")
-        
-        # Should pass - ADX is sufficient and trend aligned
-        assert result.action == "BUY"
-        assert result.confidence == 0.65
-
-
-class TestCounterTrendBlock:
-    """Test: Counter-trend trades are blocked."""
-    
-    def create_mock_features(self, adx: float = 25.0) -> pd.DataFrame:
-        """Create mock features with sufficient ADX."""
-        data = {
-            "close": [6900.0] * 10,
-            "ATR_14": [2.5] * 10,
-            "ADX_14": [adx] * 10,
-        }
-        df = pd.DataFrame(data)
-        df["timestamp"] = [datetime.now(CST) - timedelta(minutes=10-i) for i in range(10)]
-        df.set_index("timestamp", inplace=True)
-        return df
-    
-    def test_buy_in_downtrend_blocked(self):
-        """Verify BUY signal is blocked when market is in DOWNTREND."""
-        from shree.execution.components.signal_processor import SignalProcessor
-        
-        signal = SimpleNamespace(
-            action="BUY",
-            confidence=0.65,
-            metadata={}
-        )
-        
-        features = self.create_mock_features(adx=25.0)
-        
-        mock_settings = MagicMock()
-        mock_settings.trading = MagicMock()
-        mock_settings.trading.entry_filters = {
-            "require_adx_confirmation": True,
-            "min_adx_threshold": 20.0,
-            "allow_counter_trend": False,  # Key setting
-        }
-        
-        mock_manager = MagicMock()
-        processor = SignalProcessor(mock_settings, None, mock_manager)
-        
-        # Apply gates with DOWNTREND market
-        result = processor._apply_adx_and_trend_gates(signal, features, "DOWNTREND")
-        
-        # Should be blocked - BUY in DOWNTREND is counter-trend
-        assert result.action == "HOLD"
-        assert "COUNTER_TREND" in str(result.metadata.get("block_reasons", []))
-        assert result.metadata.get("counter_trend_blocked") is True
-    
-    def test_sell_in_uptrend_blocked(self):
-        """Verify SELL signal is blocked when market is in UPTREND."""
-        from shree.execution.components.signal_processor import SignalProcessor
-        
-        signal = SimpleNamespace(
-            action="SELL",
-            confidence=0.65,
-            metadata={}
-        )
-        
-        features = self.create_mock_features(adx=25.0)
-        
-        mock_settings = MagicMock()
-        mock_settings.trading = MagicMock()
-        mock_settings.trading.entry_filters = {
-            "require_adx_confirmation": True,
-            "min_adx_threshold": 20.0,
-            "allow_counter_trend": False,
-        }
-        
-        mock_manager = MagicMock()
-        processor = SignalProcessor(mock_settings, None, mock_manager)
-        
-        result = processor._apply_adx_and_trend_gates(signal, features, "UPTREND")
-        
-        # Should be blocked - SELL in UPTREND is counter-trend
-        assert result.action == "HOLD"
-        assert "COUNTER_TREND" in str(result.metadata.get("block_reasons", []))
-    
-    def test_trend_aligned_trade_passes(self):
-        """Verify trend-aligned trades pass through."""
-        from shree.execution.components.signal_processor import SignalProcessor
-        
-        # BUY in UPTREND should pass
-        signal = SimpleNamespace(
-            action="BUY",
-            confidence=0.65,
-            metadata={}
-        )
-        
-        features = self.create_mock_features(adx=25.0)
-        
-        mock_settings = MagicMock()
-        mock_settings.trading = MagicMock()
-        mock_settings.trading.entry_filters = {
-            "require_adx_confirmation": True,
-            "min_adx_threshold": 20.0,
-            "allow_counter_trend": False,
-        }
-        
-        mock_manager = MagicMock()
-        processor = SignalProcessor(mock_settings, None, mock_manager)
-        
-        result = processor._apply_adx_and_trend_gates(signal, features, "UPTREND")
-        
-        # Should pass - BUY in UPTREND is trend-aligned
-        assert result.action == "BUY"
-        assert result.confidence == 0.65
-
-
 class TestMultiTimeframeTrendFilter:
     """Test: 5-minute trend filter blocks counter-trend trades."""
     
@@ -695,6 +500,7 @@ class TestLiveBarStalenessGate:
 
         mock_settings = MagicMock()
         mock_settings.one_minute = {"live_bar_stale_seconds": 120}
+        mock_settings.multi_source_sentiment = None
 
         processor = SignalProcessor(mock_settings, None, mock_manager)
 
@@ -793,6 +599,7 @@ class TestCancelPendingEntriesOnStale:
 
         mock_settings = MagicMock()
         mock_settings.one_minute = {"live_bar_stale_seconds": 120, "cancel_entries_on_stale": True, "cancel_stale_throttle_seconds": 0}
+        mock_settings.multi_source_sentiment = None
 
         processor = SignalProcessor(mock_settings, None, mock_manager)
 

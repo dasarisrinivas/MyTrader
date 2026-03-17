@@ -47,8 +47,8 @@ def _make_features(
     n: int = 60,
     close: float = 6000.0,
     ema9: float = 5995.0,
-    ema21: float = 5980.0,
-    ema50: float = 5960.0,
+    ema21: float = 5940.0,  # Far enough below close that EMA21 touch-band never reaches our low=close-2
+    ema50: float = 5900.0,  # Must be < ema21 for uptrend stack
     atr: float = 10.0,
     adx: float = 25.0,
     rsi: float = 60.0,
@@ -67,7 +67,9 @@ def _make_features(
       - Ascending closes (long) — last 2 bars rising
     """
     # Build basic OHLCV bars
-    dates = pd.date_range("2026-02-24 09:00", periods=n, freq="15min", tz="America/Chicago")
+    # Start at 23:00 CST Feb 23 so bars 0-1 (= 00:00-00:15 ET Feb 24) land in the
+    # OR window [00:00, 00:30) ET and bar 59 lands at 13:45 CST = 14:45 ET (RTH).
+    dates = pd.date_range("2026-02-23 23:00", periods=n, freq="15min", tz="America/Chicago")
     
     if trend == "up":
         # Gentle uptrend: each bar close slightly higher

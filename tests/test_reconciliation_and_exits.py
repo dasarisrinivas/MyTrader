@@ -6,6 +6,7 @@ import unittest
 from shree.config import TradingConfig
 from shree.execution.ib_executor import TradeExecutor
 from shree.execution.live_trading_manager import LiveTradingManager
+from shree.execution.components.exit_manager import ExitManager
 
 
 class DummyPosition:
@@ -26,17 +27,31 @@ class DummyIB:
 
 class ReconcileAndExitTests(unittest.TestCase):
     def test_reconcile_uses_multiplier_for_futures(self):
-        ib = DummyIB([DummyPosition("MES", -3, 34915.0, "FUT", "5")])
-        executor = TradeExecutor(ib=ib, config=TradingConfig(), symbol="MES")
+        # Create a fresh event loop to avoid contamination from prior asyncio.run() calls
+        # in the same test session (asyncio.run() closes the loop when done, which leaves
+        # asyncio.Lock() unable to get a current loop in subsequent tests).
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            ib = DummyIB([DummyPosition("MES", -3, 34915.0, "FUT", "5")])
+            executor = TradeExecutor(ib=ib, config=TradingConfig(), symbol="MES")
+            loop.run_until_complete(executor._reconcile_positions())
+            pos = executor.positions["MES"]
+            self.assertAlmostEqual(pos.avg_cost, 6983.0, delta=1.0)
+            self.assertAlmostEqual(pos.market_value, pos.quantity * pos.avg_cost * 5, places=2)
+        finally:
+            loop.close()
 
-        asyncio.run(executor._reconcile_positions())
-
-        pos = executor.positions["MES"]
-        self.assertAlmostEqual(pos.avg_cost, 6983.0, delta=1.0)
-        self.assertAlmostEqual(pos.market_value, pos.quantity * pos.avg_cost * 5, places=2)
+    def _make_bare_manager(self):
+        """Return a bare LiveTradingManager with only the attributes needed by ExitManager."""
+        manager = LiveTradingManager.__new__(LiveTradingManager)
+        manager.settings = None
+        manager.contract_spec = None
+        manager._exit_mgr = ExitManager(manager)
+        return manager
 
     def test_exit_signal_ignores_notional_entry_cost(self):
-        manager = LiveTradingManager.__new__(LiveTradingManager)
+        manager = self._make_bare_manager()
         current_price = 6985.0
         position = SimpleNamespace(avg_cost=34915.0, timestamp=datetime.utcnow())
 
@@ -47,7 +62,7 @@ class ReconcileAndExitTests(unittest.TestCase):
         self.assertIsNone(signal)
 
     def test_exit_checks_skip_when_gap_implausible(self):
-        manager = LiveTradingManager.__new__(LiveTradingManager)
+        manager = self._make_bare_manager()
         current_price = 5000.0
         position = SimpleNamespace(avg_cost=20000.0, timestamp=datetime.utcnow())
 

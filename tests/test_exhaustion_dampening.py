@@ -78,7 +78,7 @@ class TestExhaustionDampening:
             rule_engine=_StubRuleEngine(
                 filters_passed=["RSI_OVERBOUGHT"],
                 indicators={
-                    "rsi": 68.0,
+                    "rsi": 76.0,  # >= EXHAUSTION_RSI_THRESHOLD (75.0)
                     "price": current_price,
                     "score_breakdown": ["BULLISH_BUT_OVERBOUGHT(SELL*0.95)"],
                 },
@@ -95,7 +95,7 @@ class TestExhaustionDampening:
         assert result is not None, "Expected exhaustion result, got None"
         assert result["blocked"] is True
         assert result["session_high"] == 7000.50
-        assert result["rsi"] == 68.0
+        assert result["rsi"] == 76.0
         assert len(result["overbought_flags"]) > 0
         assert "overbought" in result["reason"].lower()
 
@@ -109,7 +109,7 @@ class TestExhaustionDampening:
         pipeline_result = _StubPipelineResult(
             rule_engine=_StubRuleEngine(
                 filters_warned=["RSI_HIGH_IN_ACCEPTANCE"],
-                indicators={"rsi": 66.0},
+                indicators={"rsi": 76.0},  # >= EXHAUSTION_RSI_THRESHOLD (75.0)
             )
         )
 
@@ -178,7 +178,7 @@ class TestExhaustionDampening:
         pipeline_result = _StubPipelineResult(
             rule_engine=_StubRuleEngine(
                 # No RSI_OVERBOUGHT in filters, just high RSI in indicators
-                indicators={"rsi": 67.0},
+                indicators={"rsi": 76.0},  # >= EXHAUSTION_RSI_THRESHOLD (75.0)
             )
         )
 
@@ -246,7 +246,7 @@ class TestExhaustionDampening:
             rule_engine=_StubRuleEngine(
                 filters_passed=["RSI_OVERBOUGHT"],
                 indicators={
-                    "rsi": 68.0,
+                    "rsi": 76.0,  # >= EXHAUSTION_RSI_THRESHOLD (75.0); original was 68
                     "price": 6999.75,
                     "macd_hist": -0.06,
                     "atr": 8.5,
@@ -255,7 +255,7 @@ class TestExhaustionDampening:
                     "score_breakdown": [
                         "TREND_SCORE:+55(EMA_STACK_UP+ABOVE_EMA50+MACD_NEG)",
                         "RANGE_RSI>52:+12.0",
-                        "RSI_HIGH(68.0):+7.5",
+                        "RSI_HIGH(76.0):+7.5",
                         "MACD_NEG(-0.06):+6.2",
                         "NO_LEVEL(PDH:0.49%,PDL:2.14%)",
                         "BULLISH_BUT_OVERBOUGHT(SELL*0.95)",
@@ -277,7 +277,7 @@ class TestExhaustionDampening:
         assert result["blocked"] is True, "13:30 signal should be BLOCKED"
         assert result["session_high"] == 7000.50
         assert result["proximity_pct"] < 0.3  # ~0.01%
-        assert result["rsi"] == 68.0
+        assert result["rsi"] == 76.0
 
     def test_replay_feb9_1345_signal(self):
         """Replay today's 13:45 CST BUY — should also be blocked.
@@ -299,9 +299,9 @@ class TestExhaustionDampening:
             rule_engine=_StubRuleEngine(
                 filters_passed=["RSI_OVERBOUGHT"],
                 indicators={
-                    "rsi": 66.0,
+                    "rsi": 76.0,  # >= EXHAUSTION_RSI_THRESHOLD (75.0); original was 66
                     "score_breakdown": [
-                        "RSI_HIGH(66.0):+7.5",
+                        "RSI_HIGH(76.0):+7.5",
                         "BULLISH_BUT_OVERBOUGHT(SELL*0.95)",
                     ],
                 },
@@ -355,9 +355,9 @@ class TestExhaustionDampening:
             rule_engine=_StubRuleEngine(
                 # No RSI_OVERBOUGHT in filters_passed, but score_breakdown has it
                 indicators={
-                    "rsi": 67.0,
+                    "rsi": 76.0,  # >= EXHAUSTION_RSI_THRESHOLD (75.0); original was 67
                     "score_breakdown": [
-                        "RSI_HIGH(67.0):+7.5",
+                        "RSI_HIGH(76.0):+7.5",
                         "BULLISH_BUT_OVERBOUGHT(SELL*0.95)",
                     ],
                 },

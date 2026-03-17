@@ -1388,3 +1388,12 @@
 {"timestamp": "2026-03-17T01:25:10.254435+00:00", "correlation_id": "ec4e46a8149b", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
 {"timestamp": "2026-03-17T01:25:31.873650+00:00", "correlation_id": "4062c820bdec", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
 {"timestamp": "2026-03-17T01:30:33.133824+00:00", "correlation_id": "a39e177af30f", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T01:31:40.992108+00:00", "correlation_id": "da67a60ff8bd", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T01:31:57.856208+00:00", "correlation_id": "28c3f5ec83cd", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T02:00:14.506743+00:00", "correlation_id": "dfb96332181f", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T02:02:23.011994+00:00", "correlation_id": "53af2230505b", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T07:45:30.397187+00:00", "event_type": "order_placed", "level": "INFO", "data": {"action": "SELL", "quantity": 1, "limit_price": null, "stop_loss": 6685.0, "take_profit": 6665.75, "symbol": "MES", "signature": "ab3277550b26cedecb92e8106aea4ef8"}}
+{"timestamp": "2026-03-17T13:18:20.654095+00:00", "correlation_id": "1960e3081eef", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T13:19:11.622657+00:00", "correlation_id": "767bb31c1057", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T13:19:45.719833+00:00", "correlation_id": "5abdf1bc67e6", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
+{"timestamp": "2026-03-17T13:20:50.582470+00:00", "correlation_id": "64b94908fecd", "event_type": "order_inserted", "level": "INFO", "data": {"order_id": 123, "symbol": "MES"}}
