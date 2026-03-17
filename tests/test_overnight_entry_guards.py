@@ -389,6 +389,7 @@ def _a_signal_long_df(
     rsi: float = 52.0,
     adx: float = 28.0,
     atr: float = 7.0,
+    pdh: float = 0.0,
     rows: int = 5,
     last_ts: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
@@ -422,6 +423,7 @@ def _a_signal_long_df(
         "ADX_14": [adx]   * rows,
         "ATR_14": [atr]   * rows,
         "MACDhist_12_26_9": [macd] * rows,
+        "PDH": [pdh] * rows,
     }, index=idx)
     return df
 
@@ -695,4 +697,61 @@ class TestOvernightATRFloorGuard:
         if sig.action == "HOLD":
             reason = sig.metadata.get("reason", "")
             assert "ON_ATR_FLOOR" not in reason, "Guard disabled (threshold=0), must not fire"
+
+
+# ===========================================================================
+# Guard 4 — PDH proximity block for A-long (Mar 17 2026)
+# ===========================================================================
+
+class TestPdhProximityBlock:
+
+    def test_a_long_blocked_within_quarter_percent_of_pdh(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _a_signal_long_df(
+            close=6783.0,
+            macd=0.5,
+            adx=32.0,
+            atr=9.5,
+            rsi=57.0,
+            pdh=6784.75,
+            last_ts=_rth_ts(),
+        )
+        sig = _call_generate(strat, df)
+        assert sig.action == "HOLD", (
+            f"Expected HOLD near PDH resistance, got {sig.action} | {sig.metadata}"
+        )
+
+    def test_a_long_passes_outside_quarter_percent_of_pdh(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _a_signal_long_df(
+            close=6780.0,
+            macd=0.5,
+            adx=32.0,
+            atr=9.5,
+            rsi=57.0,
+            pdh=6800.0,
+            last_ts=_rth_ts(),
+        )
+        sig = _call_generate(strat, df)
+        if sig.action == "HOLD":
+            reason = sig.metadata.get("reason", "")
+            assert "PDH_PROXIMITY_BLOCK" not in reason, "Trade is outside 0.25% PDH buffer"
+
+    def test_a_long_above_pdh_not_blocked(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _a_signal_long_df(
+            close=6786.0,
+            macd=0.5,
+            adx=32.0,
+            atr=9.5,
+            rsi=57.0,
+            pdh=6784.75,
+            last_ts=_rth_ts(),
+        )
+        sig = _call_generate(strat, df)
+        if sig.action == "HOLD":
+            reason = sig.metadata.get("reason", "")
+            assert "PDH_PROXIMITY_BLOCK" not in reason, (
+                "PDH proximity filter should only block buys approaching PDH from below."
+            )
 

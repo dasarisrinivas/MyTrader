@@ -1117,8 +1117,9 @@ class EsFifteenMinStrategy(BaseStrategy):
           5. ADX > threshold (trending)
           6. MACD histogram not deeply negative (MAR 16 2026 Fix #5 — restored)
              Block when MACD_H < -threshold (default -1.0). Set to 0 to disable.
-          7. Not within 0.25% of PDH (MAR 17 2026) — buying at or near the prior
-             day high is buying into resistance; stop rate was 100% in this zone.
+             7. Not within 0.25% below PDH (MAR 17 2026) — buying into the prior
+                 day high from below is buying into resistance; stop rate was 100%
+                 in this zone.
 
         Returns: (action, stop, target, reason) or None
         """
@@ -1156,13 +1157,14 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # 7. PDH proximity filter (MAR 17 2026)
-        # Block BUY when within 0.25% of previous day high — that's a resistance
-        # ceiling, not a pullback entry. Trade 7180 (2026-03-17) entered at 6783
-        # with PDH=6784.75 (0.04% away) and stopped out in 6 minutes.
-        if pdh > 0 and (pdh - close) / close <= 0.0025:
+        # Block BUY when trading into previous day high from below and within 0.25%
+        # of that resistance ceiling. Trade 7180 (2026-03-17) entered at 6783
+        # with PDH=6784.75 (0.04% below PDH) and stopped out in 6 minutes.
+        _pdh_gap_pct = (pdh - close) / close if pdh > 0 else 0.0
+        if pdh > 0 and close <= pdh and _pdh_gap_pct <= 0.0025:
             logger.info(
                 f"🚫 PDH_PROXIMITY_BLOCK: close={close:.2f} within 0.25% of PDH={pdh:.2f} "
-                f"({(pdh - close) / close * 100:.2f}% away) — blocking BUY"
+                f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
             )
             return None
 

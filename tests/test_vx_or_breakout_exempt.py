@@ -277,7 +277,8 @@ class TestVxOrBreakoutExemption:
         """Replay 09:45 scenario: OR_BREAK_SHORT, VX=24.5, hybrid oppose.
 
         Before fix (multiplicative): 0.70 * 0.724 = 0.507 -> -0.10 hybrid = 0.407 -> BLOCKED
-        After fix (additive):        0.70 + 0.03  = 0.73  -> -0.05 hybrid = 0.68  -> PASSES
+        After additive VX fix:       0.70 + 0.03  = 0.73
+        After Mar 17 tiered hybrid:  0.73 - 0.094 = 0.636 -> still PASSES comfortably
         """
         manager = _make_stub_manager(hybrid_trend="CHOP")
         manager._use_hybrid_pipeline = True
@@ -313,12 +314,99 @@ class TestVxOrBreakoutExemption:
 
         assert result is not None
         assert result.signal.action == "SELL"
-        # VX additive +0.03 -> 0.73, then hybrid oppose -0.05 -> 0.68
+        # VX additive +0.03 -> 0.73, then hybrid oppose -0.094 -> 0.636
         assert result.signal.confidence >= 0.50, (
             f"Expected conf >= 0.50, got {result.signal.confidence:.3f}. "
             f"The OR breakout should easily pass threshold with additive VX."
         )
-        assert result.signal.confidence >= 0.65
+        assert abs(result.signal.confidence - 0.636) < 0.01
+
+    @pytest.mark.asyncio
+    async def test_pullback_hybrid_oppose_meaningful_conf_gets_full_negative_tier(self):
+        """EMA21_PB_LONG with hybrid SELL @ 0.50 should get a -0.10 dampen.
+
+        This is the Mar 17 Trade 7180 protection: pullback in elevated VX gets
+        reduced confidence, then a meaningful hybrid disagreement pushes it below
+        the live 0.60 threshold.
+        """
+        manager = _make_stub_manager(hybrid_trend="MICRO_UP")
+        manager._use_hybrid_pipeline = True
+
+        hybrid_pipeline = AsyncMock()
+        hybrid_signal = SimpleNamespace(
+            action="SELL",
+            confidence=0.50,
+            metadata={"market_trend": "MICRO_UP", "volatility_regime": "MEDIUM"},
+        )
+        pipeline_result = MagicMock()
+        pipeline_result.rule_engine = MagicMock()
+        pipeline_result.rule_engine.market_trend = "MICRO_UP"
+        pipeline_result.rule_engine.volatility_regime = "MEDIUM"
+        hybrid_pipeline.process = AsyncMock(return_value=(hybrid_signal, pipeline_result))
+
+        engine = MagicMock()
+        signal = _make_signal(
+            action="BUY",
+            confidence=0.70,
+            reason="EMA21_PB_LONG | ADX=32 | RSI=57 | MACD_H=-0.63 | ATR=9.5",
+        )
+        engine.evaluate.return_value = signal
+
+        proc = _make_processor(manager=manager, engine=engine, vx_price=22.6)
+        proc.hybrid_pipeline = hybrid_pipeline
+
+        result = await proc._generate_strategy_first_signal(
+            features=_make_features(),
+            returns=None,
+            current_price=6782.0,
+            structural_metrics=None,
+        )
+
+        assert result is not None
+        assert result.signal.action == "BUY"
+        # 0.70 - 0.05 VX - 0.10 hybrid = 0.55
+        assert abs(result.signal.confidence - 0.55) < 0.01
+        assert result.signal.metadata["hybrid_advisory"]["action"] == "SELL"
+
+    @pytest.mark.asyncio
+    async def test_pullback_hybrid_oppose_low_conf_stays_light_touch(self):
+        """Hybrid oppose below 0.45 should remain capped at -0.05."""
+        manager = _make_stub_manager(hybrid_trend="MICRO_UP")
+        manager._use_hybrid_pipeline = True
+
+        hybrid_pipeline = AsyncMock()
+        hybrid_signal = SimpleNamespace(
+            action="SELL",
+            confidence=0.40,
+            metadata={"market_trend": "MICRO_UP", "volatility_regime": "MEDIUM"},
+        )
+        pipeline_result = MagicMock()
+        pipeline_result.rule_engine = MagicMock()
+        pipeline_result.rule_engine.market_trend = "MICRO_UP"
+        pipeline_result.rule_engine.volatility_regime = "MEDIUM"
+        hybrid_pipeline.process = AsyncMock(return_value=(hybrid_signal, pipeline_result))
+
+        engine = MagicMock()
+        signal = _make_signal(
+            action="BUY",
+            confidence=0.70,
+            reason="EMA21_PB_LONG | ADX=32 | RSI=57 | MACD_H=-0.63 | ATR=9.5",
+        )
+        engine.evaluate.return_value = signal
+
+        proc = _make_processor(manager=manager, engine=engine, vx_price=22.6)
+        proc.hybrid_pipeline = hybrid_pipeline
+
+        result = await proc._generate_strategy_first_signal(
+            features=_make_features(),
+            returns=None,
+            current_price=6782.0,
+            structural_metrics=None,
+        )
+
+        assert result is not None
+        # 0.70 - 0.05 VX - 0.05 hybrid = 0.60
+        assert abs(result.signal.confidence - 0.60) < 0.01
 
     @pytest.mark.asyncio
     async def test_extreme_vx_breakout_mild_reduction(self):
