@@ -76,7 +76,7 @@ MAR 15 2026 additions:
 
 MAR 16 2026 additions:
 - ⏳ **Fix #17: Overnight sentiment conflict block** — pending 10+ overnight A/D outcomes. Block overnight BUY when combined sentiment < −0.25. See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` Phase 7.
-- ⏳ **Fix #18: Overnight ATR floor for A/D** — pending 10+ overnight A/D outcomes. Block overnight A/D when ATR < 6.0. See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` Phase 7.
+- ✅ **Fix #18: Overnight ATR floor for A/D** — deployed MAR 17 2026. Block A/D/A-prime/D-prime overnight when ATR < 6.0. Evidence: 3/3 low-ATR overnight A/D fills were SL_HIT losers (−$110). Guard 3 in `es_fifteen_min.generate()`, RTH-exempt.
 
 ### ⚠️ Contract Roll — Action Required This Week
 
@@ -193,12 +193,18 @@ Two guards in `es_fifteen_min.generate()`, evaluated **after** all signals are c
 - Rationale: MACD was removed globally from D/E in Mar 2026 to reduce RTH over-filtering, but divergence is reliable in thin overnight markets. These two guards restore it for overnight only.
 - Log pattern: `🚫 ON_MACD_DIVERGE: blocking D-short overnight (MACD=+1.03 > +0.5)`
 
-**Both guards are RTH-exempt** — `_is_core_rth_guard = (9:30 ET ≤ et_time < 16:00 ET)`. If true, the entire guard block is skipped. Zero impact on daytime signals.
+**Guard 3 — ATR Floor for A/D (`ft_overnight_min_atr_ad`, default 6.0):** *(Fix #18, MAR 17 2026)*
+- Block A/D/A-prime/D-prime overnight when ATR < 6.0
+- Rationale: 3/3 overnight A/D fills with ATR < 6.0 were SL_HIT losers (−$110). Low ATR = thin liquidity, SL easily clipped by random noise. The sole overnight A/D winner had ATR=7.7.
+- Log pattern: `🚫 ON_ATR_FLOOR: blocking D-short overnight (ATR=4.6 < 6.0)`
+
+**All three guards are RTH-exempt** — `_is_core_rth_guard = (9:30 ET ≤ et_time < 16:00 ET)`. If true, the entire guard block is skipped. Zero impact on daytime signals.
 
 **Config params** (in `one_minute:` section of `config.yaml`):
 ```yaml
 ft_overnight_rsi_extreme_block: 35.0    # Guard 1. Set to 0 to disable.
 ft_overnight_macd_divergence_threshold: 0.5  # Guard 2. Set to 0 to disable.
+ft_overnight_min_atr_ad: 6.0            # Guard 3. Set to 0 to disable.
 ```
 
 **Threshold history:** Originally set to 30.0 on Mar 15, corrected to 35.0 after forensic check showed `RSI=30 < 30.0 = False` — the boundary case was not blocked. Lesson: always set threshold *above* the highest known failing value, not equal to it.

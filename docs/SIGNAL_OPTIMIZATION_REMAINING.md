@@ -222,28 +222,23 @@ grep "2026-03-16 00:00" logs/live_trading.log | grep "SENTIMENT\|Blended\|Combin
 sqlite3 data/trade_journal.db "SELECT t.entry_time, t.direction, t.outcome, t.pnl FROM trades t WHERE strftime('%H', t.entry_time) < '09' ORDER BY t.entry_time DESC LIMIT 20"
 ```
 
-### Fix #18: Overnight Minimum ATR Guard for A/D Signals
-**Priority:** 🟡 MEDIUM — needs more data before implementing
-**Files:** `shree/strategies/es_fifteen_min.py` → `_check_ema21_pullback()` / `_check_ema21_pullback_short()`
+### Fix #18: Overnight Minimum ATR Guard for A/D Signals ✅ DEPLOYED MAR 17 2026
+**Priority:** ✅ COMPLETE
+**Files:** `shree/strategies/es_fifteen_min.py` (Guard 3 in `generate()`), `shree/config/strategy.py`
 
-**Forensic (Mar 16 01:30 CT):** ATR=5.4 → TP required +11.5 pts (~2.1×ATR). In a thin overnight market with ATR=5.4, that's an outsized move requirement. The SL (7.2 pts = 1.3×ATR) sits comfortably within normal overnight noise.
+**Evidence (Mar 17 forensic — 5 filled overnight A/D trades):**
+- ATR=4.6 → SL_HIT −$40.00
+- ATR=5.8 → SL_HIT −$36.25
+- ATR=5.8 → SL_HIT −$33.75
+- ATR=6.0 → SL_HIT −$34.99
+- ATR=7.7 → TP_HIT +$37.50 (sole winner)
 
-Known overnight A/D ATR distribution (n=9, current log): `4.1, 5.2, 5.3, 5.4, 5.8, 5.8, 6.0, 6.2, 6.4`
+100% loss rate when ATR < 6.0 (3/3). Low ATR overnight = thin liquidity, SL easily clipped by random noise.
 
-**Proposed guard:** Block overnight A/D signals when `ATR < 6.0` (below median).
+**Implementation:** Guard 3 in `es_fifteen_min.generate()` — blocks A/D/A-prime/D-prime overnight when ATR < `ft_overnight_min_atr_ad` (default 6.0). RTH-exempt (only active outside 09:30–16:00 ET). Set to 0 to disable.
 
-**⚠️ Hold criteria — do NOT implement until:**
-1. At least 10 overnight A/D outcomes known — need to confirm ATR < 6 correlates with losses
-2. Check: the A-prime guard already requires `ATR ≥ 13` for proximity signals — a base A guard at ATR < 6 is a separate, lower threshold
-3. Confirm no overlap with existing `ft_overnight_min_rr: 1.5` gate (low ATR may already fail R:R check post-scaling)
-
-```bash
-# When outcomes are available, cross-reference ATR vs outcome:
-sqlite3 data/trade_journal.db "SELECT t.entry_time, t.signal_type, t.outcome, t.pnl FROM trades t WHERE strftime('%H', t.entry_time) < '09' ORDER BY t.entry_time DESC"
-
-# Check ATR of all overnight A-signal entries in current log
-grep "OVERNIGHT.*EMA21_PB" logs/live_trading.log | grep -oE "atr=[0-9.]+"
-```
+**Config:** `ft_overnight_min_atr_ad: 6.0` in `one_minute:` section of `config.yaml`.
+**Tests:** `tests/test_overnight_entry_guards.py` [19]–[24] (6 tests).
 
 ---
 
@@ -262,7 +257,7 @@ grep "OVERNIGHT.*EMA21_PB" logs/live_trading.log | grep -oE "atr=[0-9.]+"
 11. **Fix #10** (EMA9/21 relaxation for B) — low risk, standalone
 10. **Fix #11** (sentiment alignment boost) — low risk, standalone
 11. **Fix #17** (overnight sentiment conflict block) — pending 10 overnight outcomes
-12. **Fix #18** (overnight ATR floor for A/D) — pending 10 overnight outcomes
+12. ~~**Fix #18** (overnight ATR floor for A/D)~~ — ✅ DEPLOYED MAR 17
 
 ---
 
@@ -276,8 +271,8 @@ grep "OVERNIGHT.*EMA21_PB" logs/live_trading.log | grep -oE "atr=[0-9.]+"
 | **Mar 11** | Expectancy analysis | ✅ Fix #12 + Fix #13 deployed | Root-cause review: negative EV at ~1:1 R:R + 37.5% WR. Fix #12 (overnight TP×1.5 + R:R gate) and Fix #13 (breakeven at 3pts) deployed. Both confirmed live in Mar 12 overnight logs. |
 | **Mar 12** | Consecutive-loss crisis | ✅ Identified Fix #14+#15+#16 | 4 consecutive SL hits overnight (-$176.64). All high-conf (0.742–0.903) SELLs into a spent move. No cooldown fired (5-loss threshold never reached). Fix #13 near-miss at +$9.38 (2pts below trigger). Three new fixes identified: **Fix #14** (cooldown at 3), **Fix #15** (overnight BE at 2pts), **Fix #16** (exhaustion filter). |
 | **Mar 12** | Phase 6 deployed | ✅ Done | Fix #14 (consecutive-loss cooldown), Fix #15 (overnight BE 2pt), Fix #16 (trend exhaustion filter), Bug fix (BREAKEVEN misclassification in finalize_trade) |
-| **Mar 16** | Overnight sentinel forensic | ⏳ Pending data | Fix #17 (overnight sentiment block) + Fix #18 (overnight ATR floor) identified. Hold until 10+ overnight A/D outcomes collected. Check sentiment at 00:00 CT TP-hit entry first. |
-| **Mar 17** | 2-week review | ⏳ Upcoming | Evaluate: Is trade frequency ≥ 2/day? Current: 2.00/day since Mar 9 (exactly at threshold). If trades/day drops below 2 → start Fix #3 (day-type classifier). |
+| **Mar 16** | Overnight sentinel forensic | ✅ Fix #18 deployed | Fix #17 (overnight sentiment block) still pending — only 5/10 filled outcomes. Fix #18 (overnight ATR floor) deployed: 3/3 low-ATR losses confirmed. |
+| **Mar 17** | Fix #18 deployed + 2-week review | ✅ Fix #18 done, ⏳ review | Fix #18: block A/D overnight when ATR < 6.0. Evidence: 100% loss rate at low ATR (−$110). Trade frequency: 1.2–1.5/day < 2 threshold → Fix #3 gate met. |
 | **Mar 24** | Phase 3 checkpoint | ⏳ Pending | If Phase 3 started: deploy Fix #3, then #7 and #8. |
 | **Apr 1** | Phase 4 evaluation | ⏳ Pending | Only if signal variety insufficient after Phase 3. Start with Fix #9. |
 

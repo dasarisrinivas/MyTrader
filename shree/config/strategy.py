@@ -250,6 +250,11 @@ class OneMinuteStrategyConfig:
     # oversold" zone where TREND_CONT signals become exhaustion traps overnight.
     ft_overnight_rsi_extreme_block: float = 35.0  # Block TREND_CONT short if RSI < this; long if RSI > (100-this)
     ft_overnight_macd_divergence_threshold: float = 0.5  # Block D/E short if MACD > this; A/C long if MACD < -this. 0=disabled.
+    # MAR 17 2026: Fix #18 — Overnight ATR floor for A/D signals
+    # Evidence: 3/3 overnight EMA21_PB fills with ATR < 6.0 were SL_HIT losers (−$110 total).
+    # The sole overnight A/D winner had ATR=7.7. Low ATR = thin market, SL easily clipped.
+    # Set to 0 to disable. Only applied outside core RTH (9:30-16:00 ET).
+    ft_overnight_min_atr_ad: float = 6.0  # Block A/D/A-prime/D-prime overnight when ATR < this
     # MAR 16 2026: A/D per-session cap (Fix #1) + slippage buffer (Fix #2)
     ft_ema21_pb_max_overnight: int = 1    # Max A (long) or D (short) signals overnight per direction per session
     ft_ema21_pb_max_rth: int = 3          # RTH allows multiple valid pullbacks in a trending session

@@ -36,6 +36,14 @@ Tests:
     [16] A-long  overnight MACD=-0.3  → signal passes (below threshold)
     [17] A-long  RTH       MACD=-2.0  → signal passes (RTH exempt)
     [18] Guard disabled (threshold=0): overnight MACD=+5.0 → signal passes
+
+  ATR floor guard (Fix #18):
+    [19] D-short overnight ATR=4.6  → HOLD (guard fires, ATR < 6.0)
+    [20] D-short overnight ATR=5.8  → HOLD (guard fires, ATR < 6.0)
+    [21] D-short overnight ATR=7.7  → signal passes (ATR above floor)
+    [22] A-long  overnight ATR=4.1  → HOLD (guard fires, ATR < 6.0)
+    [23] D-short RTH       ATR=3.0  → signal passes (RTH exempt)
+    [24] Guard disabled (threshold=0): overnight ATR=2.0 → signal passes
 """
 from __future__ import annotations
 
@@ -135,6 +143,8 @@ def _make_config(**overrides) -> MagicMock:
         # Overnight entry-quality guards (MAR 15 2026)
         "ft_overnight_rsi_extreme_block": 35.0,  # MAR 15: raised from 30 → 35
         "ft_overnight_macd_divergence_threshold": 0.5,
+        # Overnight ATR floor for A/D (MAR 17 2026, Fix #18)
+        "ft_overnight_min_atr_ad": 6.0,
         # MAR 16 2026: A/D caps + ATR-adaptive SL + exhaustion cooldown + MACD floor
         "ft_ema21_pb_max_overnight": 1,
         "ft_ema21_pb_max_rth": 3,
@@ -616,4 +626,73 @@ class TestMacdDivergenceGuard:
         if sig.action == "HOLD":
             reason = sig.metadata.get("reason", "")
             assert "ON_MACD_DIVERGE" not in reason, "Guard disabled, must not fire"
+
+
+# ===========================================================================
+# Guard 3 — Overnight ATR floor for A/D (Fix #18, MAR 17 2026)
+# ===========================================================================
+
+class TestOvernightATRFloorGuard:
+    """Block A/D/A-prime/D-prime overnight when ATR < ft_overnight_min_atr_ad.
+
+    Evidence: 3/3 overnight A/D fills with ATR < 6.0 were SL_HIT losers (−$110).
+    The sole overnight A/D winner had ATR = 7.7.
+    """
+
+    # [19] D-short overnight ATR=4.6 → HOLD (guard fires)
+    def test_d_short_overnight_atr_4_6_blocked(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _d_signal_short_df(macd=-1.0, adx=28.0, atr=4.6, last_ts=_overnight_ts())
+        sig = _call_generate(strat, df)
+        assert sig.action == "HOLD", (
+            f"Expected HOLD (D-short overnight ATR=4.6 < 6.0), got {sig.action} | {sig.metadata}"
+        )
+
+    # [20] D-short overnight ATR=5.8 → HOLD (guard fires)
+    def test_d_short_overnight_atr_5_8_blocked(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _d_signal_short_df(macd=-1.0, adx=28.0, atr=5.8, last_ts=_overnight_ts())
+        sig = _call_generate(strat, df)
+        assert sig.action == "HOLD", (
+            f"Expected HOLD (D-short overnight ATR=5.8 < 6.0), got {sig.action} | {sig.metadata}"
+        )
+
+    # [21] D-short overnight ATR=7.7 → signal passes (ATR above floor)
+    def test_d_short_overnight_atr_7_7_passes(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _d_signal_short_df(macd=-1.0, adx=28.0, atr=7.7, last_ts=_overnight_ts())
+        sig = _call_generate(strat, df)
+        if sig.action == "HOLD":
+            reason = sig.metadata.get("reason", "")
+            assert "ON_ATR_FLOOR" not in reason, "ATR=7.7 is above floor=6.0, must not block"
+
+    # [22] A-long overnight ATR=4.1 → HOLD (guard fires)
+    def test_a_long_overnight_atr_4_1_blocked(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _a_signal_long_df(macd=1.0, adx=28.0, atr=4.1, rsi=52.0, last_ts=_overnight_ts())
+        sig = _call_generate(strat, df)
+        assert sig.action == "HOLD", (
+            f"Expected HOLD (A-long overnight ATR=4.1 < 6.0), got {sig.action} | {sig.metadata}"
+        )
+
+    # [23] D-short RTH ATR=3.0 → signal passes (RTH exempt)
+    def test_d_short_rth_low_atr_not_blocked(self):
+        strat = _make_strategy(ft_overnight_macd_divergence_threshold=0.0)
+        df = _d_signal_short_df(macd=-1.0, adx=28.0, atr=3.0, last_ts=_rth_ts())
+        sig = _call_generate(strat, df)
+        if sig.action == "HOLD":
+            reason = sig.metadata.get("reason", "")
+            assert "ON_ATR_FLOOR" not in reason, "ATR floor guard must NOT fire during RTH"
+
+    # [24] Guard disabled (threshold=0): overnight ATR=2.0 → signal passes
+    def test_atr_floor_guard_disabled(self):
+        strat = _make_strategy(
+            ft_overnight_min_atr_ad=0.0,
+            ft_overnight_macd_divergence_threshold=0.0,
+        )
+        df = _d_signal_short_df(macd=-1.0, adx=28.0, atr=2.0, last_ts=_overnight_ts())
+        sig = _call_generate(strat, df)
+        if sig.action == "HOLD":
+            reason = sig.metadata.get("reason", "")
+            assert "ON_ATR_FLOOR" not in reason, "Guard disabled (threshold=0), must not fire"
 

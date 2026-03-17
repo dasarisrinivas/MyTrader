@@ -270,6 +270,15 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._overnight_macd_divergence_threshold: float = float(
             getattr(config, 'ft_overnight_macd_divergence_threshold', 0.5) or 0.0
         )
+        # Guard 3 — Overnight ATR floor for A/D (FIX #18, MAR 17 2026):
+        # Block A/D/A-prime/D-prime pullback signals overnight when ATR < threshold.
+        # Evidence: 3/3 overnight A/D fills with ATR < 6.0 were SL_HIT losers (−$110).
+        # Low ATR overnight = thin liquidity, stop easily clipped by random noise.
+        # The sole overnight A/D winner had ATR = 7.7.
+        # Set to 0 to disable; default 6.0.
+        self._overnight_min_atr_ad: float = float(
+            getattr(config, 'ft_overnight_min_atr_ad', 6.0) or 0.0
+        )
         # Core RTH bounds used ONLY for detecting whether to apply overnight scaling.
         # These are hardcoded to true RTH hours regardless of the session-gate config.
         self._core_rth_start: time = time(9, 30)
@@ -737,6 +746,36 @@ class EsFifteenMinStrategy(BaseStrategy):
                         f"(MACD={macd_hist:+.2f} < -{_macd_thr}) | momentum opposes direction"
                     )
                     signal_c = None
+
+            # Guard 3: ATR floor for A/D overnight (FIX #18, MAR 17 2026).
+            # Low ATR overnight = thin liquidity, SL easily clipped by noise.
+            # Evidence: 3/3 overnight A/D fills with ATR < 6.0 were SL_HIT losers (−$110).
+            _atr_floor = self._overnight_min_atr_ad
+            if _atr_floor > 0:
+                if signal_a is not None and atr < _atr_floor:
+                    logger.info(
+                        f"🚫 ON_ATR_FLOOR: blocking A-long overnight "
+                        f"(ATR={atr:.1f} < {_atr_floor:.1f}) | thin liquidity, SL noise risk"
+                    )
+                    signal_a = None
+                if signal_aprox is not None and atr < _atr_floor:
+                    logger.info(
+                        f"🚫 ON_ATR_FLOOR: blocking A-prime-long overnight "
+                        f"(ATR={atr:.1f} < {_atr_floor:.1f}) | thin liquidity, SL noise risk"
+                    )
+                    signal_aprox = None
+                if signal_d is not None and atr < _atr_floor:
+                    logger.info(
+                        f"🚫 ON_ATR_FLOOR: blocking D-short overnight "
+                        f"(ATR={atr:.1f} < {_atr_floor:.1f}) | thin liquidity, SL noise risk"
+                    )
+                    signal_d = None
+                if signal_dprox is not None and atr < _atr_floor:
+                    logger.info(
+                        f"🚫 ON_ATR_FLOOR: blocking D-prime-short overnight "
+                        f"(ATR={atr:.1f} < {_atr_floor:.1f}) | thin liquidity, SL noise risk"
+                    )
+                    signal_dprox = None
 
         # ── MAR 16 2026 Fix #2: Post-exhaustion cooldown block ─────────────
         # When exhaustion cooldown is active, null ALL same-direction signals.
