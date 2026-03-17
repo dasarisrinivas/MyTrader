@@ -36,7 +36,15 @@
       "Bash(python3 -m pytest tests/test_or_break_counter.py::TestORBreakStopTarget::test_short_sl_tp -v --tb=long)",
       "Bash(python3 -m pytest tests/test_or_break_counter.py -q --tb=short)",
       "Bash(python3 -m pytest tests/test_or_break_counter.py tests/test_mes_one_minute_strategy.py -q --tb=line)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(/tmp/file_manifest.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(git mv:*)",
+      "Bash(.venv/bin/python -c \":*)",
+      "Bash(.venv/bin/pytest tests/ -x -q)"
+    ],
+    "additionalDirectories": [
+      "/Users/svss/Documents/code/ShreeBot/archive/shree"
     ]
   }
 }

@@ -1,263 +1,263 @@
-2026-03-16 08:40:30 CST | INFO     | __main__:main:49 - 🚀 Starting Shree RAG-Enhanced Bot (LIVE MODE)
+2026-03-16 20:22:00 CST | INFO     | __main__:main:49 - 🚀 Starting Shree RAG-Enhanced Bot (LIVE MODE)
 
 RISK CONSOLIDATION: Daily loss limit mismatch detected. RiskGate=$250, TradingConfig=$1000.0. Using most conservative: $250
-2026-03-16 08:40:30 CST | INFO     | shree.rag.local_vector_store:__init__:46 - Local vector store ready at rag_data/local_kb/local_kb.sqlite
+2026-03-16 20:22:00 CST | INFO     | shree.rag.local_vector_store:__init__:46 - Local vector store ready at rag_data/local_kb/local_kb.sqlite
 
-2026-03-16 08:40:30 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 5m (EMA period=20)
+2026-03-16 20:22:00 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 5m (EMA period=20)
 
-2026-03-16 08:40:30 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 15m (EMA period=20)
+2026-03-16 20:22:00 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 15m (EMA period=20)
 
-2026-03-16 08:40:30 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 30m (EMA period=20)
+2026-03-16 20:22:00 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 30m (EMA period=20)
 
-2026-03-16 08:40:30 CST | INFO     | shree.data.candle_aggregator:__init__:457 - MTFCandleManager initialized: 5m(ema=20), 15m(ema=20), 30m(ema=20)
+2026-03-16 20:22:00 CST | INFO     | shree.data.candle_aggregator:__init__:457 - MTFCandleManager initialized: 5m(ema=20), 15m(ema=20), 30m(ema=20)
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.mtf_gate_manager:init_mtf_manager:113 - ✅ MTFCandleManager initialized (5m, 15m, 30m aggregators)
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.mtf_gate_manager:init_mtf_manager:113 - ✅ MTFCandleManager initialized (5m, 15m, 30m aggregators)
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.mtf_gate_manager:init_mtf_gate:131 - MTFTrendGate disabled via config
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.mtf_gate_manager:init_mtf_gate:131 - MTFTrendGate disabled via config
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:113 - ======================================================================
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:113 - ======================================================================
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:114 - 📊 MULTI-SOURCE SENTIMENT AGGREGATOR ENABLED
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:114 - 📊 MULTI-SOURCE SENTIMENT AGGREGATOR ENABLED
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:115 - ======================================================================
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:115 - ======================================================================
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:116 -    Sources & Weights:
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:116 -    Sources & Weights:
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:117 -       Stocktwits: 55%
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:117 -       Stocktwits: 55%
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:118 -       Reddit:     45%
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:118 -       Reddit:     45%
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:122 -       Twitter:    DISABLED (no API credentials)
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:122 -       Twitter:    DISABLED (no API credentials)
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:123 -    RTH Thresholds (8:30 AM - 3:00 PM CT):
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:123 -    RTH Thresholds (8:30 AM - 3:00 PM CT):
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:124 -       Entry block: ±0.4
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:124 -       Entry block: ±0.3
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:125 -       Weak threshold: ±0.2
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:125 -       Weak threshold: ±0.15
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:126 -    Low-Volume Thresholds (Evening/Overnight):
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:126 -    Low-Volume Thresholds (Evening/Overnight):
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:127 -       Entry block: ±0.35
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:127 -       Entry block: ±0.35
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:128 -       Weak threshold: ±0.15
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:128 -       Weak threshold: ±0.15
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:129 -    Refresh interval: 300s
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:129 -    Refresh interval: 300s
 
-2026-03-16 08:40:30 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:130 - ======================================================================
+2026-03-16 20:22:00 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:130 - ======================================================================
 
-2026-03-16 08:40:30 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1239 - 🔄 Fetching fresh multi-source sentiment... [fetch_id=134030]
+2026-03-16 20:22:00 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1239 - 🔄 Fetching fresh multi-source sentiment... [fetch_id=012200]
 
-2026-03-16 08:40:31 CST | INFO     | shree.data.sentiment_aggregator:get_stocktwits_sentiment:467 - 📊 Stocktwits: score=-0.41 (bull=5, bear=12, total=60) [ts=13:40:31]
+2026-03-16 20:22:02 CST | INFO     | shree.data.sentiment_aggregator:get_stocktwits_sentiment:467 - 📊 Stocktwits: score=0.56 (bull=21, bear=6, total=60) [ts=01:22:02]
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:_get_reddit_sentiment_public:696 - 📱 Reddit (public): score=-0.25 (samples=6, unique_posts=4)
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:_get_reddit_sentiment_public:696 - 📱 Reddit (public): score=0.11 (samples=8, unique_posts=6)
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1271 - ==================================================
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1271 - ==================================================
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1272 - 📊 MULTI-SOURCE SENTIMENT SUMMARY
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1272 - 📊 MULTI-SOURCE SENTIMENT SUMMARY
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1273 - ==================================================
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1273 - ==================================================
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1274 -    Stocktwits: -0.41 (60 samples)
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1274 -    Stocktwits: +0.56 (60 samples)
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1275 -    Reddit:     -0.25 (6 samples)
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1275 -    Reddit:     +0.11 (8 samples)
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1276 -    Twitter:    +0.00 (0 samples)
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1276 -    Twitter:    +0.00 (0 samples)
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1277 -    VIX:        +0.00 (market-based)
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1277 -    VIX:        +0.00 (market-based)
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1278 -    ━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1278 -    ━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1279 -    COMBINED:   -0.38
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1279 -    COMBINED:   +0.45
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1280 - ==================================================
+2026-03-16 20:22:05 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1280 - ==================================================
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:134 -    ✅ Initial combined sentiment: -0.38
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:134 -    ✅ Initial combined sentiment: +0.45
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:135 -       Stocktwits: -0.41 (60 samples)
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:135 -       Stocktwits: +0.56 (60 samples)
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:136 -       Reddit: -0.25 (6 samples)
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:136 -       Reddit: +0.11 (8 samples)
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:198 - ======================================================================
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:198 - ======================================================================
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:199 - 📈 VX FUTURES FEED INITIALIZATION
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:199 - 📈 VX FUTURES FEED INITIALIZATION
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:200 - ======================================================================
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:200 - ======================================================================
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:201 -    IBKR Connection: 127.0.0.1:4001 (client_id=71)
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:201 -    IBKR Connection: 127.0.0.1:4001 (client_id=71)
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:202 -    Market Data Type: Live
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:202 -    Market Data Type: Live
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:203 -    Stale Threshold: 120s
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:203 -    Stale Threshold: 120s
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:204 -    Volatility Thresholds:
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:204 -    Volatility Thresholds:
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:205 -       VX >= 30.0: 0.4x multiplier (extreme fear)
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:205 -       VX >= 30.0: 0.4x multiplier (extreme fear)
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:206 -       VX >= 20.0: 0.7x multiplier (elevated)
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:206 -       VX >= 20.0: 0.7x multiplier (elevated)
 
-2026-03-16 08:40:34 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:207 -       VX < 20.0: 1.0x multiplier (normal)
+2026-03-16 20:22:05 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:207 -       VX < 20.0: 1.0x multiplier (normal)
 
-2026-03-16 08:40:34 CST | INFO     | shree.data.vx_futures_feed:_connect_async:152 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 1/5)
+2026-03-16 20:22:05 CST | INFO     | shree.data.vx_futures_feed:_connect_async:152 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 1/5)
 
-2026-03-16 08:40:35 CST | INFO     | shree.data.vx_futures_feed:_connect_async:173 - ✅ VX Feed connected successfully (client_id=71, Live data)
+2026-03-16 20:22:06 CST | INFO     | shree.data.vx_futures_feed:_connect_async:173 - ✅ VX Feed connected successfully (client_id=71, Live data)
 
-2026-03-16 08:40:36 CST | INFO     | shree.data.vx_futures_feed:_get_front_month_contract:357 - VX Feed: Selected front-month contract: VXH6 (expiry: 20260318)
+2026-03-16 20:22:06 CST | INFO     | shree.data.vx_futures_feed:_get_front_month_contract:357 - VX Feed: Selected front-month contract: VXH6 (expiry: 20260318)
 
-2026-03-16 08:40:36 CST | INFO     | shree.data.vx_futures_feed:_background_main:281 - VX Feed: Using contract VXH6 (exp=20260318)
+2026-03-16 20:22:06 CST | INFO     | shree.data.vx_futures_feed:_background_main:281 - VX Feed: Using contract VXH6 (exp=20260318)
 
-2026-03-16 08:40:36 CST | INFO     | shree.data.vx_futures_feed:_subscribe_market_data:385 - VX Feed: Subscribed to market data for VXH6
+2026-03-16 20:22:06 CST | INFO     | shree.data.vx_futures_feed:_subscribe_market_data:385 - VX Feed: Subscribed to market data for VXH6
 
-2026-03-16 08:40:36 CST | INFO     | shree.data.vx_futures_feed:start_in_background:240 - ✅ VX Feed background thread started successfully
+2026-03-16 20:22:07 CST | INFO     | shree.data.vx_futures_feed:start_in_background:240 - ✅ VX Feed background thread started successfully
 
-2026-03-16 08:40:36 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:225 -    ✅ VX Feed background thread started
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:225 -    ✅ VX Feed background thread started
 
-2026-03-16 08:40:36 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:229 - ======================================================================
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:229 - ======================================================================
 
-2026-03-16 08:40:37 CST | INFO     | shree.rag.local_knowledge_base:bootstrap_from_outcomes:49 - Seeded 2 trades into local knowledge base
-
-2026-03-16 08:40:37 CST | INFO     | shree.utils.bot_state:load_bot_state:74 - bot_state: day rollover detected (last_trade_date=2026-03-13, today=2026-03-16) → resetting consecutive_loss_count 0 → 0
-
-2026-03-16 08:40:37 CST | INFO     | shree.utils.bot_state:load_bot_state:109 - bot_state: loaded — consecutive_loss_count=0, cooldown=none, written_at=2026-03-13T17:22:39.450600+00:00
+2026-03-16 20:22:07 CST | INFO     | shree.utils.bot_state:load_bot_state:118 - bot_state: loaded — consecutive_loss_count=4, realized_pnl_today=-55.00, cooldown=none, written_at=2026-03-16T17:50:18.871336+00:00
 
 [Prometheus Init] observability object: ObservabilityConfig(prometheus_enabled=True, prometheus_addr='0.0.0.0', prometheus_port=8000, env_label='live')
 [Prometheus Init] enabled=True, port=8000, addr=0.0.0.0, env=live
 [Prometheus Init] Starting HTTP server on 0.0.0.0:8000
 [Prometheus Init] HTTP server started successfully
-2026-03-16 08:40:37 CST | INFO     | shree.execution.live_trading_manager:__init__:531 - ✅ Prometheus metrics initialized on port 8000
+2026-03-16 20:22:07 CST | INFO     | shree.execution.live_trading_manager:__init__:535 - ✅ Prometheus metrics initialized on port 8000
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:48 - Initializing trading components...
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:48 - Initializing trading components...
 
-2026-03-16 08:40:37 CST | INFO     | shree.strategies.es_fifteen_min:_load_counters:1936 - 📂 Loaded signal counters from disk (session=2026-03-15): A=0 D=0 B=0 E=0 F_L=0 F_S=1 A'=0 D'=0 G=0
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:62 - 📊 Restored persisted daily P&L: $-55.00 (daily loss cap = $250)
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:73 - ============================================================
+2026-03-16 20:22:07 CST | INFO     | shree.strategies.es_fifteen_min:_load_counters:2066 - 📂 Loaded signal counters from disk (session=2026-03-16): A=0 D=0 B=0 E=0 F_L=0 F_S=1 A'=0 D'=0 G=0
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:74 - 📊 STRATEGY: ES 15-Minute (EMA21 Pullback + OR Breakout)
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:84 - ============================================================
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:75 -    Timeframe: 15m | Max hold: 120 min
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:85 - 📊 STRATEGY: ES 15-Minute (EMA21 Pullback + OR Breakout)
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:76 -    Warmup: 60 bars | Window: 200 bars
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:86 -    Timeframe: 15m | Max hold: 120 min
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:79 -    Mode: LONG + SHORT (short-side signals enabled)
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:87 -    Warmup: 60 bars | Window: 200 bars
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:82 - ============================================================
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:90 -    Mode: LONG + SHORT (short-side signals enabled)
 
-2026-03-16 08:40:37 CST | INFO     | shree.utils.telegram_notifier:__init__:56 - ✅ Telegram notifications enabled
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:93 - ============================================================
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:107 - ✅ Telegram notifications initialized
+2026-03-16 20:22:07 CST | INFO     | shree.utils.telegram_notifier:__init__:56 - ✅ Telegram notifications enabled
 
-2026-03-16 08:40:37 CST | INFO     | shree.monitoring.order_tracker:_init_database:195 - Order tracker database initialized: /Users/svss/Documents/code/ShreeBot/data/orders.db
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:initialize:118 - ✅ Telegram notifications initialized
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.ib_executor:connect:404 - Connecting executor to IBKR 127.0.0.1:4001 (client_id=11, timeout=120s)
+2026-03-16 20:22:07 CST | INFO     | shree.monitoring.order_tracker:_init_database:195 - Order tracker database initialized: /Users/svss/Documents/code/ShreeBot/data/orders.db
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.ib_executor:connect:442 - Connected to IBKR - using snapshot market data requests
+2026-03-16 20:22:07 CST | INFO     | shree.execution.ib_executor:connect:404 - Connecting executor to IBKR 127.0.0.1:4001 (client_id=11, timeout=120s)
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.ib_executor:_register_event_handlers:469 - 📡 Registering IB event handlers
+2026-03-16 20:22:07 CST | INFO     | shree.execution.ib_executor:connect:442 - Connected to IBKR - using snapshot market data requests
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.ib_executor:connect:451 - Skipping startup order cancel per config (cancel_orders_on_startup=False)
+2026-03-16 20:22:07 CST | INFO     | shree.execution.ib_executor:_register_event_handlers:469 - 📡 Registering IB event handlers
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.ib_executor:_start_keepalive:2863 - Keepalive task started
+2026-03-16 20:22:07 CST | INFO     | shree.execution.ib_executor:connect:451 - Skipping startup order cancel per config (cancel_orders_on_startup=False)
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:force_order_reconciliation:389 - Forcing reconciliation of active orders with IBKR...
+2026-03-16 20:22:07 CST | INFO     | shree.execution.ib_executor:_start_keepalive:2863 - Keepalive task started
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.ib_executor:_reconcile_orders:600 - ✅ No active orders
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:force_order_reconciliation:400 - Forcing reconciliation of active orders with IBKR...
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:force_order_reconciliation:391 - Order reconciliation complete.
+2026-03-16 20:22:07 CST | INFO     | shree.execution.ib_executor:_reconcile_orders:600 - ✅ No active orders
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.cooldown_manager:load_persistent_cooldown_state:79 - ⏱️ Cooldown resume: last trade at 2026-03-13 12:15:18 CST
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.trading_session_manager:force_order_reconciliation:402 - Order reconciliation complete.
+
+2026-03-16 20:22:07 CST | INFO     | shree.execution.components.cooldown_manager:load_persistent_cooldown_state:79 - ⏱️ Cooldown resume: last trade at 2026-03-16 13:00:36 CST
 
 /Users/svss/Library/Python/3.9/lib/python/site-packages/boto3/compat.py:84: PythonDeprecationWarning: Boto3 will no longer support Python 3.9 starting April 29, 2026. To continue receiving service updates, bug fixes, and security updates please upgrade to Python 3.10 or later. More information can be found here: https://aws.amazon.com/blogs/developer/python-support-policy-updates-for-aws-sdks-and-tools/
   warnings.warn(warning, PythonDeprecationWarning)
-2026-03-16 08:40:37 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-03-16 20:22:08 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2026-03-16 08:40:37 CST | INFO     | shree.rag.rag_storage_manager:__init__:200 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-03-16 20:22:08 CST | INFO     | shree.rag.rag_storage_manager:__init__:200 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:144 - ✅ RAG Storage initialized
+2026-03-16 20:22:08 CST | INFO     | shree.execution.components.trading_session_manager:initialize:155 - ✅ RAG Storage initialized
 
-2026-03-16 08:40:37 CST | INFO     | shree.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/ShreeBot/data/llm_trades.db
+2026-03-16 20:22:08 CST | INFO     | shree.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/ShreeBot/data/llm_trades.db
 
-2026-03-16 08:40:37 CST | INFO     | shree.execution.components.trading_session_manager:initialize:151 - ✅ Decision metrics logger initialized
+2026-03-16 20:22:08 CST | INFO     | shree.execution.components.trading_session_manager:initialize:162 - ✅ Decision metrics logger initialized
 
-2026-03-16 08:40:37 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-03-16 20:22:08 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2026-03-16 08:40:37 CST | INFO     | shree.rag.rag_storage_manager:__init__:200 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-03-16 20:22:08 CST | INFO     | shree.rag.rag_storage_manager:__init__:200 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2026-03-16 08:40:37 CST | INFO     | shree.rag.trade_logger:__init__:67 - TradeLogger initialized
+2026-03-16 20:22:08 CST | INFO     | shree.rag.trade_logger:__init__:67 - TradeLogger initialized
 
-2026-03-16 08:40:37 CST | INFO     | shree.rag.mistake_analyzer:__init__:146 - MistakeAnalyzer initialized
+2026-03-16 20:22:08 CST | INFO     | shree.rag.mistake_analyzer:__init__:146 - MistakeAnalyzer initialized
 
-2026-03-16 08:40:38 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+2026-03-16 20:22:08 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.embedding_builder:_init_sentence_transformer:120 - Loaded sentence transformer: all-MiniLM-L6-v2 (dim=384)
+2026-03-16 20:22:10 CST | INFO     | shree.rag.embedding_builder:_init_sentence_transformer:120 - Loaded sentence transformer: all-MiniLM-L6-v2 (dim=384)
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/index.faiss
+2026-03-16 20:22:10 CST | INFO     | shree.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/index.faiss
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/metadata.pkl
+2026-03-16 20:22:10 CST | INFO     | shree.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/metadata.pkl
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.embedding_builder:_load_index:600 - Loaded FAISS index from S3 with 6 vectors
+2026-03-16 20:22:10 CST | INFO     | shree.rag.embedding_builder:_load_index:600 - Loaded FAISS index from S3 with 6 vectors
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.embedding_builder:__init__:109 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
+2026-03-16 20:22:10 CST | INFO     | shree.rag.embedding_builder:__init__:109 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
 
-2026-03-16 08:40:39 CST | INFO     | shree.hybrid.multi_factor_scorer:__init__:80 - MultiFactorScorer initialized with weights={'technical': 0.4000000000000001, 'llm': 0.0, 'rag': 0.30000000000000004, 'news': 0.10000000000000002, 'macro': 0.10000000000000002, 'risk': 0.10000000000000002}
+2026-03-16 20:22:10 CST | INFO     | shree.hybrid.multi_factor_scorer:__init__:80 - MultiFactorScorer initialized with weights={'technical': 0.4000000000000001, 'llm': 0.0, 'rag': 0.30000000000000004, 'news': 0.10000000000000002, 'macro': 0.10000000000000002, 'risk': 0.10000000000000002}
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:246 - RuleEngine initialized
+2026-03-16 20:22:10 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:246 - RuleEngine initialized
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1179 - RAGRetriever initialized
+2026-03-16 20:22:10 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1179 - RAGRetriever initialized
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1401 - LLMDecisionMaker initialized
+2026-03-16 20:22:10 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1401 - LLMDecisionMaker initialized
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1945 - HybridRAGPipeline initialized
+2026-03-16 20:22:10 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1945 - HybridRAGPipeline initialized
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.data_ingestion:__init__:49 - RAGDataIngestionPipeline watching data
+2026-03-16 20:22:10 CST | INFO     | shree.rag.data_ingestion:__init__:49 - RAGDataIngestionPipeline watching data
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.rag_daily_updater:__init__:47 - RAGDailyUpdater initialized
+2026-03-16 20:22:10 CST | INFO     | shree.rag.rag_daily_updater:__init__:47 - RAGDailyUpdater initialized
 
-2026-03-16 08:40:39 CST | INFO     | shree.rag.pipeline_integration:__init__:220 - HybridPipelineIntegration initialized
+2026-03-16 20:22:10 CST | INFO     | shree.rag.pipeline_integration:__init__:220 - HybridPipelineIntegration initialized
 
-2026-03-16 08:40:39 CST | INFO     | shree.execution.components.trading_session_manager:initialize:171 - 🔎 Hybrid RAG index ready (faiss, 6 docs)
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:initialize:182 - 🔎 Hybrid RAG index ready (faiss, 6 docs)
 
-2026-03-16 08:40:39 CST | INFO     | shree.execution.components.trading_session_manager:initialize:175 - ✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:initialize:186 - ✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)
 
-2026-03-16 08:40:39 CST | INFO     | shree.execution.live_trading_manager:_configure_aws_agents:620 - ℹ️  AWS Agents disabled: OpenSearch backend not permitted
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_configure_aws_agents:624 - ℹ️  AWS Agents disabled: OpenSearch backend not permitted
 
-2026-03-16 08:40:39 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:672 - 📊 Loading historical market context...
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:676 - 📊 Loading historical market context...
 
-2026-03-16 08:40:39 CST | INFO     | shree.execution.ib_executor:keepalive_loop:2771 - Starting connection keepalive task (checking every 30s)
+2026-03-16 20:22:10 CST | INFO     | shree.execution.ib_executor:keepalive_loop:2771 - Starting connection keepalive task (checking every 30s)
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.ib_executor:get_qualified_contract:376 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
+2026-03-16 20:22:10 CST | INFO     | shree.execution.ib_executor:get_qualified_contract:376 - Qualified contract: MESH6 (exp: 20260320) [offset=0]
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:770 - ✅ Historical context loaded from IBKR daily bars:
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:774 - ✅ Historical context loaded from IBKR daily bars:
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:771 -    📈 Previous Day (2026-03-13): High=6737.50, Low=6625.00, Close=6636.00
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:775 -    📈 Previous Day (2026-03-13): High=6737.50, Low=6625.00, Close=6636.00
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:775 -    📊 Today (2026-03-16): High=6705.00, Low=6690.50
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:779 -    📊 Today (2026-03-16): High=6734.25, Low=6684.50
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:776 -    📅 Weekly Range: 6625.00 - 6852.00
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:780 -    📅 Weekly Range: 6625.00 - 6852.00
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:777 -    ⏱️  Loaded at: 2026-03-16T08:40:40.231254-05:00
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:781 -    ⏱️  Loaded at: 2026-03-16T20:22:10.640622-05:00
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_store_historical_context_in_rag:845 - ✅ Stored market context in RAG: rag_data/docs_dynamic/market_context_2026-03-16.txt
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_store_historical_context_in_rag:849 - ✅ Stored market context in RAG: rag_data/docs_dynamic/market_context_2026-03-16.txt
 
-2026-03-16 08:40:40 CST | INFO     | shree.risk.dynamic_support:_recompute:175 - 🛡️ Dynamic support floor updated: 6620.00 (lowest=PDL=6625.00 - 5.0pt buffer) [sources: PDL=6625.00, WL=6625.00] trigger=historical_context
+2026-03-16 20:22:10 CST | INFO     | shree.risk.dynamic_support:_recompute:175 - 🛡️ Dynamic support floor updated: 6620.00 (lowest=PDL=6625.00 - 5.0pt buffer) [sources: PDL=6625.00, WL=6625.00] trigger=historical_context
 
-2026-03-16 08:40:40 CST | INFO     | shree.rag.pipeline_integration:set_price_levels:246 - 📊 Price levels set from ibkr_historical: PDH=6737.5, PDL=6625.0, WeekHigh=6852.0, WeekLow=6625.0
+2026-03-16 20:22:10 CST | INFO     | shree.rag.pipeline_integration:set_price_levels:246 - 📊 Price levels set from ibkr_historical: PDH=6737.5, PDL=6625.0, WeekHigh=6852.0, WeekLow=6625.0
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.components.trading_session_manager:initialize:197 - ✅ Historical context wired to hybrid pipeline for decision-making
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:initialize:208 - ✅ Historical context wired to hybrid pipeline for decision-making
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:963 - 📚 Bootstrapped 61 historical 15m bars for structural context
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:967 - 📚 Bootstrapped 61 historical 15m bars for structural context
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:966 -    ⏱️  First bar: 2026-03-15 17:30:00-05:00, Last bar: 2026-03-16 08:30:00-05:00, Now: 2026-03-16T08:40:40.316110-05:00
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:970 -    ⏱️  First bar: 2026-03-16 04:15:00-05:00, Last bar: 2026-03-16 20:15:00-05:00, Now: 2026-03-16T20:22:10.716699-05:00
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:971 -    ⏱️  Data age: 640s (acceptable if <1200s)
+2026-03-16 20:22:10 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:975 -    ⏱️  Data age: 431s (acceptable if <1200s)
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.components.trading_session_manager:initialize:206 - ✅ Connected to IBKR
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:initialize:217 - ✅ Connected to IBKR
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.components.trading_session_manager:initialize:213 - ✅ Live trading manager initialized
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:initialize:224 - ✅ Live trading manager initialized
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.components.trading_session_manager:start:228 - 🔄 Starting trading loop...
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:start:239 - 🔄 Starting trading loop...
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.components.trading_session_manager:start:242 - 🔁 Entering main loop: running=True, stop_requested=False, tf=15m, poll=30s
+2026-03-16 20:22:10 CST | INFO     | shree.execution.components.trading_session_manager:start:253 - 🔁 Entering main loop: running=True, stop_requested=False, tf=15m, poll=30s
 
-CST | INFO     | shree.execution.components.trading_session_manager:start:228 - 🔄 Starting trading loop...
+2026-03-16 20:22:16 CST | INFO     | shree.data.vx_futures_feed:_background_main:301 - 📈 VX Feed: Price=23.85 (multiplier=0.6x)
 
-2026-03-16 08:40:40 CST | INFO     | shree.execution.components.trading_session_manager:start:242 - 🔁 Entering main loop: running=True, stop_requested=False, tf=15m, poll=30s
+ST | INFO     | shree.execution.components.trading_session_manager:start:253 - 🔁 Entering main loop: running=True, stop_requested=False, tf=15m, poll=30s
+
+2026-03-16 20:22:16 CST | INFO     | shree.data.vx_futures_feed:_background_main:301 - 📈 VX Feed: Price=23.85 (multiplier=0.6x)
 

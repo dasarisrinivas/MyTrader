@@ -201,9 +201,6 @@ class OneMinuteStrategyConfig:
     # v3 backtest (FEB 8): PF 2.18, Sharpe 24.73, +$4,129 on 174 trades
     use_15m_strategy: bool = True  # DEFAULT ON — 1m strategies are sunset
     use_30m_strategy: bool = False  # 30m overnight/Globex strategy
-    ft_pb_stop_mult: float = 1.5      # (LEGACY — superseded by fixed-point SL)
-    ft_pb_target_mult: float = 1.0    # (LEGACY — superseded by fixed-point TP)
-    ft_or_target_r: float = 1.0       # (LEGACY — superseded by fixed-point TP)
     ft_adx_min: float = 20.0          # Minimum ADX for any entry
     ft_adx_max: float = 35.0          # Maximum ADX (cap exhaustion moves, v3: 35+ loses money)
     ft_ema_touch_pct: float = 0.0015  # How close low must be to EMA21 (0.15%) — FEB 20 2026: widened from 0.001
@@ -212,22 +209,15 @@ class OneMinuteStrategyConfig:
 
     # FEB 8 2026: EMA9 Pullback (Signal C) — faster trend capture
     ft_ema9_pb_enabled: bool = True    # v3: enabled, +$519 on 43 trades, 60.5% WR
-    ft_ema9_pb_stop_mult: float = 1.2  # (LEGACY — superseded by fixed-point SL)
-    ft_ema9_pb_target_mult: float = 1.5  # (LEGACY — superseded by fixed-point TP)
     ft_ema9_touch_pct: float = 0.0015  # EMA9 touch tolerance (0.15%)
 
     # FEB 12 2026: Short-side signals (D, E) — mirror of long signals
     ft_shorts_enabled: bool = False    # Toggle for short-side trading
-    ft_short_pb_stop_mult: float = 1.5   # (LEGACY — superseded by fixed-point SL)
-    ft_short_pb_target_mult: float = 1.0 # (LEGACY — superseded by fixed-point TP)
-    ft_short_or_target_r: float = 1.0    # (LEGACY — superseded by fixed-point TP)
 
     # FEB 19 2026: Fixed-point SL/TP system — consistent R:R for all signals
     ft_fixed_tp_points: float = 8.0       # Signals A, B, D, E: $40 target
-    ft_fixed_tp_points_ema9: float = 10.0 # Signal C: $50 target (LEGACY fallback — now ATR-adaptive)
     ft_fixed_tp_points_trend: float = 12.0 # Signal F: $60 target
     ft_fixed_sl_points: float = 6.0       # Signals A, B, D, E: $30 risk → R:R 1.33
-    ft_fixed_sl_points_ema9: float = 8.0  # Signal C: $40 risk (LEGACY fallback — now ATR-adaptive)
     ft_fixed_sl_points_trend: float = 8.0 # Signal F: $40 risk → R:R 1.50
 
     # FEB 20 2026: ATR-adaptive stops for Signal C — volatility-aware SL/TP
@@ -242,8 +232,6 @@ class OneMinuteStrategyConfig:
     # FEB 13 2026: Trend continuation signal (Signal F) — for strong
     # rally/selloff days when price runs away from EMA21 without pulling back
     ft_trend_cont_enabled: bool = True       # Toggle Signal F
-    ft_trend_cont_stop_mult: float = 1.0     # (LEGACY — superseded by fixed-point SL)
-    ft_trend_cont_target_mult: float = 2.0   # (LEGACY — superseded by fixed-point TP)
     ft_trend_cont_adx_min: float = 18.0      # Minimum ADX for trend continuation (FEB 17: lowered from 22)
     ft_trend_cont_ema9_pct: float = 0.003    # EMA9 proximity tolerance (0.3%)
     ft_trend_cont_max_per_day: int = 2        # Max fires per day per side
