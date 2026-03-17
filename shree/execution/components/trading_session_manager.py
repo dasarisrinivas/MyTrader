@@ -53,6 +53,17 @@ class TradingSessionManager:
                 point_value=m.contract_spec.point_value,
             )
 
+            # Fix #6 MAR 16 2026: Restore persisted daily P&L so the $250 daily
+            # loss cap survives bot restarts mid-day.
+            _persisted_pnl = getattr(m, "_persisted_daily_pnl", 0.0)
+            if _persisted_pnl != 0.0:
+                m.tracker.daily_pnl = _persisted_pnl
+                m.tracker.total_realized_pnl += _persisted_pnl
+                logger.info(
+                    f"📊 Restored persisted daily P&L: ${_persisted_pnl:.2f} "
+                    f"(daily loss cap = ${m.settings.risk_gate.daily_max_loss_usd})"
+                )
+
             # FEB 2026: Strategy selection — 15m strategy is now the default
             one_min_cfg = m.one_minute_cfg or m.settings.one_minute
             use_15m = getattr(one_min_cfg, "use_15m_strategy", False)

@@ -496,16 +496,20 @@ class LiveTradingManager:
 
         # Fix #14 MAR 13 2026: Restore consecutive-loss state from disk so that
         # bot restarts do not silently reset the 3-loss cooldown accumulator.
+        # Fix #6 MAR 16 2026: Also restore realized_pnl_today so the $250 daily
+        # loss cap survives restarts.
         # load_bot_state() handles: missing file, day rollover, stale cooldowns.
         try:
             from shree.utils.bot_state import load_bot_state
-            _loss_count, _cooldown_until = load_bot_state()
+            _loss_count, _cooldown_until, _realized_pnl = load_bot_state()
             self._consecutive_loss_count: int = _loss_count
             self._extra_cooldown_until = _cooldown_until
+            self._persisted_daily_pnl: float = _realized_pnl  # applied to tracker in TradingSessionManager.initialize()
         except Exception as _bs_exc:
             logger.warning(f"bot_state load failed (non-fatal): {_bs_exc}")
             self._consecutive_loss_count = 0
             self._extra_cooldown_until = None
+            self._persisted_daily_pnl = 0.0
         if self._entry_filter_cfg and hasattr(self._entry_filter_cfg, "wait_for_candle_close"):
             wait_for_close = bool(self._entry_filter_cfg.wait_for_candle_close)
         self._waiting_for_candle_close: bool = wait_for_close
@@ -1307,6 +1311,7 @@ TRADING GUIDANCE:
                     save_bot_state(
                         consecutive_loss_count=self._consecutive_loss_count,
                         extra_cooldown_until=getattr(self, "_extra_cooldown_until", None),
+                        realized_pnl_today=self._get_daily_pnl_for_persist(),
                     )
                 except Exception as _exc:
                     logger.debug(f"bot_state save skipped: {_exc}")
@@ -1322,6 +1327,7 @@ TRADING GUIDANCE:
                     save_bot_state(
                         consecutive_loss_count=0,
                         extra_cooldown_until=None,
+                        realized_pnl_today=self._get_daily_pnl_for_persist(),
                     )
                 except Exception as _exc:
                     logger.debug(f"bot_state save skipped: {_exc}")
@@ -2860,6 +2866,19 @@ TRADING GUIDANCE:
             balances["account_equity"] = equity
         balances["realized_pnl_today"] = realized_pnl
         return balances
+
+    def _get_daily_pnl_for_persist(self) -> float:
+        """Return current daily realized P&L for bot_state persistence.
+
+        Fix #6 MAR 16 2026: Used by save_bot_state() calls so the $250 daily
+        loss cap survives bot restarts.
+        """
+        try:
+            if self.tracker:
+                return float(getattr(self.tracker, "daily_pnl", 0.0))
+        except Exception:
+            pass
+        return 0.0
 
     def _validate_bracket_prices(self, action: str, entry_price: float, stop_loss: float, take_profit: float) -> bool:
         """Validate that bracket order prices are logically correct."""

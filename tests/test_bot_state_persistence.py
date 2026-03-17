@@ -5,6 +5,10 @@ Tests for shree/utils/bot_state.py — Fix #14 persistence across restarts.
 
 MAR 13 2026: The consecutive-loss counter must survive bot restarts so that
 the 3-loss cooldown can accumulate across same-day restarts.
+
+MAR 16 2026 (Fix #6): Added realized_pnl_today persistence tests. The daily
+P&L must survive restarts so the $250 daily loss cap is enforced even after
+mid-day restarts.
 """
 
 import json
@@ -43,17 +47,19 @@ class TestLoadBotState:
     def test_missing_file_returns_defaults(self, tmp_path):
         from shree.utils.bot_state import load_bot_state
         path = tmp_path / "bot_state.json"
-        count, cooldown = load_bot_state(path=path)
+        count, cooldown, pnl = load_bot_state(path=path)
         assert count == 0
         assert cooldown is None
+        assert pnl == 0.0
 
     def test_corrupt_json_returns_defaults(self, tmp_path):
         from shree.utils.bot_state import load_bot_state
         path = tmp_path / "bot_state.json"
         path.write_text("{ not valid json }")
-        count, cooldown = load_bot_state(path=path)
+        count, cooldown, pnl = load_bot_state(path=path)
         assert count == 0
         assert cooldown is None
+        assert pnl == 0.0
 
     def test_valid_state_loaded(self, tmp_path):
         from shree.utils.bot_state import load_bot_state
@@ -61,13 +67,15 @@ class TestLoadBotState:
         _write_state(path, {
             "consecutive_loss_count": 2,
             "extra_cooldown_until": None,
+            "realized_pnl_today": -75.50,
             "last_trade_date": CT_TODAY,
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 2
         assert cooldown is None
+        assert pnl == -75.50
 
     def test_active_cooldown_restored(self, tmp_path):
         from shree.utils.bot_state import load_bot_state
@@ -80,7 +88,7 @@ class TestLoadBotState:
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 3
         assert cooldown is not None
         assert cooldown > datetime.now(timezone.utc)
@@ -97,7 +105,7 @@ class TestLoadBotState:
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 3       # loss count preserved
         assert cooldown is None  # expired cooldown discarded
 
@@ -112,7 +120,7 @@ class TestLoadBotState:
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert cooldown is None
 
     def test_day_rollover_resets_loss_count(self, tmp_path):
@@ -121,13 +129,15 @@ class TestLoadBotState:
         _write_state(path, {
             "consecutive_loss_count": 2,
             "extra_cooldown_until": None,
+            "realized_pnl_today": -120.0,
             "last_trade_date": "2026-03-12",   # yesterday
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 0   # rolled over to 0
         assert cooldown is None
+        assert pnl == 0.0   # daily P&L also reset on rollover
 
     def test_same_day_preserves_loss_count(self, tmp_path):
         from shree.utils.bot_state import load_bot_state
@@ -135,12 +145,14 @@ class TestLoadBotState:
         _write_state(path, {
             "consecutive_loss_count": 2,
             "extra_cooldown_until": None,
+            "realized_pnl_today": -55.0,
             "last_trade_date": CT_TODAY,   # same day
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 2   # preserved
+        assert pnl == -55.0  # preserved
 
     def test_cooldown_survives_restart_same_day(self, tmp_path):
         """Simulate: 3 losses fire cooldown, bot restarts mid-cooldown."""
@@ -154,7 +166,7 @@ class TestLoadBotState:
             "written_at": datetime.now(timezone.utc).isoformat(),
         })
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            count, cooldown = load_bot_state(path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 3
         assert cooldown is not None
         remaining = (cooldown - datetime.now(timezone.utc)).total_seconds() / 60
@@ -169,21 +181,23 @@ class TestSaveBotState:
         from shree.utils.bot_state import save_bot_state, load_bot_state
         path = tmp_path / "bot_state.json"
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            save_bot_state(consecutive_loss_count=2, extra_cooldown_until=None, path=path)
-            count, cooldown = load_bot_state(path=path)
+            save_bot_state(consecutive_loss_count=2, extra_cooldown_until=None, realized_pnl_today=-45.0, path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 2
         assert cooldown is None
+        assert pnl == -45.0
 
     def test_round_trip_with_active_cooldown(self, tmp_path):
         from shree.utils.bot_state import save_bot_state, load_bot_state
         future = datetime.now(timezone.utc) + timedelta(minutes=25)
         path = tmp_path / "bot_state.json"
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            save_bot_state(consecutive_loss_count=3, extra_cooldown_until=future, path=path)
-            count, cooldown = load_bot_state(path=path)
+            save_bot_state(consecutive_loss_count=3, extra_cooldown_until=future, realized_pnl_today=-100.0, path=path)
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 3
         assert cooldown is not None
         assert abs((cooldown - future).total_seconds()) < 2   # within 2s rounding
+        assert pnl == -100.0
 
     def test_save_creates_directory(self, tmp_path):
         from shree.utils.bot_state import save_bot_state
@@ -196,22 +210,25 @@ class TestSaveBotState:
         from shree.utils.bot_state import save_bot_state
         path = tmp_path / "bot_state.json"
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            save_bot_state(1, None, path=path)
+            save_bot_state(1, None, realized_pnl_today=-30.0, path=path)
         data = json.loads(path.read_text())
         assert "consecutive_loss_count" in data
         assert "extra_cooldown_until" in data
+        assert "realized_pnl_today" in data
         assert "last_trade_date" in data
         assert "written_at" in data
+        assert data["realized_pnl_today"] == -30.0
 
     def test_reset_to_zero_overwrites_previous(self, tmp_path):
         from shree.utils.bot_state import save_bot_state, load_bot_state
         path = tmp_path / "bot_state.json"
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            save_bot_state(3, None, path=path)
-            save_bot_state(0, None, path=path)   # reset after a win
-            count, cooldown = load_bot_state(path=path)
+            save_bot_state(3, None, realized_pnl_today=-100.0, path=path)
+            save_bot_state(0, None, realized_pnl_today=-60.0, path=path)   # win reduces loss count but P&L stays
+            count, cooldown, pnl = load_bot_state(path=path)
         assert count == 0
         assert cooldown is None
+        assert pnl == -60.0
 
 
 # ── Integration: simulated restart sequence ───────────────────────────────────
@@ -233,35 +250,129 @@ class TestRestartSimulation:
 
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
             # Loss 1
-            save_bot_state(1, None, path=path)
+            save_bot_state(1, None, realized_pnl_today=-40.0, path=path)
             # Restart 1
-            count, cd = load_bot_state(path=path)
-            assert count == 1 and cd is None
+            count, cd, pnl = load_bot_state(path=path)
+            assert count == 1 and cd is None and pnl == -40.0
 
             # Loss 2
-            save_bot_state(2, None, path=path)
+            save_bot_state(2, None, realized_pnl_today=-80.0, path=path)
             # Restart 2
-            count, cd = load_bot_state(path=path)
-            assert count == 2 and cd is None
+            count, cd, pnl = load_bot_state(path=path)
+            assert count == 2 and cd is None and pnl == -80.0
 
             # Loss 3 — cooldown fires
             cooldown_end = datetime.now(timezone.utc) + timedelta(minutes=30)
-            save_bot_state(3, cooldown_end, path=path)
+            save_bot_state(3, cooldown_end, realized_pnl_today=-120.0, path=path)
             # Restart 3
-            count, cd = load_bot_state(path=path)
+            count, cd, pnl = load_bot_state(path=path)
             assert count == 3
             assert cd is not None
             assert cd > datetime.now(timezone.utc)   # still blocking
+            assert pnl == -120.0
 
     def test_win_resets_and_survives_restart(self, tmp_path):
         from shree.utils.bot_state import save_bot_state, load_bot_state
         path = tmp_path / "bot_state.json"
 
         with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
-            save_bot_state(2, None, path=path)
-            # Win → reset
-            save_bot_state(0, None, path=path)
+            save_bot_state(2, None, realized_pnl_today=-80.0, path=path)
+            # Win → reset count, but P&L updated
+            save_bot_state(0, None, realized_pnl_today=-40.0, path=path)
             # Restart
-            count, cd = load_bot_state(path=path)
+            count, cd, pnl = load_bot_state(path=path)
         assert count == 0
         assert cd is None
+        assert pnl == -40.0  # P&L preserved (win reduced the net loss)
+
+
+# ── Fix #6: Daily P&L persistence ────────────────────────────────────────────
+
+class TestDailyPnlPersistence:
+    """MAR 16 2026 Fix #6: Daily P&L must survive bot restarts."""
+
+    def test_pnl_missing_from_old_state_defaults_zero(self, tmp_path):
+        """Old bot_state.json without realized_pnl_today should default to 0.0."""
+        from shree.utils.bot_state import load_bot_state
+        path = tmp_path / "bot_state.json"
+        _write_state(path, {
+            "consecutive_loss_count": 1,
+            "extra_cooldown_until": None,
+            # no realized_pnl_today key — old format
+            "last_trade_date": CT_TODAY,
+            "written_at": datetime.now(timezone.utc).isoformat(),
+        })
+        with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
+            count, cooldown, pnl = load_bot_state(path=path)
+        assert count == 1
+        assert pnl == 0.0  # default for missing field
+
+    def test_pnl_accumulates_across_restarts(self, tmp_path):
+        """Simulate: 3 losses across 2 restarts, P&L accumulates."""
+        from shree.utils.bot_state import save_bot_state, load_bot_state
+        path = tmp_path / "bot_state.json"
+
+        with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
+            # Loss 1: -$40
+            save_bot_state(1, None, realized_pnl_today=-40.0, path=path)
+            # Restart
+            _, _, pnl = load_bot_state(path=path)
+            assert pnl == -40.0
+
+            # Loss 2: now -$90 total
+            save_bot_state(2, None, realized_pnl_today=-90.0, path=path)
+            # Restart
+            _, _, pnl = load_bot_state(path=path)
+            assert pnl == -90.0
+
+            # Loss 3: now -$150 total
+            save_bot_state(3, None, realized_pnl_today=-150.0, path=path)
+            # Restart
+            _, _, pnl = load_bot_state(path=path)
+            assert pnl == -150.0
+
+    def test_pnl_resets_on_day_rollover(self, tmp_path):
+        """P&L from yesterday should reset to 0.0 on new day."""
+        from shree.utils.bot_state import load_bot_state
+        path = tmp_path / "bot_state.json"
+        _write_state(path, {
+            "consecutive_loss_count": 2,
+            "extra_cooldown_until": None,
+            "realized_pnl_today": -200.0,  # yesterday's losses
+            "last_trade_date": "2026-03-12",  # different day
+            "written_at": datetime.now(timezone.utc).isoformat(),
+        })
+        with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
+            count, cooldown, pnl = load_bot_state(path=path)
+        assert count == 0    # rolled over
+        assert pnl == 0.0    # rolled over
+
+    def test_pnl_survives_restart_same_day(self, tmp_path):
+        """Daily P&L preserved across same-day restart."""
+        from shree.utils.bot_state import save_bot_state, load_bot_state
+        path = tmp_path / "bot_state.json"
+
+        with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
+            save_bot_state(1, None, realized_pnl_today=-55.0, path=path)
+            count, _, pnl = load_bot_state(path=path)
+        assert pnl == -55.0
+
+    def test_pnl_default_zero_when_not_passed(self, tmp_path):
+        """save_bot_state without realized_pnl_today uses default 0.0."""
+        from shree.utils.bot_state import save_bot_state, load_bot_state
+        path = tmp_path / "bot_state.json"
+
+        with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
+            save_bot_state(0, None, path=path)  # no realized_pnl_today
+            _, _, pnl = load_bot_state(path=path)
+        assert pnl == 0.0
+
+    def test_pnl_rounds_to_two_decimals(self, tmp_path):
+        """P&L should be rounded to 2 decimal places."""
+        from shree.utils.bot_state import save_bot_state
+        path = tmp_path / "bot_state.json"
+
+        with patch("shree.utils.bot_state.now_cst", _mock_now_cst):
+            save_bot_state(0, None, realized_pnl_today=-55.123456, path=path)
+        data = json.loads(path.read_text())
+        assert data["realized_pnl_today"] == -55.12
