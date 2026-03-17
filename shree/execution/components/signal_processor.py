@@ -624,7 +624,7 @@ class SignalProcessor:
                             f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
                         )
                     else:
-                        # Hybrid opposes — dampening capped at -0.05 (but NEVER flip action)
+                        # Hybrid opposes — tiered dampening (but NEVER flip action)
                         # FEB 10 2026: Strengthened from min(0.15, hybrid_conf * 0.15)
                         # to min(0.30, hybrid_conf * 0.40).
                         # FEB 20 2026: Capped at 0.10. Audit showed the old -0.30 cap
@@ -633,8 +633,15 @@ class SignalProcessor:
                         # hybrid oppose hit 18/45 signals (40%). Combined with VX scaling,
                         # this created: 0.70 × 0.70 − 0.10 = 0.39 (killed). With additive
                         # VX and 0.05 cap: 0.70 − 0.05 − 0.05 = 0.60 (healthy).
-                        # The hybrid LLM pipeline is advisory, not a veto gate.
-                        dampen = min(0.05, hybrid_conf * 0.20)
+                        # MAR 17 2026: Tiered cap. When hybrid opposes with conf >= 0.45
+                        # (a meaningful disagreement, not just noise), allow up to -0.10.
+                        # Below 0.45 keep the light -0.05 touch. Trade 7180 on 2026-03-17
+                        # entered BUY at PDH with hybrid SELL @ 0.50 conf — the flat 0.05
+                        # cap left final conf exactly at threshold (0.60) and it fired.
+                        if hybrid_conf >= 0.45:
+                            dampen = min(0.10, hybrid_conf * 0.20)
+                        else:
+                            dampen = min(0.05, hybrid_conf * 0.20)
                         signal.confidence = max(0.1, signal.confidence - dampen)
                         confidence_adjustments["hybrid_oppose_dampen"] = -dampen
                         logger.info(

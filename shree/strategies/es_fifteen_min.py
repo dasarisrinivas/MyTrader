@@ -508,6 +508,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         adx = float(latest.get("ADX_14", 0))
         rsi = float(latest.get("RSI_14", 50))
         macd_hist = float(latest.get("MACDhist_12_26_9", 0))
+        pdh = float(latest.get("PDH", 0))
 
         # FEB 20 2026: Seed prev_close from prior bar on first evaluation
         # after startup.  Without this, OR cross-detection (Signals B, E)
@@ -625,7 +626,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         # ---- Signal A: EMA21 Pullback Long ----
         signal_a = self._check_ema21_pullback(
             close, open_price, low, ema21, ema50, atr, adx,
-            rsi, macd_hist, is_overnight=_is_overnight_pb,
+            rsi, macd_hist, is_overnight=_is_overnight_pb, pdh=pdh,
         )
 
         # ---- Signal A-prime: EMA21 Proximity Long (near-miss, high-vol only) ----
@@ -1103,10 +1104,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         ema21: float, ema50: float, atr: float, adx: float,
         rsi: float = 50.0, macd_hist: float = 0.0,
         is_overnight: bool = False,
+        pdh: float = 0.0,
     ) -> Optional[tuple]:
         """
         EMA21 pullback in uptrend.
-        
+
         Conditions:
           1. EMA21 > EMA50 (uptrend)
           2. Bar low touches EMA21 (within 0.1%)
@@ -1115,7 +1117,9 @@ class EsFifteenMinStrategy(BaseStrategy):
           5. ADX > threshold (trending)
           6. MACD histogram not deeply negative (MAR 16 2026 Fix #5 — restored)
              Block when MACD_H < -threshold (default -1.0). Set to 0 to disable.
-        
+          7. Not within 0.25% of PDH (MAR 17 2026) — buying at or near the prior
+             day high is buying into resistance; stop rate was 100% in this zone.
+
         Returns: (action, stop, target, reason) or None
         """
         # MAR 16 2026 Fix #1: Per-session cap — overnight max=1, RTH max=3.
@@ -1149,6 +1153,17 @@ class EsFifteenMinStrategy(BaseStrategy):
         # 6. MACD divergence filter (MAR 16 2026 Fix #5)
         # Block BUY when MACD strongly negative — momentum opposes the pullback
         if self._ema21_macd_divergence_block > 0 and macd_hist < -self._ema21_macd_divergence_block:
+            return None
+
+        # 7. PDH proximity filter (MAR 17 2026)
+        # Block BUY when within 0.25% of previous day high — that's a resistance
+        # ceiling, not a pullback entry. Trade 7180 (2026-03-17) entered at 6783
+        # with PDH=6784.75 (0.04% away) and stopped out in 6 minutes.
+        if pdh > 0 and (pdh - close) / close <= 0.0025:
+            logger.info(
+                f"🚫 PDH_PROXIMITY_BLOCK: close={close:.2f} within 0.25% of PDH={pdh:.2f} "
+                f"({(pdh - close) / close * 100:.2f}% away) — blocking BUY"
+            )
             return None
 
         # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
