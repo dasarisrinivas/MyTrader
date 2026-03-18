@@ -286,6 +286,65 @@ class TestGetLatest:
         assert result["multiplier"] == 1.0  # No price -> neutral
 
 
+class TestFrontMonthSelection:
+    """Tests for front-month VX contract selection around expiry boundaries."""
+
+    @pytest.mark.asyncio
+    async def test_get_front_month_keeps_current_month_day_before_expiry(self):
+        from shree.data.vx_futures_feed import VxFuturesFeed
+
+        feed = VxFuturesFeed()
+        feed._today_yyyymmdd = MagicMock(return_value="20260317")
+
+        expiring_next_day = SimpleNamespace(
+            localSymbol="VXH6",
+            lastTradeDateOrContractMonth="20260318",
+        )
+        next_month = SimpleNamespace(
+            localSymbol="VXJ6",
+            lastTradeDateOrContractMonth="20260415",
+        )
+        feed.ib.reqContractDetailsAsync = AsyncMock(return_value=[
+            SimpleNamespace(contract=next_month),
+            SimpleNamespace(contract=expiring_next_day),
+        ])
+
+        contract = await feed._get_front_month_contract()
+
+        assert contract is expiring_next_day
+        assert feed._state.contract_symbol == "VXH6"
+
+    @pytest.mark.asyncio
+    async def test_get_front_month_rolls_to_next_month_on_expiry_day(self):
+        from shree.data.vx_futures_feed import VxFuturesFeed
+
+        feed = VxFuturesFeed()
+        feed._today_yyyymmdd = MagicMock(return_value="20260318")
+
+        expiring_today = SimpleNamespace(
+            localSymbol="VXH6",
+            lastTradeDateOrContractMonth="20260318",
+        )
+        next_month = SimpleNamespace(
+            localSymbol="VXJ6",
+            lastTradeDateOrContractMonth="20260415",
+        )
+        farther_month = SimpleNamespace(
+            localSymbol="VXM6",
+            lastTradeDateOrContractMonth="20260520",
+        )
+        feed.ib.reqContractDetailsAsync = AsyncMock(return_value=[
+            SimpleNamespace(contract=farther_month),
+            SimpleNamespace(contract=expiring_today),
+            SimpleNamespace(contract=next_month),
+        ])
+
+        contract = await feed._get_front_month_contract()
+
+        assert contract is next_month
+        assert feed._state.contract_symbol == "VXJ6"
+
+
 class TestGetVxPrice:
     """Tests for get_vx_price method."""
     

@@ -125,6 +125,10 @@ class VxFuturesFeed:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._front_contract: Optional[Contract] = None
         self._ticker: Optional[Ticker] = None
+
+    def _today_yyyymmdd(self) -> str:
+        """Return today's date in YYYYMMDD format for expiry comparisons."""
+        return datetime.now().strftime("%Y%m%d")
         
     def connect(self) -> bool:
         """Synchronous connect for simple usage.
@@ -334,16 +338,19 @@ class VxFuturesFeed:
                 logger.warning("VX Feed: No VIX futures contracts found (check CFE subscription)")
                 return None
             
-            # Filter for non-expired contracts and sort by expiry
-            today = datetime.now().strftime("%Y%m%d")
+            # Filter for contracts that remain valid beyond today's session and sort by expiry.
+            # MAR 18 2026: expiry-day roll fix — a contract expiring *today* should not
+            # remain the selected forward-looking front month. The previous >= comparison
+            # kept VXH6 on 2026-03-18 instead of rolling to VXJ6.
+            today = self._today_yyyymmdd()
             valid_contracts = []
             
             for detail in details_list:
                 contract = detail.contract
                 expiry = contract.lastTradeDateOrContractMonth
                 
-                # Only include contracts that haven't expired
-                if expiry and expiry >= today:
+                # Only include contracts expiring strictly after today.
+                if expiry and expiry > today:
                     valid_contracts.append((expiry, contract))
             
             if not valid_contracts:
