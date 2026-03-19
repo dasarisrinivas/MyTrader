@@ -579,3 +579,23 @@ class TestMacdDivergenceAD:
         sig = strat.generate(df)
         assert sig.action == "SELL", f"Signal D should fire with MACD=+5.0 when filter disabled, got {sig.action}"
         assert "EMA21_PB_SHORT" in sig.metadata.get("reason", "")
+
+    # ── MAR 19 2026 regression (threshold lowered 1.0 → 0.5) ─────────
+
+    def test_25_d_blocked_mar19_loser_macd_095(self):
+        """MAR 19 2026 regression: 11:00 RTH short MACD_H=+0.95 hit SL at threshold=1.0.
+        At threshold=0.5, MACD=+0.95 > +0.5 → SELL must be blocked."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=0.5)
+        df = _d_signal_df(macd_hist=0.95)
+        sig = strat.generate(df)
+        reason = sig.metadata.get("reason", "")
+        assert "EMA21_PB_SHORT" not in reason, \
+            f"Signal D should be BLOCKED with MACD=+0.95 at threshold=0.5, got {reason}"
+
+    def test_26_d_fires_mar19_winner_macd_neg147(self):
+        """MAR 19 2026 regression: 09:00 RTH short MACD_H=-1.47 won — must still fire."""
+        strat = _make_strategy(ft_ema21_macd_divergence_block=0.5)
+        df = _d_signal_df(macd_hist=-1.47)
+        sig = strat.generate(df)
+        assert sig.action == "SELL", f"Signal D should fire with MACD=-1.47, got {sig.action}"
+        assert "EMA21_PB_SHORT" in sig.metadata.get("reason", "")

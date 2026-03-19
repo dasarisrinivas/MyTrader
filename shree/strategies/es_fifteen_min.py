@@ -310,7 +310,10 @@ class EsFifteenMinStrategy(BaseStrategy):
         # but deep-negative MACD reliably signals "this is a slide, not a pullback".
         # Block A when MACD_H < -threshold (bearish opposes long).
         # Block D when MACD_H > +threshold (bullish opposes short).
-        # Threshold=1.0: only blocks strong divergence, not mild readings.
+        # MAR 19 2026: Threshold lowered 1.0 → 0.5.
+        # Root cause: 11:00 RTH EMA21_PB_SHORT MACD_H=+0.95 slipped under 1.0 → SL hit.
+        # Same-session 09:00 short MACD_H=-1.47 won. Any positive MACD on a short
+        # pullback signals the counter-move has momentum; 0.5 catches it early.
         # Set to 0 to disable.
         self._ema21_macd_divergence_block: float = float(
             getattr(config, 'ft_ema21_macd_divergence_block', 1.0) or 0.0

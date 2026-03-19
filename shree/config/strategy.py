@@ -267,7 +267,7 @@ class OneMinuteStrategyConfig:
     # MAR 16 2026: MACD divergence filter for Signal A/D (Fix #5)
     # Block A when MACD_H < -threshold (bearish opposes long pullback)
     # Block D when MACD_H > +threshold (bullish opposes short pullback)
-    ft_ema21_macd_divergence_block: float = 1.0  # Set to 0 to disable
+    ft_ema21_macd_divergence_block: float = 0.5  # Set to 0 to disable; MAR 19 2026: lowered 1.0→0.5
     # MAR 16 2026: Post-exhaustion cooldown (Fix — blocks same-direction after TREND_EXHAUSTION)
     ft_exhaustion_cooldown_bars: int = 4  # Block all same-direction signals for N bars (60 min) after exhaustion
     # MAR 16 2026: Signal C MACD floor (Fix — raised from >0 to >=0.3)
