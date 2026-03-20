@@ -249,7 +249,7 @@ class OneMinuteStrategyConfig:
     # RSI=32 above threshold). Raised to 35 — catches ≤34 with margin, matches "approaching
     # oversold" zone where TREND_CONT signals become exhaustion traps overnight.
     ft_overnight_rsi_extreme_block: float = 35.0  # Block TREND_CONT short if RSI < this; long if RSI > (100-this)
-    ft_overnight_macd_divergence_threshold: float = 0.5  # Block D/E short if MACD > this; A/C long if MACD < -this. 0=disabled.
+    ft_overnight_macd_divergence_threshold: float = 0.4  # Block D/E short if MACD > this; A/C long if MACD < -this. 0=disabled. MAR 20 2026: lowered 0.5→0.4
     # MAR 17 2026: Fix #18 — Overnight ATR floor for A/D signals
     # Evidence: 3/3 overnight EMA21_PB fills with ATR < 6.0 were SL_HIT losers (−$110 total).
     # The sole overnight A/D winner had ATR=7.7. Low ATR = thin market, SL easily clipped.
