@@ -49,6 +49,8 @@ class ExitManager:
 
     def __init__(self, manager: "LiveTradingManager") -> None:
         self._m = manager
+        self._last_pnl_alert_time: Optional[datetime] = None
+        self._last_known_qty: int = 0  # tracks flat→open transitions
 
     # ------------------------------------------------------------------
     # Convenience accessors (keep method bodies short & readable)
@@ -96,7 +98,13 @@ class ExitManager:
 
         position = await self.executor.get_current_position()
         if not position or position.quantity == 0:
+            self._last_known_qty = 0
             return False
+
+        # Reset P&L alert timer on new position entry (flat → open)
+        if self._last_known_qty == 0 and position.quantity != 0:
+            self._last_pnl_alert_time = None
+        self._last_known_qty = position.quantity
 
         price = current_price
         if price is None:
@@ -277,6 +285,27 @@ class ExitManager:
             f"📊 Position P&L check -> entry={entry_price:.2f} price={current_price:.2f} "
             f"pnl/ct={pnl_per_contract:.2f} total={total_pnl:.2f}"
         )
+
+        # ── Periodic Telegram P&L alert (every 30 min while position open) ──
+        telegram = getattr(self._m, "telegram", None)
+        if telegram and getattr(telegram, "enabled", False):
+            now = now_cst()
+            _interval = timedelta(minutes=30)
+            if self._last_pnl_alert_time is None or (now - self._last_pnl_alert_time) >= _interval:
+                symbol = getattr(self._m, "symbol", "ES")
+                stop_loss = getattr(position, "stop_loss", None)
+                take_profit = getattr(position, "take_profit", None)
+                telegram.send_position_pnl_background(
+                    symbol=symbol,
+                    quantity=qty,
+                    entry_price=entry_price,
+                    current_price=current_price,
+                    pnl_per_contract=pnl_per_contract,
+                    total_pnl=total_pnl,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                )
+                self._last_pnl_alert_time = now
 
         # ──────────────────────────────────────────────────────────────
         # FEB 20 2026: STRUCTURAL SUPPORT CIRCUIT BREAKER

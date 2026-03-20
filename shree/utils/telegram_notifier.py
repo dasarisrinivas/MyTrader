@@ -496,3 +496,61 @@ class TelegramNotifier:
             **kwargs
         )
         self.send_message_background(message)
+
+    @staticmethod
+    def format_position_pnl_alert(
+        symbol: str,
+        quantity: int,
+        entry_price: float,
+        current_price: float,
+        pnl_per_contract: float,
+        total_pnl: float,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ) -> str:
+        """Format a periodic open-position P&L update alert."""
+        direction = "LONG" if quantity > 0 else "SHORT"
+        contracts = abs(quantity)
+        pnl_emoji = "💰" if total_pnl >= 0 else "🔻"
+        dir_emoji = "📈" if quantity > 0 else "📉"
+        timestamp = now_cst()
+
+        lines = [
+            f"📊 <b>Position P&amp;L Update</b>",
+            "",
+            f"{dir_emoji} <b>{direction}</b> {contracts} × {symbol} @ ${entry_price:.2f}",
+            f"Current: <b>${current_price:.2f}</b>",
+            f"{pnl_emoji} P&amp;L/ct: <b>${pnl_per_contract:+.2f}</b>  |  Total: <b>${total_pnl:+.2f}</b>",
+        ]
+
+        if stop_loss is not None:
+            lines.append(f"🛡️ Stop: ${stop_loss:.2f}")
+        if take_profit is not None:
+            lines.append(f"🎯 Target: ${take_profit:.2f}")
+
+        lines.append(f"🕐 {timestamp.strftime('%H:%M:%S CST')}")
+        return "\n".join(lines)
+
+    def send_position_pnl_background(
+        self,
+        symbol: str,
+        quantity: int,
+        entry_price: float,
+        current_price: float,
+        pnl_per_contract: float,
+        total_pnl: float,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ):
+        """Send periodic position P&L alert in background without blocking."""
+        message = self.format_position_pnl_alert(
+            symbol=symbol,
+            quantity=quantity,
+            entry_price=entry_price,
+            current_price=current_price,
+            pnl_per_contract=pnl_per_contract,
+            total_pnl=total_pnl,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+        self.send_message_background(message)
