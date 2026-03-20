@@ -266,9 +266,11 @@ class EsFifteenMinStrategy(BaseStrategy):
         # warning that outweighs the weaker trend signal.
         # Evidence: 2 overnight D/E short losses with MACD=+1.03 and +1.63 totalling −$78.
         # Symmetric: block A/C (long) overnight when MACD is negative.
-        # Set to 0.0 to disable; default 0.5 catches meaningful divergence only.
+        # Set to 0.0 to disable; default 0.4 catches meaningful divergence only.
+        # MAR 20 2026: Lowered 0.5 → 0.4 — EMA21_PB_SHORT with MACD_H=+0.45 slipped
+        # under 0.5 threshold and stopped out (07:15 overnight trade, −$40).
         self._overnight_macd_divergence_threshold: float = float(
-            getattr(config, 'ft_overnight_macd_divergence_threshold', 0.5) or 0.0
+            getattr(config, 'ft_overnight_macd_divergence_threshold', 0.4) or 0.0
         )
         # Guard 3 — Overnight ATR floor for A/D (FIX #18, MAR 17 2026):
         # Block A/D/A-prime/D-prime pullback signals overnight when ATR < threshold.
@@ -311,9 +313,10 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Block A when MACD_H < -threshold (bearish opposes long).
         # Block D when MACD_H > +threshold (bullish opposes short).
         # MAR 19 2026: Threshold lowered 1.0 → 0.5.
-        # Root cause: 11:00 RTH EMA21_PB_SHORT MACD_H=+0.95 slipped under 1.0 → SL hit.
-        # Same-session 09:00 short MACD_H=-1.47 won. Any positive MACD on a short
-        # pullback signals the counter-move has momentum; 0.5 catches it early.
+    # Root cause: 11:00 RTH EMA21_PB_SHORT MACD_H=+0.95 slipped under 1.0 → SL hit.
+    # Same-session 09:00 short MACD_H=-1.47 won. Meaningfully positive MACD on a
+    # short pullback signals the counter-move has momentum; 0.5 catches it early
+    # without blocking near-zero noise.
         # Set to 0 to disable.
         self._ema21_macd_divergence_block: float = float(
             getattr(config, 'ft_ema21_macd_divergence_block', 1.0) or 0.0
@@ -750,6 +753,20 @@ class EsFifteenMinStrategy(BaseStrategy):
                         f"(MACD={macd_hist:+.2f} < -{_macd_thr}) | momentum opposes direction"
                     )
                     signal_c = None
+                # MAR 20 2026: Extend Guard 2 to TREND_CONT (signal F).
+                # Evidence: 06:45 TREND_CONT_SHORT bypassed guard entirely; price ground up.
+                if signal_f_short is not None and macd_hist > _macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking F-short overnight "
+                        f"(MACD={macd_hist:+.2f} > +{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_f_short = None
+                if signal_f_long is not None and macd_hist < -_macd_thr:
+                    logger.info(
+                        f"🚫 ON_MACD_DIVERGE: blocking F-long overnight "
+                        f"(MACD={macd_hist:+.2f} < -{_macd_thr}) | momentum opposes direction"
+                    )
+                    signal_f_long = None
 
             # Guard 3: ATR floor for A/D overnight (FIX #18, MAR 17 2026).
             # Low ATR overnight = thin liquidity, SL easily clipped by noise.
@@ -1350,8 +1367,8 @@ class EsFifteenMinStrategy(BaseStrategy):
           3. Close < EMA21 (rejected back below)
           4. Close < Open (bearish bar)
           5. ADX > threshold (trending)
-          6. MACD histogram not deeply positive (MAR 16 2026 Fix #5 — restored)
-             Block when MACD_H > +threshold (default +1.0). Set to 0 to disable.
+             6. MACD histogram not deeply positive (MAR 16 2026 Fix #5 — restored)
+                 Block when MACD_H > +threshold (default +0.5). Set to 0 to disable.
 
         Returns: (action, stop, target, reason) or None
         """
