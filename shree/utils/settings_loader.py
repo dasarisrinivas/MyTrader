@@ -24,6 +24,9 @@ def load_settings(path: str | Path | None = None) -> Settings:
 
     # Allow environment overrides for critical runtime thresholds
     env_overrides = [
+        ("data", "ibkr_host", "IBKR_HOST", str),
+        ("data", "ibkr_port", "IBKR_PORT", int),
+        ("data", "ibkr_client_id", "IBKR_CLIENT_ID", int),
         ("rag", "min_similar_trades", "MIN_SIMILAR_TRADES", int),
         ("rag", "min_win_rate", "MIN_WIN_RATE", float),
         ("rag", "min_weighted_win_rate", "MIN_WEIGHTED_WIN_RATE", float),
@@ -39,6 +42,13 @@ def load_settings(path: str | Path | None = None) -> Settings:
         ),
         ("rag", "regime_mode", "RAG_REGIME_MODE", str),
         ("trading", "confidence_threshold", "CONFIDENCE_THRESHOLD", float),
+        ("vix_feed", "ib_host", "VIX_FEED_IB_HOST", str),
+        ("vix_feed", "ib_port", "VIX_FEED_IB_PORT", int),
+        ("vix_feed", "client_id", "VIX_FEED_CLIENT_ID", int),
+        ("observability", "prometheus_enabled", "PROMETHEUS_ENABLED", lambda val: str(val).lower() in {"1", "true", "yes"}),
+        ("observability", "prometheus_addr", "PROMETHEUS_ADDR", str),
+        ("observability", "prometheus_port", "PROMETHEUS_PORT", int),
+        ("observability", "env_label", "DEPLOY_ENV", str),
     ]
     for section, key, env_name, caster in env_overrides:
         raw_value = os.environ.get(env_name)

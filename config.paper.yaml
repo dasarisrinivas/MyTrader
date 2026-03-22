@@ -1,0 +1,21 @@
+# Paper-trading overrides for ShreeBot.
+#
+# This file is intentionally minimal and should be loaded instead of `config.yaml`
+# for paper sessions. It keeps paper/live separation explicit for IBKR connectivity,
+# VX feed connectivity, and observability labels/ports.
+
+data:
+  ibkr_host: "127.0.0.1"
+  ibkr_port: 4002  # IB Gateway PAPER trading (4002=paper, 4001=live)
+
+vix_feed:
+  ib_host: "127.0.0.1"
+  ib_port: 4002   # Must match paper IB Gateway/TWS port
+  client_id: 71
+  market_data_type: 1
+
+observability:
+  prometheus_enabled: true
+  prometheus_addr: "0.0.0.0"
+  prometheus_port: 8001
+  env_label: "paper"
