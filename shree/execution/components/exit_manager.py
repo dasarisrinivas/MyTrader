@@ -859,13 +859,13 @@ class ExitManager:
             if adx and adx < 20.0 and macd_h > 0:
                 return {"reason": "trend_strength_lost", "signal_family": "trend_cont_short"}
 
-        if "EMA21_PB_LONG" in signal_type or signal_type == "BUY":
+        if "EMA21_PB_LONG" in signal_type:
             if ema21 and current_price < ema21 and macd_h < 0:
                 return {"reason": "lost_ema21_support_and_macd_negative", "signal_family": "pullback_long"}
             if rsi and rsi < 45 and adverse_points >= stop_distance * 0.45:
                 return {"reason": "momentum_failed_after_pullback_long", "signal_family": "pullback_long"}
 
-        if "EMA21_PB_SHORT" in signal_type or signal_type == "SELL":
+        if "EMA21_PB_SHORT" in signal_type:
             if ema21 and current_price > ema21 and macd_h > 0:
                 return {"reason": "reclaimed_ema21_and_macd_positive", "signal_family": "pullback_short"}
             if rsi and rsi > 55 and adverse_points >= stop_distance * 0.45:
@@ -951,9 +951,9 @@ class ExitManager:
         logger.info("🔄 Executing position exit: {} {} (reason={}, pnl={:.2f})", action, quantity, reason, pnl)
         try:
             # Cancel bracket orders before market exit (prevent SL/TP racing the exit fill)
-            if reason in ("PROFIT_PROTECTION", "SIGNAL_FLIP_EXIT", "THESIS_REVERSAL_EXIT") and self.executor:
+            if reason in ("PROFIT_PROTECTION", "SIGNAL_FLIP_EXIT", "THESIS_REVERSAL_EXIT", "MAX_HOLD_EXIT") and self.executor:
                 try:
-                    logger.info("🚫 Cancelling TP bracket order before profit protection exit")
+                    logger.info("🚫 Cancelling bracket orders before {} market exit", reason)
                     await self.executor.cancel_all_orders()
                 except Exception as cancel_exc:
                     logger.warning(f"⚠️ Error cancelling bracket orders: {cancel_exc}")

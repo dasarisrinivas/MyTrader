@@ -8,6 +8,7 @@ from shree.config import TradingConfig
 from shree.execution.ib_executor import TradeExecutor
 from shree.execution.live_trading_manager import LiveTradingManager
 from shree.execution.components.exit_manager import ExitManager
+from shree.execution.components.order_coordinator import OrderCoordinator
 
 
 class DummyPosition:
@@ -69,6 +70,28 @@ class ReconcileAndExitTests(unittest.TestCase):
             self.assertEqual(pos.entry_metadata, {"reason": "EMA21_PB_LONG"})
         finally:
             loop.close()
+
+    def test_register_trade_entry_preserves_explicit_signal_family_metadata(self):
+        manager = LiveTradingManager.__new__(LiveTradingManager)
+        manager._current_cycle_id = "cycle-123"
+        manager._current_entry_cycle_id = None
+        manager._cycle_context = {"cycle-123": {}}
+        manager.current_trade_features = {"ema_21": 100.0}
+        manager._active_reason_codes = set()
+
+        coordinator = OrderCoordinator(manager)
+        coordinator.register_trade_entry(
+            cycle_id="cycle-123",
+            action="SELL",
+            quantity=1,
+            entry_price=100.0,
+            stop_loss=105.0,
+            take_profit=92.0,
+            metadata={"signal_family": "TREND_CONT_SHORT"},
+        )
+
+        self.assertEqual(manager._open_trade_context["signal_type"], "TREND_CONT_SHORT")
+        self.assertEqual(manager._open_trade_context["action"], "SELL")
 
     def _make_bare_manager(self):
         """Return a bare LiveTradingManager with only the attributes needed by ExitManager."""
@@ -208,6 +231,53 @@ class ReconcileAndExitTests(unittest.TestCase):
         executor.update_trailing_stops = AsyncMock(return_value=None)
         executor.get_active_order_count.return_value = 0
         executor.get_active_bracket_levels.return_value = {"take_profit": 112.0, "stop_loss": 95.0}
+        manager.executor = executor
+
+        exit_mgr = ExitManager(manager)
+        exit_mgr.execute_position_exit = AsyncMock(return_value=None)
+        exit_mgr.place_exit_order = AsyncMock(return_value=None)
+
+        first = asyncio.run(exit_mgr.check_position_exit_signals(None))
+        handled = asyncio.run(exit_mgr.check_position_exit_signals(None))
+
+        self.assertFalse(first)
+        self.assertFalse(handled)
+        exit_mgr.execute_position_exit.assert_not_called()
+
+    def test_thesis_reversal_exit_does_not_apply_pullback_logic_to_generic_sell(self):
+        manager = LiveTradingManager.__new__(LiveTradingManager)
+        manager._active_timeframe = "15m"
+        manager._ft_max_hold_minutes = 120
+        manager.price_history = [{"ATR_14": 10.0}]
+        manager.one_minute_cfg = None
+        manager.status = SimpleNamespace(last_atr=10.0)
+        manager.settings = SimpleNamespace(
+            trading=SimpleNamespace(
+                ft_thesis_reversal_exit_enabled=True,
+                ft_thesis_reversal_arm_profit_pts=2.0,
+                ft_thesis_reversal_arm_stop_fraction=0.35,
+                ft_breakeven_trigger_pts=99.0,
+            )
+        )
+        manager.contract_spec = SimpleNamespace(point_value=5)
+        manager._normalize_entry_price = lambda avg_cost, current_price: avg_cost
+        manager._open_trade_context = {
+            "cycle_id": "sell001",
+            "action": "SELL",
+            "signal_type": "SELL",
+            "stop_loss": 105.0,
+            "take_profit": 88.0,
+            "features": {"atr": 10.0},
+        }
+        manager.current_trade_features = {"ema_9": 100.0, "ema_21": 101.0, "macd_hist": 1.2, "adx": 26.0, "rsi": 62.0}
+
+        executor = MagicMock()
+        position = SimpleNamespace(quantity=-1, avg_cost=100.0, timestamp=datetime.utcnow())
+        executor.get_current_position = AsyncMock(return_value=position)
+        executor.get_current_price = AsyncMock(side_effect=[97.0, 97.0, 104.5, 104.5])
+        executor.update_trailing_stops = AsyncMock(return_value=None)
+        executor.get_active_order_count.return_value = 0
+        executor.get_active_bracket_levels.return_value = {"take_profit": 88.0, "stop_loss": 105.0}
         manager.executor = executor
 
         exit_mgr = ExitManager(manager)

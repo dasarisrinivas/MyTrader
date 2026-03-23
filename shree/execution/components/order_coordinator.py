@@ -112,6 +112,14 @@ class OrderCoordinator:
         self.manager._current_entry_cycle_id = cycle_id
         context = self.manager._cycle_context.get(cycle_id, {})
         is_long = action in ("BUY", "SCALP_BUY")
+        signal_type = (
+            context.get("signal_type")
+            or metadata.get("signal_type")
+            or metadata.get("entry_signal")
+            or metadata.get("strategy_signal")
+            or metadata.get("signal_family")
+            or metadata.get("signal_name")
+        )
         self.manager._open_trade_context = {
             "cycle_id": cycle_id,
             "action": action,
@@ -126,7 +134,7 @@ class OrderCoordinator:
             "volatility": context.get("volatility") or metadata.get("volatility_regime") or None,
             "aws": context.get("aws"),
             "signal_confidence": context.get("signal_confidence") or metadata.get("signal_confidence"),
-            "signal_type": context.get("signal_type") or metadata.get("signal_type"),
+            "signal_type": signal_type,
             "features": self.manager.current_trade_features or {},
         }
         reason_codes = context.get("reason_codes", set())
