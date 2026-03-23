@@ -54,8 +54,12 @@ paper_done=false
 
 # Prefer the paper PID file created by start_paper_bot.sh
 if [[ -f "$PID_FILE" ]]; then
-    _graceful_kill "Paper Trading Bot" "$(cat "$PID_FILE")" 5 && paper_done=true
-    rm -f "$PID_FILE"
+    if _graceful_kill "Paper Trading Bot" "$(cat "$PID_FILE")" 5; then
+        paper_done=true
+        rm -f "$PID_FILE"
+    elif ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        rm -f "$PID_FILE"
+    fi
 fi
 
 # Fallback: find processes explicitly marked as paper or using paper port/config

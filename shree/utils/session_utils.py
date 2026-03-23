@@ -98,7 +98,11 @@ def classify_session(
         return TradingSession.MAINTENANCE
 
     # ── RTH ──
-    if rth_start <= t < rth_end and dow < 5:
+    # Respect the configured trading window on Sunday after the maintenance
+    # reopen as well. This allows widened session configs (for example,
+    # 00:00–23:59 ET) to treat Sunday evening Globex bars as tradable while
+    # still preserving the weekend block before the reopen.
+    if rth_start <= t < rth_end and dow != 5:
         return TradingSession.RTH
 
     # ── Everything else is Overnight ──

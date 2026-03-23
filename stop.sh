@@ -58,8 +58,12 @@ _graceful_kill() {
 if [[ "$STOP_BOT" == "true" ]]; then
     bot_done=false
     if [[ -f "$LOGS_DIR/bot.pid" ]]; then
-        _graceful_kill "Trading Bot" "$(cat "$LOGS_DIR/bot.pid")" 5 && bot_done=true
-        rm -f "$LOGS_DIR/bot.pid"
+        if _graceful_kill "Trading Bot" "$(cat "$LOGS_DIR/bot.pid")" 5; then
+            bot_done=true
+            rm -f "$LOGS_DIR/bot.pid"
+        elif ! kill -0 "$(cat "$LOGS_DIR/bot.pid")" 2>/dev/null; then
+            rm -f "$LOGS_DIR/bot.pid"
+        fi
     fi
     if [[ "$bot_done" == "false" ]]; then
         for p in $(pgrep -f 'python.*run_bot.py' 2>/dev/null); do
@@ -83,8 +87,12 @@ fi
 if [[ "$STOP_AGENT" == "true" ]]; then
     agent_done=false
     if [[ -f "$AGENT_DIR/agent.pid" ]]; then
-        _graceful_kill "Analyst Agent" "$(cat "$AGENT_DIR/agent.pid")" 5 && agent_done=true
-        rm -f "$AGENT_DIR/agent.pid"
+        if _graceful_kill "Analyst Agent" "$(cat "$AGENT_DIR/agent.pid")" 5; then
+            agent_done=true
+            rm -f "$AGENT_DIR/agent.pid"
+        elif ! kill -0 "$(cat "$AGENT_DIR/agent.pid")" 2>/dev/null; then
+            rm -f "$AGENT_DIR/agent.pid"
+        fi
     fi
     if [[ "$agent_done" == "false" ]]; then
         for p in $(pgrep -f 'agent/agent.py' 2>/dev/null); do

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from calendar import monthrange
 import hashlib
 import json
 import time
@@ -369,7 +370,41 @@ class TradeExecutor:
                 logger.error(f"Could not find any contracts for {self.symbol}")
                 return None
             
-            # Sort by expiration date to get the desired month (offset driven)
+            # Filter out expired contracts, then sort remaining contracts by expiry.
+            now_utc = datetime.now(timezone.utc)
+
+            def _parse_contract_expiry(contract_details) -> datetime | None:
+                raw_expiry = getattr(contract_details.contract, "lastTradeDateOrContractMonth", "") or ""
+                try:
+                    if len(raw_expiry) >= 8:
+                        return datetime.strptime(raw_expiry[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
+                    if len(raw_expiry) == 6:
+                        year = int(raw_expiry[:4])
+                        month = int(raw_expiry[4:6])
+                        last_day = monthrange(year, month)[1]
+                        return datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+                except ValueError:
+                    logger.warning("Unable to parse contract expiry '{}'", raw_expiry)
+                return None
+
+            valid_details = []
+            expired_details = []
+            for detail in details:
+                expiry_dt = _parse_contract_expiry(detail)
+                if expiry_dt and expiry_dt < now_utc:
+                    expired_details.append(detail)
+                    continue
+                valid_details.append(detail)
+
+            if valid_details:
+                details = valid_details
+            elif expired_details:
+                logger.warning(
+                    "All returned contracts for {symbol} appear expired; falling back to nearest expiry",
+                    symbol=self.symbol,
+                )
+                details = expired_details
+
             details.sort(key=lambda d: d.contract.lastTradeDateOrContractMonth)
             offset = max(0, min(getattr(self.config, "contract_month_offset", 0), len(details) - 1))
             front_month = details[offset].contract
@@ -666,6 +701,13 @@ class TradeExecutor:
         try:
             found_symbol = False
             found_qty = 0
+            preserved_timestamp = None
+            preserved_stop_loss = None
+            preserved_take_profit = None
+            preserved_trailing_atr_multiplier = None
+            preserved_trailing_percent = None
+            preserved_atr_value = None
+            preserved_entry_metadata = None
             positions = self.ib.positions()
             for position in positions:
                 if position.contract.symbol == self.symbol:
@@ -690,13 +732,29 @@ class TradeExecutor:
                         market_value = float(qty * price * multiplier)
                     else:
                         market_value = float(qty * price)
+                    existing_pos = self.positions.get(self.symbol)
+                    if existing_pos and int(getattr(existing_pos, "quantity", 0) or 0) == qty and qty != 0:
+                        preserved_timestamp = getattr(existing_pos, "timestamp", None)
+                        preserved_stop_loss = getattr(existing_pos, "stop_loss", None)
+                        preserved_take_profit = getattr(existing_pos, "take_profit", None)
+                        preserved_trailing_atr_multiplier = getattr(existing_pos, "trailing_atr_multiplier", None)
+                        preserved_trailing_percent = getattr(existing_pos, "trailing_percent", None)
+                        preserved_atr_value = getattr(existing_pos, "atr_value", None)
+                        preserved_entry_metadata = getattr(existing_pos, "entry_metadata", None)
                     self.positions[self.symbol] = PositionInfo(
                         symbol=self.symbol,
                         quantity=qty,
                         avg_cost=price,
                         market_value=market_value,
                         unrealized_pnl=float(position.unrealizedPNL) if hasattr(position, 'unrealizedPNL') else 0.0,
-                        realized_pnl=0.0
+                        realized_pnl=0.0,
+                        timestamp=preserved_timestamp or datetime.utcnow(),
+                        stop_loss=preserved_stop_loss,
+                        take_profit=preserved_take_profit,
+                        trailing_atr_multiplier=preserved_trailing_atr_multiplier,
+                        trailing_percent=preserved_trailing_percent,
+                        atr_value=preserved_atr_value,
+                        entry_metadata=preserved_entry_metadata,
                     )
                     # Keep local trackers aligned with IB to avoid stale position state
                     self._local_position_qty = float(qty)

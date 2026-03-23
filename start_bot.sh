@@ -35,13 +35,28 @@ echo -e "${BLUE}          🤖 Shree - Starting Bot 🤖${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# Prefer PID-file validation before any process name matching.
+if [ -f "logs/bot.pid" ]; then
+    EXISTING_PID=$(cat logs/bot.pid 2>/dev/null)
+    if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+        echo -e "${YELLOW}⚠️  Trading bot is already running!${NC}"
+        echo ""
+        echo "   PID: $EXISTING_PID"
+        echo "To restart the bot:"
+        echo "  1. Run: ./stop.sh"
+        echo "  2. Then run: ./start_bot.sh"
+        return 1 2>/dev/null || exit 1
+    fi
+    rm -f logs/bot.pid
+fi
+
 # Check if bot is already running
 if pgrep -f "python.*run_bot.py" > /dev/null; then
     echo -e "${YELLOW}⚠️  Trading bot is already running!${NC}"
     echo ""
     echo "To restart the bot:"
-    echo "  1. Run: . stop.sh"
-    echo "  2. Then run: . start_bot.sh"
+    echo "  1. Run: ./stop.sh"
+    echo "  2. Then run: ./start_bot.sh"
     return 1 2>/dev/null || exit 1
 fi
 

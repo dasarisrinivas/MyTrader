@@ -55,19 +55,20 @@ echo -e "${YELLOW}⚠️  PAPER TRADING MODE — No real money at risk${NC}"
 echo -e "   IBKR port: ${IBKR_PORT}  (IB Gateway paper)"
 echo ""
 
-# ── Guard: don't start if a paper bot is already running ─────────────
-if pgrep -f "python.*run_bot.py.*--paper\|DEPLOY_ENV=paper.*run_bot.py" > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠️  A paper trading bot is already running!${NC}"
-    echo ""
-    echo "To stop it:  kill \$(cat ${PAPER_BOT_LOG_DIR}/paper_bot.pid)"
+# Prefer the PID file created by this script before pattern matching.
+if [ -f "${PAPER_BOT_LOG_DIR}/paper_bot.pid" ] && kill -0 "$(cat ${PAPER_BOT_LOG_DIR}/paper_bot.pid 2>/dev/null)" 2>/dev/null; then
+    echo -e "${YELLOW}⚠️  Paper bot PID file exists and process is alive.${NC}"
+    echo "   PID: $(cat ${PAPER_BOT_LOG_DIR}/paper_bot.pid)"
+    echo "   Stop it first: ./stop_paper_bot.sh"
     return 1 2>/dev/null || exit 1
 fi
+rm -f "${PAPER_BOT_LOG_DIR}/paper_bot.pid"
 
-# Also guard against a live bot running on the same PID file
-if [ -f "logs/paper_bot.pid" ] && kill -0 "$(cat logs/paper_bot.pid 2>/dev/null)" 2>/dev/null; then
-    echo -e "${YELLOW}⚠️  Paper bot PID file exists and process is alive.${NC}"
-    echo "   PID: $(cat logs/paper_bot.pid)"
-    echo "   Stop it first: kill \$(cat logs/paper_bot.pid)"
+# ── Guard: don't start if a paper bot is already running ─────────────
+if pgrep -f "run_bot.py.*config.paper.yaml|SHREE_CONFIG_FILE=config.paper.yaml.*run_bot.py" > /dev/null 2>&1; then
+    echo -e "${YELLOW}⚠️  A paper trading bot is already running!${NC}"
+    echo ""
+    echo "To stop it:  ./stop_paper_bot.sh"
     return 1 2>/dev/null || exit 1
 fi
 
