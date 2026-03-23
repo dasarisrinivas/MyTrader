@@ -19,3 +19,9 @@ observability:
   prometheus_addr: "0.0.0.0"
   prometheus_port: 8001
   env_label: "paper"
+
+trading:
+  # MAR 23 2026: Keep paper-trading thesis-aware exit behavior aligned with live defaults.
+  ft_thesis_reversal_exit_enabled: true
+  ft_thesis_reversal_arm_profit_pts: 2.0
+  ft_thesis_reversal_arm_stop_fraction: 0.35

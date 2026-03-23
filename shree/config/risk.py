@@ -124,6 +124,11 @@ class TradingConfig:
     min_confidence_for_trade: float = 0.60
     min_stop_distance_ticks: int = 4
 
+    # Thesis-aware continuous exit guard
+    ft_thesis_reversal_exit_enabled: bool = True
+    ft_thesis_reversal_arm_profit_pts: float = 2.0
+    ft_thesis_reversal_arm_stop_fraction: float = 0.35
+
     # Startup entry gating (prevents immediate post-restart entries)
     # 0 disables. These gates should only affect NEW entries; exits remain allowed.
     startup_grace_period_seconds: int = 0

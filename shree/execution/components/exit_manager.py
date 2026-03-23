@@ -51,6 +51,7 @@ class ExitManager:
         self._m = manager
         self._last_pnl_alert_time: Optional[datetime] = None
         self._last_known_qty: int = 0  # tracks flat→open transitions
+        self._thesis_reversal_state: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Convenience accessors (keep method bodies short & readable)
@@ -104,6 +105,7 @@ class ExitManager:
         # Reset P&L alert timer on new position entry (flat → open)
         if self._last_known_qty == 0 and position.quantity != 0:
             self._last_pnl_alert_time = None
+            self._thesis_reversal_state = {}
         self._last_known_qty = position.quantity
 
         price = current_price
@@ -173,12 +175,18 @@ class ExitManager:
 
         if exit_signal:
             active_orders = self.executor.get_active_order_count(sync=True)
-            if active_orders > 0:
+            exit_reason = exit_signal.get("reason") if isinstance(exit_signal, dict) else None
+            if active_orders > 0 and exit_reason != "MAX_HOLD_EXIT":
                 logger.info(
                     "Exit signal detected but {active} active orders are still open; skipping duplicate exit",
                     active=active_orders,
                 )
                 return True
+            if active_orders > 0 and exit_reason == "MAX_HOLD_EXIT":
+                logger.warning(
+                    "⏳ MAX_HOLD_EXIT override: {active} active bracket orders still open; forcing market flatten",
+                    active=active_orders,
+                )
             qty = abs(position.quantity)
             direction = "SHORT" if is_short else "LONG"
             logger.info(f"🔄 Exit signal for {direction} position: {exit_signal}")
@@ -285,6 +293,16 @@ class ExitManager:
             f"📊 Position P&L check -> entry={entry_price:.2f} price={current_price:.2f} "
             f"pnl/ct={pnl_per_contract:.2f} total={total_pnl:.2f}"
         )
+
+        thesis_reversal = self._check_thesis_reversal_exit(
+            qty=qty,
+            current_price=current_price,
+            entry_price=entry_price,
+            total_pnl=total_pnl,
+            contracts=contracts,
+        )
+        if thesis_reversal:
+            return thesis_reversal
 
         # ── Periodic Telegram P&L alert (every 30 min while position open) ──
         telegram = getattr(self._m, "telegram", None)
@@ -687,6 +705,174 @@ class ExitManager:
 
         return None
 
+    def _check_thesis_reversal_exit(
+        self,
+        qty: int,
+        current_price: float,
+        entry_price: float,
+        total_pnl: float,
+        contracts: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Continuously flatten when the original entry thesis becomes invalid.
+
+        This guard should *not* guess based on raw price wobble alone. Instead,
+        it re-checks a small set of conditions implied by the original signal
+        family using stored trade context and current indicators.
+        """
+        _trading_cfg = getattr(getattr(self._m, "settings", None), "trading", None)
+        if not getattr(_trading_cfg, "ft_thesis_reversal_exit_enabled", True):
+            return None
+
+        if qty == 0 or contracts <= 0:
+            return None
+
+        open_ctx = getattr(self._m, "_open_trade_context", None) or {}
+        if not open_ctx:
+            return None
+
+        stop_loss = open_ctx.get("stop_loss")
+        take_profit = open_ctx.get("take_profit")
+        if stop_loss is None or take_profit is None:
+            return None
+
+        try:
+            stop_distance = abs(float(entry_price) - float(stop_loss))
+        except Exception:
+            return None
+        if stop_distance <= 0:
+            return None
+
+        features = open_ctx.get("features") or getattr(self._m, "current_trade_features", {}) or {}
+        signal_type = str(open_ctx.get("signal_type") or open_ctx.get("action") or "").upper()
+        atr_raw = (
+            features.get("atr")
+            or features.get("ATR_14")
+            or (self.price_history[-1].get("ATR_14") if self.price_history else 0.0)
+            or 0.0
+        )
+        try:
+            atr_value = float(atr_raw or 0.0)
+        except Exception:
+            atr_value = 0.0
+
+        adverse_points = max(0.0, (entry_price - current_price) if qty > 0 else (current_price - entry_price))
+        favorable_points = max(0.0, (current_price - entry_price) if qty > 0 else (entry_price - current_price))
+
+        state_key = str(open_ctx.get("cycle_id") or "active")
+        state = self._thesis_reversal_state.setdefault(
+            state_key,
+            {"best_favorable_points": 0.0, "armed": False},
+        )
+        state["best_favorable_points"] = max(float(state.get("best_favorable_points", 0.0)), favorable_points)
+
+        arm_profit_pts = float(getattr(_trading_cfg, "ft_thesis_reversal_arm_profit_pts", 2.0) or 2.0)
+        arm_fraction = float(getattr(_trading_cfg, "ft_thesis_reversal_arm_stop_fraction", 0.35) or 0.35)
+        arm_threshold = max(arm_profit_pts, stop_distance * arm_fraction)
+        if state["best_favorable_points"] >= arm_threshold:
+            state["armed"] = True
+
+        if not state.get("armed"):
+            return None
+
+        invalidation = self._evaluate_thesis_invalidation(
+            signal_type=signal_type,
+            qty=qty,
+            current_price=current_price,
+            entry_price=entry_price,
+            stop_distance=stop_distance,
+            atr_value=atr_value,
+            adverse_points=adverse_points,
+        )
+        if not invalidation:
+            return None
+
+        action = "SELL" if qty > 0 else "BUY"
+        direction = "LONG" if qty > 0 else "SHORT"
+        logger.warning(
+            "🚨 THESIS_REVERSAL_EXIT: {} {} invalidated | reason={} | best_favorable={:.2f}pts "
+            "adverse={:.2f}pts | ATR={:.2f}",
+            direction,
+            signal_type or "UNKNOWN_SIGNAL",
+            invalidation.get("reason"),
+            float(state["best_favorable_points"]),
+            adverse_points,
+            atr_value,
+        )
+        try:
+            log_structured_event(
+                agent="exit_manager",
+                event_type="THESIS_REVERSAL_EXIT",
+                message=f"{direction} thesis invalidated; flattening early",
+                payload={
+                    "signal_type": signal_type,
+                    "entry_price": entry_price,
+                    "current_price": current_price,
+                    "best_favorable_points": float(state["best_favorable_points"]),
+                    "adverse_points": adverse_points,
+                    "atr": atr_value,
+                    "contracts": contracts,
+                    "pnl": total_pnl,
+                    "invalidation": invalidation,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "reason": "THESIS_REVERSAL_EXIT",
+            "action": action,
+            "quantity": contracts,
+            "pnl": total_pnl,
+        }
+
+    def _evaluate_thesis_invalidation(
+        self,
+        signal_type: str,
+        qty: int,
+        current_price: float,
+        entry_price: float,
+        stop_distance: float,
+        atr_value: float,
+        adverse_points: float,
+    ) -> Optional[Dict[str, Any]]:
+        """Return a reason dict when current conditions invalidate the entry thesis."""
+        features = getattr(self._m, "current_trade_features", {}) or {}
+        ema9 = float(features.get("ema_9") or features.get("EMA_9") or 0.0)
+        ema21 = float(features.get("ema_21") or features.get("EMA_21") or 0.0)
+        macd_h = float(features.get("macd_hist") or features.get("MACDhist_12_26_9") or 0.0)
+        adx = float(features.get("adx") or features.get("ADX_14") or 0.0)
+        rsi = float(features.get("rsi") or features.get("RSI_14") or 0.0)
+
+        min_adverse = max(stop_distance * 0.35, 1.5 if atr_value <= 0 else min(atr_value * 0.35, stop_distance * 0.6))
+        if adverse_points < min_adverse:
+            return None
+
+        if "TREND_CONT_LONG" in signal_type:
+            if ema9 and ema21 and ema9 < ema21 and macd_h < 0:
+                return {"reason": "ema9_below_ema21_and_macd_negative", "signal_family": "trend_cont_long"}
+            if adx and adx < 20.0 and macd_h < 0:
+                return {"reason": "trend_strength_lost", "signal_family": "trend_cont_long"}
+
+        if "TREND_CONT_SHORT" in signal_type:
+            if ema9 and ema21 and ema9 > ema21 and macd_h > 0:
+                return {"reason": "ema9_above_ema21_and_macd_positive", "signal_family": "trend_cont_short"}
+            if adx and adx < 20.0 and macd_h > 0:
+                return {"reason": "trend_strength_lost", "signal_family": "trend_cont_short"}
+
+        if "EMA21_PB_LONG" in signal_type or signal_type == "BUY":
+            if ema21 and current_price < ema21 and macd_h < 0:
+                return {"reason": "lost_ema21_support_and_macd_negative", "signal_family": "pullback_long"}
+            if rsi and rsi < 45 and adverse_points >= stop_distance * 0.45:
+                return {"reason": "momentum_failed_after_pullback_long", "signal_family": "pullback_long"}
+
+        if "EMA21_PB_SHORT" in signal_type or signal_type == "SELL":
+            if ema21 and current_price > ema21 and macd_h > 0:
+                return {"reason": "reclaimed_ema21_and_macd_positive", "signal_family": "pullback_short"}
+            if rsi and rsi > 55 and adverse_points >= stop_distance * 0.45:
+                return {"reason": "momentum_failed_after_pullback_short", "signal_family": "pullback_short"}
+
+        return None
+
     # ------------------------------------------------------------------
     # FEB 20 2026: Structural support floor helper
     # ------------------------------------------------------------------
@@ -765,7 +951,7 @@ class ExitManager:
         logger.info("🔄 Executing position exit: {} {} (reason={}, pnl={:.2f})", action, quantity, reason, pnl)
         try:
             # Cancel bracket orders before market exit (prevent SL/TP racing the exit fill)
-            if reason in ("PROFIT_PROTECTION", "SIGNAL_FLIP_EXIT") and self.executor:
+            if reason in ("PROFIT_PROTECTION", "SIGNAL_FLIP_EXIT", "THESIS_REVERSAL_EXIT") and self.executor:
                 try:
                     logger.info("🚫 Cancelling TP bracket order before profit protection exit")
                     await self.executor.cancel_all_orders()
