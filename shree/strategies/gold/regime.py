@@ -106,6 +106,64 @@ class GoldRegimeDetector:
         bull_ema = ema9 > ema21
         bull_vwap = close > vwap
 
+        # ── Phase 2 Gate 1: EMA spread ───────────────────────────────────────
+        # Reject "trending" when the two EMAs are practically on top of each
+        # other — ADX alone can be elevated during choppy expansion.
+        ema_spread_ratio = abs(ema9 - ema21) / close if close > 0 else 0.0
+        if ema_spread_ratio < self._ind.ema_spread_min_ratio:
+            logger.debug(
+                "GoldRegime: RANGING — EMA spread {:.6f} < min {:.6f}",
+                ema_spread_ratio,
+                self._ind.ema_spread_min_ratio,
+            )
+            return GoldRegime.RANGING
+
+        # ── Phase 2 Gate 2: EMA slope ────────────────────────────────────────
+        # The fast EMA must be *moving* in the expected direction.
+        if self._ind.ema_slope_enabled and "ema9_slope" in features.columns:
+            ema9_slope = float(features["ema9_slope"].iloc[-1])
+            if not pd.isna(ema9_slope):
+                min_slope = self._ind.ema_slope_min_per_bar
+                if bull_ema and ema9_slope < min_slope:
+                    logger.debug(
+                        "GoldRegime: RANGING — bull EMA slope {:.4f} < min {:.4f}",
+                        ema9_slope,
+                        min_slope,
+                    )
+                    return GoldRegime.RANGING
+                if not bull_ema and ema9_slope > -min_slope:
+                    logger.debug(
+                        "GoldRegime: RANGING — bear EMA slope {:.4f} > -{:.4f}",
+                        ema9_slope,
+                        min_slope,
+                    )
+                    return GoldRegime.RANGING
+
+        # ── Phase 2 Gate 3: Price structure ──────────────────────────────────
+        # Optional higher-high/higher-low (bull) or lower-high/lower-low (bear)
+        # confirmation over recent bars.  Avoids labelling as trending when
+        # price is actually making counter-trend swings.
+        if self._ind.price_structure_enabled:
+            lb = self._ind.price_structure_lookback_bars
+            if len(features) > lb and lb >= 2:
+                recent = features.iloc[-(lb + 1):]
+                highs_arr = recent["high"].values
+                lows_arr = recent["low"].values
+                if bull_ema:
+                    # Bull: latest high > earliest high AND latest low > earliest low
+                    if highs_arr[-1] <= highs_arr[0] and lows_arr[-1] <= lows_arr[0]:
+                        logger.debug(
+                            "GoldRegime: RANGING — bull but no HH/HL structure"
+                        )
+                        return GoldRegime.RANGING
+                else:
+                    # Bear: latest high < earliest high AND latest low < earliest low
+                    if highs_arr[-1] >= highs_arr[0] and lows_arr[-1] >= lows_arr[0]:
+                        logger.debug(
+                            "GoldRegime: RANGING — bear but no LH/LL structure"
+                        )
+                        return GoldRegime.RANGING
+
         # ── Multi-timeframe confirmation gate (runs before direction return) ─
         if self._ind.mtf_enabled and "htf_adx" in features.columns:
             htf_adx = row.get("htf_adx", np.nan)

@@ -51,6 +51,13 @@ def compute_indicators(df: pd.DataFrame, cfg: "GoldStrategyConfig") -> pd.DataFr
     df["ema9"] = _ema(df["close"], ind.ema_fast)
     df["ema21"] = _ema(df["close"], ind.ema_slow)
 
+    # ── EMA slope (Phase 2) — rate of change of fast EMA per bar ────────────
+    slope_lb = ind.ema_slope_lookback_bars
+    if slope_lb > 0:
+        df["ema9_slope"] = (df["ema9"] - df["ema9"].shift(slope_lb)) / slope_lb
+    else:
+        df["ema9_slope"] = 0.0
+
     # ── ATR (True Range → Wilder smooth) ────────────────────────────────────
     high = df["high"] if "high" in df.columns else df["close"]
     low = df["low"] if "low" in df.columns else df["close"]
@@ -236,7 +243,7 @@ class GoldIntradayStrategy(BaseStrategy):
         """
         if len(raw_features) < self._cfg.indicators.warmup_bars:
             logger.debug(
-                "GoldIntradayStrategy: warming up (%d/%d bars)",
+                "GoldIntradayStrategy: warming up ({}/{} bars)",
                 len(raw_features),
                 self._cfg.indicators.warmup_bars,
             )

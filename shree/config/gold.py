@@ -64,6 +64,17 @@ class GoldIndicatorConfig:
     mtf_adx_min: float = 18.0             # HTF ADX must be ≥ this (slightly looser than 1m)
     mtf_ema_alignment_required: bool = True  # HTF EMA9>EMA21 must agree with 1m regime
 
+    # ── Phase 2: Regime quality gates ─────────────────────────────────────────
+    # EMA spread — reject "trending" label when EMAs are nearly flat / overlapping
+    ema_spread_min_ratio: float = 0.00015  # |ema9 - ema21| / close must exceed this
+    # EMA slope — require the fast EMA to actually be *moving* in the trend direction
+    ema_slope_enabled: bool = True
+    ema_slope_lookback_bars: int = 3       # Slope = (ema9[now] - ema9[now-N]) / N
+    ema_slope_min_per_bar: float = 0.02    # Min absolute slope per bar (points)
+    # Price structure — optional higher-high/higher-low (bull) or lower-high/lower-low (bear)
+    price_structure_enabled: bool = True
+    price_structure_lookback_bars: int = 5  # How many bars back to check swing structure
+
 
 @dataclass
 class GoldEntryConfig:

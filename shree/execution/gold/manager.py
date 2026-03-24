@@ -444,14 +444,14 @@ class GoldTradingManager:
 
         if not sizing.approved:
             logger.info(
-                "GoldTradingManager: entry blocked by risk: %s", sizing.reason
+                "GoldTradingManager: entry blocked by risk: {}", sizing.reason
             )
             return
 
         trade_id = str(uuid.uuid4())[:8]
         logger.info(
-            "GoldTradingManager: ENTRY SIGNAL %s %s × %d — sl=%.2f tp=%.2f "
-            "risk=%.2f conf=%.2f [%s]",
+            "GoldTradingManager: ENTRY SIGNAL {} {} × {} — sl={:.2f} tp={:.2f} "
+            "risk={:.2f} conf={:.2f} [{}]",
             signal.action,
             self._cfg.symbol,
             sizing.contracts,
@@ -508,7 +508,7 @@ class GoldTradingManager:
                 # Only move stop up
                 if new_sl > pos.signal.stop_loss:
                     logger.info(
-                        "GoldTradingManager: trailing stop moved %.2f → %.2f",
+                        "GoldTradingManager: trailing stop moved {:.2f} → {:.2f}",
                         pos.signal.stop_loss,
                         new_sl,
                     )
@@ -523,7 +523,7 @@ class GoldTradingManager:
                 # Only move stop down
                 if new_sl < pos.signal.stop_loss:
                     logger.info(
-                        "GoldTradingManager: trailing stop moved %.2f → %.2f",
+                        "GoldTradingManager: trailing stop moved {:.2f} → {:.2f}",
                         pos.signal.stop_loss,
                         new_sl,
                     )
@@ -557,7 +557,7 @@ class GoldTradingManager:
         reason = "FLATTEN_SESSION" if force else "TIME_STOP"
         current_price = float(df["close"].iloc[-1])
         logger.info(
-            "GoldTradingManager: %s — bars_held=%d price=%.2f",
+            "GoldTradingManager: {} — bars_held={} price={:.2f}",
             reason,
             bars_held,
             current_price,
@@ -623,7 +623,7 @@ class GoldTradingManager:
                 sl_trade.fillEvent += lambda t, f: self._on_sl_fill(t, f)
 
             logger.info(
-                "GoldTradingManager: bracket submitted — entry=%d tp=%d sl=%d",
+                "GoldTradingManager: bracket submitted — entry={} tp={} sl={}",
                 entry_trade.order.orderId,
                 tp_trade.order.orderId,
                 sl_trade.order.orderId,
@@ -677,7 +677,7 @@ class GoldTradingManager:
             return
         self._position.entry_price = fill.execution.price
         logger.info(
-            "GoldTradingManager: ENTRY FILL — %s @ %.2f × %d [%s]",
+            "GoldTradingManager: ENTRY FILL — {} @ {:.2f} × {} [{}]",
             self._position.action,
             fill.execution.price,
             fill.execution.shares,
@@ -688,7 +688,7 @@ class GoldTradingManager:
         if self._position is None:
             return
         logger.info(
-            "GoldTradingManager: TP FILL @ %.2f [%s]",
+            "GoldTradingManager: TP FILL @ {:.2f} [{}]",
             fill.execution.price,
             self._position.trade_id,
         )
@@ -699,7 +699,7 @@ class GoldTradingManager:
         if self._position is None:
             return
         logger.info(
-            "GoldTradingManager: SL FILL @ %.2f [%s]",
+            "GoldTradingManager: SL FILL @ {:.2f} [{}]",
             fill.execution.price,
             self._position.trade_id,
         )
