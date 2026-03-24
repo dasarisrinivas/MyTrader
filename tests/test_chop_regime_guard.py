@@ -222,26 +222,35 @@ class TestChopRegimeGuardBlockAll:
         assert result.signal.metadata["chop_guard"]["block_type"] == "trend_cont"
 
     @pytest.mark.asyncio
-    async def test_allows_or_breakout_in_chop(self):
+    async def test_blocks_or_breakout_in_chop(self):
+        """MAR 24 2026: OR breakouts now blocked in CHOP.
+        Evidence: 5/5 executed OR breakout fills were SL_HIT losers (−$180.87).
+        Breakouts in CHOP are failed breakouts — price crosses OR level but
+        cannot sustain, reverting into the range."""
         manager = _make_stub_manager(hybrid_trend="CHOP")
         engine = MagicMock()
         signal = _make_signal(action="BUY", confidence=0.70, reason="OR_BREAK_LONG | ADX=25 | OR_H=6930.00")
         engine.evaluate.return_value = signal
         proc = _make_processor(manager=manager, engine=engine)
         result = await proc._generate_strategy_first_signal(features=_make_features(), returns=None, current_price=6920.25, structural_metrics=None)
-        assert result.signal.action == "BUY"
-        assert result.signal.confidence > 0.0
+        assert result.signal.action == "HOLD"
+        assert result.signal.confidence == 0.0
+        assert result.filters_passed is False
+        assert result.signal.metadata["chop_guard"]["block_type"] == "or_breakout"
 
     @pytest.mark.asyncio
-    async def test_allows_or_breakdown_short_in_chop(self):
+    async def test_blocks_or_breakdown_short_in_chop(self):
+        """MAR 24 2026: OR breakdowns also blocked in CHOP."""
         manager = _make_stub_manager(hybrid_trend="CHOP")
         engine = MagicMock()
         signal = _make_signal(action="SELL", confidence=0.70, reason="OR_BREAK_SHORT | ADX=25 | OR_L=6900.00")
         engine.evaluate.return_value = signal
         proc = _make_processor(manager=manager, engine=engine)
         result = await proc._generate_strategy_first_signal(features=_make_features(), returns=None, current_price=6920.25, structural_metrics=None)
-        assert result.signal.action == "SELL"
-        assert result.signal.confidence > 0.0
+        assert result.signal.action == "HOLD"
+        assert result.signal.confidence == 0.0
+        assert result.filters_passed is False
+        assert result.signal.metadata["chop_guard"]["block_type"] == "or_breakout"
 
     @pytest.mark.asyncio
     async def test_allows_pullback_in_uptrend(self):
@@ -430,17 +439,21 @@ class TestChopExceptionFramework:
         assert meta["chop_guard"]["block_type"] == "trend_cont"
 
     @pytest.mark.asyncio
-    async def test_exception_preserves_or_breakout_exemption(self):
-        """OR breakout passes regardless of exception flag state."""
-        manager = _make_stub_manager(hybrid_trend="CHOP")
+    async def test_exception_does_not_apply_to_or_breakout(self):
+        """MAR 24 2026: OR breakout in CHOP is blocked even with exception
+        enabled and all gates passing. The 4-gate exception framework is
+        for directional pullbacks, not range-bound breakouts."""
+        manager = _make_stub_manager(hybrid_trend="CHOP", sentiment_bias="BULLISH")
         engine = MagicMock()
-        signal = _make_signal(action="BUY", confidence=0.70, reason="OR_BREAK_LONG | ADX=25 | OR_H=6930.00")
+        signal = _make_signal(action="BUY", confidence=0.75, reason="OR_BREAK_LONG | ADX=28 | OR_H=6930.00")
         engine.evaluate.return_value = signal
         proc = _make_processor(manager=manager, engine=engine)
         with patch.dict(os.environ, {"ENABLE_CHOP_EXCEPTION": "1"}, clear=False):
-            result = await proc._generate_strategy_first_signal(features=_make_features(), returns=None, current_price=6920.25, structural_metrics=None)
-        assert result.signal.action == "BUY"
-        assert result.signal.confidence > 0.0
+            result = await proc._generate_strategy_first_signal(features=_make_features(atr_expanding=True), returns=None, current_price=6920.25, structural_metrics=None)
+        assert result.signal.action == "HOLD"
+        assert result.signal.confidence == 0.0
+        assert result.filters_passed is False
+        assert result.signal.metadata["chop_guard"]["block_type"] == "or_breakout"
 
     @pytest.mark.asyncio
     async def test_exception_bearish_bias_blocks(self):

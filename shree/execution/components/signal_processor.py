@@ -709,22 +709,30 @@ class SignalProcessor:
         # ensures SHORTs only pass with BEARISH sentiment confirmation.
         # Enabled by default in start_bot.sh as of MAR 9.
         #
-        # OR breakout / breakdown signals remain EXEMPT — they capture
-        # range expansion, which can occur in any regime.
+        # MAR 24 2026: Extended to also block OR breakout/breakdown (B/E)
+        # in CHOP. Evidence: 5/5 executed OR breakout fills were SL_HIT losers
+        # (−$180.87 total). Breakouts in CHOP are failed breakouts — price
+        # crosses OR level but cannot sustain, reverting into the range.
+        # Today's B-long in CHOP: −$51.05 (hybrid correctly called CHOP
+        # but the guard didn't block it).
         signal_reason = signal.metadata.get("reason", "") if isinstance(signal.metadata, dict) else ""
         is_pullback_signal = "_PB_" in signal_reason
         is_trend_cont_signal = "TREND_CONT" in signal_reason
+        is_or_breakout_signal = "OR_BREAK" in signal_reason
         hybrid_trend = getattr(m.status, "hybrid_market_trend", None)
 
-        if (is_pullback_signal or is_trend_cont_signal) and hybrid_trend == "CHOP" and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
-            block_type = "pullback" if is_pullback_signal else "trend_cont"
+        if (is_pullback_signal or is_trend_cont_signal or is_or_breakout_signal) and hybrid_trend == "CHOP" and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            block_type = "pullback" if is_pullback_signal else ("trend_cont" if is_trend_cont_signal else "or_breakout")
             is_long = signal.action in ("BUY", "SCALP_BUY")
 
             # ── Check exception framework (OFF by default) ────────
+            # MAR 24 2026: OR breakout/breakdown signals are NOT eligible for
+            # the CHOP exception — the 4-gate framework is designed for
+            # directional pullbacks, not range-bound breakouts.
             chop_exception_enabled = os.environ.get("ENABLE_CHOP_EXCEPTION", "").lower() in ("1", "true", "yes")
             exception_passed = False
 
-            if chop_exception_enabled:
+            if chop_exception_enabled and not is_or_breakout_signal:
                 # MAR 9 2026: Made bidirectional (was LONG-only).
                 # Live data Mar 3-9: 3 SHORT signals in CHOP were all TP_HIT (+$120).
                 # Exception requires ALL 5 gates aligned with signal direction.

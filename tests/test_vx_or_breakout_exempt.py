@@ -273,12 +273,15 @@ class TestVxOrBreakoutExemption:
         assert abs(result.signal.confidence - 0.62) < 0.01
 
     @pytest.mark.asyncio
-    async def test_today_scenario_passes_with_additive_vx(self):
+    async def test_today_scenario_or_breakout_blocked_in_chop(self):
         """Replay 09:45 scenario: OR_BREAK_SHORT, VX=24.5, hybrid oppose.
 
-        Before fix (multiplicative): 0.70 * 0.724 = 0.507 -> -0.10 hybrid = 0.407 -> BLOCKED
-        After additive VX fix:       0.70 + 0.03  = 0.73
-        After Mar 17 tiered hybrid:  0.73 - 0.094 = 0.636 -> still PASSES comfortably
+        Before MAR 24 fix: OR breakout was exempt from CHOP guard.
+        VX additive +0.03 → 0.73, hybrid oppose -0.094 → 0.636. Passed.
+
+        After MAR 24 fix: OR breakouts in CHOP are blocked. Evidence:
+        5/5 executed OR breakout fills were SL_HIT losers (−$180.87).
+        The CHOP guard now correctly blocks this signal.
         """
         manager = _make_stub_manager(hybrid_trend="CHOP")
         manager._use_hybrid_pipeline = True
@@ -313,13 +316,11 @@ class TestVxOrBreakoutExemption:
         )
 
         assert result is not None
-        assert result.signal.action == "SELL"
-        # VX additive +0.03 -> 0.73, then hybrid oppose -0.094 -> 0.636
-        assert result.signal.confidence >= 0.50, (
-            f"Expected conf >= 0.50, got {result.signal.confidence:.3f}. "
-            f"The OR breakout should easily pass threshold with additive VX."
-        )
-        assert abs(result.signal.confidence - 0.636) < 0.01
+        # MAR 24 2026: OR breakout now blocked in CHOP
+        assert result.signal.action == "HOLD"
+        assert result.signal.confidence == 0.0
+        assert result.filters_passed is False
+        assert result.signal.metadata["chop_guard"]["block_type"] == "or_breakout"
 
     @pytest.mark.asyncio
     async def test_pullback_hybrid_oppose_meaningful_conf_gets_full_negative_tier(self):
