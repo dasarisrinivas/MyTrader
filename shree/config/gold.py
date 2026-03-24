@@ -6,7 +6,109 @@ All defaults are conservative (MGC paper-trading safe).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from enum import Enum
+from typing import Dict, List, Optional
+
+
+class GoldSessionBucket(str, Enum):
+    """Named intraday session buckets for Gold futures.
+
+    Each bucket has a distinct liquidity/volatility personality.
+    All boundary times are in ET (America/New_York).
+    """
+
+    OVERNIGHT = "OVERNIGHT"       # 18:00–03:00 ET (Asia session, thinnest liquidity)
+    PRE_COMEX = "PRE_COMEX"       # 03:00–08:20 ET (London session, liquidity building)
+    COMEX_OPEN = "COMEX_OPEN"     # 08:20–10:30 ET (COMEX floor open, peak liquidity)
+    MIDDAY = "MIDDAY"             # 10:30–12:00 ET (lunch chop, reduced aggressiveness)
+    PRE_CLOSE = "PRE_CLOSE"       # 12:00–13:30 ET (winding down, tightest entries)
+    MAINTENANCE = "MAINTENANCE"   # 16:00–17:00 CT (hard block, no trading)
+    UNKNOWN = "UNKNOWN"           # Fallback (pre-session gap between 13:30-18:00 ET)
+
+
+@dataclass
+class GoldSessionBucketConfig:
+    """Per-bucket behavior modifiers (Phase 5).
+
+    Multipliers are applied on top of base config values:
+    - 1.0 = no change
+    - < 1.0 = tighter (e.g. 0.7 = 30% tighter)
+    - > 1.0 = looser
+    - 0.0 = disabled (for boolean-like knobs)
+    """
+
+    # Signal family enable/disable
+    orb_enabled: bool = True            # ORB signals allowed in this bucket
+    pullback_enabled: bool = True       # Pullback signals allowed in this bucket
+
+    # Confidence adjustment (additive, applied after base confidence calc)
+    confidence_offset: float = 0.0      # e.g. -0.10 = reduce confidence by 10%
+
+    # ADX minimum multiplier (applied to entry.adx_trend_min)
+    adx_min_mult: float = 1.0
+
+    # ATR minimum ratio multiplier (applied to entry.atr_min_ratio)
+    atr_min_ratio_mult: float = 1.0
+
+    # Volume minimum multiplier (applied to entry.min_bar_volume)
+    volume_min_mult: float = 1.0
+
+    # Extension guard tightening (applied to pullback_max_vwap/ema_extension_atr)
+    extension_strictness_mult: float = 1.0
+
+
+# ── Default bucket configs ────────────────────────────────────────────────
+# These are the out-of-box defaults per session bucket.  Override in config.yaml
+# under ``session.buckets.<BUCKET_NAME>`` to tune.
+
+def _default_session_buckets() -> Dict[str, GoldSessionBucketConfig]:
+    return {
+        GoldSessionBucket.OVERNIGHT.value: GoldSessionBucketConfig(
+            orb_enabled=False,          # No OR formed yet; ORB meaningless
+            pullback_enabled=True,      # Allow pullbacks but strict
+            confidence_offset=-0.10,    # Lower conviction in thin markets
+            adx_min_mult=1.25,          # Require stronger ADX signal
+            atr_min_ratio_mult=1.5,     # Require higher volatility to trade
+            volume_min_mult=2.0,        # Double the volume floor
+            extension_strictness_mult=0.6,  # 40% tighter extension guards
+        ),
+        GoldSessionBucket.PRE_COMEX.value: GoldSessionBucketConfig(
+            orb_enabled=False,          # OR not formed until COMEX open
+            pullback_enabled=True,      # London pullbacks are valid
+            confidence_offset=-0.05,    # Slight penalty
+            adx_min_mult=1.1,           # Slightly stricter ADX
+            atr_min_ratio_mult=1.2,     # Need some volatility
+            volume_min_mult=1.5,        # Moderate volume floor bump
+            extension_strictness_mult=0.8,  # 20% tighter extension
+        ),
+        GoldSessionBucket.COMEX_OPEN.value: GoldSessionBucketConfig(
+            orb_enabled=True,           # Peak ORB window
+            pullback_enabled=True,      # Full signal menu
+            confidence_offset=0.0,      # No adjustment — base conditions
+            adx_min_mult=1.0,
+            atr_min_ratio_mult=1.0,
+            volume_min_mult=1.0,
+            extension_strictness_mult=1.0,
+        ),
+        GoldSessionBucket.MIDDAY.value: GoldSessionBucketConfig(
+            orb_enabled=True,           # OR still valid, but choppier
+            pullback_enabled=True,
+            confidence_offset=-0.08,    # Reduced conviction in chop zone
+            adx_min_mult=1.2,           # Require more trend strength
+            atr_min_ratio_mult=1.0,
+            volume_min_mult=1.3,        # Need more volume to confirm
+            extension_strictness_mult=0.85,  # Slightly tighter
+        ),
+        GoldSessionBucket.PRE_CLOSE.value: GoldSessionBucketConfig(
+            orb_enabled=False,          # Too late for ORB
+            pullback_enabled=True,      # Only high-conviction pullbacks
+            confidence_offset=-0.12,    # Significant penalty near close
+            adx_min_mult=1.3,           # Must be strongly trending
+            atr_min_ratio_mult=1.0,
+            volume_min_mult=1.5,
+            extension_strictness_mult=0.7,  # 30% tighter
+        ),
+    }
 
 
 @dataclass
@@ -35,6 +137,20 @@ class GoldSessionConfig:
     # Extended / overnight session (6 PM – 8:20 AM ET, Sunday–Friday)
     extended_hours_enabled: bool = False
     extended_session_open_et: str = "18:00"   # COMEX overnight open (6 PM ET)
+
+    # ── Phase 5: Session bucket boundaries (ET) ──────────────────────────────
+    # Customize where each bucket starts.  Order matters: each bucket runs
+    # from its start time to the next bucket's start time.
+    bucket_overnight_start_et: str = "18:00"   # COMEX overnight open
+    bucket_pre_comex_start_et: str = "03:00"   # London open
+    bucket_comex_open_start_et: str = "08:20"  # COMEX floor open
+    bucket_midday_start_et: str = "10:30"      # Post-morning session
+    bucket_pre_close_start_et: str = "12:00"   # Approaching close
+
+    # Per-bucket behavior modifiers (populated from defaults + config overrides)
+    buckets: Dict[str, GoldSessionBucketConfig] = field(
+        default_factory=_default_session_buckets,
+    )
 
 
 @dataclass

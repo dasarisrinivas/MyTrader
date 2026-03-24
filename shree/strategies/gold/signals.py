@@ -25,7 +25,14 @@ from typing import Dict, Optional, Tuple
 
 import pandas as pd
 
-from ...config.gold import GoldEntryConfig, GoldExitConfig, GoldIndicatorConfig, GoldSessionConfig
+from ...config.gold import (
+    GoldEntryConfig,
+    GoldExitConfig,
+    GoldIndicatorConfig,
+    GoldSessionBucket,
+    GoldSessionBucketConfig,
+    GoldSessionConfig,
+)
 from ...utils.logger import logger
 from ...utils.news_calendar import is_in_lockout
 from ...utils.timezone_utils import now_cst
@@ -220,6 +227,18 @@ class GoldSignalGenerator:
         if bar_timestamp is None and isinstance(features.index, pd.DatetimeIndex):
             bar_timestamp = features.index[-1]
 
+        # ── Classify session bucket (Phase 5) ────────────────────────────────
+        bucket = self._classify_session_bucket(bar_timestamp)
+        bucket_cfg = self._get_bucket_config(bucket)
+
+        # UNKNOWN bucket (13:30–18:00 ET gap) — no trading
+        if bucket == GoldSessionBucket.UNKNOWN:
+            return self._hold_signal(
+                regime if regime else GoldRegime.NO_TRADE,
+                "session_bucket_unknown",
+                session_bucket=bucket.value,
+            )
+
         # ── Update session state (OR tracking) ───────────────────────────────
         if bar_timestamp is not None:
             self._update_session_state(features, bar_timestamp)
@@ -274,40 +293,92 @@ class GoldSignalGenerator:
         atr = float(row["atr"])
         vwap = float(row["vwap"])
 
-        # ── Minimum bar volume guard ──────────────────────────────────────────
+        # ── Minimum bar volume guard (session-bucket-adjusted) ─────────────────
         if "volume" in features.columns:
             volume = int(row.get("volume", 0))
-            if volume < self._entry.min_bar_volume:
+            adjusted_min_volume = int(self._entry.min_bar_volume * bucket_cfg.volume_min_mult)
+            if volume < adjusted_min_volume:
                 return self._hold_signal(
                     regime,
                     "bar_volume_below_minimum",
                     volume=volume,
-                    min_bar_volume=self._entry.min_bar_volume,
+                    min_bar_volume=adjusted_min_volume,
+                    session_bucket=bucket.value,
                 )
 
-        # ── Try signals in priority order ─────────────────────────────────────
+        # ── ADX session-bucket gate ────────────────────────────────────────────
+        if "adx" in features.columns:
+            adx_val = float(row.get("adx", 0.0))
+            adjusted_adx_min = self._entry.adx_trend_min * bucket_cfg.adx_min_mult
+            if adx_val < adjusted_adx_min:
+                return self._hold_signal(
+                    regime,
+                    "adx_below_bucket_minimum",
+                    adx=adx_val,
+                    adx_min=adjusted_adx_min,
+                    session_bucket=bucket.value,
+                )
+
+        # ── ATR minimum ratio session-bucket gate ─────────────────────────────
+        if close > 0 and atr > 0:
+            atr_ratio = atr / close
+            adjusted_atr_min = self._entry.atr_min_ratio * bucket_cfg.atr_min_ratio_mult
+            if atr_ratio < adjusted_atr_min:
+                return self._hold_signal(
+                    regime,
+                    "atr_ratio_below_bucket_minimum",
+                    atr_ratio=atr_ratio,
+                    atr_min_ratio=adjusted_atr_min,
+                    session_bucket=bucket.value,
+                )
+
+        # ── Try signals in priority order (session-bucket-aware) ──────────────
+        orb_signal = None
         # 1. ORB (higher conviction when range is clean)
-        if self._entry.orb_enabled and self._or_formed:
-            orb_signal = self._check_orb(features, close, atr, vwap, regime, bar_ts=bar_timestamp)
+        if self._entry.orb_enabled and self._or_formed and bucket_cfg.orb_enabled:
+            orb_signal = self._check_orb(
+                features, close, atr, vwap, regime,
+                bar_ts=bar_timestamp, bucket_cfg=bucket_cfg,
+            )
             if orb_signal.is_actionable:
+                # Apply per-bucket confidence offset
+                orb_signal.confidence = max(0.0, orb_signal.confidence + bucket_cfg.confidence_offset)
+                orb_signal.metadata["session_bucket"] = bucket.value
                 if self._is_same_family_cooldown_blocked(orb_signal):
                     pass  # Fall through to pullback; don't return yet
                 else:
+                    logger.debug(
+                        "GoldSignalGenerator: {} in {} bucket (conf={:.2f})",
+                        orb_signal.signal_type.value, bucket.value, orb_signal.confidence,
+                    )
                     return orb_signal
+        elif self._entry.orb_enabled and self._or_formed and not bucket_cfg.orb_enabled:
+            orb_signal = self._hold_signal(regime, "orb_disabled_in_bucket", session_bucket=bucket.value)
 
         # 2. Pullback setups
-        pb_signal = self._check_pullback(
-            features, close, ema9, ema21, atr, vwap, regime, bar_ts=bar_timestamp
-        )
-        if pb_signal.is_actionable:
-            if self._is_same_family_cooldown_blocked(pb_signal):
-                pass  # Blocked — fall through to HOLD
-            else:
-                return pb_signal
+        if bucket_cfg.pullback_enabled:
+            pb_signal = self._check_pullback(
+                features, close, ema9, ema21, atr, vwap, regime,
+                bar_ts=bar_timestamp, bucket_cfg=bucket_cfg,
+            )
+            if pb_signal.is_actionable:
+                # Apply per-bucket confidence offset
+                pb_signal.confidence = max(0.0, pb_signal.confidence + bucket_cfg.confidence_offset)
+                pb_signal.metadata["session_bucket"] = bucket.value
+                if self._is_same_family_cooldown_blocked(pb_signal):
+                    pass  # Blocked — fall through to HOLD
+                else:
+                    logger.debug(
+                        "GoldSignalGenerator: {} in {} bucket (conf={:.2f})",
+                        pb_signal.signal_type.value, bucket.value, pb_signal.confidence,
+                    )
+                    return pb_signal
+        else:
+            pb_signal = self._hold_signal(regime, "pullback_disabled_in_bucket", session_bucket=bucket.value)
 
-        block_reason = pb_signal.metadata.get("block_reason") or orb_signal.metadata.get("block_reason") if self._entry.orb_enabled and self._or_formed else pb_signal.metadata.get("block_reason")
-        extra = {}
-        if self._entry.orb_enabled and self._or_formed and orb_signal.metadata.get("block_reason"):
+        block_reason = pb_signal.metadata.get("block_reason") or (orb_signal.metadata.get("block_reason") if orb_signal else None)
+        extra = {"session_bucket": bucket.value}
+        if orb_signal and orb_signal.metadata.get("block_reason"):
             extra["orb_block_reason"] = orb_signal.metadata.get("block_reason")
         if pb_signal.metadata.get("block_reason"):
             extra["pullback_block_reason"] = pb_signal.metadata.get("block_reason")
@@ -423,6 +494,69 @@ class GoldSignalGenerator:
         # Extended = after ext_open (e.g. 18:00) OR before rth_open (e.g. 08:20)
         return bar_hm >= ext_open or bar_hm < rth_open
 
+    def _classify_session_bucket(self, bar_ts: Optional[pd.Timestamp]) -> GoldSessionBucket:
+        """Map a bar timestamp to the appropriate session bucket.
+
+        All bucket boundaries are specified in ET. The classification order is:
+        1. OVERNIGHT:  18:00 ET → 03:00 ET  (crosses midnight)
+        2. PRE_COMEX:  03:00 ET → COMEX_OPEN start
+        3. COMEX_OPEN: COMEX open → MIDDAY start
+        4. MIDDAY:     midday start → PRE_CLOSE start
+        5. PRE_CLOSE:  pre-close start → session_close_et
+        6. MAINTENANCE: checked separately (CT-based, handled by caller)
+        7. UNKNOWN:     anything in the gap between close and overnight open
+
+        Returns GoldSessionBucket.COMEX_OPEN as the default if bar_ts is None
+        (most permissive fallback — do not restrict signals when timestamp unknown).
+        """
+        if bar_ts is None:
+            return GoldSessionBucket.COMEX_OPEN
+
+        try:
+            local = bar_ts.tz_convert("America/New_York")
+        except Exception:
+            local = bar_ts
+
+        bar_hm = local.hour * 60 + local.minute
+
+        def _parse_hm(s: str) -> int:
+            parts = s.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+
+        overnight_start = _parse_hm(self._session.bucket_overnight_start_et)
+        pre_comex_start = _parse_hm(self._session.bucket_pre_comex_start_et)
+        comex_open_start = _parse_hm(self._session.bucket_comex_open_start_et)
+        midday_start = _parse_hm(self._session.bucket_midday_start_et)
+        pre_close_start = _parse_hm(self._session.bucket_pre_close_start_et)
+        session_close = _parse_hm(self._session.session_close_et)
+
+        # OVERNIGHT wraps midnight: 18:00+ OR before pre_comex
+        if bar_hm >= overnight_start or bar_hm < pre_comex_start:
+            return GoldSessionBucket.OVERNIGHT
+
+        if bar_hm < comex_open_start:
+            return GoldSessionBucket.PRE_COMEX
+
+        if bar_hm < midday_start:
+            return GoldSessionBucket.COMEX_OPEN
+
+        if bar_hm < pre_close_start:
+            return GoldSessionBucket.MIDDAY
+
+        if bar_hm < session_close:
+            return GoldSessionBucket.PRE_CLOSE
+
+        # After session close but before overnight open (13:30–18:00 ET)
+        return GoldSessionBucket.UNKNOWN
+
+    def _get_bucket_config(self, bucket: GoldSessionBucket) -> GoldSessionBucketConfig:
+        """Return the per-bucket config, falling back to neutral defaults."""
+        cfg = self._session.buckets.get(bucket.value)
+        if cfg is not None:
+            return cfg
+        # MAINTENANCE, UNKNOWN, or missing — return neutral config (all 1.0 / no offset)
+        return GoldSessionBucketConfig()
+
     def _sl_tp(
         self,
         action: str,
@@ -478,6 +612,7 @@ class GoldSignalGenerator:
         vwap: float,
         regime: GoldRegime,
         bar_ts: Optional[pd.Timestamp] = None,
+        bucket_cfg: Optional[GoldSessionBucketConfig] = None,
     ) -> GoldSignal:
         """VWAP or EMA21 pullback signal."""
         row = features.iloc[-1]
@@ -513,12 +648,14 @@ class GoldSignalGenerator:
             touch_band = level * touch_pct
 
             if atr > 0:
-                # Tighten extension thresholds during extended/overnight hours
-                ext_mult = (
-                    self._entry.extended_hours_extension_strictness_mult
-                    if self._is_extended_hours(bar_ts)
-                    else 1.0
-                )
+                # Use per-bucket extension strictness (Phase 5), falling back to
+                # the legacy extended_hours_extension_strictness_mult for backward compat
+                if bucket_cfg is not None:
+                    ext_mult = bucket_cfg.extension_strictness_mult
+                elif self._is_extended_hours(bar_ts):
+                    ext_mult = self._entry.extended_hours_extension_strictness_mult
+                else:
+                    ext_mult = 1.0
                 max_vwap_ext = self._entry.pullback_max_vwap_extension_atr * ext_mult
                 max_ema_ext = self._entry.pullback_max_ema_extension_atr * ext_mult
 
@@ -643,6 +780,7 @@ class GoldSignalGenerator:
         vwap: float,
         regime: GoldRegime,
         bar_ts: Optional[pd.Timestamp] = None,
+        bucket_cfg: Optional[GoldSessionBucketConfig] = None,
     ) -> GoldSignal:
         """Opening range breakout / breakdown signal."""
         if self._or_high is None or self._or_low is None:

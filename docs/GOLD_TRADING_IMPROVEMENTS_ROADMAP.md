@@ -13,7 +13,7 @@ It focuses on improving **entry quality**, **anti-chase behavior**, **regime acc
 | **Phase 2** | ✅ Deployed | EMA spread minimum, EMA slope gate, price structure (HH/HL/LL/LH) confirmation |
 | **Phase 3** | ✅ Deployed | Overnight extension strictness multiplier (0.7×), ORB VWAP extension guard |
 | **Phase 4** | ✅ Deployed | Progress-aware staged time stop (20-bar/0.25R → 40-bar/break-even → 60-bar hard cap), direction-aware cooldowns (same-family 6 bars, opposite 1 bar) |
-| **Phase 5** | ⏳ Pending | Session-aware specialization |
+| **Phase 5** | ✅ Deployed | Session-aware specialization: 5-bucket system (OVERNIGHT/PRE_COMEX/COMEX_OPEN/MIDDAY/PRE_CLOSE) with per-bucket ORB/pullback enable, confidence offset, ADX/ATR/volume multipliers, extension strictness. 52 tests. |
 | **Phase 6** | ⏳ Pending | Walk-forward and regime analysis |
 
 Primary code paths:
@@ -299,33 +299,34 @@ Instead of blocking all entries equally after loss:
 
 ---
 
-## Phase 5 — Session-aware specialization
+## Phase 5 — Session-aware specialization ✅ (Deployed Mar 24 2026)
 
 ### Goal
 Tune signal behavior to Gold’s different intraday personalities.
 
-### Scope
-Files:
-- `shree/config/gold.py`
-- `shree/strategies/gold/strategy.py`
-- `shree/strategies/gold/signals.py`
+### Implementation
 
-Introduce named session buckets:
-- Asia / overnight
-- London / pre-COMEX
-- COMEX open
-- midday
-- pre-close
+**New types** in `shree/config/gold.py`:
+- `GoldSessionBucket` enum: `OVERNIGHT` (18:00–03:00 ET), `PRE_COMEX` (03:00–08:20 ET), `COMEX_OPEN` (08:20–10:30 ET), `MIDDAY` (10:30–12:00 ET), `PRE_CLOSE` (12:00–13:30 ET), `MAINTENANCE`, `UNKNOWN` (13:30–18:00 gap)
+- `GoldSessionBucketConfig` dataclass: per-bucket `orb_enabled`, `pullback_enabled`, `confidence_offset`, `adx_min_mult`, `atr_min_ratio_mult`, `volume_min_mult`, `extension_strictness_mult`
+- `_default_session_buckets()`: factory with tuned defaults per bucket
 
-Potential behavior changes:
-- ORB active only in COMEX open window
-- pullbacks allowed in London and COMEX
-- stricter volume and ATR thresholds overnight
-- reduced aggressiveness in midday chop
+**New methods** in `shree/strategies/gold/signals.py`:
+- `_classify_session_bucket(bar_ts)`: maps bar timestamp to bucket
+- `_get_bucket_config(bucket)`: returns per-bucket config with neutral fallback
 
-### Required tests
-- session routing tests
-- signal enable/disable tests per session bucket
+**Behavior changes**:
+- ORB disabled in OVERNIGHT, PRE_COMEX, PRE_CLOSE (only COMEX_OPEN and MIDDAY)
+- UNKNOWN bucket blocks all signals (post-session gap)
+- Confidence offsets: OVERNIGHT −0.10, PRE_COMEX −0.05, MIDDAY −0.08, PRE_CLOSE −0.12
+- Volume floor multiplied by bucket (OVERNIGHT 2x, PRE_COMEX 1.5x, MIDDAY 1.3x, PRE_CLOSE 1.5x)
+- ADX minimum multiplied by bucket (OVERNIGHT 1.25x, PRE_COMEX 1.1x, MIDDAY 1.2x, PRE_CLOSE 1.3x)
+- ATR ratio minimum multiplied by bucket (OVERNIGHT 1.5x, PRE_COMEX 1.2x)
+- Extension strictness per bucket replaces old binary `_is_extended_hours()` (OVERNIGHT 0.6, PRE_COMEX 0.8, MIDDAY 0.85, PRE_CLOSE 0.7)
+- Session bucket included in signal metadata (`session_bucket` key)
+- All bucket boundaries configurable via `session.bucket_*_start_et` in config.yaml
+
+**Tests**: 52 tests in `tests/gold/test_gold_session_buckets.py`
 
 ### Validation
 - journal analysis by hour bucket
