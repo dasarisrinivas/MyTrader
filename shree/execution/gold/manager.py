@@ -31,6 +31,7 @@ import pandas as pd
 from ib_insync import IB, BarData, Future, LimitOrder, MarketOrder, StopOrder, Trade
 
 from ...config.gold import GoldStrategyConfig
+from ...config.integrations import TelegramConfig
 from ...risk.trade_math import get_contract_spec
 from ...strategies.gold.strategy import GoldIntradayStrategy, compute_indicators
 from ...strategies.gold.signals import GoldSignal
@@ -38,6 +39,7 @@ from ...strategies.gold.regime import GoldRegime
 from ...utils.logger import logger
 from ...utils.timezone_utils import now_cst
 from ...utils.structured_logging import log_structured_event
+from ...utils.telegram_notifier import TelegramNotifier
 from ..order_lock import OrderLockManager
 from .contract import GoldContractFactory
 from .journal import GoldJournal, GoldTradeRecord
@@ -95,7 +97,7 @@ class GoldTradingManager:
         await manager.start()   # Runs until SIGINT / stop()
     """
 
-    def __init__(self, config: GoldStrategyConfig) -> None:
+    def __init__(self, config: GoldStrategyConfig, telegram_cfg: Optional[TelegramConfig] = None) -> None:
         self._cfg = config
         self._spec = get_contract_spec(config.symbol)
         self._strategy = GoldIntradayStrategy(config)
@@ -107,6 +109,20 @@ class GoldTradingManager:
             self._spec,
             effective_max_risk=config.gc_adjusted_risk_usd(),
         )
+
+        # Telegram notifications (optional — reuses MES TelegramNotifier)
+        if telegram_cfg and telegram_cfg.enabled:
+            self._telegram = TelegramNotifier(
+                bot_token=telegram_cfg.bot_token,
+                chat_id=telegram_cfg.chat_id,
+                enabled=True,
+            )
+            self._tg_notify_on_trade = telegram_cfg.notify_on_trade
+            self._tg_notify_on_error = telegram_cfg.notify_on_error
+        else:
+            self._telegram = None
+            self._tg_notify_on_trade = False
+            self._tg_notify_on_error = False
 
         # Runtime state (populated in start())
         self._ib: Optional[IB] = None
@@ -668,6 +684,26 @@ class GoldTradingManager:
 
         # Record exit
         self._record_exit(pos, current_price, reason)
+
+        # Telegram notification for flatten
+        if self._telegram and self._tg_notify_on_trade:
+            entry = pos.entry_price or pos.signal.entry_ref_price
+            pv = self._spec.point_value
+            gross_pnl = ((current_price - entry) * pv * pos.contracts
+                          if pos.action == "BUY"
+                          else (entry - current_price) * pv * pos.contracts)
+            msg = (
+                "⚠️ <b>GOLD POSITION FLATTENED</b> ⚠️\n\n"
+                f"Reason: <b>{reason}</b>\n"
+                f"Symbol: <b>{self._cfg.symbol}</b>\n"
+                f"Side: <b>{pos.action}</b>\n"
+                f"Entry: <b>${entry:.2f}</b>\n"
+                f"Exit: <b>${current_price:.2f}</b>\n"
+                f"Gross P&L: <b>${gross_pnl:+.2f}</b>\n"
+                f"Time: {now_cst().strftime('%Y-%m-%d %H:%M:%S CST')}"
+            )
+            self._telegram.send_message_background(msg)
+
         self._position = None
 
     # ── Fill event handlers ───────────────────────────────────────────────────
@@ -683,28 +719,77 @@ class GoldTradingManager:
             fill.execution.shares,
             self._position.trade_id,
         )
+        # Telegram notification
+        if self._telegram and self._tg_notify_on_trade:
+            pos = self._position
+            msg = TelegramNotifier.format_trade_alert(
+                symbol=self._cfg.symbol,
+                side=pos.action,
+                quantity=pos.contracts,
+                fill_price=fill.execution.price,
+                stop_loss=pos.signal.stop_loss,
+                take_profit=pos.signal.take_profit,
+                session=pos.signal.regime.value if pos.signal.regime else "unknown",
+            )
+            self._telegram.send_message_background(msg)
 
     def _on_tp_fill(self, trade: Trade, fill) -> None:
         if self._position is None:
             return
+        pos = self._position
+        entry = pos.entry_price or pos.signal.entry_ref_price
+        pv = self._spec.point_value
+        gross_pnl = ((fill.execution.price - entry) * pv * pos.contracts
+                      if pos.action == "BUY"
+                      else (entry - fill.execution.price) * pv * pos.contracts)
         logger.info(
             "GoldTradingManager: TP FILL @ {:.2f} [{}]",
             fill.execution.price,
-            self._position.trade_id,
+            pos.trade_id,
         )
-        self._record_exit(self._position, fill.execution.price, "PROFIT_TARGET")
+        # Telegram notification
+        if self._telegram and self._tg_notify_on_trade:
+            msg = (
+                "🎯 <b>GOLD TAKE PROFIT HIT</b> 🎯\n\n"
+                f"Symbol: <b>{self._cfg.symbol}</b>\n"
+                f"Side: <b>{pos.action}</b>\n"
+                f"Entry: <b>${entry:.2f}</b>\n"
+                f"Exit: <b>${fill.execution.price:.2f}</b>\n"
+                f"Gross P&L: <b>${gross_pnl:+.2f}</b>\n"
+                f"Time: {now_cst().strftime('%Y-%m-%d %H:%M:%S CST')}"
+            )
+            self._telegram.send_message_background(msg)
+        self._record_exit(pos, fill.execution.price, "PROFIT_TARGET")
         self._position = None
 
     def _on_sl_fill(self, trade: Trade, fill) -> None:
         if self._position is None:
             return
+        pos = self._position
+        entry = pos.entry_price or pos.signal.entry_ref_price
+        pv = self._spec.point_value
+        gross_pnl = ((fill.execution.price - entry) * pv * pos.contracts
+                      if pos.action == "BUY"
+                      else (entry - fill.execution.price) * pv * pos.contracts)
         logger.info(
             "GoldTradingManager: SL FILL @ {:.2f} [{}]",
             fill.execution.price,
-            self._position.trade_id,
+            pos.trade_id,
         )
+        # Telegram notification
+        if self._telegram and self._tg_notify_on_trade:
+            msg = (
+                "🛑 <b>GOLD STOP LOSS HIT</b> 🛑\n\n"
+                f"Symbol: <b>{self._cfg.symbol}</b>\n"
+                f"Side: <b>{pos.action}</b>\n"
+                f"Entry: <b>${entry:.2f}</b>\n"
+                f"Exit: <b>${fill.execution.price:.2f}</b>\n"
+                f"Gross P&L: <b>${gross_pnl:+.2f}</b>\n"
+                f"Time: {now_cst().strftime('%Y-%m-%d %H:%M:%S CST')}"
+            )
+            self._telegram.send_message_background(msg)
         self._strategy.notify_loss()   # Post-loss bar cooldown
-        self._record_exit(self._position, fill.execution.price, "STOP_LOSS")
+        self._record_exit(pos, fill.execution.price, "STOP_LOSS")
         self._position = None
 
     # ── Outcome recording ─────────────────────────────────────────────────────

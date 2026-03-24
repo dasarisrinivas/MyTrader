@@ -103,7 +103,8 @@ async def main() -> None:
         logger.info("Gold state reset — counters cleared")
 
     # ── Create and run the manager ────────────────────────────────────────────
-    manager = GoldTradingManager(gold_cfg)
+    telegram_cfg = getattr(settings, "telegram", None)
+    manager = GoldTradingManager(gold_cfg, telegram_cfg=telegram_cfg)
 
     loop = asyncio.get_event_loop()
 
