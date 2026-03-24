@@ -4,7 +4,7 @@ Daily trade journal extractor — pulls key stats from live_trading.log
 and stores them in data/trade_journal.db (SQLite).
 
 Usage:
-    python3 scripts/daily_journal.py                    # ingest today
+    python3 scripts/daily_journal.py                    # ingest today (MES)
     python3 scripts/daily_journal.py 2026-03-05         # ingest specific date
     python3 scripts/daily_journal.py 2026-03-06 --week  # ingest last 7 calendar days
     python3 scripts/daily_journal.py --report            # print weekly report from DB
@@ -13,6 +13,13 @@ Usage:
     python3 scripts/daily_journal.py --misses            # list all near-misses
     python3 scripts/daily_journal.py --observations      # list all observations
     python3 scripts/daily_journal.py --gates             # check decision gate metrics
+
+    # Gold-specific commands:
+    python3 scripts/daily_journal.py --gold              # ingest + report today's gold trades
+    python3 scripts/daily_journal.py --gold 2026-03-05   # ingest specific gold date
+    python3 scripts/daily_journal.py --gold --week       # ingest last 7 days of gold trades
+    python3 scripts/daily_journal.py --gold --report     # gold performance report (last 7 days)
+    python3 scripts/daily_journal.py --gold --report 2026-03-01 2026-03-23  # gold report range
 """
 
 import os
@@ -31,9 +38,13 @@ from shree.monitoring.trade_journal_db import (
     insert_near_miss, insert_trade, insert_observation, insert_gate_metric,
     get_weekly_summary, get_blocked_by_reason, get_near_miss_summary,
     get_observations_by_category,
+    upsert_gold_trade, upsert_gold_daily_summary,
+    get_gold_trades, get_gold_summary,
+    get_gold_signal_breakdown, get_gold_exit_breakdown,
 )
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "live_trading.log")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "trade_journal.db")
 
 
 def parse_signal_meta(meta: str) -> dict:
@@ -588,11 +599,281 @@ def print_gates(conn):
     print()
 
 
+# ── Gold journal helpers ──────────────────────────────────────────────────────
+
+GOLD_JOURNAL_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "gold_journal",
+)
+
+
+def ingest_gold_date(target_date: str, conn) -> int:
+    """Read data/gold_journal/{target_date}.jsonl and upsert rows into gold_trades.
+
+    Returns the number of records ingested (0 if the file doesn't exist yet).
+    """
+    fpath = os.path.join(GOLD_JOURNAL_DIR, f"{target_date}.jsonl")
+    if not os.path.exists(fpath):
+        print(f"  ⚠️  No gold journal for {target_date} ({fpath})")
+        return 0
+
+    records = []
+    with open(fpath, "r", encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                records.append(rec)
+            except json.JSONDecodeError as exc:
+                print(f"  ⚠️  gold_journal line {lineno} parse error: {exc}")
+
+    if not records:
+        print(f"  ⚠️  gold_journal {target_date}: empty file")
+        return 0
+
+    wins = losses = 0
+    gross_win = gross_loss = 0.0
+    signal_counts: dict = defaultdict(int)
+    exit_counts: dict = defaultdict(int)
+    hold_bars_list = []
+
+    for rec in records:
+        row = {
+            "trade_id":     rec.get("trade_id", ""),
+            "date":         target_date,
+            "symbol":       rec.get("symbol", "MGC"),
+            "action":       rec.get("action", ""),
+            "signal_type":  rec.get("signal_type", ""),
+            "contracts":    int(rec.get("contracts", 1)),
+            "entry_price":  float(rec.get("entry_price", 0)),
+            "stop_loss":    float(rec.get("stop_loss", 0)),
+            "take_profit":  float(rec.get("take_profit", 0)),
+            "exit_price":   float(rec.get("exit_price", 0)),
+            "realized_pnl": float(rec.get("realized_pnl", 0)),
+            "commission":   float(rec.get("commission", 0)),
+            "net_pnl":      float(rec.get("net_pnl", 0)),
+            "entry_time":   rec.get("entry_time", ""),
+            "exit_time":    rec.get("exit_time", ""),
+            "hold_bars":    rec.get("hold_bars"),
+            "exit_reason":  rec.get("exit_reason", ""),
+            "regime":       rec.get("regime", ""),
+            "atr_at_entry": rec.get("atr_at_entry"),
+            "adx_at_entry": rec.get("adx_at_entry"),
+            "win":          1 if float(rec.get("net_pnl", 0)) > 0 else 0,
+        }
+        upsert_gold_trade(conn, row)
+
+        net = row["net_pnl"]
+        if row["win"]:
+            wins += 1
+            gross_win += net
+        else:
+            losses += 1
+            gross_loss += abs(net)
+
+        # Bucket signal types
+        st = row["signal_type"].upper()
+        if "VWAP" in st:
+            signal_counts["VWAP_PB"] += 1
+        elif "EMA" in st:
+            signal_counts["EMA_PB"] += 1
+        elif "ORB" in st:
+            signal_counts["ORB"] += 1
+
+        exit_counts[row["exit_reason"]] += 1
+        if row["hold_bars"] is not None:
+            hold_bars_list.append(row["hold_bars"])
+
+    total = len(records)
+    net_pnl = round(gross_win - gross_loss, 2)
+    win_rate = round(100.0 * wins / total, 1) if total else 0.0
+    pf = round(gross_win / gross_loss, 2) if gross_loss > 0 else None
+    avg_hold = round(sum(hold_bars_list) / len(hold_bars_list), 1) if hold_bars_list else None
+
+    daily = {
+        "date":           target_date,
+        "symbol":         records[0].get("symbol", "MGC") if records else "MGC",
+        "total_trades":   total,
+        "wins":           wins,
+        "losses":         losses,
+        "win_rate":       win_rate,
+        "gross_pnl":      round(gross_win, 2),
+        "net_pnl":        net_pnl,
+        "profit_factor":  pf,
+        "avg_win":        round(gross_win / wins, 2) if wins else None,
+        "avg_loss":       round(-gross_loss / losses, 2) if losses else None,
+        "avg_hold_bars":  avg_hold,
+        "signal_vwap_pb": signal_counts.get("VWAP_PB", 0),
+        "signal_ema_pb":  signal_counts.get("EMA_PB", 0),
+        "signal_orb":     signal_counts.get("ORB", 0),
+        "exit_tp":        exit_counts.get("PROFIT_TARGET", 0),
+        "exit_sl":        exit_counts.get("STOP_LOSS", 0),
+        "exit_time":      exit_counts.get("TIME_STOP", 0),
+        "exit_flatten":   exit_counts.get("FLATTEN_SESSION", exit_counts.get("FLATTEN_SHUTDOWN", 0)),
+    }
+    upsert_gold_daily_summary(conn, daily)
+    conn.commit()
+
+    print(
+        f"  ✅ Gold {target_date}: {total} trades "
+        f"(W={wins} L={losses} WR={win_rate:.0f}%) "
+        f"net=${net_pnl:.2f} PF={pf}"
+    )
+    return total
+
+
+def print_gold_report(conn, start_date: str, end_date: str) -> None:
+    """Print a formatted gold performance report from the DB."""
+    print(f"\n{'='*70}")
+    print(f"  GOLD FUTURES REPORT: {start_date} → {end_date}")
+    print(f"{'='*70}\n")
+
+    summ = get_gold_summary(conn, start_date, end_date)
+    if not summ:
+        print("  No gold trades found in this date range.\n")
+        return
+
+    pf_str = f"{summ['profit_factor']:.2f}" if summ.get("profit_factor") else "—"
+    print(f"📊 OVERVIEW ({summ.get('trading_days', 0)} trading days)")
+    print(f"   Total trades:    {summ['total_trades']}")
+    print(f"   Wins / Losses:   {summ['wins']}W / {summ['losses']}L  "
+          f"({summ.get('win_rate_pct', 0):.1f}% WR)")
+    print(f"   Net P&L:         ${summ['net_pnl']:.2f}")
+    print(f"   Profit Factor:   {pf_str}")
+    print(f"   Avg Win:         ${summ.get('avg_win') or 0:.2f}")
+    print(f"   Avg Loss:        ${summ.get('avg_loss') or 0:.2f}")
+    print(f"   Avg Hold (bars): {summ.get('avg_hold_bars') or '—'}")
+    print()
+
+    # Signal type breakdown
+    sig_rows = get_gold_signal_breakdown(conn, start_date, end_date)
+    if sig_rows:
+        print(f"📈 SIGNAL BREAKDOWN")
+        print(f"   {'Signal Type':<22} {'N':>4} {'W':>4} {'WR%':>6} {'Net P&L':>10} {'Avg':>8}")
+        print(f"   {'─'*22} {'─'*4} {'─'*4} {'─'*6} {'─'*10} {'─'*8}")
+        for r in sig_rows:
+            print(
+                f"   {r['signal_type']:<22} {r['total']:>4} {r['wins']:>4} "
+                f"{r.get('win_rate_pct', 0):>5.1f}% "
+                f"${r['net_pnl']:>9.2f} ${r['avg_pnl']:>7.2f}"
+            )
+        print()
+
+    # Exit reason breakdown
+    exit_rows = get_gold_exit_breakdown(conn, start_date, end_date)
+    if exit_rows:
+        print(f"🚪 EXIT BREAKDOWN")
+        print(f"   {'Exit Reason':<22} {'N':>4} {'Net P&L':>10} {'Avg':>8}")
+        print(f"   {'─'*22} {'─'*4} {'─'*10} {'─'*8}")
+        for r in exit_rows:
+            print(
+                f"   {r['exit_reason']:<22} {r['total']:>4} "
+                f"${r['net_pnl']:>9.2f} ${r['avg_pnl']:>7.2f}"
+            )
+        print()
+
+    # Daily detail
+    rows = conn.execute(
+        """
+        SELECT * FROM gold_daily_summary
+        WHERE date BETWEEN ? AND ?
+        ORDER BY date
+        """,
+        (start_date, end_date),
+    ).fetchall()
+    if rows:
+        print(f"📅 DAILY DETAIL")
+        print(
+            f"   {'Date':<12} {'Sym':<5} {'N':>3} "
+            f"{'W':>3} {'L':>3} {'WR%':>5} {'PF':>6} {'Net P&L':>10}"
+        )
+        print(
+            f"   {'─'*12} {'─'*5} {'─'*3} "
+            f"{'─'*3} {'─'*3} {'─'*5} {'─'*6} {'─'*10}"
+        )
+        for r in rows:
+            pf_d = f"{r['profit_factor']:.2f}" if r["profit_factor"] else "—"
+            print(
+                f"   {r['date']:<12} {r['symbol']:<5} {r['total_trades']:>3} "
+                f"{r['wins']:>3} {r['losses']:>3} "
+                f"{r['win_rate']:>4.0f}% {pf_d:>6} ${r['net_pnl']:>9.2f}"
+            )
+        print()
+
+    # Individual trades (verbose — only shown for ≤ 5 days)
+    if (end_date and start_date and
+            (datetime.strptime(end_date, "%Y-%m-%d") -
+             datetime.strptime(start_date, "%Y-%m-%d")).days <= 4):
+        trades = get_gold_trades(conn, start_date, end_date)
+        if trades:
+            print(f"📋 TRADE LIST ({len(trades)} trades)")
+            print(
+                f"   {'ID':<10} {'Date':<11} {'Dir':<5} {'Signal':<22} "
+                f"{'Entry':>8} {'Exit':>8} {'SL':>8} {'TP':>8} "
+                f"{'Net P&L':>9} {'Bars':>5} {'Exit Reason':<18}"
+            )
+            print(f"   {'─'*10} {'─'*11} {'─'*5} {'─'*22} "
+                  f"{'─'*8} {'─'*8} {'─'*8} {'─'*8} {'─'*9} {'─'*5} {'─'*18}")
+            for t in trades:
+                win_mark = "✅" if t["win"] else "❌"
+                print(
+                    f"   {t['trade_id']:<10} {t['date']:<11} {t['action']:<5} "
+                    f"{t['signal_type']:<22} "
+                    f"{t['entry_price']:>8.2f} {t['exit_price']:>8.2f} "
+                    f"{t['stop_loss']:>8.2f} {t['take_profit']:>8.2f} "
+                    f"${t['net_pnl']:>8.2f} {t['hold_bars'] or '?':>5} "
+                    f"{t['exit_reason']:<18} {win_mark}"
+                )
+            print()
+
+
 def main():
-    init_db()
-    conn = get_connection()
+    init_db(DB_PATH)
+    conn = get_connection(DB_PATH)
 
     args = sys.argv[1:]
+
+    # ── Gold mode — completely separate ingest/report path ────────────────────
+    if "--gold" in args:
+        gold_args = [a for a in args if a != "--gold"]
+
+        if "--report" in gold_args:
+            report_args = [a for a in gold_args if a != "--report"]
+            if len(report_args) >= 2:
+                start_date, end_date = report_args[0], report_args[1]
+            else:
+                end_date = datetime.now().strftime("%Y-%m-%d")
+                start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            print_gold_report(conn, start_date, end_date)
+            conn.close()
+            return
+
+        # Ingest mode
+        target_date = None
+        for a in gold_args:
+            if not a.startswith("--"):
+                target_date = a
+                break
+        if not target_date:
+            target_date = datetime.now().strftime("%Y-%m-%d")
+
+        is_week = "--week" in gold_args
+        print(f"\n📥 Ingesting Gold journal data from {GOLD_JOURNAL_DIR} ...")
+        if is_week:
+            base = datetime.strptime(target_date, "%Y-%m-%d")
+            for i in range(6, -1, -1):
+                d = base - timedelta(days=i)
+                if d.weekday() < 5:
+                    ingest_gold_date(d.strftime("%Y-%m-%d"), conn)
+        else:
+            ingest_gold_date(target_date, conn)
+
+        conn.close()
+        print(f"\n✅ Done. View with:")
+        print(f"   python3 scripts/daily_journal.py --gold --report")
+        return
 
     # Report / query modes
     if "--report" in args:

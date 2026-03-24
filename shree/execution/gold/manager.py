@@ -52,6 +52,8 @@ _LOOP_INTERVAL_SECONDS = 5
 # How often to log heartbeat when idle
 _HEARTBEAT_LOG_INTERVAL_BARS = 12   # ~1 minute on 5s loop
 _IDLE_DIAGNOSTIC_LOG_INTERVAL_BARS = 12
+_BAR_WATCHDOG_WARN_SECONDS = 20
+_HISTORICAL_POLL_LOOKBACK = "30 M"
 
 
 class _OpenPosition:
@@ -118,6 +120,8 @@ class GoldTradingManager:
         self._bar_counter: int = 0
         self._last_bar_minute: Optional[int] = None
         self._bar_list = None                  # RealTimeBarList from reqRealTimeBars
+        self._last_realtime_bar_at: Optional[datetime] = None
+        self._last_processed_bar_time: Optional[pd.Timestamp] = None
 
         # Active position tracking
         self._position: Optional[_OpenPosition] = None
@@ -187,6 +191,7 @@ class GoldTradingManager:
         try:
             while self._running and not self._shutdown_event.is_set():
                 await asyncio.sleep(_LOOP_INTERVAL_SECONDS)
+                await self._check_realtime_bar_watchdog()
                 await self._maintenance_guard()
         except asyncio.CancelledError:
             logger.info("GoldTradingManager: loop cancelled")
@@ -211,6 +216,7 @@ class GoldTradingManager:
             bar_dt = bar.time if bar.time.tzinfo else bar.time.replace(tzinfo=timezone.utc)
         else:
             bar_dt = datetime.fromtimestamp(bar.time, tz=timezone.utc)
+        self._last_realtime_bar_at = datetime.now(timezone.utc)
         current_minute = bar_dt.minute
 
         # Accumulate raw bar data for 1-min aggregation
@@ -234,6 +240,123 @@ class GoldTradingManager:
             asyncio.ensure_future(self._on_minute_close(bar_dt))
         self._last_bar_minute = current_minute
 
+    async def _check_realtime_bar_watchdog(self) -> None:
+        """Warn when the real-time bar subscription has gone quiet and fall back to polling."""
+        if not self._running:
+            return
+        if self._last_realtime_bar_at is None:
+            logger.warning(
+                "GoldTradingManager: no realtime bars received yet after loop start — waiting on IB data"
+            )
+            await self._poll_recent_1min_bar()
+            return
+        age = (datetime.now(timezone.utc) - self._last_realtime_bar_at).total_seconds()
+        if age >= _BAR_WATCHDOG_WARN_SECONDS:
+            logger.warning(
+                "GoldTradingManager: realtime bar feed quiet for %.0fs — waiting on IB data/subscription",
+                age,
+            )
+            await self._poll_recent_1min_bar()
+
+    async def _poll_recent_1min_bar(self) -> None:
+        """Fallback path: fetch recent 1-minute bars when realtime bars are unavailable."""
+        if self._ib is None or self._contract is None or not self._ib.isConnected():
+            return
+
+        try:
+            loop: Optional[asyncio.AbstractEventLoop]
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if hasattr(self._ib, "reqHistoricalDataAsync"):
+                bars = await self._ib.reqHistoricalDataAsync(
+                    self._contract,
+                    endDateTime="",
+                    durationStr=_HISTORICAL_POLL_LOOKBACK,
+                    barSizeSetting="1 min",
+                    whatToShow="TRADES",
+                    useRTH=False,
+                    formatDate=2,
+                    keepUpToDate=False,
+                    timeout=10,
+                )
+            elif loop is not None:
+                bars = await loop.run_in_executor(
+                    None,
+                    lambda: self._ib.reqHistoricalData(
+                        self._contract,
+                        endDateTime="",
+                        durationStr=_HISTORICAL_POLL_LOOKBACK,
+                        barSizeSetting="1 min",
+                        whatToShow="TRADES",
+                        useRTH=False,
+                        formatDate=2,
+                        keepUpToDate=False,
+                        timeout=10,
+                    ),
+                )
+            else:
+                bars = self._ib.reqHistoricalData(
+                    self._contract,
+                    endDateTime="",
+                    durationStr=_HISTORICAL_POLL_LOOKBACK,
+                    barSizeSetting="1 min",
+                    whatToShow="TRADES",
+                    useRTH=False,
+                    formatDate=2,
+                    keepUpToDate=False,
+                    timeout=10,
+                )
+        except Exception as exc:
+            logger.warning("GoldTradingManager: fallback historical poll failed: {}", exc)
+            return
+
+        if not bars or len(bars) < 2:
+            return
+
+        records = []
+        for bar in bars:
+            bar_time = bar.date
+            if isinstance(bar_time, datetime):
+                bar_dt = bar_time if bar_time.tzinfo else bar_time.replace(tzinfo=timezone.utc)
+            else:
+                bar_dt = pd.to_datetime(bar_time, utc=True).to_pydatetime()
+            records.append(
+                {
+                    "time": bar_dt,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                }
+            )
+
+        df = pd.DataFrame(records)
+        if df.empty:
+            return
+        df["time"] = pd.to_datetime(df["time"], utc=True)
+        df = df.set_index("time").sort_index()
+
+        completed_bar_time = df.index[-2]
+        if self._last_processed_bar_time is not None and completed_bar_time <= self._last_processed_bar_time:
+            logger.info(
+                "GoldTradingManager: fallback poll saw no new completed bar (latest={})",
+                completed_bar_time.isoformat(),
+            )
+            return
+
+        self._last_processed_bar_time = completed_bar_time
+        self._last_realtime_bar_at = datetime.now(timezone.utc)
+
+        logger.info(
+            "GoldTradingManager: using historical polling fallback for bar {}",
+            completed_bar_time.isoformat(),
+        )
+        await self._on_minute_close(completed_bar_time.to_pydatetime())
+
     def _on_ib_error(self, reqId: int, errorCode: int, errorString: str, contract) -> None:
         """Log IB error/warning events so silent subscription failures are visible."""
         if errorCode in (2104, 2106, 2158, 2119):
@@ -248,6 +371,15 @@ class GoldTradingManager:
         """Called when a 1-minute bar has just closed."""
         self._bar_counter += 1
 
+        df_preview = self._build_1min_df()
+        if df_preview is not None and len(df_preview) > 0:
+            logger.info(
+                "GoldTradingManager: processed minute bar ts={} close={:.2f} in_pos={}",
+                df_preview.index[-1].isoformat(),
+                float(df_preview["close"].iloc[-1]),
+                self._position is not None,
+            )
+
         # Heartbeat
         if self._bar_counter % _HEARTBEAT_LOG_INTERVAL_BARS == 0:
             pnl = self._day_state.realized_pnl_today
@@ -259,7 +391,7 @@ class GoldTradingManager:
             )
 
         # Build 1-min OHLCV DataFrame from raw bars
-        df = self._build_1min_df()
+        df = df_preview if df_preview is not None else self._build_1min_df()
         if df is None or len(df) < 2:
             return
 
@@ -724,6 +856,8 @@ class GoldTradingManager:
             return None
 
         ohlcv = ohlcv.dropna(subset=["close"])
+        if len(ohlcv) > 0:
+            self._last_processed_bar_time = ohlcv.index[-1]
         return ohlcv
 
     # ── Reconciliation ────────────────────────────────────────────────────────

@@ -507,6 +507,7 @@ sqlite3 data/trade_journal.db                          # Raw SQL queries on jour
 
 ## Critical Safety Rules
 
+- **Runtime selection / restart rule:** During **RTH**, the authoritative runtime is the **live bot** (`./start_bot.sh` / `./stop.sh`). Outside RTH (overnight, evening, premarket), the authoritative runtime is the **paper bot** (`./start_paper_bot.sh` / `./stop_paper_bot.sh`). When the user says "restart the bot" without specifying live vs paper, infer it from session: **RTH → live**, **non-RTH → paper**. If both are running, avoid restarting the wrong one.
 - **Max 1 contract** for automated MES trading — enforced at config validation, `RiskGate`, and executor level.
 - **CME maintenance window 4–5 PM CT** — hard block on all entries. Respect `avoid_close_window_minutes` (20 min) before maintenance.
 - **Cooldowns are layered:** base 10min → loss 20min → consecutive-loss 45min. See `CooldownManager` in `shree/execution/components/cooldown_manager.py`.

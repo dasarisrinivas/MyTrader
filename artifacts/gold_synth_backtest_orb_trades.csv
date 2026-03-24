@@ -1,0 +1,2 @@
+trade_id,date,action,signal_type,contracts,entry_price,stop_loss,take_profit,exit_price,exit_reason,gross_pnl,net_pnl,hold_bars,atr,regime,win
+1,2026-01-16,BUY,VWAP_PB_LONG,2,2364.14,2362.0,2367.6,2367.6,PROFIT_TARGET,69.2,66.8,17,1.3800000000000248,TRENDING_BULL,True

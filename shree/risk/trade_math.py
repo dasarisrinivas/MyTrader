@@ -36,6 +36,23 @@ _KNOWN_SPECS: Dict[str, ContractSpec] = {
         min_take_profit_points_live=0.25,
         live_commission_per_side=2.25,
     ),
+    # ── COMEX Gold Futures ────────────────────────────────────────────────────
+    # GC: 100 troy oz; 1 point = $1/oz × 100 oz = $100; tick = $0.10/oz = $10
+    "GC": ContractSpec(
+        root_symbol="GC",
+        point_value=100.0,
+        tick_size=0.10,
+        min_take_profit_points_live=0.50,   # $50 minimum target
+        live_commission_per_side=2.25,
+    ),
+    # MGC: 10 troy oz (Micro Gold); 1 point = $1/oz × 10 oz = $10; tick = $0.10/oz = $1
+    "MGC": ContractSpec(
+        root_symbol="MGC",
+        point_value=10.0,
+        tick_size=0.10,
+        min_take_profit_points_live=0.50,   # $5 minimum target
+        live_commission_per_side=0.60,
+    ),
 }
 
 
@@ -50,11 +67,12 @@ class ExpectedOutcome:
 
 
 def normalize_symbol(symbol: str | None) -> str:
-    """Reduce contract codes like MESH6 → MES for lookup."""
+    """Reduce contract codes like MESH6 → MES, GCMH6 → GC for lookup."""
     if not symbol:
         return ""
     symbol = symbol.upper()
-    for known in _KNOWN_SPECS:
+    # Longer prefixes first to avoid MGC matching as MG (hypothetical)
+    for known in sorted(_KNOWN_SPECS, key=len, reverse=True):
         if symbol.startswith(known):
             return known
     return symbol

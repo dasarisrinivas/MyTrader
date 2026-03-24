@@ -36,6 +36,7 @@ from .integrations import (  # noqa: F401
     TelegramConfig,
 )
 from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig, DynamicSupportConfig  # noqa: F401
+from .gold import GoldStrategyConfig  # noqa: F401
 from .settings import Settings  # noqa: F401
 
 __all__ = [
@@ -61,5 +62,6 @@ __all__ = [
     "FeatureFlagsConfig",
     "ObservabilityConfig",
     "DynamicSupportConfig",
+    "GoldStrategyConfig",
     "Settings",
 ]

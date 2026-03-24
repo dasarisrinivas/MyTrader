@@ -25,6 +25,7 @@ from .integrations import (
     TelegramConfig,
 )
 from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig, DynamicSupportConfig
+from .gold import GoldStrategyConfig
 
 @dataclass
 class Settings:
@@ -47,6 +48,7 @@ class Settings:
     features: FeatureFlagsConfig = field(default_factory=FeatureFlagsConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     dynamic_support: DynamicSupportConfig = field(default_factory=DynamicSupportConfig)
+    gold: GoldStrategyConfig = field(default_factory=GoldStrategyConfig)
 
     def validate(self) -> None:
         import logging

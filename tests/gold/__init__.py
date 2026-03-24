@@ -1,0 +1,1 @@
+# Gold strategy test package

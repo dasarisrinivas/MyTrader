@@ -1,7 +1,7 @@
 {
-  "consecutive_loss_count": 5,
-  "extra_cooldown_until": "2026-03-17T09:40:43.204849+00:00",
-  "realized_pnl_today": -55.0,
-  "last_trade_date": "2026-03-17",
-  "written_at": "2026-03-17T09:10:43.205020+00:00"
+  "consecutive_loss_count": 0,
+  "extra_cooldown_until": null,
+  "realized_pnl_today": 68.75,
+  "last_trade_date": "2026-03-23",
+  "written_at": "2026-03-23T14:02:58.401784+00:00"
 }
