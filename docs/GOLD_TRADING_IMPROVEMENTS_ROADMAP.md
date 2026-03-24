@@ -5,6 +5,17 @@
 This roadmap turns the current Gold bot review into an ordered implementation plan.
 It focuses on improving **entry quality**, **anti-chase behavior**, **regime accuracy**, and **safe rollout** without overcomplicating the strategy too early.
 
+## Deployment Status (Mar 24 2026)
+
+| Phase | Status | Key Features |
+|---|---|---|
+| **Phase 1** | ✅ Deployed | Pullback reclaim/body/direction confirmation, ORB breakout threshold + volume + candle size guards, anti-chase VWAP/EMA extension guards |
+| **Phase 2** | ✅ Deployed | EMA spread minimum, EMA slope gate, price structure (HH/HL/LL/LH) confirmation |
+| **Phase 3** | ✅ Deployed | Overnight extension strictness multiplier (0.7×), ORB VWAP extension guard |
+| **Phase 4** | ✅ Deployed | Progress-aware staged time stop (20-bar/0.25R → 40-bar/break-even → 60-bar hard cap), direction-aware cooldowns (same-family 6 bars, opposite 1 bar) |
+| **Phase 5** | ⏳ Pending | Session-aware specialization |
+| **Phase 6** | ⏳ Pending | Walk-forward and regime analysis |
+
 Primary code paths:
 - `shree/strategies/gold/strategy.py`
 - `shree/strategies/gold/signals.py`
@@ -86,7 +97,7 @@ Later improvements should make:
 
 ---
 
-## Phase 1 — High-value, low-risk entry quality upgrades
+## Phase 1 — High-value, low-risk entry quality upgrades ✅ (Deployed Mar 24 2026)
 
 ### Goal
 Reduce weak entries without changing overall architecture.
@@ -153,7 +164,7 @@ Suggested config additions:
 
 ---
 
-## Phase 2 — Regime quality improvements
+## Phase 2 — Regime quality improvements ✅ (Deployed Mar 24 2026)
 
 ### Goal
 Improve market state labeling so entries only fire in stronger contexts.
@@ -207,7 +218,7 @@ This should only be done if Phase 1 and 2A prove useful and manageable.
 
 ---
 
-## Phase 3 — Anti-chase and stretched-market protection
+## Phase 3 — Anti-chase and stretched-market protection ✅ (Deployed Mar 24 2026)
 
 ### Goal
 Block entries taken too far from fair value or after overextended moves.
@@ -243,7 +254,7 @@ Suggested config additions:
 
 ---
 
-## Phase 4 — Smarter time-stop and trade management
+## Phase 4 — Smarter time-stop and trade management ✅ (Deployed Mar 24 2026)
 
 ### Goal
 Exit dead trades earlier without interfering with valid runners.

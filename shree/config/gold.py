@@ -105,6 +105,11 @@ class GoldEntryConfig:
     pullback_max_vwap_extension_atr: float = 1.5   # Block pullbacks too far from VWAP
     pullback_max_ema_extension_atr: float = 1.25   # Block pullbacks too far from EMA21
 
+    # Overnight / extended-hours strictness multiplier for extension guards.
+    # Values < 1.0 tighten thresholds (e.g. 0.7 reduces max extension by 30%).
+    # Set to 1.0 to disable overnight tightening.
+    extended_hours_extension_strictness_mult: float = 0.7
+
     # Opening range breakout — minimum OR size to qualify
     orb_enabled: bool = True
     orb_min_range_ratio: float = 0.001   # OR range / price ≥ 0.1%
@@ -113,12 +118,20 @@ class GoldEntryConfig:
     orb_volume_min_multiple: float = 1.20
     orb_max_breakout_candle_atr: float = 1.25
     orb_max_extension_atr: float = 0.75
+    orb_max_vwap_extension_atr: float = 1.5   # Block ORB when price too far from VWAP
 
     # Minimum bar volume (skip zero-range / no-data bars)
     min_bar_volume: int = 5
 
     # Block same-direction entries for N bars after a stop-loss exit
     post_loss_cooldown_bars: int = 3
+
+    # Direction-aware cooldown: after a loss, block the *same* signal family
+    # for a longer cooldown while allowing opposite-direction entries sooner.
+    # "Same family" = same signal type prefix (VWAP_PB, EMA_PB, ORB).
+    # Set to 0 to disable direction-aware logic (falls back to uniform cooldown).
+    post_loss_same_family_cooldown_bars: int = 6  # Longer cooldown for revenge trades
+    post_loss_opposite_cooldown_bars: int = 1      # Minimal cooldown for opposite direction
 
 
 @dataclass
@@ -140,7 +153,15 @@ class GoldExitConfig:
 
     # Time stop — exit if no meaningful progress within N bars
     time_stop_enabled: bool = True
-    time_stop_bars: int = 60            # 60 min on 1-min bars; 0 = disabled
+    time_stop_bars: int = 60            # 60 min on 1-min bars; 0 = disabled (hard cap)
+
+    # Progress-aware staged time stop (evaluated before the hard time_stop_bars cap)
+    # Stage 1: after N bars, require at least X×R unrealized progress or exit
+    time_stop_stage_1_bars: int = 20
+    time_stop_stage_1_min_progress_r: float = 0.25  # 0.25R = 25% of SL distance
+    # Stage 2: after M bars, require break-even or better
+    time_stop_stage_2_bars: int = 40
+    time_stop_stage_2_min_progress_r: float = 0.0   # 0.0R = break-even
 
     # End-of-session flatten — hard close before maintenance
     # (uses GoldSessionConfig.flatten_before_close_minutes)

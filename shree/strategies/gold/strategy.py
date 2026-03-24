@@ -285,9 +285,9 @@ class GoldIntradayStrategy(BaseStrategy):
 
         return signal
 
-    def notify_loss(self) -> None:
+    def notify_loss(self, signal_type=None, direction=None) -> None:
         """Propagate a stop-loss outcome to the signal generator."""
-        self._signal_gen.notify_loss()
+        self._signal_gen.notify_loss(signal_type=signal_type, direction=direction)
 
     # ── Session helpers ───────────────────────────────────────────────────────
 

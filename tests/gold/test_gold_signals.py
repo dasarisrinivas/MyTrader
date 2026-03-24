@@ -438,7 +438,7 @@ class TestORB:
             start="2026-01-15 10:00",
         )
         df["volume"] = [100] * 24 + [50]
-        sig = gen._check_orb(df, 2361.2, 8.0, GoldRegime.TRENDING_BULL)
+        sig = gen._check_orb(df, 2361.2, 8.0, 2349.0, GoldRegime.TRENDING_BULL)
         assert sig.action == "HOLD"
         assert sig.metadata["block_reason"] == "orb_volume_below_threshold"
 
@@ -477,7 +477,7 @@ class TestORB:
             start="2026-01-15 10:00",
         )
         df["volume"] = [100] * 24 + [500]
-        sig = gen._check_orb(df, 2363.0, 8.0, GoldRegime.TRENDING_BULL)
+        sig = gen._check_orb(df, 2363.0, 8.0, 2349.0, GoldRegime.TRENDING_BULL)
         assert sig.action == "HOLD"
         assert sig.metadata["block_reason"] == "orb_breakout_candle_too_large"
 
@@ -516,7 +516,7 @@ class TestORB:
             start="2026-01-15 10:00",
         )
         df["volume"] = [100] * 24 + [500]
-        sig = gen._check_orb(df, 2368.0, 8.0, GoldRegime.TRENDING_BULL)
+        sig = gen._check_orb(df, 2368.0, 8.0, 2349.0, GoldRegime.TRENDING_BULL)
         assert sig.action == "HOLD"
         assert sig.metadata["block_reason"] == "orb_extension_too_large"
 

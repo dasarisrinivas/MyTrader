@@ -559,7 +559,15 @@ class GoldTradingManager:
         bar_dt: datetime,
         force: bool = False,
     ) -> None:
-        """Exit if the position has been open too long without progress."""
+        """Exit if the position has been open too long without sufficient progress.
+
+        Three-stage evaluation (in order):
+        1. Stage 1 (e.g. 20 bars): require ≥ 0.25R unrealized progress or exit.
+        2. Stage 2 (e.g. 40 bars): require ≥ break-even (0.0R) or exit.
+        3. Hard cap (e.g. 60 bars): unconditional exit.
+
+        ``force=True`` bypasses all stages (used for session flatten).
+        """
         if self._position is None:
             return
         pos = self._position
@@ -567,18 +575,67 @@ class GoldTradingManager:
             return
 
         bars_held = self._bar_counter - pos.entry_bar
-        if not force and bars_held < self._cfg.exit.time_stop_bars:
+        current_price = float(df["close"].iloc[-1])
+
+        if force:
+            logger.info(
+                "GoldTradingManager: FLATTEN_SESSION — bars_held={} price={:.2f}",
+                bars_held,
+                current_price,
+            )
+            await self._flatten_position(current_price, "FLATTEN_SESSION")
             return
 
-        reason = "FLATTEN_SESSION" if force else "TIME_STOP"
-        current_price = float(df["close"].iloc[-1])
-        logger.info(
-            "GoldTradingManager: {} — bars_held={} price={:.2f}",
-            reason,
-            bars_held,
-            current_price,
-        )
-        await self._flatten_position(current_price, reason)
+        # Compute unrealized R-multiple: how much progress relative to SL distance
+        if pos.action == "BUY":
+            sl_distance = pos.entry_price - pos.signal.stop_loss
+            unrealized = current_price - pos.entry_price
+        else:
+            sl_distance = pos.signal.stop_loss - pos.entry_price
+            unrealized = pos.entry_price - current_price
+
+        r_multiple = unrealized / sl_distance if sl_distance > 0 else 0.0
+
+        exit_cfg = self._cfg.exit
+
+        # ── Stage 1: require minimum progress ────────────────────────────────
+        if (exit_cfg.time_stop_stage_1_bars > 0
+                and bars_held >= exit_cfg.time_stop_stage_1_bars
+                and r_multiple < exit_cfg.time_stop_stage_1_min_progress_r):
+            logger.info(
+                "GoldTradingManager: TIME_STOP_STAGE_1 — bars_held={} R={:.3f} < {:.2f}R required, price={:.2f}",
+                bars_held,
+                r_multiple,
+                exit_cfg.time_stop_stage_1_min_progress_r,
+                current_price,
+            )
+            await self._flatten_position(current_price, "TIME_STOP_STAGE_1")
+            return
+
+        # ── Stage 2: require break-even or better ────────────────────────────
+        if (exit_cfg.time_stop_stage_2_bars > 0
+                and bars_held >= exit_cfg.time_stop_stage_2_bars
+                and r_multiple < exit_cfg.time_stop_stage_2_min_progress_r):
+            logger.info(
+                "GoldTradingManager: TIME_STOP_STAGE_2 — bars_held={} R={:.3f} < {:.2f}R required, price={:.2f}",
+                bars_held,
+                r_multiple,
+                exit_cfg.time_stop_stage_2_min_progress_r,
+                current_price,
+            )
+            await self._flatten_position(current_price, "TIME_STOP_STAGE_2")
+            return
+
+        # ── Hard cap: unconditional exit ─────────────────────────────────────
+        if exit_cfg.time_stop_bars > 0 and bars_held >= exit_cfg.time_stop_bars:
+            logger.info(
+                "GoldTradingManager: TIME_STOP — bars_held={} R={:.3f} price={:.2f}",
+                bars_held,
+                r_multiple,
+                current_price,
+            )
+            await self._flatten_position(current_price, "TIME_STOP")
+            return
 
     # ── Order placement helpers ───────────────────────────────────────────────
 
@@ -788,7 +845,10 @@ class GoldTradingManager:
                 f"Time: {now_cst().strftime('%Y-%m-%d %H:%M:%S CST')}"
             )
             self._telegram.send_message_background(msg)
-        self._strategy.notify_loss()   # Post-loss bar cooldown
+        self._strategy.notify_loss(
+            signal_type=pos.signal.signal_type,
+            direction=pos.action,
+        )   # Post-loss bar cooldown (direction-aware)
         self._record_exit(pos, fill.execution.price, "STOP_LOSS")
         self._position = None
 

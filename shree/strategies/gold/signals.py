@@ -116,6 +116,12 @@ class GoldSignalGenerator:
         # Post-loss cooldown (bars remaining)
         self._post_loss_cooldown_bars: int = 0
 
+        # Direction-aware cooldown state
+        self._loss_signal_family: Optional[str] = None   # e.g. "VWAP_PB", "EMA_PB", "ORB"
+        self._loss_direction: Optional[str] = None        # "BUY" or "SELL"
+        self._same_family_cooldown_bars: int = 0
+        self._opposite_cooldown_bars: int = 0
+
     @staticmethod
     def _hold_signal(
         regime: GoldRegime,
@@ -137,13 +143,56 @@ class GoldSignalGenerator:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def notify_loss(self) -> None:
-        """Call after a stop-loss fill so the generator enforces a bar cooldown."""
+    @staticmethod
+    def _signal_family(signal_type: GoldSignalType) -> str:
+        """Extract the family prefix from a signal type (e.g. VWAP_PB, EMA_PB, ORB)."""
+        name = signal_type.value  # e.g. "VWAP_PB_LONG", "ORB_SHORT"
+        if name.startswith("VWAP_PB"):
+            return "VWAP_PB"
+        if name.startswith("EMA_PB"):
+            return "EMA_PB"
+        if name.startswith("ORB"):
+            return "ORB"
+        return "OTHER"
+
+    def notify_loss(
+        self,
+        signal_type: Optional[GoldSignalType] = None,
+        direction: Optional[str] = None,
+    ) -> None:
+        """Call after a stop-loss fill so the generator enforces a bar cooldown.
+
+        When ``signal_type`` and ``direction`` are provided, the generator uses
+        direction-aware cooldowns: longer for the same signal family/direction,
+        shorter for opposite-direction setups.  When omitted, falls back to the
+        uniform ``post_loss_cooldown_bars``.
+        """
+        # Always set the uniform fallback cooldown
         self._post_loss_cooldown_bars = self._entry.post_loss_cooldown_bars
-        logger.debug(
-            "GoldSignalGenerator: post-loss cooldown set to %d bars",
-            self._post_loss_cooldown_bars,
-        )
+
+        # Direction-aware cooldown (only if config enables it)
+        same_family_bars = self._entry.post_loss_same_family_cooldown_bars
+        if same_family_bars > 0 and signal_type is not None and direction is not None:
+            self._loss_signal_family = self._signal_family(signal_type)
+            self._loss_direction = direction
+            self._same_family_cooldown_bars = same_family_bars
+            self._opposite_cooldown_bars = self._entry.post_loss_opposite_cooldown_bars
+            logger.debug(
+                "GoldSignalGenerator: direction-aware cooldown — family={} dir={} same={}bars opp={}bars",
+                self._loss_signal_family,
+                self._loss_direction,
+                self._same_family_cooldown_bars,
+                self._opposite_cooldown_bars,
+            )
+        else:
+            self._loss_signal_family = None
+            self._loss_direction = None
+            self._same_family_cooldown_bars = 0
+            self._opposite_cooldown_bars = 0
+            logger.debug(
+                "GoldSignalGenerator: post-loss cooldown set to {} bars (uniform)",
+                self._post_loss_cooldown_bars,
+            )
 
     def generate(
         self,
@@ -181,11 +230,32 @@ class GoldSignalGenerator:
                 logger.debug("GoldSignalGenerator: news lockout active — HOLD")
                 return self._hold_signal(regime if regime else GoldRegime.NO_TRADE, "news_lockout")
 
-        # ── Post-loss cooldown ────────────────────────────────────────────────
-        if self._post_loss_cooldown_bars > 0:
+        # ── Post-loss cooldown (direction-aware) ─────────────────────────────
+        # Snapshot counters *before* decrement to decide whether to block this bar
+        in_uniform_cooldown = self._post_loss_cooldown_bars > 0
+        in_family_cooldown = self._same_family_cooldown_bars > 0
+        in_opposite_cooldown = self._opposite_cooldown_bars > 0
+
+        # Decrement all active counters (happens every bar regardless)
+        if in_uniform_cooldown:
             self._post_loss_cooldown_bars -= 1
+        if in_family_cooldown:
+            self._same_family_cooldown_bars -= 1
+        if in_opposite_cooldown:
+            self._opposite_cooldown_bars -= 1
+
+        # During the *opposite* cooldown window (shortest), block everything
+        if in_opposite_cooldown and in_family_cooldown:
             logger.debug(
-                "GoldSignalGenerator: in post-loss cooldown (%d bars left)",
+                "GoldSignalGenerator: in post-loss cooldown (opposite dir, {} bars left)",
+                self._opposite_cooldown_bars + 1,
+            )
+            return self._hold_signal(regime if regime else GoldRegime.NO_TRADE, "post_loss_cooldown")
+
+        # During the uniform fallback cooldown, block if no direction-aware config
+        if in_uniform_cooldown and not in_family_cooldown:
+            logger.debug(
+                "GoldSignalGenerator: in post-loss cooldown ({} bars left)",
                 self._post_loss_cooldown_bars + 1,
             )
             return self._hold_signal(regime if regime else GoldRegime.NO_TRADE, "post_loss_cooldown")
@@ -218,16 +288,22 @@ class GoldSignalGenerator:
         # ── Try signals in priority order ─────────────────────────────────────
         # 1. ORB (higher conviction when range is clean)
         if self._entry.orb_enabled and self._or_formed:
-            orb_signal = self._check_orb(features, close, atr, regime, bar_ts=bar_timestamp)
+            orb_signal = self._check_orb(features, close, atr, vwap, regime, bar_ts=bar_timestamp)
             if orb_signal.is_actionable:
-                return orb_signal
+                if self._is_same_family_cooldown_blocked(orb_signal):
+                    pass  # Fall through to pullback; don't return yet
+                else:
+                    return orb_signal
 
         # 2. Pullback setups
         pb_signal = self._check_pullback(
             features, close, ema9, ema21, atr, vwap, regime, bar_ts=bar_timestamp
         )
         if pb_signal.is_actionable:
-            return pb_signal
+            if self._is_same_family_cooldown_blocked(pb_signal):
+                pass  # Blocked — fall through to HOLD
+            else:
+                return pb_signal
 
         block_reason = pb_signal.metadata.get("block_reason") or orb_signal.metadata.get("block_reason") if self._entry.orb_enabled and self._or_formed else pb_signal.metadata.get("block_reason")
         extra = {}
@@ -238,6 +314,33 @@ class GoldSignalGenerator:
         return self._hold_signal(regime, block_reason or "no_setup", **extra)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _is_same_family_cooldown_blocked(self, signal: GoldSignal) -> bool:
+        """Return True if the signal matches the losing family/direction and is still in cooldown."""
+        if self._same_family_cooldown_bars <= 0:
+            return False
+        if self._loss_signal_family is None or self._loss_direction is None:
+            return False
+
+        candidate_family = self._signal_family(signal.signal_type)
+        candidate_direction = signal.action  # "BUY" or "SELL"
+
+        is_same_family = candidate_family == self._loss_signal_family
+        is_same_direction = candidate_direction == self._loss_direction
+
+        if is_same_family and is_same_direction:
+            logger.debug(
+                "GoldSignalGenerator: BLOCKED by same-family cooldown — {} {} "
+                "(lost on {} {}, {} bars remaining)",
+                candidate_family,
+                candidate_direction,
+                self._loss_signal_family,
+                self._loss_direction,
+                self._same_family_cooldown_bars,
+            )
+            return True
+
+        return False
 
     def _update_session_state(
         self, features: pd.DataFrame, bar_timestamp: pd.Timestamp
@@ -410,20 +513,33 @@ class GoldSignalGenerator:
             touch_band = level * touch_pct
 
             if atr > 0:
+                # Tighten extension thresholds during extended/overnight hours
+                ext_mult = (
+                    self._entry.extended_hours_extension_strictness_mult
+                    if self._is_extended_hours(bar_ts)
+                    else 1.0
+                )
+                max_vwap_ext = self._entry.pullback_max_vwap_extension_atr * ext_mult
+                max_ema_ext = self._entry.pullback_max_ema_extension_atr * ext_mult
+
                 vwap_extension_atr = abs(close - vwap) / atr if vwap > 0 else 0.0
                 ema_extension_atr = abs(close - ema21) / atr if ema21 > 0 else 0.0
-                if vwap_extension_atr > self._entry.pullback_max_vwap_extension_atr:
+                if vwap_extension_atr > max_vwap_ext:
                     remember(
                         "pullback_vwap_extension_exceeded",
                         signal_candidate=sig_type.value,
                         vwap_extension_atr=vwap_extension_atr,
+                        max_allowed=max_vwap_ext,
+                        extended_hours=self._is_extended_hours(bar_ts),
                     )
                     continue
-                if ema_extension_atr > self._entry.pullback_max_ema_extension_atr:
+                if ema_extension_atr > max_ema_ext:
                     remember(
                         "pullback_ema_extension_exceeded",
                         signal_candidate=sig_type.value,
                         ema_extension_atr=ema_extension_atr,
+                        max_allowed=max_ema_ext,
+                        extended_hours=self._is_extended_hours(bar_ts),
                     )
                     continue
 
@@ -524,6 +640,7 @@ class GoldSignalGenerator:
         features: pd.DataFrame,
         close: float,
         atr: float,
+        vwap: float,
         regime: GoldRegime,
         bar_ts: Optional[pd.Timestamp] = None,
     ) -> GoldSignal:
@@ -596,6 +713,17 @@ class GoldSignalGenerator:
                     regime,
                     "orb_extension_too_large",
                     extension_atr=extension_atr,
+                )
+
+        # ORB VWAP extension guard — block ORB when price has run too far from VWAP
+        if atr > 0 and vwap > 0 and self._entry.orb_max_vwap_extension_atr > 0:
+            orb_vwap_ext = abs(close - vwap) / atr
+            if orb_vwap_ext > self._entry.orb_max_vwap_extension_atr:
+                return self._hold_signal(
+                    regime,
+                    "orb_vwap_extension_too_large",
+                    vwap_extension_atr=orb_vwap_ext,
+                    max_allowed=self._entry.orb_max_vwap_extension_atr,
                 )
 
         if action == "BUY" and close <= open_price:
