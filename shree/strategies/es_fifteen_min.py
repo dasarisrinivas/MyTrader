@@ -878,6 +878,27 @@ class EsFifteenMinStrategy(BaseStrategy):
                 _diag_parts.append(f"B:ema9({ema9:.1f})<=ema21({ema21:.1f})")
             elif adx < self._adx_min:
                 _diag_parts.append(f"B:adx({adx:.0f})<{self._adx_min}")
+            # Signal C diagnostics (Long EMA9 PB — fast trend)
+            if self._ema9_pb_enabled:
+                if not (ema9 > ema21 > ema50):
+                    _diag_parts.append(f"C:stack(e9={ema9:.0f},e21={ema21:.0f},e50={ema50:.0f})")
+                else:
+                    _c_touch = ema9 * (1 + self._ema9_touch_pct)
+                    _ema21_c_touch = ema21 * (1 + self._ema_touch_pct)
+                    if low > _c_touch:
+                        _diag_parts.append(f"C:low({low:.1f})>touch({_c_touch:.1f})")
+                    elif close <= ema9:
+                        _diag_parts.append(f"C:close({close:.1f})<=ema9({ema9:.1f})")
+                    elif close <= open_price:
+                        _diag_parts.append(f"C:bearish(c={close:.1f},o={open_price:.1f})")
+                    elif adx < 22 or adx > self._adx_max:
+                        _diag_parts.append(f"C:adx({adx:.0f})out[22-{self._adx_max}]")
+                    elif rsi > 70 or rsi < 40:
+                        _diag_parts.append(f"C:rsi({rsi:.0f})out[40-70]")
+                    elif low <= _ema21_c_touch:
+                        _diag_parts.append(f"C:ema21_overlap(low={low:.1f}<=touch21={_ema21_c_touch:.1f})")
+                    elif macd_hist < self._ema9_pb_macd_min:
+                        _diag_parts.append(f"C:macd({macd_hist:.2f})<{self._ema9_pb_macd_min:.1f}")
             # Signal D diagnostics (Short EMA21 PB)
             if self._shorts_enabled:
                 if ema21 >= ema50:
