@@ -1,0 +1,2 @@
+trade_id,date,action,signal_type,contracts,entry_price,stop_loss,take_profit,exit_price,exit_reason,gross_pnl,net_pnl,hold_bars,atr,regime,win
+1,2026-01-20,BUY,ORB_LONG,2,2371.42,2369.3,2374.9,2374.9,PROFIT_TARGET,69.6,67.2,14,1.3613489342811316,TRENDING_BULL,True

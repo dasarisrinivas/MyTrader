@@ -286,11 +286,17 @@ class GoldTradingManager:
 
         if not signal.is_actionable:
             if self._bar_counter % _IDLE_DIAGNOSTIC_LOG_INTERVAL_BARS == 0:
+                block_reason = signal.metadata.get("block_reason", "no_setup")
+                orb_block = signal.metadata.get("orb_block_reason")
+                pullback_block = signal.metadata.get("pullback_block_reason")
                 logger.info(
-                    "GoldTradingManager: no entry — regime={} bars={} close={:.2f}",
+                    "GoldTradingManager: no entry — regime={} bars={} close={:.2f} reason={} orb_reason={} pb_reason={}",
                     signal.regime.value,
                     len(df),
                     float(df["close"].iloc[-1]),
+                    block_reason,
+                    orb_block,
+                    pullback_block,
                 )
             return
 
