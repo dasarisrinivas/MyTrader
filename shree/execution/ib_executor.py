@@ -1522,6 +1522,7 @@ class TradeExecutor:
 
         # Allow trading outside regular trading hours (ES futures are nearly 24hr)
         order.outsideRth = True
+        order.tif = "GTC"  # Persist until filled/cancelled — DAY expires at session close
         
         # Add metadata to order reference for tracking
         if metadata:
@@ -2074,6 +2075,7 @@ class TradeExecutor:
         stop_order = StopOrder(exit_action, quantity, stop_loss)
         stop_order.transmit = True
         stop_order.outsideRth = True
+        stop_order.tif = "GTC"
         stop_trade = self.ib.placeOrder(contract, stop_order)
         stop_id = getattr(stop_trade.order, "orderId", "NA")
         self.active_orders[stop_id] = stop_trade
@@ -2093,6 +2095,7 @@ class TradeExecutor:
         tp_order = LimitOrder(exit_action, quantity, take_profit)
         tp_order.transmit = True
         tp_order.outsideRth = True
+        tp_order.tif = "GTC"
         tp_trade = self.ib.placeOrder(contract, tp_order)
         tp_id = getattr(tp_trade.order, "orderId", "NA")
         self.active_orders[tp_id] = tp_trade
@@ -2136,6 +2139,7 @@ class TradeExecutor:
             tp_order = LimitOrder(action, qty, take_profit)
             tp_order.transmit = True
             tp_order.outsideRth = True
+            tp_order.tif = "GTC"
             tp_trade = self.ib.placeOrder(contract, tp_order)
             tp_id = getattr(tp_trade.order, "orderId", None)
             self.active_orders[tp_id] = tp_trade
@@ -2162,6 +2166,7 @@ class TradeExecutor:
             )
             stop_order.transmit = True
             stop_order.outsideRth = True
+            stop_order.tif = "GTC"
             sl_trade = self.ib.placeOrder(contract, stop_order)
             sl_id = getattr(sl_trade.order, "orderId", None)
             self.active_orders[sl_id] = sl_trade
@@ -2611,6 +2616,8 @@ class TradeExecutor:
             
             sl_order = StopOrder(opposite, quantity, new_stop)
             sl_order.transmit = True
+            sl_order.outsideRth = True
+            sl_order.tif = "GTC"
             
             stop_trade = self.ib.placeOrder(contract, sl_order)
             self.active_orders[stop_trade.order.orderId] = stop_trade
@@ -2683,6 +2690,7 @@ class TradeExecutor:
             sl_order = StopOrder(stop_action, quantity, expected_stop_loss)
             sl_order.transmit = True
             sl_order.outsideRth = True
+            sl_order.tif = "GTC"
             
             stop_trade = self.ib.placeOrder(contract, sl_order)
             stop_order_id = stop_trade.order.orderId
