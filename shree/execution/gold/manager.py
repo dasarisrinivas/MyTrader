@@ -269,7 +269,7 @@ class GoldTradingManager:
         age = (datetime.now(timezone.utc) - self._last_realtime_bar_at).total_seconds()
         if age >= _BAR_WATCHDOG_WARN_SECONDS:
             logger.warning(
-                "GoldTradingManager: realtime bar feed quiet for %.0fs — waiting on IB data/subscription",
+                "GoldTradingManager: realtime bar feed quiet for {:.0f}s — waiting on IB data/subscription",
                 age,
             )
             await self._poll_recent_1min_bar()
@@ -655,8 +655,14 @@ class GoldTradingManager:
 
         # Use market order for entry; SL and TP are limit/stop children
         entry_order = MarketOrder(signal.action, contracts)
+        entry_order.outsideRth = True
+        entry_order.tif = "GTC"
         tp_order = LimitOrder(opposite, contracts, signal.take_profit)
+        tp_order.outsideRth = True
+        tp_order.tif = "GTC"
         sl_order = StopOrder(opposite, contracts, signal.stop_loss)
+        sl_order.outsideRth = True
+        sl_order.tif = "GTC"
 
         # Link bracket
         entry_order.transmit = False
@@ -666,35 +672,36 @@ class GoldTradingManager:
         sl_order.transmit = True   # Transmit on last child
 
         try:
-            with self._lock.engage(f"gold_bracket_{trade_id}"):
-                entry_trade = self._ib.placeOrder(self._contract, entry_order)
-                # Attach correct parent ID
-                tp_order.parentId = entry_trade.order.orderId
-                sl_order.parentId = entry_trade.order.orderId
-                tp_trade = self._ib.placeOrder(self._contract, tp_order)
-                sl_trade = self._ib.placeOrder(self._contract, sl_order)
+            self._lock.engage(f"gold_bracket_{trade_id}")
+            entry_trade = self._ib.placeOrder(self._contract, entry_order)
+            # Attach correct parent ID
+            tp_order.parentId = entry_trade.order.orderId
+            sl_order.parentId = entry_trade.order.orderId
+            tp_trade = self._ib.placeOrder(self._contract, tp_order)
+            sl_trade = self._ib.placeOrder(self._contract, sl_order)
 
-                self._active_trades[entry_trade.order.orderId] = entry_trade
-                self._active_trades[tp_trade.order.orderId] = tp_trade
-                self._active_trades[sl_trade.order.orderId] = sl_trade
+            self._active_trades[entry_trade.order.orderId] = entry_trade
+            self._active_trades[tp_trade.order.orderId] = tp_trade
+            self._active_trades[sl_trade.order.orderId] = sl_trade
 
-                self._position = _OpenPosition(
-                    trade_id=trade_id,
-                    action=signal.action,
-                    signal=signal,
-                    contracts=contracts,
-                    entry_bar=self._bar_counter,
-                    entry_time=entry_time,
-                )
-                self._position.entry_order_id = entry_trade.order.orderId
-                self._position.tp_order_id = tp_trade.order.orderId
-                self._position.sl_order_id = sl_trade.order.orderId
+            self._position = _OpenPosition(
+                trade_id=trade_id,
+                action=signal.action,
+                signal=signal,
+                contracts=contracts,
+                entry_bar=self._bar_counter,
+                entry_time=entry_time,
+            )
+            self._position.entry_order_id = entry_trade.order.orderId
+            self._position.tp_order_id = tp_trade.order.orderId
+            self._position.sl_order_id = sl_trade.order.orderId
 
-                # Register fill callbacks
-                entry_trade.fillEvent += lambda t, f: self._on_entry_fill(t, f)
-                tp_trade.fillEvent += lambda t, f: self._on_tp_fill(t, f)
-                sl_trade.fillEvent += lambda t, f: self._on_sl_fill(t, f)
+            # Register fill callbacks
+            entry_trade.fillEvent += lambda t, f: self._on_entry_fill(t, f)
+            tp_trade.fillEvent += lambda t, f: self._on_tp_fill(t, f)
+            sl_trade.fillEvent += lambda t, f: self._on_sl_fill(t, f)
 
+            self._lock.release(f"gold_bracket_{trade_id}")
             logger.info(
                 "GoldTradingManager: bracket submitted — entry={} tp={} sl={}",
                 entry_trade.order.orderId,
@@ -703,6 +710,7 @@ class GoldTradingManager:
             )
         except Exception as exc:
             logger.opt(exception=True).error("GoldTradingManager: order placement failed: {}", exc)
+            self._lock.release(f"gold_bracket_{trade_id}_error")
             self._position = None
 
     async def _modify_sl_order(self, pos: _OpenPosition, new_sl: float) -> None:

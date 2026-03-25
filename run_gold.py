@@ -122,7 +122,7 @@ async def main() -> None:
     try:
         await manager.start()
     except Exception as exc:
-        logger.exception("Gold manager terminated with error: %s", exc)
+        logger.opt(exception=True).error("Gold manager terminated with error: {}", exc)
         sys.exit(1)
 
     logger.info("=== ShreeBot Gold Strategy stopped ===")
