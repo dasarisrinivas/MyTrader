@@ -455,7 +455,7 @@ class GoldTradingManager:
             records.append(
                 {
                     "time": bar_dt,
-                    "open": float(bar.open_),
+                    "open": float(getattr(bar, "open_", None) or bar.open),
                     "high": float(bar.high),
                     "low": float(bar.low),
                     "close": float(bar.close),
