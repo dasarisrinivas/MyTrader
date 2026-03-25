@@ -133,6 +133,7 @@ class GoldTradingManager:
 
         # Bar buffer
         self._raw_bars: List[Dict] = []        # List of OHLCV dicts
+        self._bootstrapped_df: Optional[pd.DataFrame] = None  # Pre-built 1-min OHLCV from IBKR history (Fix #22b)
         self._bar_counter: int = 0
         self._last_bar_minute: Optional[int] = None
         self._bar_list = None                  # RealTimeBarList from reqRealTimeBars
@@ -168,14 +169,35 @@ class GoldTradingManager:
         # Load persisted state
         self._day_state = self._state_mgr.load()
 
-        # Connect to IB Gateway
+        # ── Fix #22a: Connect with retry + exponential backoff ────────────
+        # An asyncio.TimeoutError during connectAsync used to crash the
+        # entire process, losing hours of warmup state.  Now we retry up to
+        # 5 times with exponential backoff before giving up.
         self._ib = IB()
-        await self._ib.connectAsync(
-            self._cfg.ibkr_host,
-            self._cfg.ibkr_port,
-            clientId=self._cfg.ibkr_client_id,
-        )
-        logger.info("GoldTradingManager: connected to IB Gateway")
+        max_connect_attempts = 5
+        for attempt in range(1, max_connect_attempts + 1):
+            try:
+                await self._ib.connectAsync(
+                    self._cfg.ibkr_host,
+                    self._cfg.ibkr_port,
+                    clientId=self._cfg.ibkr_client_id,
+                    timeout=15,  # generous timeout (was default 4s)
+                )
+                logger.info("GoldTradingManager: connected to IB Gateway (attempt {}/{})", attempt, max_connect_attempts)
+                break
+            except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as exc:
+                if attempt == max_connect_attempts:
+                    logger.error(
+                        "GoldTradingManager: FATAL — failed to connect after {} attempts: {}",
+                        max_connect_attempts, exc,
+                    )
+                    raise
+                backoff = min(2 ** attempt, 30)  # 2, 4, 8, 16, 30
+                logger.warning(
+                    "GoldTradingManager: connect attempt {}/{} failed ({}), retrying in {}s...",
+                    attempt, max_connect_attempts, exc, backoff,
+                )
+                await asyncio.sleep(backoff)
 
         # Qualify the gold futures contract
         self._contract_factory = GoldContractFactory(self._cfg, self._ib)
@@ -189,6 +211,13 @@ class GoldTradingManager:
 
         # Reconcile any open orders from a prior session
         await self._reconcile_open_orders()
+
+        # ── Fix #22b: Bootstrap warmup from IBKR historical bars ──────────
+        # Instead of waiting 60+ minutes for real-time bars to fill the
+        # warmup buffer, load recent 1-min historical bars from IBKR.
+        # This fast-forwards the strategy through warmup so it can
+        # generate signals within seconds of restart.
+        await self._bootstrap_warmup_bars()
 
         # Subscribe to 5-second real-time bars.
         # reqRealTimeBars returns a RealTimeBarList; subscribe to its updateEvent.
@@ -372,6 +401,91 @@ class GoldTradingManager:
             completed_bar_time.isoformat(),
         )
         await self._on_minute_close(completed_bar_time.to_pydatetime())
+
+    async def _bootstrap_warmup_bars(self) -> None:
+        """Load recent 1-min historical bars from IBKR to fast-forward warmup.
+
+        MAR 25 2026 — Fix #22b.  The gold strategy needs ~60 completed 1-min
+        bars before the regime detector exits WARMING_UP.  Without this
+        bootstrap, every restart costs 1 hour of dead time.
+
+        We request 90 minutes of 1-min bars and store them as a pre-built
+        DataFrame in ``self._bootstrapped_df``.  ``_build_1min_df`` prepends
+        this to the live-resampled bars, giving the strategy an instant view
+        of recent market structure.
+        """
+        if self._ib is None or self._contract is None:
+            return
+
+        warmup_bars = getattr(self._cfg.indicators, "warmup_bars", 60)
+        # Request 50% extra to ensure we cover warmup after resampling
+        request_minutes = int(warmup_bars * 1.5)
+        duration_str = f"{request_minutes * 60} S"
+
+        try:
+            bars = await self._ib.reqHistoricalDataAsync(
+                self._contract,
+                endDateTime="",
+                durationStr=duration_str,
+                barSizeSetting="1 min",
+                whatToShow="TRADES",
+                useRTH=False,
+                formatDate=2,
+                timeout=15,
+            )
+        except Exception as exc:
+            logger.warning("GoldTradingManager: warmup bootstrap failed (non-fatal): {}", exc)
+            return
+
+        if not bars:
+            logger.info("GoldTradingManager: warmup bootstrap — no historical bars returned")
+            return
+
+        # Drop the last bar (possibly incomplete / still forming)
+        completed_bars = bars[:-1] if len(bars) > 1 else bars
+
+        records = []
+        for bar in completed_bars:
+            bar_time = bar.date
+            if isinstance(bar_time, datetime):
+                bar_dt = bar_time if bar_time.tzinfo else bar_time.replace(tzinfo=timezone.utc)
+            else:
+                bar_dt = pd.to_datetime(bar_time, utc=True).to_pydatetime()
+
+            records.append(
+                {
+                    "time": bar_dt,
+                    "open": float(bar.open_),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": int(bar.volume) if bar.volume else 0,
+                }
+            )
+
+        if not records:
+            logger.info("GoldTradingManager: warmup bootstrap — 0 completed bars available")
+            return
+
+        df = pd.DataFrame(records)
+        df["time"] = pd.to_datetime(df["time"], utc=True)
+        df = df.set_index("time").sort_index()
+
+        # Store as pre-built DataFrame — _build_1min_df will prepend this
+        self._bootstrapped_df = df
+        self._bar_counter = len(df)
+
+        # Set tracking state so polling doesn't re-process old bars
+        self._last_processed_bar_time = df.index[-1]
+
+        logger.info(
+            "GoldTradingManager: ✅ warmup bootstrap — seeded {} historical 1-min bars "
+            "(warmup threshold={}, first={}, last={})",
+            len(df),
+            warmup_bars,
+            df.index[0].isoformat(),
+            df.index[-1].isoformat(),
+        )
 
     def _on_ib_error(self, reqId: int, errorCode: int, errorString: str, contract) -> None:
         """Log IB error/warning events so silent subscription failures are visible."""
@@ -988,27 +1102,53 @@ class GoldTradingManager:
     # ── Data helpers ──────────────────────────────────────────────────────────
 
     def _build_1min_df(self) -> Optional[pd.DataFrame]:
-        """Aggregate raw 5-sec bars into completed 1-minute OHLCV bars."""
-        if not self._raw_bars:
+        """Aggregate raw 5-sec bars into completed 1-minute OHLCV bars.
+
+        If ``_bootstrapped_df`` is set (Fix #22b), it is prepended to the
+        live-resampled bars to provide immediate warmup context.
+        """
+        live_ohlcv: Optional[pd.DataFrame] = None
+
+        if self._raw_bars:
+            rows = pd.DataFrame(self._raw_bars)
+            rows["time"] = pd.to_datetime(rows["time"], utc=True)
+            rows = rows.set_index("time").sort_index()
+
+            # Resample to 1-min closed bars (label = bar open)
+            resampled = rows["close"].resample("1min", closed="left", label="left").ohlc()
+            resampled["volume"] = rows["volume"].resample("1min", closed="left", label="left").sum()
+            # Replace resampled column names from ohlc()
+            resampled.columns = ["open", "high", "low", "close", "volume"]
+
+            # Drop the currently open (incomplete) bar — last row may be partial
+            resampled = resampled.iloc[:-1]
+
+            if len(resampled) > 0:
+                resampled = resampled.dropna(subset=["close"])
+            if len(resampled) > 0:
+                live_ohlcv = resampled
+
+        # Combine bootstrapped history with live bars
+        parts = []
+        if self._bootstrapped_df is not None and len(self._bootstrapped_df) > 0:
+            parts.append(self._bootstrapped_df)
+        if live_ohlcv is not None:
+            parts.append(live_ohlcv)
+
+        if not parts:
             return None
 
-        rows = pd.DataFrame(self._raw_bars)
-        rows["time"] = pd.to_datetime(rows["time"], utc=True)
-        rows = rows.set_index("time").sort_index()
-
-        # Resample to 1-min closed bars (label = bar open)
-        ohlcv = rows["close"].resample("1min", closed="left", label="left").ohlc()
-        ohlcv["volume"] = rows["volume"].resample("1min", closed="left", label="left").sum()
-        # Replace resampled column names from ohlc()
-        ohlcv.columns = ["open", "high", "low", "close", "volume"]
-
-        # Drop the currently open (incomplete) bar — last row may be partial
-        ohlcv = ohlcv.iloc[:-1]
+        if len(parts) == 1:
+            ohlcv = parts[0]
+        else:
+            ohlcv = pd.concat(parts)
+            # Remove any overlap (live bar may duplicate the last bootstrapped bar)
+            ohlcv = ohlcv[~ohlcv.index.duplicated(keep="last")]
+            ohlcv = ohlcv.sort_index()
 
         if len(ohlcv) == 0:
             return None
 
-        ohlcv = ohlcv.dropna(subset=["close"])
         if len(ohlcv) > 0:
             self._last_processed_bar_time = ohlcv.index[-1]
         return ohlcv

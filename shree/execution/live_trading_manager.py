@@ -1045,8 +1045,13 @@ TRADING GUIDANCE:
         FEB 7 2026: Uses useRTH=False — the validated backtest (130 trades,
         PF 1.91) computes indicators on ALL bars. RTH-only indicators give
         different EMA/ATR values. Session filtering is done in the strategy.
+        
+        MAR 25 2026: Upgraded error logging from debug→warning so fetch
+        failures are visible in production logs. Added stale-data watchdog
+        that logs a warning when no new bar arrives for >20 minutes.
         """
         if not self.executor or not self.executor.ib:
+            logger.warning("15m bar fetch skipped: executor or IB connection not available")
             return None
         try:
             contract = await self.executor.get_qualified_contract()
@@ -1060,6 +1065,7 @@ TRADING GUIDANCE:
                 formatDate=2,
             )
             if not bars:
+                logger.warning("15m bar fetch returned empty result from IBKR")
                 return None
             last_bar = bars[-1]
             ts = getattr(last_bar, "date", None)
@@ -1070,7 +1076,25 @@ TRADING GUIDANCE:
             else:
                 bar_ts = datetime.fromtimestamp(float(ts), tz=timezone.utc)
             if self._last_price_bar_ts and bar_ts <= self._last_price_bar_ts:
+                # Stale-data watchdog: warn if we haven't received a new bar in >20 min
+                if not hasattr(self, "_last_new_bar_time"):
+                    self._last_new_bar_time = time.monotonic()
+                stale_minutes = (time.monotonic() - self._last_new_bar_time) / 60
+                if stale_minutes > 20 and not hasattr(self, "_stale_bar_warned"):
+                    logger.warning(
+                        f"⚠️  No new 15m bar in {stale_minutes:.0f}min! "
+                        f"Last bar ts={bar_ts}, stored={self._last_price_bar_ts}, "
+                        f"IB returned {len(bars)} bars, last close={getattr(last_bar, 'close', '?')}"
+                    )
+                    self._stale_bar_warned = True
+                elif stale_minutes <= 20:
+                    # Reset warning flag when freshness is restored
+                    self._stale_bar_warned = False
                 return None
+            # New bar arrived — reset stale watchdog
+            self._last_new_bar_time = time.monotonic()
+            if hasattr(self, "_stale_bar_warned"):
+                self._stale_bar_warned = False
             candle = {
                 "timestamp": utc_to_cst(bar_ts),
                 "open": float(getattr(last_bar, "open", 0.0)),
@@ -1081,7 +1105,7 @@ TRADING GUIDANCE:
             }
             return candle
         except Exception as exc:  # noqa: BLE001
-            logger.debug(f"Latest 15m bar fetch failed: {exc}")
+            logger.warning(f"Latest 15m bar fetch FAILED: {exc}")
             return None
 
     async def _fetch_latest_bar(self) -> Optional[Dict[str, Any]]:
