@@ -25,3 +25,85 @@ trading:
   ft_thesis_reversal_exit_enabled: true
   ft_thesis_reversal_arm_profit_pts: 2.0
   ft_thesis_reversal_arm_stop_fraction: 0.35
+
+# ── Gold paper-trading overrides ──────────────────────────────────────────────
+# Mirror config.yaml gold: section except port → 4002 and simulation → true.
+# All other fields (session, indicators, entry, exit, risk) inherit from
+# config.yaml defaults.  Only override connectivity + mode here.
+gold:
+  enabled: true
+  symbol: "MGC"
+  exchange: "COMEX"
+  currency: "USD"
+  allow_gc: false
+
+  ibkr_host: "127.0.0.1"
+  ibkr_port: 4002          # Paper gateway
+  ibkr_client_id: 3
+
+  simulation: false         # Paper port handles safety — let orders flow to IB paper account
+
+  session:
+    session_open_et: "08:20"
+    session_close_et: "13:30"
+    flatten_before_close_minutes: 10
+    opening_range_minutes: 15
+    no_trade_open_minutes: 3
+    extended_hours_enabled: true
+    news_lockout_windows_et: []
+    bucket_overnight_start_et: "18:00"
+    bucket_pre_comex_start_et: "03:00"
+    bucket_comex_open_start_et: "08:20"
+    bucket_midday_start_et: "10:30"
+    bucket_pre_close_start_et: "12:00"
+
+  indicators:
+    warmup_bars: 60
+    ema_fast: 9
+    ema_slow: 21
+    atr_period: 14
+    adx_period: 14
+    mtf_enabled: false
+    ema_spread_min_ratio: 0.00015
+    ema_slope_enabled: true
+    ema_slope_lookback_bars: 3
+    ema_slope_min_per_bar: 0.02
+    price_structure_enabled: true
+    price_structure_lookback_bars: 5
+
+  entry:
+    adx_trend_min: 20.0
+    adx_trend_max: 55.0
+    orb_enabled: true
+    post_loss_cooldown_bars: 3
+    pullback_max_vwap_extension_atr: 1.5
+    pullback_max_ema_extension_atr: 1.25
+    orb_max_extension_atr: 0.75
+    orb_max_vwap_extension_atr: 1.5
+    extended_hours_extension_strictness_mult: 0.7
+    post_loss_same_family_cooldown_bars: 6
+    post_loss_opposite_cooldown_bars: 1
+
+  exit:
+    atr_sl_multiplier: 1.5
+    atr_tp_multiplier: 2.5
+    trailing_stop_enabled: true
+    time_stop_bars: 60
+    time_stop_stage_1_bars: 20
+    time_stop_stage_1_min_progress_r: 0.25
+    time_stop_stage_2_bars: 40
+    time_stop_stage_2_min_progress_r: 0.0
+
+  risk:
+    max_risk_per_trade_usd: 50.0
+    daily_loss_limit_usd: 200.0
+    max_trades_per_day: 1
+    max_consecutive_losses: 3
+    post_loss_cooldown_minutes: 30
+    max_contracts_hard_cap: 1
+
+  # Paper-specific paths — keep live and paper data completely separate
+  state_file: "data/paper_gold_state.json"
+  orders_db: "data/paper_gold_orders.db"
+  journal_dir: "data/paper_gold_journal"
+  log_file: "logs/paper_gold_trading.log"

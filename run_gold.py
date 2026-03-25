@@ -82,7 +82,11 @@ async def main() -> None:
 
     # ── Configure logging ─────────────────────────────────────────────────────
     configure_logging(log_file=gold_cfg.log_file, level=args.log_level)
-    configure_logging(log_file="logs/gold_bot.log", level=args.log_level)
+    # Audit log: derive from trading log path (paper_gold_trading → paper_gold_bot)
+    _audit_log = gold_cfg.log_file.replace("_trading.log", "_bot.log")
+    if _audit_log == gold_cfg.log_file:
+        _audit_log = "logs/gold_bot.log"  # fallback
+    configure_logging(log_file=_audit_log, level=args.log_level)
 
     logger.info("=== ShreeBot Gold Strategy starting ===")
     logger.info(
