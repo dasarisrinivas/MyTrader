@@ -107,3 +107,12 @@ gold:
   orders_db: "data/paper_gold_orders.db"
   journal_dir: "data/paper_gold_journal"
   log_file: "logs/paper_gold_trading.log"
+
+  # ── Telegram Notifications (copied from config.yaml, can be customized) ──
+  telegram:
+    enabled: true  # Set to true to enable Telegram alerts
+    bot_token: "8277270355:AAERK77ILK3R2-jJ79h9n0E83Gt4uA31CQE"  # Your Telegram Bot API token
+    chat_id: "5524962877"  # Your Telegram chat/channel ID
+    notify_on_trade: true  # Send alert when trade is executed
+    notify_on_signal: false  # Send alert when signal is generated (can be noisy)
+    notify_on_error: true  # Send alert on trading errors/warnings

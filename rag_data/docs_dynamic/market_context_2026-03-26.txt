@@ -1,26 +1,26 @@
 
-DAILY MARKET CONTEXT - 2026-03-24
+DAILY MARKET CONTEXT - 2026-03-26
 Symbol: MES
 
 PREVIOUS DAY LEVELS:
-- Previous Day High (PDH): 6705.00
-- Previous Day Low (PDL): 6616.00
-- Previous Day Close: 6634.75
-- Previous Day Open: 6658.25
+- Previous Day High (PDH): 6679.25
+- Previous Day Low (PDL): 6573.50
+- Previous Day Close: 6606.00
+- Previous Day Open: 6589.00
 
 TODAY'S LEVELS (so far):
-- Today's High: 6679.25
-- Today's Low: 6573.5
-- Today's Open: 6589.0
+- Today's High: 6684.75
+- Today's Low: 6616.5
+- Today's Open: 6661.75
 
 WEEKLY RANGE:
-- Weekly High: 6759.75
+- Weekly High: 6705.00
 - Weekly Low: 6523.75
 
 KEY LEVELS TO WATCH:
-1. Support: PDL at 6616.00
-2. Resistance: PDH at 6705.00
-3. Pivot: Previous close at 6634.75
+1. Support: PDL at 6573.50
+2. Resistance: PDH at 6679.25
+3. Pivot: Previous close at 6606.00
 
 TRADING GUIDANCE:
 - If price > PDH: Bullish breakout, favor LONG positions
