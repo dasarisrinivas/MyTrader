@@ -42,13 +42,15 @@ from .regime import GoldRegime
 class GoldSignalType(str, Enum):
     """Named signal types produced by this generator."""
 
-    VWAP_PB_LONG = "VWAP_PB_LONG"       # VWAP pullback — long
-    VWAP_PB_SHORT = "VWAP_PB_SHORT"     # VWAP pullback — short
-    EMA_PB_LONG = "EMA_PB_LONG"         # EMA21 pullback — long
-    EMA_PB_SHORT = "EMA_PB_SHORT"       # EMA21 pullback — short
-    ORB_LONG = "ORB_LONG"               # Opening range breakout — long
-    ORB_SHORT = "ORB_SHORT"             # Opening range breakdown — short
-    NONE = "NONE"                        # No signal
+    VWAP_PB_LONG = "VWAP_PB_LONG"           # VWAP pullback — long
+    VWAP_PB_SHORT = "VWAP_PB_SHORT"         # VWAP pullback — short
+    EMA_PB_LONG = "EMA_PB_LONG"             # EMA21 pullback — long
+    EMA_PB_SHORT = "EMA_PB_SHORT"           # EMA21 pullback — short
+    ORB_LONG = "ORB_LONG"                   # Opening range breakout — long
+    ORB_SHORT = "ORB_SHORT"                 # Opening range breakdown — short
+    KELTNER_MR_LONG = "KELTNER_MR_LONG"    # Keltner mean-reversion — long (midday)
+    KELTNER_MR_SHORT = "KELTNER_MR_SHORT"  # Keltner mean-reversion — short (midday)
+    NONE = "NONE"                            # No signal
 
 
 @dataclass
@@ -124,6 +126,10 @@ class GoldSignalGenerator:
         self._orb_break_long_bars: int = 0
         self._orb_break_short_bars: int = 0
 
+        # Post-news momentum mode: relax regime gates for N bars after lockout ends
+        self._was_in_lockout: bool = False
+        self._post_news_momentum_bars: int = 0
+
         # Post-loss cooldown (bars remaining)
         self._post_loss_cooldown_bars: int = 0
 
@@ -164,6 +170,8 @@ class GoldSignalGenerator:
             return "EMA_PB"
         if name.startswith("ORB"):
             return "ORB"
+        if name.startswith("KELTNER_MR"):
+            return "KELTNER_MR"
         return "OTHER"
 
     def notify_loss(
@@ -247,11 +255,36 @@ class GoldSignalGenerator:
         if bar_timestamp is not None:
             self._update_session_state(features, bar_timestamp)
 
-        # ── News lockout gate ─────────────────────────────────────────────────
-        if bar_timestamp is not None and self._session.news_lockout_windows_et:
-            if is_in_lockout(bar_timestamp, self._session.news_lockout_windows_et):
-                logger.debug("GoldSignalGenerator: news lockout active — HOLD")
-                return self._hold_signal(regime if regime else GoldRegime.NO_TRADE, "news_lockout")
+        # ── News lockout gate + post-news momentum tracking ──────────────────
+        in_lockout_now = (
+            bar_timestamp is not None
+            and bool(self._session.news_lockout_windows_et)
+            and is_in_lockout(bar_timestamp, self._session.news_lockout_windows_et)
+        )
+
+        # Detect lockout → clear transition and arm post-news momentum mode
+        if self._was_in_lockout and not in_lockout_now:
+            pnm_bars = self._session.post_news_momentum_bars
+            if pnm_bars > 0:
+                self._post_news_momentum_bars = pnm_bars
+                logger.info(
+                    "GoldSignalGenerator: news lockout cleared — post-news momentum mode armed ({} bars)",
+                    pnm_bars,
+                )
+        self._was_in_lockout = in_lockout_now
+
+        if in_lockout_now:
+            logger.debug("GoldSignalGenerator: news lockout active — HOLD")
+            return self._hold_signal(regime if regime else GoldRegime.NO_TRADE, "news_lockout")
+
+        # Tick down post-news counter (set above on lockout exit)
+        post_news_mode = self._post_news_momentum_bars > 0
+        if post_news_mode:
+            self._post_news_momentum_bars -= 1
+            logger.debug(
+                "GoldSignalGenerator: post-news momentum mode active ({} bars remaining)",
+                self._post_news_momentum_bars,
+            )
 
         # ── Post-loss cooldown (direction-aware) ─────────────────────────────
         # Snapshot counters *before* decrement to decide whether to block this bar
@@ -284,8 +317,31 @@ class GoldSignalGenerator:
             return self._hold_signal(regime if regime else GoldRegime.NO_TRADE, "post_loss_cooldown")
 
         # ── Regime guard ─────────────────────────────────────────────────────
-        if not regime in (GoldRegime.TRENDING_BULL, GoldRegime.TRENDING_BEAR):
-            return self._hold_signal(regime, "regime_not_tradeable")
+        # Post-news momentum: if regime is RANGING but EMAs agree on direction,
+        # promote to trending so we can catch the immediate post-news impulse.
+        if post_news_mode and regime == GoldRegime.RANGING:
+            _row = features.iloc[-1]
+            _ema9 = float(_row.get("ema9", 0))
+            _ema21 = float(_row.get("ema21", 0))
+            if _ema9 > _ema21:
+                regime = GoldRegime.TRENDING_BULL
+                logger.debug("GoldSignalGenerator: post-news mode — promoted RANGING → TRENDING_BULL")
+            elif _ema9 < _ema21:
+                regime = GoldRegime.TRENDING_BEAR
+                logger.debug("GoldSignalGenerator: post-news mode — promoted RANGING → TRENDING_BEAR")
+
+        # Keltner mean-reversion is eligible in RANGING + MIDDAY — skip normal guard for it
+        keltner_mr_eligible = (
+            self._entry.keltner_mr_enabled
+            and bucket == GoldSessionBucket.MIDDAY
+            and regime == GoldRegime.RANGING
+        )
+
+        if regime not in (GoldRegime.TRENDING_BULL, GoldRegime.TRENDING_BEAR):
+            if keltner_mr_eligible:
+                pass  # Fall through to Keltner MR check below
+            else:
+                return self._hold_signal(regime, "regime_not_tradeable")
 
         row = features.iloc[-1]
         if pd.isna(row[["close", "ema9", "ema21", "atr", "vwap"]]).any():
@@ -311,7 +367,8 @@ class GoldSignalGenerator:
                 )
 
         # ── ADX session-bucket gate ────────────────────────────────────────────
-        if "adx" in features.columns:
+        # (skipped for Keltner MR — low ADX is exactly the condition it targets)
+        if "adx" in features.columns and not keltner_mr_eligible:
             adx_val = float(row.get("adx", 0.0))
             adjusted_adx_min = self._entry.adx_trend_min * bucket_cfg.adx_min_mult
             if adx_val < adjusted_adx_min:
@@ -352,7 +409,8 @@ class GoldSignalGenerator:
                     self._orb_break_short_bars += 1
 
         # ── Try signals in priority order (session-bucket-aware) ──────────────
-        orb_signal = None
+        # NOTE: _maybe_return helper is defined after signal 1 block (below).
+        orb_signal: Optional[GoldSignal] = None
         # 1. ORB (higher conviction when range is clean)
         if self._entry.orb_enabled and self._or_formed and bucket_cfg.orb_enabled:
             orb_signal = self._check_orb(
@@ -360,47 +418,73 @@ class GoldSignalGenerator:
                 bar_ts=bar_timestamp, bucket_cfg=bucket_cfg,
             )
             if orb_signal.is_actionable:
-                # Apply per-bucket confidence offset
                 orb_signal.confidence = max(0.0, orb_signal.confidence + bucket_cfg.confidence_offset)
+                if post_news_mode:
+                    orb_signal.confidence = min(0.95, orb_signal.confidence + 0.05)
+                    orb_signal.metadata["post_news_momentum"] = True
                 orb_signal.metadata["session_bucket"] = bucket.value
-                if self._is_same_family_cooldown_blocked(orb_signal):
-                    pass  # Fall through to pullback; don't return yet
-                else:
+                if not self._is_same_family_cooldown_blocked(orb_signal):
                     logger.debug(
                         "GoldSignalGenerator: {} in {} bucket (conf={:.2f})",
                         orb_signal.signal_type.value, bucket.value, orb_signal.confidence,
                     )
                     return orb_signal
+                # Fall through if cooldown blocked
         elif self._entry.orb_enabled and self._or_formed and not bucket_cfg.orb_enabled:
             orb_signal = self._hold_signal(regime, "orb_disabled_in_bucket", session_bucket=bucket.value)
 
+        # Helper: apply bucket confidence offset + post-news bonus, then return if actionable
+        def _maybe_return(sig: GoldSignal, conf_offset: float) -> Optional[GoldSignal]:
+            if not sig.is_actionable:
+                return None
+            sig.confidence = max(0.0, sig.confidence + conf_offset)
+            if post_news_mode:
+                sig.confidence = min(0.95, sig.confidence + 0.05)
+                sig.metadata["post_news_momentum"] = True
+            sig.metadata["session_bucket"] = bucket.value
+            if self._is_same_family_cooldown_blocked(sig):
+                return None
+            logger.debug(
+                "GoldSignalGenerator: {} in {} bucket (conf={:.2f})",
+                sig.signal_type.value, bucket.value, sig.confidence,
+            )
+            return sig
+
         # 2. Pullback setups
-        if bucket_cfg.pullback_enabled:
+        pb_signal: GoldSignal
+        if bucket_cfg.pullback_enabled and regime in (GoldRegime.TRENDING_BULL, GoldRegime.TRENDING_BEAR):
             pb_signal = self._check_pullback(
                 features, close, ema9, ema21, atr, vwap, regime,
                 bar_ts=bar_timestamp, bucket_cfg=bucket_cfg,
             )
-            if pb_signal.is_actionable:
-                # Apply per-bucket confidence offset
-                pb_signal.confidence = max(0.0, pb_signal.confidence + bucket_cfg.confidence_offset)
-                pb_signal.metadata["session_bucket"] = bucket.value
-                if self._is_same_family_cooldown_blocked(pb_signal):
-                    pass  # Blocked — fall through to HOLD
-                else:
-                    logger.debug(
-                        "GoldSignalGenerator: {} in {} bucket (conf={:.2f})",
-                        pb_signal.signal_type.value, bucket.value, pb_signal.confidence,
-                    )
-                    return pb_signal
+            result = _maybe_return(pb_signal, bucket_cfg.confidence_offset)
+            if result is not None:
+                return result
         else:
             pb_signal = self._hold_signal(regime, "pullback_disabled_in_bucket", session_bucket=bucket.value)
 
-        block_reason = pb_signal.metadata.get("block_reason") or (orb_signal.metadata.get("block_reason") if orb_signal else None)
-        extra = {"session_bucket": bucket.value}
+        # 3. Keltner mean-reversion (midday RANGING only)
+        kmr_signal: Optional[GoldSignal] = None
+        if keltner_mr_eligible:
+            kmr_signal = self._check_keltner_mr(
+                features, close, atr, vwap, regime, bar_ts=bar_timestamp,
+            )
+            result = _maybe_return(kmr_signal, bucket_cfg.confidence_offset)
+            if result is not None:
+                return result
+
+        block_reason = (
+            pb_signal.metadata.get("block_reason")
+            or (orb_signal.metadata.get("block_reason") if orb_signal else None)
+            or (kmr_signal.metadata.get("block_reason") if kmr_signal else None)
+        )
+        extra: Dict = {"session_bucket": bucket.value}
         if orb_signal and orb_signal.metadata.get("block_reason"):
             extra["orb_block_reason"] = orb_signal.metadata.get("block_reason")
         if pb_signal.metadata.get("block_reason"):
             extra["pullback_block_reason"] = pb_signal.metadata.get("block_reason")
+        if kmr_signal and kmr_signal.metadata.get("block_reason"):
+            extra["kmr_block_reason"] = kmr_signal.metadata.get("block_reason")
         return self._hold_signal(regime, block_reason or "no_setup", **extra)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -451,6 +535,8 @@ class GoldSignalGenerator:
             self._or_formed = False
             self._orb_break_long_bars = 0
             self._orb_break_short_bars = 0
+            self._was_in_lockout = False
+            self._post_news_momentum_bars = 0
             logger.debug("GoldSignalGenerator: new session {} — OR reset", today)
 
         if not self._or_formed:
@@ -642,6 +728,107 @@ class GoldSignalGenerator:
         if risk <= 0 or reward <= 0:
             return False
         return (reward / risk) >= self._exit.min_rr_ratio
+
+    def _check_keltner_mr(
+        self,
+        features: pd.DataFrame,
+        close: float,
+        atr: float,
+        vwap: float,
+        regime: GoldRegime,
+        bar_ts: Optional[pd.Timestamp] = None,
+    ) -> GoldSignal:
+        """Keltner Channel mean-reversion signal for midday RANGING conditions.
+
+        Fires when price touches a Keltner band and reverses — targeting the
+        Keltner midline (EMA20) as TP.  Only valid when Keltner columns are
+        present in features (computed by compute_indicators).
+        """
+        for col in ("kc_mid", "kc_upper", "kc_lower"):
+            if col not in features.columns:
+                return self._hold_signal(regime, "keltner_mr_columns_missing")
+
+        row = features.iloc[-1]
+        kc_mid = float(row["kc_mid"])
+        kc_upper = float(row["kc_upper"])
+        kc_lower = float(row["kc_lower"])
+
+        if kc_mid <= 0 or pd.isna(kc_mid):
+            return self._hold_signal(regime, "keltner_mr_invalid_levels")
+
+        touch_band = atr * self._entry.keltner_touch_atr_mult
+
+        # VWAP extension guard — don't take mean-reversion when price is too
+        # far from VWAP (stronger directional context overrides MR logic)
+        max_vwap_ext = self._entry.keltner_max_vwap_extension_atr
+        if atr > 0 and vwap > 0 and max_vwap_ext > 0:
+            vwap_ext = abs(close - vwap) / atr
+            if vwap_ext > max_vwap_ext:
+                return self._hold_signal(
+                    regime,
+                    "keltner_mr_vwap_extension_exceeded",
+                    vwap_ext=vwap_ext,
+                    max_allowed=max_vwap_ext,
+                )
+
+        open_price = float(row.get("open", close))
+
+        # BUY: close touched lower band and bar is bullish (reversal candle)
+        if close <= kc_lower + touch_band and close >= kc_lower - touch_band:
+            if close > open_price:  # Bullish close — confirming reversal
+                sl = _snap_to_tick(kc_lower - atr, self._tick_size, -1)
+                tp = _snap_to_tick(kc_mid, self._tick_size, +1)
+                if self._check_rr("BUY", close, sl, tp):
+                    return GoldSignal(
+                        action="BUY",
+                        signal_type=GoldSignalType.KELTNER_MR_LONG,
+                        confidence=0.55,
+                        entry_ref_price=close,
+                        stop_loss=sl,
+                        take_profit=tp,
+                        atr=atr,
+                        regime=regime,
+                        metadata={
+                            "kc_lower": kc_lower,
+                            "kc_mid": kc_mid,
+                            "kc_upper": kc_upper,
+                            "vwap": vwap,
+                        },
+                    )
+                return self._hold_signal(regime, "keltner_mr_rr_below_minimum")
+
+        # SELL: close touched upper band and bar is bearish (reversal candle)
+        if close >= kc_upper - touch_band and close <= kc_upper + touch_band:
+            if close < open_price:  # Bearish close — confirming reversal
+                sl = _snap_to_tick(kc_upper + atr, self._tick_size, +1)
+                tp = _snap_to_tick(kc_mid, self._tick_size, -1)
+                if self._check_rr("SELL", close, sl, tp):
+                    return GoldSignal(
+                        action="SELL",
+                        signal_type=GoldSignalType.KELTNER_MR_SHORT,
+                        confidence=0.55,
+                        entry_ref_price=close,
+                        stop_loss=sl,
+                        take_profit=tp,
+                        atr=atr,
+                        regime=regime,
+                        metadata={
+                            "kc_lower": kc_lower,
+                            "kc_mid": kc_mid,
+                            "kc_upper": kc_upper,
+                            "vwap": vwap,
+                        },
+                    )
+                return self._hold_signal(regime, "keltner_mr_rr_below_minimum")
+
+        return self._hold_signal(
+            regime,
+            "keltner_mr_not_at_band",
+            close=close,
+            kc_lower=kc_lower,
+            kc_upper=kc_upper,
+            touch_band=touch_band,
+        )
 
     def _check_pullback(
         self,

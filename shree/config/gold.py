@@ -181,6 +181,11 @@ class GoldSessionConfig:
     extended_hours_enabled: bool = False
     extended_session_open_et: str = "18:00"   # COMEX overnight open (6 PM ET)
 
+    # ── Phase 3: Post-news momentum mode ─────────────────────────────────────
+    # After a news lockout window ends, relax regime gates for this many bars
+    # so the bot can catch the initial directional impulse.
+    post_news_momentum_bars: int = 15
+
     # ── Phase 5: Session bucket boundaries (ET) ──────────────────────────────
     # Customize where each bucket starts.  Order matters: each bucket runs
     # from its start time to the next bucket's start time.
@@ -242,6 +247,15 @@ class GoldIndicatorConfig:
     price_structure_enabled: bool = True
     price_structure_lookback_bars: int = 6  # Bump to 6 for 5 meaningful pairs
 
+    # ── Phase 4: Incremental indicator computation ────────────────────────────
+    # Truncate the DataFrame to this many bars before computing indicators.
+    # EWM converges quickly — 500 bars is more than enough for any indicator.
+    indicator_max_lookback_bars: int = 500
+
+    # ── Phase 3: Keltner Channels — midday mean-reversion ────────────────────
+    keltner_period: int = 20        # EMA period for Keltner midline and ATR
+    keltner_mult: float = 1.5       # Band width in ATR multiples
+
 
 @dataclass
 class GoldEntryConfig:
@@ -286,6 +300,13 @@ class GoldEntryConfig:
     orb_max_breakout_candle_atr: float = 1.25
     orb_max_extension_atr: float = 0.75
     orb_max_vwap_extension_atr: float = 1.5   # Block ORB when price too far from VWAP
+
+    # ── Phase 3: Keltner mean-reversion (midday RANGING) ─────────────────────
+    keltner_mr_enabled: bool = True
+    # How close to the Keltner band the close must be (in ATR units)
+    keltner_touch_atr_mult: float = 0.20     # e.g. 0.20 * ATR above lower band
+    # Max extension from VWAP before the mean-reversion setup is invalidated
+    keltner_max_vwap_extension_atr: float = 1.0
 
     # ORB retest: allow a second-chance entry on pullback to OR level after
     # the initial breakout bar, for up to this many bars.  Set to 0 to disable.

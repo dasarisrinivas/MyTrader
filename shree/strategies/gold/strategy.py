@@ -128,6 +128,16 @@ def compute_indicators(df: pd.DataFrame, cfg: "GoldStrategyConfig") -> pd.DataFr
     df["rsi"] = 100.0 - (100.0 / (1.0 + rs))
     df["rsi"] = df["rsi"].fillna(50.0)
 
+    # ── Keltner Channels (Phase 3) — midday mean-reversion signals ──────────
+    kc_period = ind.keltner_period
+    kc_mult = ind.keltner_mult
+    kc_mid = _ema(df["close"], kc_period)
+    # Use the existing Wilder ATR series (already computed) smoothed at kc_period
+    kc_atr = _rma(tr, kc_period)
+    df["kc_mid"] = kc_mid
+    df["kc_upper"] = kc_mid + kc_mult * kc_atr
+    df["kc_lower"] = kc_mid - kc_mult * kc_atr
+
     # ── Bollinger Band Width (Phase 3) — ORB conviction filter ──────────────
     # BBW = (upper_band - lower_band) / middle_band
     # High BBW ⟹ expanding volatility = better ORB conviction
@@ -287,6 +297,14 @@ class GoldIntradayStrategy(BaseStrategy):
             ts = bar_timestamp or raw_features.index[-1]
             if not self._in_tradeable_session(ts):
                 return GoldSignal(action="HOLD", regime=GoldRegime.NO_TRADE)
+
+        # ── Phase 4: Incremental indicator computation ────────────────────────
+        # Truncate to the last N bars before computing indicators.  EWM/Wilder
+        # indicators converge within 3-5× their period, so 500 bars (≈ 8 hours)
+        # is more than sufficient for any lookback used in the strategy.
+        max_lb = self._cfg.indicators.indicator_max_lookback_bars
+        if max_lb > 0 and len(raw_features) > max_lb:
+            raw_features = raw_features.iloc[-max_lb:]
 
         features = compute_indicators(raw_features, self._cfg)
         regime = self._regime_detector.detect(features)
