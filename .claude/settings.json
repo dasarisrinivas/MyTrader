@@ -48,7 +48,10 @@
       "Bash(python -m pytest tests/test_backtest.py -x --tb=short -q)",
       "Bash(chmod +x /Users/svss/Documents/code/ShreeBot/start_paper_bot.sh)",
       "Bash(grep -rn 'terminated with error' /Users/svss/Documents/code/ShreeBot/ --include=*.py)",
-      "Bash(git -C /Users/svss/Documents/code/ShreeBot log -1 --stat)"
+      "Bash(git -C /Users/svss/Documents/code/ShreeBot log -1 --stat)",
+      "Bash(python -m pytest tests/ -k \"gold\" -x -q)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(git stash:*)"
     ],
     "additionalDirectories": [
       "/Users/svss/Documents/code/ShreeBot/archive/shree"
