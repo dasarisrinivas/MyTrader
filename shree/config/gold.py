@@ -17,13 +17,16 @@ class GoldSessionBucket(str, Enum):
     All boundary times are in ET (America/New_York).
     """
 
-    OVERNIGHT = "OVERNIGHT"       # 18:00–03:00 ET (Asia session, thinnest liquidity)
-    PRE_COMEX = "PRE_COMEX"       # 03:00–08:20 ET (London session, liquidity building)
-    COMEX_OPEN = "COMEX_OPEN"     # 08:20–10:30 ET (COMEX floor open, peak liquidity)
-    MIDDAY = "MIDDAY"             # 10:30–12:00 ET (lunch chop, reduced aggressiveness)
-    PRE_CLOSE = "PRE_CLOSE"       # 12:00–13:30 ET (winding down, tightest entries)
-    MAINTENANCE = "MAINTENANCE"   # 16:00–17:00 CT (hard block, no trading)
-    UNKNOWN = "UNKNOWN"           # Fallback (pre-session gap between 13:30-18:00 ET)
+    OVERNIGHT = "OVERNIGHT"           # 18:00–03:00 ET (Asia session, thinnest liquidity)
+    LONDON_OPEN = "LONDON_OPEN"       # 03:00–05:00 ET (London open, volatility spike)
+    PRE_COMEX_LATE = "PRE_COMEX_LATE" # 05:00–08:20 ET (post-London, quieting pre-COMEX)
+    # Legacy alias preserved for backward-compat with older config.yaml overrides
+    PRE_COMEX = "PRE_COMEX"           # Deprecated alias → maps to LONDON_OPEN behavior
+    COMEX_OPEN = "COMEX_OPEN"         # 08:20–10:30 ET (COMEX floor open, peak liquidity)
+    MIDDAY = "MIDDAY"                 # 10:30–12:00 ET (lunch chop, reduced aggressiveness)
+    PRE_CLOSE = "PRE_CLOSE"           # 12:00–13:30 ET (winding down, tightest entries)
+    MAINTENANCE = "MAINTENANCE"       # 16:00–17:00 CT (hard block, no trading)
+    UNKNOWN = "UNKNOWN"               # Fallback (pre-session gap between 13:30-18:00 ET)
 
 
 @dataclass
@@ -56,6 +59,12 @@ class GoldSessionBucketConfig:
     # Extension guard tightening (applied to pullback_max_vwap/ema_extension_atr)
     extension_strictness_mult: float = 1.0
 
+    # SL/TP ATR multiplier overrides (Phase 2)
+    # Applied on top of the base exit.atr_sl_multiplier / exit.atr_tp_multiplier.
+    # 1.0 = no change (use base config value).
+    sl_mult: float = 1.0
+    tp_mult: float = 1.0
+
 
 # ── Default bucket configs ────────────────────────────────────────────────
 # These are the out-of-box defaults per session bucket.  Override in config.yaml
@@ -71,15 +80,43 @@ def _default_session_buckets() -> Dict[str, GoldSessionBucketConfig]:
             atr_min_ratio_mult=1.5,     # Require higher volatility to trade
             volume_min_mult=2.0,        # Double the volume floor
             extension_strictness_mult=0.6,  # 40% tighter extension guards
+            sl_mult=1.8,                # Wide stops — overnight gaps happen
+            tp_mult=2.5,                # Need larger target to justify the risk
         ),
-        GoldSessionBucket.PRE_COMEX.value: GoldSessionBucketConfig(
-            orb_enabled=False,          # OR not formed until COMEX open
-            pullback_enabled=True,      # London pullbacks are valid
-            confidence_offset=-0.05,    # Slight penalty
+        GoldSessionBucket.LONDON_OPEN.value: GoldSessionBucketConfig(
+            orb_enabled=False,          # OR not yet formed
+            pullback_enabled=True,      # London pullbacks are prime setups
+            confidence_offset=0.02,     # Slight bonus — London open is a clean session
+            adx_min_mult=1.05,          # Mildly stricter — fast moves, need real trend
+            atr_min_ratio_mult=1.1,     # Need genuine volatility
+            volume_min_mult=1.2,        # London has good volume
+            extension_strictness_mult=0.85,
+            sl_mult=1.3,                # Wider stops — London gaps and news
+            tp_mult=2.0,                # Generous target; strong directional moves
+        ),
+        GoldSessionBucket.PRE_COMEX_LATE.value: GoldSessionBucketConfig(
+            orb_enabled=False,          # OR not yet formed
+            pullback_enabled=True,      # Valid but less energetic
+            confidence_offset=-0.05,    # Slight penalty vs London open
             adx_min_mult=1.1,           # Slightly stricter ADX
             atr_min_ratio_mult=1.2,     # Need some volatility
             volume_min_mult=1.5,        # Moderate volume floor bump
-            extension_strictness_mult=0.8,  # 20% tighter extension
+            extension_strictness_mult=0.8,
+            sl_mult=1.2,                # Narrower than London open
+            tp_mult=1.8,                # Good R:R but quieter
+        ),
+        # PRE_COMEX kept as deprecated alias; config.yaml overrides using "PRE_COMEX"
+        # will still work — bucket classifier now routes 03:00-05:00 to LONDON_OPEN.
+        GoldSessionBucket.PRE_COMEX.value: GoldSessionBucketConfig(
+            orb_enabled=False,
+            pullback_enabled=True,
+            confidence_offset=-0.05,
+            adx_min_mult=1.1,
+            atr_min_ratio_mult=1.2,
+            volume_min_mult=1.5,
+            extension_strictness_mult=0.8,
+            sl_mult=1.3,
+            tp_mult=2.0,
         ),
         GoldSessionBucket.COMEX_OPEN.value: GoldSessionBucketConfig(
             orb_enabled=True,           # Peak ORB window
@@ -89,6 +126,8 @@ def _default_session_buckets() -> Dict[str, GoldSessionBucketConfig]:
             atr_min_ratio_mult=1.0,
             volume_min_mult=1.0,
             extension_strictness_mult=1.0,
+            sl_mult=1.0,                # Base config values — tightest fills
+            tp_mult=1.5,                # Slightly stretched target, strong momentum
         ),
         GoldSessionBucket.MIDDAY.value: GoldSessionBucketConfig(
             orb_enabled=True,           # OR still valid, but choppier
@@ -98,6 +137,8 @@ def _default_session_buckets() -> Dict[str, GoldSessionBucketConfig]:
             atr_min_ratio_mult=1.0,
             volume_min_mult=1.3,        # Need more volume to confirm
             extension_strictness_mult=0.85,  # Slightly tighter
+            sl_mult=0.8,                # Tighter stops — low volatility chop
+            tp_mult=1.2,                # Conservative target in lunch lull
         ),
         GoldSessionBucket.PRE_CLOSE.value: GoldSessionBucketConfig(
             orb_enabled=False,          # Too late for ORB
@@ -107,6 +148,8 @@ def _default_session_buckets() -> Dict[str, GoldSessionBucketConfig]:
             atr_min_ratio_mult=1.0,
             volume_min_mult=1.5,
             extension_strictness_mult=0.7,  # 30% tighter
+            sl_mult=1.2,                # Slightly wider — end-of-day noise
+            tp_mult=1.0,                # Conservative target, short time window
         ),
     }
 
@@ -141,11 +184,12 @@ class GoldSessionConfig:
     # ── Phase 5: Session bucket boundaries (ET) ──────────────────────────────
     # Customize where each bucket starts.  Order matters: each bucket runs
     # from its start time to the next bucket's start time.
-    bucket_overnight_start_et: str = "18:00"   # COMEX overnight open
-    bucket_pre_comex_start_et: str = "03:00"   # London open
-    bucket_comex_open_start_et: str = "08:20"  # COMEX floor open
-    bucket_midday_start_et: str = "10:30"      # Post-morning session
-    bucket_pre_close_start_et: str = "12:00"   # Approaching close
+    bucket_overnight_start_et: str = "18:00"       # COMEX overnight open
+    bucket_london_open_start_et: str = "03:00"     # London open (Phase 2)
+    bucket_pre_comex_late_start_et: str = "05:00"  # Post-London, pre-COMEX (Phase 2)
+    bucket_comex_open_start_et: str = "08:20"      # COMEX floor open
+    bucket_midday_start_et: str = "10:30"          # Post-morning session
+    bucket_pre_close_start_et: str = "12:00"       # Approaching close
 
     # Per-bucket behavior modifiers (populated from defaults + config overrides)
     buckets: Dict[str, GoldSessionBucketConfig] = field(
@@ -180,6 +224,11 @@ class GoldIndicatorConfig:
     mtf_adx_min: float = 18.0             # HTF ADX must be ≥ this (slightly looser than 1m)
     mtf_ema_alignment_required: bool = True  # HTF EMA9>EMA21 must agree with 1m regime
 
+    # ── Phase 2: Adaptive ADX threshold ──────────────────────────────────────
+    # Effective ADX floor = max(15, min(rolling_median + 0.5*std, adx_trend_min))
+    # Adapts to low-volatility sessions without hard-coding a static threshold.
+    adx_adaptive_window: int = 50          # Bars used to compute rolling ADX stats
+
     # ── Phase 2: Regime quality gates ─────────────────────────────────────────
     # EMA spread — reject "trending" label when EMAs are nearly flat / overlapping
     ema_spread_min_ratio: float = 0.00015  # |ema9 - ema21| / close must exceed this
@@ -187,9 +236,11 @@ class GoldIndicatorConfig:
     ema_slope_enabled: bool = True
     ema_slope_lookback_bars: int = 3       # Slope = (ema9[now] - ema9[now-N]) / N
     ema_slope_min_per_bar: float = 0.02    # Min absolute slope per bar (points)
-    # Price structure — optional higher-high/higher-low (bull) or lower-high/lower-low (bear)
+    # Price structure — monotonic swing check (Phase 3 fix)
+    # Require >50% of consecutive bar-pairs within the window to show HH/HL (bull)
+    # or LH/LL (bear).  Needs at least 4 bars to form meaningful pairs.
     price_structure_enabled: bool = True
-    price_structure_lookback_bars: int = 5  # How many bars back to check swing structure
+    price_structure_lookback_bars: int = 6  # Bump to 6 for 5 meaningful pairs
 
 
 @dataclass
@@ -235,6 +286,10 @@ class GoldEntryConfig:
     orb_max_breakout_candle_atr: float = 1.25
     orb_max_extension_atr: float = 0.75
     orb_max_vwap_extension_atr: float = 1.5   # Block ORB when price too far from VWAP
+
+    # ORB retest: allow a second-chance entry on pullback to OR level after
+    # the initial breakout bar, for up to this many bars.  Set to 0 to disable.
+    orb_retest_max_bars: int = 10
 
     # Minimum bar volume (skip zero-range / no-data bars)
     min_bar_volume: int = 5
@@ -289,13 +344,24 @@ class GoldExitConfig:
     # Minimum R:R to accept a trade
     min_rr_ratio: float = 1.2
 
+    # Partial exit — exit a fraction of the position at a given R multiple.
+    # Only fires when contracts >= 2 (can't split 1 contract).
+    # When move_sl_to_be is True the stop is also moved to break-even at the
+    # same trigger, protecting the locked-in partial profit.
+    partial_exit_enabled: bool = True
+    partial_exit_r: float = 1.0           # Trigger after 1R of favorable move
+    partial_exit_fraction: float = 0.5    # Exit 50% of the position
+    partial_exit_move_sl_to_be: bool = True  # Move SL to break-even on partial
+
 
 @dataclass
 class GoldRiskConfig:
     """Position sizing and daily guardrails."""
 
-    # Per-trade risk
-    max_risk_per_trade_usd: float = 50.0    # Max $ at risk per trade (conservative default)
+    # Per-trade risk — 1 MGC contract with ATR-based SL typically risks $120-$180.
+    # 50.0 was too conservative (bypassed by the min-1-contract floor in risk.py).
+    # Default raised to 175.0 to reflect realistic single-contract paper risk.
+    max_risk_per_trade_usd: float = 175.0
 
     # Daily guardrails
     daily_loss_limit_usd: float = 200.0     # Halt trading for the day after this loss

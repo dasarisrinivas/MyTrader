@@ -52,7 +52,8 @@ gold:
     extended_hours_enabled: true
     news_lockout_windows_et: []
     bucket_overnight_start_et: "18:00"
-    bucket_pre_comex_start_et: "03:00"
+    bucket_london_open_start_et: "03:00"
+    bucket_pre_comex_late_start_et: "05:00"
     bucket_comex_open_start_et: "08:20"
     bucket_midday_start_et: "10:30"
     bucket_pre_close_start_et: "12:00"
@@ -95,7 +96,12 @@ gold:
     time_stop_stage_2_min_progress_r: 0.0
 
   risk:
-    max_risk_per_trade_usd: 50.0
+    # 1 MGC contract with ATR-based SL (1.5×ATR × $10/pt) typically risks $120-180.
+    # $50 was too conservative — forced min(1, floor(50/risk)) = 1 contract regardless,
+    # but also showed misleading "within limit" logs when actual risk was 2-4× the cap.
+    # Raised to $175 to match realistic 1-contract MGC paper risk while remaining
+    # comfortably inside the $200 daily loss limit.
+    max_risk_per_trade_usd: 175.0
     daily_loss_limit_usd: 200.0
     max_trades_per_day: 1
     max_consecutive_losses: 3

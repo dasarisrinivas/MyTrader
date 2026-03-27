@@ -193,20 +193,30 @@ class TestClassifySessionBucket:
         gen = _make_gen()
         assert gen._classify_session_bucket(_ts(18, 0)) == GoldSessionBucket.OVERNIGHT
 
-    def test_pre_comex_at_0300(self) -> None:
-        """03:00 ET → PRE_COMEX (London session start)."""
+    def test_london_open_at_0300(self) -> None:
+        """03:00 ET → LONDON_OPEN (London session start)."""
         gen = _make_gen()
-        assert gen._classify_session_bucket(_ts(3, 0)) == GoldSessionBucket.PRE_COMEX
+        assert gen._classify_session_bucket(_ts(3, 0)) == GoldSessionBucket.LONDON_OPEN
 
-    def test_pre_comex_at_0700(self) -> None:
-        """07:00 ET → PRE_COMEX (London mid-session)."""
+    def test_london_open_at_0459(self) -> None:
+        """04:59 ET → LONDON_OPEN (just before PRE_COMEX_LATE boundary)."""
         gen = _make_gen()
-        assert gen._classify_session_bucket(_ts(7, 0)) == GoldSessionBucket.PRE_COMEX
+        assert gen._classify_session_bucket(_ts(4, 59)) == GoldSessionBucket.LONDON_OPEN
 
-    def test_pre_comex_at_0819(self) -> None:
-        """08:19 ET → PRE_COMEX (one minute before COMEX open)."""
+    def test_pre_comex_late_at_0500(self) -> None:
+        """05:00 ET → PRE_COMEX_LATE (post-London, quieting)."""
         gen = _make_gen()
-        assert gen._classify_session_bucket(_ts(8, 19)) == GoldSessionBucket.PRE_COMEX
+        assert gen._classify_session_bucket(_ts(5, 0)) == GoldSessionBucket.PRE_COMEX_LATE
+
+    def test_pre_comex_late_at_0700(self) -> None:
+        """07:00 ET → PRE_COMEX_LATE (London mid-session tail)."""
+        gen = _make_gen()
+        assert gen._classify_session_bucket(_ts(7, 0)) == GoldSessionBucket.PRE_COMEX_LATE
+
+    def test_pre_comex_late_at_0819(self) -> None:
+        """08:19 ET → PRE_COMEX_LATE (one minute before COMEX open)."""
+        gen = _make_gen()
+        assert gen._classify_session_bucket(_ts(8, 19)) == GoldSessionBucket.PRE_COMEX_LATE
 
     def test_comex_open_at_0820(self) -> None:
         """08:20 ET → COMEX_OPEN (boundary inclusive)."""

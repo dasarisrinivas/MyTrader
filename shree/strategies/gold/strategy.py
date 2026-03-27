@@ -117,6 +117,36 @@ def compute_indicators(df: pd.DataFrame, cfg: "GoldStrategyConfig") -> pd.DataFr
     cum_vol = volume.groupby(session_id).cumsum()
     df["vwap"] = cum_tp_vol / cum_vol.replace(0, np.nan)
 
+    # ── RSI(14) — used to block exhaustion pullback entries ─────────────────
+    rsi_period = 14
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = _rma(gain, rsi_period)
+    avg_loss = _rma(loss, rsi_period)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["rsi"] = 100.0 - (100.0 / (1.0 + rs))
+    df["rsi"] = df["rsi"].fillna(50.0)
+
+    # ── Bollinger Band Width (Phase 3) — ORB conviction filter ──────────────
+    # BBW = (upper_band - lower_band) / middle_band
+    # High BBW ⟹ expanding volatility = better ORB conviction
+    # Low BBW  ⟹ tight squeeze = avoid stale ORB signals
+    bb_period = 20
+    bb_std = 2.0
+    bb_mid = df["close"].rolling(bb_period, min_periods=1).mean()
+    bb_sigma = df["close"].rolling(bb_period, min_periods=1).std(ddof=0).fillna(0.0)
+    df["bbw"] = (2.0 * bb_std * bb_sigma) / bb_mid.replace(0, np.nan)
+    df["bbw"] = df["bbw"].fillna(0.0)
+
+    # ── Volume delta proxy (Phase 3) — directional pressure ─────────────────
+    # bar_delta ∈ [-0.5, +0.5]: positive = bullish bar, negative = bearish bar
+    # Rolling cumsum gives a running bias; used to confirm pullback direction.
+    bar_range = (high - low).replace(0, np.nan)
+    bar_delta = ((df["close"] - low) / bar_range - 0.5).fillna(0.0)
+    df["bar_delta"] = bar_delta
+    df["bar_delta_cumsum"] = bar_delta.rolling(20, min_periods=1).sum()
+
     # ── Higher-timeframe confirmation indicators (optional) ──────────────────
     if cfg.indicators.mtf_enabled:
         df = compute_htf_indicators(df, cfg)

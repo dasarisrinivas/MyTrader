@@ -12,7 +12,7 @@ Design goals:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from ib_insync import Future, IB
@@ -23,6 +23,13 @@ from ...utils.logger import logger
 
 # Contract cache TTL — re-qualify after this many seconds (handles contract rolls)
 _CACHE_TTL_SECONDS = 3600
+
+# COMEX gold (GC/MGC): IB reports the *delivery* date in lastTradeDateOrContractMonth,
+# not the actual Last Trading Day (LTD).  For April delivery, IB returns ~Apr 28 but
+# the LTD is ~32 days earlier (late March).  Roll early by filtering out any contract
+# whose reported delivery date is within this many days, ensuring we never get stuck
+# on a contract past its LTD.
+_ROLL_DAYS_BEFORE_DELIVERY = 35
 
 
 class GoldContractFactory:
@@ -127,7 +134,20 @@ class GoldContractFactory:
                 pass
             return None
 
-        valid = [d for d in details if (_expiry_dt(d) or now_utc) >= now_utc]
+        # Filter out contracts whose delivery date is within _ROLL_DAYS_BEFORE_DELIVERY days.
+        # IB reports the delivery date (not LTD) for COMEX gold; for MGC the LTD is ~32
+        # days before delivery, so a 35-day buffer ensures we never trade past LTD.
+        roll_cutoff = now_utc + timedelta(days=_ROLL_DAYS_BEFORE_DELIVERY)
+        valid = [d for d in details if (_expiry_dt(d) or now_utc) >= roll_cutoff]
+        if not valid:
+            # Fallback: relax to standard expiry filter (avoids total blackout if
+            # all listed contracts are within the buffer, e.g. during data issues)
+            logger.warning(
+                "GoldContractFactory: no contracts outside {}-day roll window — "
+                "falling back to standard expiry filter",
+                _ROLL_DAYS_BEFORE_DELIVERY,
+            )
+            valid = [d for d in details if (_expiry_dt(d) or now_utc) >= now_utc]
         if not valid:
             valid = details   # All appear expired — fall back to nearest
 

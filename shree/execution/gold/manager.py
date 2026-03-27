@@ -86,6 +86,8 @@ class _OpenPosition:
         # Trailing stop state
         self.trail_activated: bool = False
         self.best_price: Optional[float] = None
+        # Partial exit state
+        self.partial_exit_done: bool = False
 
 
 class GoldTradingManager:
@@ -610,6 +612,10 @@ class GoldTradingManager:
         current_price = float(df["close"].iloc[-1])
         atr = float(df["atr"].iloc[-1]) if "atr" in df.columns else pos.signal.atr
 
+        # ── Partial exit (50% at 1R; only when contracts >= 2) ──────────────
+        if self._cfg.exit.partial_exit_enabled:
+            await self._check_partial_exit(pos, current_price)
+
         # ── Trailing stop ────────────────────────────────────────────────────
         if self._cfg.exit.trailing_stop_enabled:
             await self._update_trailing_stop(pos, current_price, atr)
@@ -617,6 +623,81 @@ class GoldTradingManager:
         # ── Time stop ────────────────────────────────────────────────────────
         if self._cfg.exit.time_stop_enabled:
             await self._check_time_stop(df, bar_dt)
+
+    async def _check_partial_exit(self, pos: _OpenPosition, current_price: float) -> None:
+        """Exit a fraction of the position when price reaches partial_exit_r × 1R.
+
+        Behavior:
+        - Requires contracts >= 2 to actually exit a partial lot.
+        - When move_sl_to_be is True, the stop is also moved to entry (break-even)
+          regardless of whether a partial lot was exited — protects any open profit.
+        """
+        if pos.partial_exit_done or pos.entry_price is None:
+            return
+
+        cfg = self._cfg.exit
+        r_distance = abs(pos.entry_price - pos.signal.stop_loss)  # 1R in price terms
+        if r_distance <= 0:
+            return
+
+        trigger_distance = r_distance * cfg.partial_exit_r
+        if pos.action == "BUY":
+            reached = current_price >= pos.entry_price + trigger_distance
+        else:
+            reached = current_price <= pos.entry_price - trigger_distance
+
+        if not reached:
+            return
+
+        pos.partial_exit_done = True  # Set before async calls to prevent re-entry
+
+        exit_lots = max(0, int(pos.contracts * cfg.partial_exit_fraction))
+        remaining = pos.contracts - exit_lots
+
+        if exit_lots >= 1 and remaining >= 1:
+            logger.info(
+                "GoldTradingManager: partial exit — {} of {} contracts at {:.2f} ({}R reached)",
+                exit_lots, pos.contracts, current_price, cfg.partial_exit_r,
+            )
+            if not self._cfg.simulation:
+                opposite = "SELL" if pos.action == "BUY" else "BUY"
+                partial_order = MarketOrder(opposite, exit_lots)
+                partial_order.outsideRth = True
+                partial_order.tif = "GTC"
+                partial_trade = self._ib.placeOrder(self._contract, partial_order)
+                self._active_trades[partial_order.orderId] = partial_trade
+                # Reduce the bracket SL/TP quantity to cover only the remaining lots
+                for oid in (pos.sl_order_id, pos.tp_order_id):
+                    trade = self._active_trades.get(oid) if oid else None
+                    if trade is not None:
+                        try:
+                            trade.order.totalQuantity = remaining
+                            self._ib.placeOrder(self._contract, trade.order)
+                        except Exception as exc:
+                            logger.warning(
+                                "GoldTradingManager: failed to resize bracket order {}: {}", oid, exc
+                            )
+            pos.contracts = remaining
+        else:
+            logger.debug(
+                "GoldTradingManager: partial exit skipped — {} contract(s) too few to split",
+                pos.contracts,
+            )
+
+        # Move SL to break-even regardless of whether we partial-exited a lot
+        if cfg.partial_exit_move_sl_to_be and pos.entry_price is not None:
+            be_price = pos.entry_price
+            sl_needs_update = (
+                (pos.action == "BUY" and be_price > pos.signal.stop_loss)
+                or (pos.action == "SELL" and be_price < pos.signal.stop_loss)
+            )
+            if sl_needs_update:
+                logger.info(
+                    "GoldTradingManager: SL moved to break-even {:.2f} after {}R trigger",
+                    be_price, cfg.partial_exit_r,
+                )
+                pos.signal.stop_loss = be_price
+                await self._modify_sl_order(pos, be_price)
 
     async def _update_trailing_stop(
         self,

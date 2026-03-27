@@ -118,7 +118,11 @@ class GoldSignalGenerator:
         self._or_high: Optional[float] = None
         self._or_low: Optional[float] = None
         self._or_formed: bool = False
-        self._or_bar_count: int = 0
+
+        # ORB retest tracking: bars elapsed since first upside/downside break
+        # 0 = no break yet; incremented each bar after first break detected
+        self._orb_break_long_bars: int = 0
+        self._orb_break_short_bars: int = 0
 
         # Post-loss cooldown (bars remaining)
         self._post_loss_cooldown_bars: int = 0
@@ -332,6 +336,21 @@ class GoldSignalGenerator:
                     session_bucket=bucket.value,
                 )
 
+        # ── ORB retest state tracking ─────────────────────────────────────────
+        # Record the first bar where close crosses the OR boundary.  Subsequent
+        # bars within orb_retest_max_bars of the first break qualify for retest.
+        if self._or_formed and self._or_high is not None and self._or_low is not None:
+            if close > self._or_high:
+                if self._orb_break_long_bars == 0:
+                    self._orb_break_long_bars = 1
+                else:
+                    self._orb_break_long_bars += 1
+            if close < self._or_low:
+                if self._orb_break_short_bars == 0:
+                    self._orb_break_short_bars = 1
+                else:
+                    self._orb_break_short_bars += 1
+
         # ── Try signals in priority order (session-bucket-aware) ──────────────
         orb_signal = None
         # 1. ORB (higher conviction when range is clean)
@@ -430,7 +449,8 @@ class GoldSignalGenerator:
             self._or_high = None
             self._or_low = None
             self._or_formed = False
-            self._or_bar_count = 0
+            self._orb_break_long_bars = 0
+            self._orb_break_short_bars = 0
             logger.debug("GoldSignalGenerator: new session {} — OR reset", today)
 
         if not self._or_formed:
@@ -446,8 +466,13 @@ class GoldSignalGenerator:
             if bar_time < session_open:
                 return
 
-            # Count bars since session open
-            self._or_bar_count += 1
+            # Use elapsed clock-minutes since session open (not bar count) so that
+            # gaps in data (no-trade minutes overnight) don't extend the OR window.
+            elapsed_minutes = (
+                (bar_time.hour * 60 + bar_time.minute)
+                - (session_open.hour * 60 + session_open.minute)
+            )
+
             row = features.iloc[-1]
             bar_high = float(row.get("high", row["close"]))
             bar_low = float(row.get("low", row["close"]))
@@ -457,7 +482,7 @@ class GoldSignalGenerator:
             if self._or_low is None or bar_low < self._or_low:
                 self._or_low = bar_low
 
-            if self._or_bar_count >= self._session.opening_range_minutes:
+            if elapsed_minutes >= self._session.opening_range_minutes:
                 # Validate OR range is meaningful
                 if self._or_high is not None and self._or_low is not None:
                     or_range = self._or_high - self._or_low
@@ -499,12 +524,13 @@ class GoldSignalGenerator:
 
         All bucket boundaries are specified in ET. The classification order is:
         1. OVERNIGHT:  18:00 ET → 03:00 ET  (crosses midnight)
-        2. PRE_COMEX:  03:00 ET → COMEX_OPEN start
-        3. COMEX_OPEN: COMEX open → MIDDAY start
-        4. MIDDAY:     midday start → PRE_CLOSE start
-        5. PRE_CLOSE:  pre-close start → session_close_et
-        6. MAINTENANCE: checked separately (CT-based, handled by caller)
-        7. UNKNOWN:     anything in the gap between close and overnight open
+        2. LONDON_OPEN:    03:00–05:00 ET  (London open volatility)
+        3. PRE_COMEX_LATE: 05:00–08:20 ET  (post-London, quieting)
+        4. COMEX_OPEN:     08:20–10:30 ET  (peak COMEX liquidity)
+        5. MIDDAY:         10:30–12:00 ET
+        6. PRE_CLOSE:      12:00–13:30 ET
+        7. MAINTENANCE: checked separately (CT-based, handled by caller)
+        8. UNKNOWN:     anything in the gap between close and overnight open
 
         Returns GoldSessionBucket.COMEX_OPEN as the default if bar_ts is None
         (most permissive fallback — do not restrict signals when timestamp unknown).
@@ -524,18 +550,24 @@ class GoldSignalGenerator:
             return int(parts[0]) * 60 + int(parts[1])
 
         overnight_start = _parse_hm(self._session.bucket_overnight_start_et)
-        pre_comex_start = _parse_hm(self._session.bucket_pre_comex_start_et)
+        london_open_start = _parse_hm(self._session.bucket_london_open_start_et)
+        pre_comex_late_start = _parse_hm(self._session.bucket_pre_comex_late_start_et)
         comex_open_start = _parse_hm(self._session.bucket_comex_open_start_et)
         midday_start = _parse_hm(self._session.bucket_midday_start_et)
         pre_close_start = _parse_hm(self._session.bucket_pre_close_start_et)
         session_close = _parse_hm(self._session.session_close_et)
 
-        # OVERNIGHT wraps midnight: 18:00+ OR before pre_comex
-        if bar_hm >= overnight_start or bar_hm < pre_comex_start:
+        # OVERNIGHT wraps midnight: 18:00+ OR before London open (03:00)
+        if bar_hm >= overnight_start or bar_hm < london_open_start:
             return GoldSessionBucket.OVERNIGHT
 
+        # LONDON_OPEN: 03:00–05:00 ET
+        if bar_hm < pre_comex_late_start:
+            return GoldSessionBucket.LONDON_OPEN
+
+        # PRE_COMEX_LATE: 05:00–08:20 ET
         if bar_hm < comex_open_start:
-            return GoldSessionBucket.PRE_COMEX
+            return GoldSessionBucket.PRE_COMEX_LATE
 
         if bar_hm < midday_start:
             return GoldSessionBucket.COMEX_OPEN
@@ -563,10 +595,14 @@ class GoldSignalGenerator:
         entry_price: float,
         atr: float,
         bar_ts: Optional[pd.Timestamp] = None,
+        bucket_cfg: Optional[GoldSessionBucketConfig] = None,
     ) -> Tuple[float, float]:
         """Compute SL and TP for a given action, ATR-based, snapped to tick.
 
-        Uses wider multipliers during extended/overnight hours if enabled.
+        Multiplier priority (highest wins):
+          1. Per-bucket sl_mult / tp_mult (Phase 2) — if bucket_cfg provided
+          2. Extended-hours wider multipliers — if bar_ts is in extended hours
+          3. Base exit config atr_sl_multiplier / atr_tp_multiplier
         """
         if self._is_extended_hours(bar_ts):
             sl_mult = self._exit.extended_atr_sl_multiplier
@@ -574,6 +610,11 @@ class GoldSignalGenerator:
         else:
             sl_mult = self._exit.atr_sl_multiplier
             tp_mult = self._exit.atr_tp_multiplier
+
+        # Per-bucket overrides applied on top of the selected base multiplier
+        if bucket_cfg is not None:
+            sl_mult *= bucket_cfg.sl_mult
+            tp_mult *= bucket_cfg.tp_mult
 
         sl_distance = atr * sl_mult
         sl_distance = max(sl_distance, self._exit.sl_floor_points)
@@ -598,7 +639,7 @@ class GoldSignalGenerator:
         else:
             risk = sl - entry
             reward = entry - tp
-        if risk <= 0:
+        if risk <= 0 or reward <= 0:
             return False
         return (reward / risk) >= self._exit.min_rr_ratio
 
@@ -640,6 +681,15 @@ class GoldSignalGenerator:
                 (GoldSignalType.VWAP_PB_SHORT, vwap),
                 (GoldSignalType.EMA_PB_SHORT, ema21),
             ]
+
+        # RSI(14) exhaustion filter — block pullback entries when price has already
+        # moved too far in the trend direction (overbought longs, oversold shorts).
+        if "rsi" in features.columns:
+            rsi = float(features["rsi"].iloc[-1])
+            if action == "BUY" and rsi > 75.0:
+                return self._hold_signal(regime, "pullback_rsi_overbought", rsi=rsi)
+            if action == "SELL" and rsi < 25.0:
+                return self._hold_signal(regime, "pullback_rsi_oversold", rsi=rsi)
 
         for sig_type, level in signal_types_to_try:
             if level <= 0:
@@ -737,7 +787,7 @@ class GoldSignalGenerator:
                 continue
 
             # Build signal
-            sl, tp = self._sl_tp(action, close, atr, bar_ts=bar_ts)
+            sl, tp = self._sl_tp(action, close, atr, bar_ts=bar_ts, bucket_cfg=bucket_cfg)
             if not self._check_rr(action, close, sl, tp):
                 logger.debug(
                     "GoldSignalGenerator: %s skipped — R:R below %.2f",
@@ -794,6 +844,8 @@ class GoldSignalGenerator:
         bar_range = max(bar_high - bar_low, 0.0)
         breakout_buffer = atr * self._entry.orb_breakout_min_atr_fraction if atr > 0 else 0.0
 
+        retest_max = self._entry.orb_retest_max_bars
+
         # Long ORB: close breaks above OR high
         if close > self._or_high + breakout_buffer and regime in (
             GoldRegime.TRENDING_BULL,
@@ -805,6 +857,26 @@ class GoldSignalGenerator:
         elif close < self._or_low - breakout_buffer and regime in (
             GoldRegime.TRENDING_BEAR,
             GoldRegime.RANGING,
+        ):
+            action = "SELL"
+            sig_type = GoldSignalType.ORB_SHORT
+        # ORB Retest long: price pulled back into the buffer zone after first break
+        elif (
+            retest_max > 0
+            and 0 < self._orb_break_long_bars <= retest_max
+            and close > self._or_high        # Still above OR — long bias intact
+            and close <= self._or_high + breakout_buffer  # Pulling back into buffer
+            and regime in (GoldRegime.TRENDING_BULL, GoldRegime.RANGING)
+        ):
+            action = "BUY"
+            sig_type = GoldSignalType.ORB_LONG
+        # ORB Retest short: price pulled back into the buffer zone after first break
+        elif (
+            retest_max > 0
+            and 0 < self._orb_break_short_bars <= retest_max
+            and close < self._or_low         # Still below OR — short bias intact
+            and close >= self._or_low - breakout_buffer   # Pulling back into buffer
+            and regime in (GoldRegime.TRENDING_BEAR, GoldRegime.RANGING)
         ):
             action = "SELL"
             sig_type = GoldSignalType.ORB_SHORT
@@ -869,7 +941,7 @@ class GoldSignalGenerator:
         if action == "SELL" and close >= open_price:
             return self._hold_signal(regime, "orb_bar_direction_failed")
 
-        sl, tp = self._sl_tp(action, close, atr, bar_ts=bar_ts)
+        sl, tp = self._sl_tp(action, close, atr, bar_ts=bar_ts, bucket_cfg=bucket_cfg)
         if not self._check_rr(action, close, sl, tp):
             return self._hold_signal(regime, "orb_rr_below_minimum")
 

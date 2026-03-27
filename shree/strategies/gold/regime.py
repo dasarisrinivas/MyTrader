@@ -97,7 +97,23 @@ class GoldRegimeDetector:
                 return GoldRegime.NO_TRADE
 
         # ── ADX: ranging vs trending ──────────────────────────────────────────
-        if adx < self._entry.adx_trend_min:
+        # Adaptive threshold: adapts to the session's realized ADX distribution
+        # so low-volatility periods (e.g. overnight) can still identify trends.
+        # Formula: max(15, min(rolling_median + 0.5*std, static_adx_trend_min))
+        adx_window = self._ind.adx_adaptive_window
+        if "adx" in features.columns and len(features) >= adx_window:
+            adx_series = features["adx"].iloc[-adx_window:]
+            adx_median = float(adx_series.median())
+            adx_std = float(adx_series.std(ddof=1)) if len(adx_series) > 1 else 0.0
+            effective_adx_min = max(15.0, min(adx_median + 0.5 * adx_std, self._entry.adx_trend_min))
+        else:
+            effective_adx_min = self._entry.adx_trend_min
+
+        if adx < effective_adx_min:
+            logger.debug(
+                "GoldRegime: RANGING — ADX %.1f < effective_min %.1f (static=%.1f)",
+                adx, effective_adx_min, self._entry.adx_trend_min,
+            )
             return GoldRegime.RANGING
         if adx > self._entry.adx_trend_max:
             return GoldRegime.NO_TRADE   # Extreme trend / exhaustion spike
@@ -139,28 +155,42 @@ class GoldRegimeDetector:
                     )
                     return GoldRegime.RANGING
 
-        # ── Phase 2 Gate 3: Price structure ──────────────────────────────────
-        # Optional higher-high/higher-low (bull) or lower-high/lower-low (bear)
-        # confirmation over recent bars.  Avoids labelling as trending when
-        # price is actually making counter-trend swings.
+        # ── Phase 3 Gate 3: Price structure (monotonic swing check) ──────────
+        # Checks that the *majority* of consecutive bar-pairs within the lookback
+        # window show trend-consistent moves (HH OR HL for bull; LH OR LL for bear).
+        # This is more robust than the endpoint-only comparison — a single pullback
+        # at the end of an otherwise trending sequence no longer blocks the regime.
+        #
+        # Block when ≤ half the pairs show any trend-consistent swing.
         if self._ind.price_structure_enabled:
             lb = self._ind.price_structure_lookback_bars
             if len(features) > lb and lb >= 2:
                 recent = features.iloc[-(lb + 1):]
                 highs_arr = recent["high"].values
                 lows_arr = recent["low"].values
+                n_pairs = len(highs_arr) - 1
                 if bull_ema:
-                    # Bull: latest high > earliest high AND latest low > earliest low
-                    if highs_arr[-1] <= highs_arr[0] and lows_arr[-1] <= lows_arr[0]:
+                    # Count pairs with at least HH OR HL (either dimension advancing)
+                    bull_pairs = sum(
+                        1 for i in range(n_pairs)
+                        if highs_arr[i + 1] > highs_arr[i] or lows_arr[i + 1] > lows_arr[i]
+                    )
+                    if bull_pairs <= n_pairs // 2:
                         logger.debug(
-                            "GoldRegime: RANGING — bull but no HH/HL structure"
+                            "GoldRegime: RANGING — bull but only {}/{} trend-consistent pairs",
+                            bull_pairs, n_pairs,
                         )
                         return GoldRegime.RANGING
                 else:
-                    # Bear: latest high < earliest high AND latest low < earliest low
-                    if highs_arr[-1] >= highs_arr[0] and lows_arr[-1] >= lows_arr[0]:
+                    # Count pairs with at least LH OR LL
+                    bear_pairs = sum(
+                        1 for i in range(n_pairs)
+                        if highs_arr[i + 1] < highs_arr[i] or lows_arr[i + 1] < lows_arr[i]
+                    )
+                    if bear_pairs <= n_pairs // 2:
                         logger.debug(
-                            "GoldRegime: RANGING — bear but no LH/LL structure"
+                            "GoldRegime: RANGING — bear but only {}/{} trend-consistent pairs",
+                            bear_pairs, n_pairs,
                         )
                         return GoldRegime.RANGING
 
