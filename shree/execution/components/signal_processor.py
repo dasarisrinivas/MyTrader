@@ -469,9 +469,16 @@ class SignalProcessor:
         base_confidence = signal.confidence
 
         # 2a. Sentiment overlay
+        # NOTE: _evaluate_sentiment() applies a multiplicative confidence_modifier
+        # internally (e.g. 0.7× for weak opposing sentiment, 1.1× for supporting).
+        # We capture conf before/after so the delta stored in confidence_adjustments
+        # is an additive value consistent with all other overlays (vx_additive,
+        # hybrid_agreement_boost, local_kb). Previously this stored the raw API score
+        # (+0.17) which made the "base + overlays = final" log arithmetic wrong.
         sentiment_modifier = None
         if (self._multi_source_enabled or self._stocktwits_enabled):
             try:
+                conf_before_sentiment = signal.confidence
                 signal, sentiment_modifier = self._evaluate_sentiment(signal)
                 if sentiment_modifier is not None:
                     sent_score = 0.0
@@ -489,8 +496,15 @@ class SignalProcessor:
                             "BULLISH" if sent_score > 0.2 else
                             "BEARISH" if sent_score < -0.2 else "NEUTRAL"
                         )
-                    confidence_adjustments["sentiment"] = sent_score
-                    logger.info(f"📡 Sentiment overlay: score={sent_score:.3f} bias={m._last_sentiment_bias}")
+                    # Store the actual confidence delta (additive), not the raw score
+                    conf_delta = signal.confidence - conf_before_sentiment
+                    confidence_adjustments["sentiment"] = conf_delta
+                    logger.info(
+                        f"📡 Sentiment overlay: score={sent_score:.3f} "
+                        f"bias={m._last_sentiment_bias} "
+                        f"conf_delta={conf_delta:+.3f} "
+                        f"({conf_before_sentiment:.3f} → {signal.confidence:.3f})"
+                    )
             except Exception as exc:
                 logger.debug(f"Sentiment overlay skipped: {exc}")
 
@@ -601,12 +615,25 @@ class SignalProcessor:
                     # Agreement bonus: hybrid agrees with strategy direction → boost
                     # Disagreement penalty: hybrid opposes → dampen (but never flip)
                     if hybrid_action == signal.action:
-                        # Aligned — boost confidence by up to +0.15
-                        boost = min(0.15, hybrid_conf * 0.2)
+                        # Aligned — boost confidence scaled by RAG's own win rate.
+                        # MAR 31 2026: Previously boost = min(0.15, hybrid_conf * 0.2),
+                        # which only used the LLM's final confidence. A 24% RAG win rate
+                        # (historical data bearish) was giving the same max boost as a
+                        # 70% win rate. Now: multiply by rag_win_rate so historical data
+                        # quality gates the boost. k=0.4 preserves the current boost
+                        # magnitude at rag_win_rate=0.5 (no RAG data / neutral prior).
+                        rag_win_rate = 0.5  # neutral default when no RAG data
+                        rag_count = 0
+                        if hasattr(pipeline_result, "rag_retrieval"):
+                            rag_count = getattr(pipeline_result.rag_retrieval, "similar_trade_count", 0)
+                            if rag_count > 0:
+                                rag_win_rate = getattr(pipeline_result.rag_retrieval, "weighted_win_rate", 0.5)
+                        boost = min(0.15, hybrid_conf * rag_win_rate * 0.4)
                         signal.confidence = min(1.0, signal.confidence + boost)
                         confidence_adjustments["hybrid_agreement_boost"] = boost
                         logger.info(
                             f"🤖 Hybrid AGREES ({hybrid_action}): "
+                            f"rag_win_rate={rag_win_rate:.0%} (n={rag_count}) "
                             f"conf boost +{boost:.3f} → {signal.confidence:.3f}"
                         )
                     elif hybrid_action == "HOLD":
@@ -624,7 +651,9 @@ class SignalProcessor:
                             f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
                         )
                     else:
-                        # Hybrid opposes — tiered dampening (but NEVER flip action)
+                        # Hybrid opposes direction (but NEVER flip action).
+                        #
+                        # History:
                         # FEB 10 2026: Strengthened from min(0.15, hybrid_conf * 0.15)
                         # to min(0.30, hybrid_conf * 0.40).
                         # FEB 20 2026: Capped at 0.10. Audit showed the old -0.30 cap
@@ -638,16 +667,35 @@ class SignalProcessor:
                         # Below 0.45 keep the light -0.05 touch. Trade 7180 on 2026-03-17
                         # entered BUY at PDH with hybrid SELL @ 0.50 conf — the flat 0.05
                         # cap left final conf exactly at threshold (0.60) and it fired.
-                        if hybrid_conf >= 0.45:
+                        # MAR 31 2026: Hard block at hybrid_conf >= 0.50. All 3 OPPOSES
+                        # trades (3/16, 3/17, 3/20) lost. Soft dampen left final conf at
+                        # or above the 0.60 threshold — trades fired into known headwinds.
+                        # When RAG has >= 50% conviction against our direction, veto.
+                        if hybrid_conf >= 0.50:
+                            original_conf = signal.confidence
+                            signal.confidence = 0.0
+                            confidence_adjustments["hybrid_oppose_dampen"] = -original_conf
+                            logger.warning(
+                                f"🚫 Hybrid OPPOSES ({hybrid_action} vs {signal.action}) "
+                                f"@ hybrid_conf={hybrid_conf:.2f}: BLOCKED "
+                                f"(conf {original_conf:.3f} → 0.0)"
+                            )
+                        elif hybrid_conf >= 0.45:
                             dampen = min(0.10, hybrid_conf * 0.20)
+                            signal.confidence = max(0.1, signal.confidence - dampen)
+                            confidence_adjustments["hybrid_oppose_dampen"] = -dampen
+                            logger.info(
+                                f"🤖 Hybrid OPPOSES ({hybrid_action} vs {signal.action}): "
+                                f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
+                            )
                         else:
                             dampen = min(0.05, hybrid_conf * 0.20)
-                        signal.confidence = max(0.1, signal.confidence - dampen)
-                        confidence_adjustments["hybrid_oppose_dampen"] = -dampen
-                        logger.info(
-                            f"🤖 Hybrid OPPOSES ({hybrid_action} vs {signal.action}): "
-                            f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
-                        )
+                            signal.confidence = max(0.1, signal.confidence - dampen)
+                            confidence_adjustments["hybrid_oppose_dampen"] = -dampen
+                            logger.info(
+                                f"🤖 Hybrid OPPOSES ({hybrid_action} vs {signal.action}): "
+                                f"conf dampen -{dampen:.3f} → {signal.confidence:.3f}"
+                            )
 
                     # Extract useful metadata from pipeline
                     hybrid_meta = getattr(hybrid_signal, "metadata", {}) or {}

@@ -37,6 +37,7 @@ from .integrations import (  # noqa: F401
 )
 from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig, DynamicSupportConfig  # noqa: F401
 from .gold import GoldStrategyConfig  # noqa: F401
+from .spy_options import SpyOptionsConfig  # noqa: F401
 from .settings import Settings  # noqa: F401
 
 __all__ = [
@@ -63,5 +64,6 @@ __all__ = [
     "ObservabilityConfig",
     "DynamicSupportConfig",
     "GoldStrategyConfig",
+    "SpyOptionsConfig",
     "Settings",
 ]

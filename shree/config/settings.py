@@ -26,6 +26,7 @@ from .integrations import (
 )
 from .misc import LearningConfig, FeatureFlagsConfig, ObservabilityConfig, DynamicSupportConfig
 from .gold import GoldStrategyConfig
+from .spy_options import SpyOptionsConfig
 
 @dataclass
 class Settings:
@@ -49,6 +50,7 @@ class Settings:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     dynamic_support: DynamicSupportConfig = field(default_factory=DynamicSupportConfig)
     gold: GoldStrategyConfig = field(default_factory=GoldStrategyConfig)
+    spy_options: SpyOptionsConfig = field(default_factory=SpyOptionsConfig)
 
     def validate(self) -> None:
         import logging
