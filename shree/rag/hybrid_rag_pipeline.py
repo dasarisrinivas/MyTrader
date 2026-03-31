@@ -632,25 +632,82 @@ class RuleEngine:
             result.signal = TradeAction.BLOCKED
             return result
         
-        # ===== DAILY BIAS - Broader market context =====
-        # Compare current price to previous day's range and EMA50 for daily bias
+        # ===== DAILY BIAS - Multi-factor scoring =====
+        # Old formula used single-condition OR logic: one factor (e.g. price just
+        # below PDL) could flip bias to BEARISH even when RSI/MACD/EMA all disagreed
+        # (e.g. 2026-03-30: price -1% vs PDL but RSI=67, MACD=+5.57, EMA stack UP
+        # → false BEARISH applied 40% BUY penalty → trade still fired, lost $51.25).
+        #
+        # New: each factor casts a vote; level breaks count double.
+        # BULLISH: score >= +3  |  BEARISH: score <= -3  |  else NEUTRAL
+        # Requires at least 3 of 6 weighted factors to agree before bias fires.
         daily_bias = "NEUTRAL"
+        bias_score = 0
+        bias_factors = []
+
         pdh_pct = (price - pdh) / pdh * 100 if pdh > 0 else 0
         pdl_pct = (price - pdl) / pdl * 100 if pdl > 0 else 0
         ema50_pct = (price - ema_50) / ema_50 * 100 if ema_50 > 0 else 0
-        
-        # Strong DOWN day: price below PDL (previous day low) or significantly below EMA50
-        if pdl_pct < -0.3 or ema50_pct < -0.5:  
-            daily_bias = "BEARISH"
-            result.filters_passed.append(f"DAILY_BIAS:BEARISH(pdl={pdl_pct:.2f}%,ema50={ema50_pct:.2f}%)")
-        # Strong UP day: price above PDH (previous day high) or significantly above EMA50
-        elif pdh_pct > 0.3 or ema50_pct > 0.5:
+
+        # Factor 1: PDH/PDL level break — strongest signal (±2)
+        if price < pdl and pdl > 0:
+            bias_score -= 2
+            bias_factors.append(f"BLW_PDL({pdl_pct:.2f}%)")
+        elif price > pdh and pdh > 0:
+            bias_score += 2
+            bias_factors.append(f"ABV_PDH(+{pdh_pct:.2f}%)")
+
+        # Factor 2: Position within prior day's range (±1)
+        if pdh > 0 and pdl > 0:
+            mid = (pdh + pdl) / 2.0
+            if price > mid:
+                bias_score += 1
+                bias_factors.append("ABV_MID")
+            else:
+                bias_score -= 1
+                bias_factors.append("BLW_MID")
+
+        # Factor 3: EMA50 anchor — only count if meaningfully displaced (±1)
+        if ema50_pct > 0.2:
+            bias_score += 1
+            bias_factors.append(f"ABV_EMA50(+{ema50_pct:.2f}%)")
+        elif ema50_pct < -0.2:
+            bias_score -= 1
+            bias_factors.append(f"BLW_EMA50({ema50_pct:.2f}%)")
+
+        # Factor 4: RSI zone (±1)
+        if rsi > 55:
+            bias_score += 1
+            bias_factors.append(f"RSI_BULL({rsi:.0f})")
+        elif rsi < 45:
+            bias_score -= 1
+            bias_factors.append(f"RSI_BEAR({rsi:.0f})")
+
+        # Factor 5: MACD momentum (±1)
+        if macd_hist > 0:
+            bias_score += 1
+            bias_factors.append(f"MACD_POS({macd_hist:.2f})")
+        elif macd_hist < 0:
+            bias_score -= 1
+            bias_factors.append(f"MACD_NEG({macd_hist:.2f})")
+
+        # Factor 6: EMA9 vs EMA20 cross (±1)
+        if ema_9 > ema_20:
+            bias_score += 1
+            bias_factors.append("EMA9>EMA20")
+        elif ema_9 < ema_20:
+            bias_score -= 1
+            bias_factors.append("EMA9<EMA20")
+
+        if bias_score >= 3:
             daily_bias = "BULLISH"
-            result.filters_passed.append(f"DAILY_BIAS:BULLISH(pdh={pdh_pct:.2f}%,ema50={ema50_pct:.2f}%)")
-        else:
-            result.filters_passed.append(f"DAILY_BIAS:NEUTRAL(pdl={pdl_pct:.2f}%,pdh={pdh_pct:.2f}%)")
-        
-        result.daily_bias = daily_bias  # Store for later use
+        elif bias_score <= -3:
+            daily_bias = "BEARISH"
+
+        result.daily_bias = daily_bias
+        result.filters_passed.append(
+            f"DAILY_BIAS:{daily_bias}(score={bias_score:+d},{','.join(bias_factors)})"
+        )
         
         # ===== DAILY TREND CONFIRMATION GATE (Feb 2026) =====
         # Validates higher-timeframe trend alignment before allowing BUY_CONTINUATION entries.

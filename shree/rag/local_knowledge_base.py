@@ -68,7 +68,7 @@ class LocalKnowledgeBase:
         self.store.upsert_document(doc_id, text, metadata)
 
     # ---------------------------------------------------------------- retrieval
-    def query(self, context: Dict[str, Any], top_k: int = 6) -> Dict[str, Any]:
+    def query(self, context: Dict[str, Any], top_k: int = 20) -> Dict[str, Any]:
         """Return AWS-like KB signal derived from local history."""
         text = self._format_query_text(context)
         matches = self.store.similarity_search(
@@ -127,8 +127,25 @@ class LocalKnowledgeBase:
         return " ".join(str(p) for p in parts if p)
 
     def _calc_adjustment(self, win_rate: float, count: int) -> float:
-        if count < 3:
+        # Tiered trust by sample size.
+        # < 10 trades: 95% CI on win rate is ±31%+ — not actionable, return 0.
+        # 10-14 trades: CI narrows to ~±15%, apply half-strength to avoid
+        #   overreacting to a small run of wins/losses.
+        # 15+ trades: CI ±13% or better — apply full adjustment.
+        if count < 10:
             return 0.0
+        if count < 15:
+            # Half-strength: cap positive at +0.06, negative at -0.075
+            if win_rate >= 0.65:
+                return 0.06
+            if win_rate >= 0.55:
+                return 0.025
+            if win_rate <= 0.35:
+                return -0.075
+            if win_rate <= 0.45:
+                return -0.025
+            return 0.0
+        # Full-strength: 15+ trades
         if win_rate >= 0.65:
             return 0.12
         if win_rate >= 0.55:

@@ -674,8 +674,32 @@ class SignalProcessor:
             except Exception as exc:
                 logger.warning(f"⚠️ Hybrid confidence overlay failed (non-fatal): {exc}")
 
-        # 2d. Scoring validation — DISABLED (1m scoring system sunset FEB 2026)
-        # Kept as no-op stub; remove entirely when tests are updated.
+        # 2d. Local knowledge base overlay — apply win-rate adjustment from
+        # similar historical trades recorded during this and prior sessions.
+        # The local KB is populated on every trade close (order_coordinator.py)
+        # so by the second trade of a session it already reflects intraday outcomes.
+        if m._local_kb:
+            try:
+                kb_context = {
+                    "action": signal.action,
+                    "trend": getattr(m.status, "hybrid_market_trend", None),
+                    "volatility": getattr(m.status, "hybrid_volatility_regime", None),
+                    "confidence": signal.confidence,
+                }
+                kb_result = m._query_local_knowledge_base(kb_context)
+                kb_adj = kb_result.get("confidence_adjustment", 0.0)
+                if kb_adj != 0.0:
+                    original_conf = signal.confidence
+                    signal.confidence = max(0.10, min(1.0, signal.confidence + kb_adj))
+                    confidence_adjustments["local_kb"] = kb_adj
+                    logger.info(
+                        f"📚 Local KB overlay: {kb_result.get('similar_patterns', 0)} similar trades "
+                        f"win_rate={kb_result.get('historical_win_rate', 0):.0%} "
+                        f"adj={kb_adj:+.3f} | {original_conf:.3f} → {signal.confidence:.3f} "
+                        f"| {kb_result.get('reasoning', '')}"
+                    )
+            except Exception as exc:
+                logger.debug(f"Local KB overlay skipped: {exc}")
 
         # ── Step 2d½: CHOP regime guard ─────────────────────────────
         #
