@@ -85,6 +85,12 @@ class FlowState:
     gamma_exposure_bias: str = "NEUTRAL"  # "SUPPORTIVE_UPSIDE" | "SUPPORTIVE_DOWNSIDE"
     net_gex: float = 0.0
     pc_ratio: Optional[float] = None  # intraday put/call vol ratio
+    # Gamma walls
+    call_wall_strike: Optional[float] = None   # strike with highest call OI
+    put_wall_strike: Optional[float] = None    # strike with highest put OI
+    gamma_flip_level: Optional[float] = None  # strike where net GEX changes sign
+    at_call_wall: bool = False                # SPY within 0.3% of call wall
+    at_put_wall: bool = False                 # SPY within 0.3% of put wall
     sources_used: List[str] = field(default_factory=list)
     fetched_at: float = 0.0
     available: bool = False
@@ -203,7 +209,7 @@ class ExternalFlowConfirmation:
         sources: List[str] = []
 
         # ── 1. yfinance options chain (primary, always attempted) ──────────
-        yf_records = await self._fetch_yfinance(now)
+        yf_records, spy_price = await self._fetch_yfinance(now)
         if yf_records:
             all_records.extend(yf_records)
             sources.append("yfinance")
@@ -242,8 +248,9 @@ class ExternalFlowConfirmation:
             if r.vol_oi_ratio >= self._min_voi and r.volume >= self._min_vol_unusual
         ][:10]
 
-        # ── GEX from yfinance records ──────────────────────────────────────
+        # ── GEX + gamma walls from yfinance records ────────────────────────
         net_gex, gex_bias = self._compute_gex(yf_records)
+        walls = self._compute_walls(yf_records, spy_price)
 
         self._state = FlowState(
             records=all_records[-200:],  # keep last 200
@@ -257,6 +264,11 @@ class ExternalFlowConfirmation:
             gamma_exposure_bias=gex_bias,
             net_gex=round(net_gex, 2),
             pc_ratio=round(pc, 3) if pc else None,
+            call_wall_strike=walls["call_wall_strike"],
+            put_wall_strike=walls["put_wall_strike"],
+            gamma_flip_level=walls["gamma_flip_level"],
+            at_call_wall=walls["at_call_wall"],
+            at_put_wall=walls["at_put_wall"],
             sources_used=sources,
             fetched_at=time.monotonic(),
             available=True,
@@ -276,16 +288,16 @@ class ExternalFlowConfirmation:
 
     # ── yfinance options chain ────────────────────────────────────────────────
 
-    async def _fetch_yfinance(self, now: datetime) -> List[FlowRecord]:
+    async def _fetch_yfinance(self, now: datetime) -> Tuple[List[FlowRecord], float]:
         loop = asyncio.get_event_loop()
         try:
-            records = await loop.run_in_executor(None, self._yfinance_sync, now)
-            return records
+            records, spy_price = await loop.run_in_executor(None, self._yfinance_sync, now)
+            return records, spy_price
         except Exception as exc:
             logger.debug(f"[FlowConfirm] yfinance error: {exc}")
-            return []
+            return [], 0.0
 
-    def _yfinance_sync(self, now: datetime) -> List[FlowRecord]:
+    def _yfinance_sync(self, now: datetime) -> Tuple[List[FlowRecord], float]:
         spy = yf.Ticker("SPY")
         spy_price = spy.fast_info.get("last_price") or 0.0
 
@@ -376,7 +388,7 @@ class ExternalFlowConfirmation:
                         confidence=0.6 if is_block else 0.45,
                     ))
 
-        return records
+        return records, spy_price
 
     # ── GEX computation ───────────────────────────────────────────────────────
 
@@ -400,6 +412,66 @@ class ExternalFlowConfirmation:
             bias = "NEUTRAL"
 
         return net, bias
+
+    # ── Gamma walls ───────────────────────────────────────────────────────────
+
+    def _compute_walls(self, records: List[FlowRecord], spy_price: float) -> Dict:
+        """Compute key gamma wall levels from open interest per strike.
+
+        call_wall_strike  — strike with highest cumulative call OI (resistance)
+        put_wall_strike   — strike with highest cumulative put OI (support)
+        gamma_flip_level  — strike where cumulative net GEX changes sign
+        at_call_wall      — SPY price within 0.3% of call wall
+        at_put_wall       — SPY price within 0.3% of put wall
+        """
+        from collections import defaultdict
+
+        call_oi: dict = defaultdict(int)
+        put_oi: dict = defaultdict(int)
+        gex_by_strike: dict = defaultdict(float)
+
+        for r in records:
+            if r.right == "C":
+                call_oi[r.strike] += r.open_interest
+                gex_by_strike[r.strike] += r.gamma * r.open_interest * 100
+            else:
+                put_oi[r.strike] += r.open_interest
+                gex_by_strike[r.strike] -= r.gamma * r.open_interest * 100
+
+        call_wall = max(call_oi, key=lambda s: call_oi[s]) if call_oi else None
+        put_wall = max(put_oi, key=lambda s: put_oi[s]) if put_oi else None
+
+        # Gamma flip: walk strikes in ascending order, find where cumulative GEX flips sign
+        gamma_flip = None
+        if gex_by_strike:
+            sorted_strikes = sorted(gex_by_strike.keys())
+            cumulative = 0.0
+            prev_sign = None
+            for s in sorted_strikes:
+                cumulative += gex_by_strike[s]
+                cur_sign = 1 if cumulative >= 0 else -1
+                if prev_sign is not None and cur_sign != prev_sign:
+                    gamma_flip = s
+                    break
+                prev_sign = cur_sign
+
+        # Proximity flags: within 0.3% of spot
+        at_call = (
+            call_wall is not None and spy_price > 0
+            and abs(spy_price - call_wall) / spy_price < 0.003
+        )
+        at_put = (
+            put_wall is not None and spy_price > 0
+            and abs(spy_price - put_wall) / spy_price < 0.003
+        )
+
+        return {
+            "call_wall_strike": float(call_wall) if call_wall is not None else None,
+            "put_wall_strike": float(put_wall) if put_wall is not None else None,
+            "gamma_flip_level": float(gamma_flip) if gamma_flip is not None else None,
+            "at_call_wall": at_call,
+            "at_put_wall": at_put,
+        }
 
     # ── Barchart scraper (optional, best-effort) ──────────────────────────────
 

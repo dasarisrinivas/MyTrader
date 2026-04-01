@@ -87,7 +87,7 @@ Labels: **BULLISH** (> +25), **NEUTRAL** (−25 to +25), **BEARISH** (< −25)
 
 ---
 
-## External Signals (7 Sources)
+## External Signals (11 Sources)
 
 ### 1. Economic Calendar — Forex Factory JSON
 - URL: `cdn-nfs.faireconomy.media/ff_calendar_thisweek.json` — no API key
@@ -172,11 +172,91 @@ Labels: `SUPPORTIVE_UPSIDE` / `SUPPORTIVE_DOWNSIDE` / `NEUTRAL`
 
 **Barchart scrape**: Attempted with proper User-Agent headers; returns empty list on failure (anti-bot, rate limit) — yfinance is always the fallback.
 
+**Gamma Walls** (computed from the same yfinance chain, no additional cost):
+
+| Level | Definition | Effect |
+|---|---|---|
+| Call Wall | Strike with highest cumulative call OI | Resistance; penalises call signals by −5% |
+| Put Wall | Strike with highest cumulative put OI | Support floor; penalises put signals by −5% |
+| Gamma Flip | Strike where net GEX changes sign | Key transition level — noted in signal reasoning |
+| `at_call_wall` | SPY within 0.3% of call wall | Active resistance flag |
+| `at_put_wall` | SPY within 0.3% of put wall | Active support flag |
+
+### 8. Market Breadth — Sector ETF Participation Proxy
+Uses yfinance to download 11 SPDR sector ETFs (XLK, XLF, XLE, XLI, XLV, XLB, XLU, XLRE, XLP, XLY, XLC) on a 5-min intraday bar:
+
+- **Breadth ratio**: fraction of sectors currently above their day-open (0.0–1.0)
+- **Labels**: STRONG (≥75%), MODERATE (≥55%), NEUTRAL, MODERATE_WEAK (≤45%), WEAK (≤25%)
+- **Up/Down volume proxy**: SPY 5-min bars where close > prev_close = up-volume; opposite = down-volume
+- **NYSE TICK**: attempted via `^TICK` (yfinance — not always available; graceful fallback)
+- 10-minute TTL; no API key
+
+**Confidence effect**: STRONG breadth → +3% for calls; WEAK breadth → +3% for puts; opposite direction → −5%
+
+### 9. Sector Leadership — Tech & Momentum Proxy
+Sector ETFs measured vs day-open: XLK, XLF, SMH (semis), IWM (small cap), QQQ (Nasdaq), XLE, XLI.
+
+| Metric | Source | Meaning |
+|---|---|---|
+| `sector_label` | ETF bull/bear count | BULL_SWEEP / BULL_LEANING / MIXED / BEAR_LEANING / BEAR_SWEEP |
+| `qqq_vs_spy_pct` | QQQ intraday % − SPY % | Nasdaq leading/lagging |
+| `iwm_vs_spy_pct` | IWM intraday % − SPY % | Small-cap risk appetite |
+| `es_premium` | (ES=F / 10) − SPY | Futures premium (positive = futures leading) |
+| `gap_pct` | Today's open vs prior close | Opening gap context |
+| `above_overnight_high` | SPY > today's range high | Breakout flag |
+| `usdjpy_trend` | JPY=X inverted daily change | RISK_ON / RISK_OFF / NEUTRAL |
+
+10-minute intraday TTL; daily TTL for prior close + USDJPY.
+
+**Confidence effect**: BULL_SWEEP → +3% for calls; BEAR_SWEEP → +3% for puts. QQQ leading adds +2% for confirmed calls. Breaking above overnight high → +3% for calls; below overnight low → +3% for puts.
+
+### 10. Volatility Term Structure — VIX/VXV + VVIX
+Free via yfinance — 15-minute TTL.
+
+| Ticker | Measures |
+|---|---|
+| `^VIX` | 30-day implied vol |
+| `^VXV` | 93-day implied vol |
+| `^VVIX` | Volatility of VIX (vol-of-vol) |
+
+**VIX/VXV ratio** → term structure classification:
+
+| Ratio | Label | Meaning |
+|---|---|---|
+| < 0.85 | STEEP_CONTANGO | Calm market; vol term structure is normal |
+| 0.85–0.95 | CONTANGO | Normal; near-term vol lower than longer-dated |
+| 0.95–1.00 | FLAT | Compressed structure |
+| 1.00–1.10 | BACKWARDATION | Fear spike; near-term vol > 93-day |
+| > 1.10 | STEEP_BACKWARDATION | Panic; acute short-term fear |
+
+**VVIX elevated** (> 115): vol-of-vol is high → reduce conviction on any directional signal (−3%).
+
+**Confidence effect**: BACKWARDATION → −5% for calls; CONTANGO → +2% for calls.
+
+### 11. OPEX Calendar — Dealer Gamma Environment
+Pure Python date math — zero network calls, zero latency.
+
+| Field | Definition |
+|---|---|
+| `next_opex` | Date of next monthly OPEX (3rd Friday of month) |
+| `days_to_opex` | Calendar days to next OPEX |
+| `is_opex_week` | True if 0–4 days away |
+| `is_opex_day` | True if today is OPEX Friday |
+| `is_triple_witching` | OPEX is in March, June, September, or December |
+| `gamma_environment` | PINNING / EXPANSIVE / NEUTRAL |
+
+**Gamma environment logic**:
+- **PINNING**: opex week + dealers net long gamma (positive net GEX) → dealers sell rallies/buy dips → price tends to pin
+- **EXPANSIVE**: dealers net short gamma OR far from OPEX → moves accelerate → momentum works better
+- **NEUTRAL**: otherwise
+
+**Confidence effect**: PINNING → −3% for directional signals; EXPANSIVE → +2% for directional signals.
+
 ---
 
 ## External Composite Score
 
-All 7 sources combined into a single score (−1.0 to +1.0), dynamically normalised:
+All weighted sources combined into a single score (−1.0 to +1.0), dynamically normalised:
 
 | Source | Default Weight | Note |
 |---|---|---|
@@ -190,6 +270,17 @@ All 7 sources combined into a single score (−1.0 to +1.0), dynamically normali
 Weights are **dynamically normalised** when sources are unavailable. Score shown as zero if fewer than 2 sources have data.
 
 **Base confidence impact**: ±5% max from composite alignment alone.
+
+The following sources are **not included in the composite score** but directly adjust confidence in the Dynamic Confidence Engine:
+
+| Source | Confidence Adjustments |
+|---|---|
+| Market breadth | ±3–5% based on breadth_ratio and signal direction |
+| Sector leadership | ±3–5% based on sector_label alignment; +2% if QQQ leads |
+| Gamma walls | −5% if at resistance/support wall; +3% if supportive side |
+| Volatility term structure | −5% (backwardation), +2% (contango); −3% if VVIX elevated |
+| Overnight context | +3% breaking range high/low; −2% trading against range |
+| OPEX gamma environment | −3% (PINNING), +2% (EXPANSIVE) |
 
 ---
 
@@ -235,6 +326,58 @@ After the base confidence model (10 components) and event-risk modifier, a secon
 ### Conflict Detection
 
 If **2 or more** of flow score, IB sentiment, and macro headwind all oppose the signal direction → confidence −8% with `conflict_detected=True`.
+
+### Market Breadth Adjustment
+
+| Condition | Effect |
+|---|---|
+| breadth_ratio ≥ 70% + call signal | +3% |
+| breadth_ratio ≤ 30% + put signal | +3% |
+| breadth_ratio ≤ 30% + call signal | −5% |
+| breadth_ratio ≥ 70% + put signal | −5% |
+
+### Sector Leadership Adjustment
+
+| Condition | Effect |
+|---|---|
+| BULL_SWEEP / BULL_LEANING + call | +3% |
+| BEAR_SWEEP / BEAR_LEANING + put | +3% |
+| Opposite-direction sweep | −3% |
+| QQQ leading (> +0.20% vs SPY) + confirmed call | +2% additional |
+
+### Gamma Wall Adjustment
+
+| Condition | Effect |
+|---|---|
+| SPY at call wall + call signal | −5% (resistance) |
+| SPY at call wall + put signal | +3% (natural ceiling) |
+| SPY at put wall + put signal | −5% (support absorbs puts) |
+| SPY at put wall + call signal | +3% (floor support) |
+
+### Volatility Term Structure Adjustment
+
+| Condition | Effect |
+|---|---|
+| BACKWARDATION + call signal | −5% |
+| STEEP_BACKWARDATION + put signal | +3% |
+| CONTANGO + call signal | +2% |
+| VVIX elevated (> 115) | −3% on any directional |
+
+### Overnight Context Adjustment
+
+| Condition | Effect |
+|---|---|
+| SPY above overnight range high + call | +3% (breakout momentum) |
+| SPY below overnight range low + put | +3% (breakdown momentum) |
+| SPY above high + put signal | −2% (against momentum) |
+| SPY below low + call signal | −2% (against momentum) |
+
+### OPEX Gamma Environment Adjustment
+
+| Environment | Effect |
+|---|---|
+| PINNING (opex week + positive GEX) | −3% for directional signals |
+| EXPANSIVE (short gamma or far from OPEX) | +2% for directional signals |
 
 ### Net Adjustment Tiers
 
@@ -487,11 +630,15 @@ Schema migrations applied automatically on startup — existing databases are up
 | Source | Data | Requires | Refresh |
 |---|---|---|---|
 | IB Gateway (ib_insync) | SPY price, VIX, bars, Greeks | IB account + Gateway | Every 60s |
-| yfinance options chain | SPY options flow, GEX, unusual activity | Nothing | 10 min |
+| yfinance options chain | SPY options flow, GEX, gamma walls, unusual activity | Nothing | 10 min |
+| yfinance sector ETFs | 11-sector breadth ratio, up/down vol proxy | Nothing | 10 min |
+| yfinance sector leaders | XLK/XLF/SMH/IWM/QQQ vs open, gap, overnight range, ES premium | Nothing | 10 min |
+| yfinance vol structure | ^VIX, ^VXV, ^VVIX — term structure and vol-of-vol | Nothing | 15 min |
+| yfinance macro | 10Y yield, DXY, oil, gold, VIX | Nothing | Daily + 15 min |
+| OPEX calendar | Monthly/quarterly OPEX dates, gamma environment | Nothing (pure Python) | Per poll (instant) |
 | Forex Factory JSON | Economic calendar | Nothing | Daily |
 | Yahoo/CNBC/Reuters RSS | News headlines | Nothing | 10 min |
 | StockTwits public API | Retail bullish/bearish % | Nothing | 10 min |
-| yfinance macro | 10Y yield, DXY, oil, gold, VIX | Nothing | Daily + 15 min |
 | CBOE public CSV | Equity P/C ratio | Nothing | Daily |
 | Alpha Query | Dark pool index | Nothing | 10 min (best-effort) |
 | Barchart scrape | Unusual options activity | Nothing | 10 min (best-effort) |

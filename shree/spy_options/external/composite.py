@@ -10,39 +10,18 @@ Sources and default weights (normalised dynamically if source unavailable):
   External flow score        0.20  (options flow, GEX, dark pool)
   Reddit enhanced            0.10  (opt-in)
 
-ExternalContext fields:
-  composite_score      float  -1.0..+1.0
-  event_risk           bool   True if US High-impact event within ±window
-  event_minutes        float  Minutes to/from nearest event
-  next_event_title     str
-  news_score           float  -1.0..+1.0
-  retail_score         float  StockTwits -1..+1
-  reddit_score         float  -100..+100 (enhanced, 0 if disabled)
-  macro_headwind       float  -1.0..+1.0
-  macro_label          str    STRONG_HEADWIND|HEADWIND|NEUTRAL|TAILWIND|STRONG_TAILWIND
-  cboe_bias            float  -1.0..+1.0 (contrarian)
-  flow_score           float  -100..+100 (ExternalFlowConfirmation)
-  flow_dark_pool       str    ACCUMULATION|DISTRIBUTION|NEUTRAL
-  flow_gex_bias        str    SUPPORTIVE_UPSIDE|SUPPORTIVE_DOWNSIDE|NEUTRAL
-  flow_pc_ratio        float  intraday P/C ratio (or None)
-  flow_unusual_strikes list   top unusual activity labels
-  tnx_trend            str
-  dxy_trend            str
-  oil_trend            str
-  vix_intraday         str    intraday VIX direction
-  spy_vs_open_pct      float
-  bullish_pct          float  StockTwits bullish %
-  bearish_pct          float
-  news_headline_sample list
-  equity_pc            float  CBOE P/C (or None)
-  reddit_contrarian    str    CONTRARIAN_BULLISH|CONTRARIAN_BEARISH|NONE
-  sources_available    int
+Additional context sources (not weighted — used for conf adjustments only):
+  Market breadth   (BreadthSignals)
+  Sector leadership (SectorSignals)
+  Vol term structure (VolStructure)
+  OPEX calendar   (OpexCalendar)
+  Gamma walls      (via FlowState)
 """
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from loguru import logger
@@ -54,6 +33,10 @@ from .stocktwits_client import StockTwitsClient
 from .macro_signals import MacroSignals
 from .cboe_flow import CboeFlow
 from .flow_confirmation import ExternalFlowConfirmation
+from .breadth_signals import BreadthSignals
+from .sector_signals import SectorSignals
+from .vol_structure import VolStructure
+from .opex_calendar import OpexCalendar
 
 
 @dataclass
@@ -63,7 +46,7 @@ class ExternalContext:
     event_minutes: float = 999.0
     next_event_title: str = ""
 
-    # Individual source scores
+    # Individual weighted source scores
     news_score: float = 0.0
     retail_score: float = 0.0          # StockTwits -1..+1
     reddit_score: float = 0.0          # -100..+100
@@ -79,6 +62,13 @@ class ExternalContext:
     flow_bullish_premium: float = 0.0
     flow_bearish_premium: float = 0.0
     flow_unusual_strikes: List[str] = field(default_factory=list)
+
+    # Gamma walls (from FlowState)
+    call_wall_strike: Optional[float] = None
+    put_wall_strike: Optional[float] = None
+    gamma_flip_level: Optional[float] = None
+    at_call_wall: bool = False
+    at_put_wall: bool = False
 
     # Macro detail
     tnx_trend: str = "FLAT"
@@ -100,6 +90,39 @@ class ExternalContext:
 
     # Reddit
     reddit_contrarian: str = "NONE"
+
+    # Market breadth
+    breadth_ratio: float = 0.5
+    breadth_label: str = "NEUTRAL"
+    up_vol_ratio: float = 0.5
+    breadth_sector_count_up: int = 0
+    breadth_sector_count_down: int = 0
+
+    # Sector leadership
+    sector_bull_count: int = 0
+    sector_bear_count: int = 0
+    sector_label: str = "NEUTRAL"
+    qqq_vs_spy_pct: float = 0.0
+    iwm_vs_spy_pct: float = 0.0
+    es_premium: float = 0.0
+    gap_pct: float = 0.0                  # today's open gap vs prior close
+    above_overnight_high: bool = False
+    below_overnight_low: bool = False
+    overnight_range_pct: float = 0.0
+    usdjpy_trend: str = "NEUTRAL"         # RISK_ON / RISK_OFF / NEUTRAL
+
+    # Volatility term structure
+    vix_vxv_ratio: Optional[float] = None
+    vol_structure: str = "FLAT"           # STEEP_CONTANGO / CONTANGO / FLAT / BACKWARDATION / STEEP_BACKWARDATION
+    vvix: Optional[float] = None
+    vvix_elevated: bool = False
+
+    # OPEX calendar
+    opex_type: str = "MONTHLY"            # MONTHLY / TRIPLE_WITCHING
+    days_to_opex: int = 99
+    is_opex_week: bool = False
+    is_opex_day: bool = False
+    gamma_environment: str = "NEUTRAL"    # PINNING / EXPANSIVE / NEUTRAL
 
     sources_available: int = 0
 
@@ -139,6 +162,10 @@ class ExternalDataManager:
             barchart_enabled=flow_barchart_enabled,
             dark_pool_enabled=flow_dark_pool_enabled,
         )
+        self._breadth = BreadthSignals()
+        self._sector = SectorSignals()
+        self._vol_structure = VolStructure()
+        self._opex = OpexCalendar()
         self._event_window = event_risk_window_minutes
         self._context = ExternalContext()
 
@@ -151,18 +178,24 @@ class ExternalDataManager:
             self._macro.refresh_if_stale(),
             self._cboe.refresh_if_stale(),
             self._flow.refresh_if_stale(),
+            self._breadth.refresh_if_stale(),
+            self._sector.refresh_if_stale(),
+            self._vol_structure.refresh_if_stale(),
             return_exceptions=True,
         )
         self._context = self._build_context()
 
     def _build_context(self) -> ExternalContext:
-        cal      = self._calendar.state
-        news     = self._news.state
-        reddit   = self._reddit.state
-        st       = self._stocktwits.state
-        macro    = self._macro.state
-        cboe     = self._cboe.state
-        flow     = self._flow.state
+        cal    = self._calendar.state
+        news   = self._news.state
+        reddit = self._reddit.state
+        st     = self._stocktwits.state
+        macro  = self._macro.state
+        cboe   = self._cboe.state
+        flow   = self._flow.state
+        brd    = self._breadth.state
+        sec    = self._sector.state
+        vol    = self._vol_structure.state
 
         # ── Event risk ────────────────────────────────────────────────────
         now = datetime.now(timezone.utc)
@@ -183,7 +216,6 @@ class ExternalDataManager:
                 next_event_title = nxt.title
 
         # ── Component scores ─────────────────────────────────────────────
-        # name: (score_−1_to_+1, weight)
         components: dict[str, tuple[float, float]] = {}
 
         if news.article_count > 0:
@@ -203,7 +235,6 @@ class ExternalDataManager:
             components["flow"] = (flow.aggregate_score / 100.0, 0.20)
 
         if reddit.available and reddit.post_count > 0:
-            # reddit.score is -100..+100
             components["reddit"] = (reddit.score / 100.0, 0.10)
 
         # Normalise weights
@@ -213,11 +244,16 @@ class ExternalDataManager:
         else:
             composite = 0.0
 
+        # ── OPEX (no refresh needed — pure date math) ─────────────────────
+        opex_state = self._opex.compute(today=date.today(), net_gex=flow.net_gex)
+
         return ExternalContext(
             composite_score=round(composite, 4),
             event_risk=event_risk,
             event_minutes=round(event_minutes, 1),
             next_event_title=next_event_title,
+
+            # Weighted sources
             news_score=round(news.score, 4),
             retail_score=round(st.score, 4),
             reddit_score=round(reddit.score, 2),
@@ -225,23 +261,76 @@ class ExternalDataManager:
             macro_label=macro.macro_label,
             cboe_bias=round(cboe.sentiment_bias, 4),
             flow_score=round(flow.aggregate_score, 2),
+
+            # Flow detail
             flow_dark_pool=flow.dark_pool_bias,
             flow_gex_bias=flow.gamma_exposure_bias,
             flow_pc_ratio=flow.pc_ratio,
             flow_bullish_premium=round(flow.bullish_premium, 0),
             flow_bearish_premium=round(flow.bearish_premium, 0),
             flow_unusual_strikes=flow.unusual_strikes,
+
+            # Gamma walls
+            call_wall_strike=flow.call_wall_strike,
+            put_wall_strike=flow.put_wall_strike,
+            gamma_flip_level=flow.gamma_flip_level,
+            at_call_wall=flow.at_call_wall,
+            at_put_wall=flow.at_put_wall,
+
+            # Macro detail
             tnx_trend=macro.tnx_trend,
             dxy_trend=macro.dxy_trend,
             oil_trend=macro.oil_trend,
             vix_intraday=macro.vix_intraday,
             spy_vs_open_pct=macro.spy_vs_open_pct,
             vix_change_pct=macro.vix_change_pct,
+
+            # StockTwits
             bullish_pct=round(st.bullish_pct, 1),
             bearish_pct=round(st.bearish_pct, 1),
+
+            # News
             news_headline_sample=news.headline_sample,
+
+            # CBOE
             equity_pc=cboe.equity_pc,
+
+            # Reddit
             reddit_contrarian=reddit.contrarian_signal,
+
+            # Market breadth
+            breadth_ratio=round(brd.breadth_ratio, 3),
+            breadth_label=brd.breadth_label,
+            up_vol_ratio=round(brd.up_vol_ratio, 3),
+            breadth_sector_count_up=brd.sector_count_up,
+            breadth_sector_count_down=brd.sector_count_down,
+
+            # Sector leadership
+            sector_bull_count=sec.sector_bull_count,
+            sector_bear_count=sec.sector_bear_count,
+            sector_label=sec.sector_label,
+            qqq_vs_spy_pct=round(sec.qqq_vs_spy_pct, 3),
+            iwm_vs_spy_pct=round(sec.iwm_vs_spy_pct, 3),
+            es_premium=round(sec.es_premium, 2),
+            gap_pct=round(sec.gap_pct, 3),
+            above_overnight_high=sec.above_overnight_high,
+            below_overnight_low=sec.below_overnight_low,
+            overnight_range_pct=round(sec.overnight_range_pct, 3),
+            usdjpy_trend=sec.usdjpy_trend,
+
+            # Vol structure
+            vix_vxv_ratio=vol.vix_vxv_ratio,
+            vol_structure=vol.vol_structure,
+            vvix=vol.vvix,
+            vvix_elevated=vol.vvix_elevated,
+
+            # OPEX
+            opex_type=opex_state.opex_type,
+            days_to_opex=opex_state.days_to_opex,
+            is_opex_week=opex_state.is_opex_week,
+            is_opex_day=opex_state.is_opex_day,
+            gamma_environment=opex_state.gamma_environment,
+
             sources_available=len(components),
         )
 

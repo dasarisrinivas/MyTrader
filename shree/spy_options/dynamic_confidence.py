@@ -307,6 +307,108 @@ class DynamicConfidence:
                 total_delta += conflict_delta
                 breakdown["conflict"] = round(conflict_delta, 4)
 
+        # ── 7. Market breadth ────────────────────────────────────────────────
+        if ext_ctx is not None and hasattr(ext_ctx, "breadth_ratio"):
+            breadth = ext_ctx.breadth_ratio         # 0.0–1.0
+            breadth_delta = 0.0
+            if breadth >= 0.70 and right in ("C", "BOTH"):
+                breadth_delta = 0.03   # strong breadth boosts calls
+            elif breadth <= 0.30 and right in ("P", "BOTH"):
+                breadth_delta = 0.03   # weak breadth boosts puts
+            elif breadth <= 0.30 and right == "C":
+                breadth_delta = -0.05  # weak breadth penalises calls
+            elif breadth >= 0.70 and right == "P":
+                breadth_delta = -0.05  # strong breadth penalises puts
+            if breadth_delta != 0:
+                total_delta += breadth_delta
+                breakdown["breadth"] = round(breadth_delta, 4)
+
+        # ── 8. Sector alignment ──────────────────────────────────────────────
+        if ext_ctx is not None and hasattr(ext_ctx, "sector_label"):
+            sec_delta = 0.0
+            sector_label = ext_ctx.sector_label
+            qqq_pct = getattr(ext_ctx, "qqq_vs_spy_pct", 0.0)
+            if sector_label in ("BULL_SWEEP", "BULL_LEANING") and right == "C":
+                sec_delta = 0.03
+            elif sector_label in ("BEAR_SWEEP", "BEAR_LEANING") and right == "P":
+                sec_delta = 0.03
+            elif sector_label in ("BULL_SWEEP", "BULL_LEANING") and right == "P":
+                sec_delta = -0.03
+            elif sector_label in ("BEAR_SWEEP", "BEAR_LEANING") and right == "C":
+                sec_delta = -0.03
+            # Additional boost if QQQ is leading (tech leadership = momentum)
+            if qqq_pct > 0.20 and right == "C" and sec_delta > 0:
+                sec_delta += 0.02
+            if sec_delta != 0:
+                total_delta += sec_delta
+                breakdown["sector"] = round(sec_delta, 4)
+
+        # ── 9. Gamma wall proximity ──────────────────────────────────────────
+        if ext_ctx is not None and hasattr(ext_ctx, "at_call_wall"):
+            wall_delta = 0.0
+            if ext_ctx.at_call_wall and right == "C":
+                # Price at call wall = strong resistance → penalise call signals
+                wall_delta = -0.05
+            elif ext_ctx.at_call_wall and right == "P":
+                # At call wall = natural support → slight boost for puts
+                wall_delta = 0.03
+            elif ext_ctx.at_put_wall and right == "P":
+                # Price at put wall = strong support → penalise put signals
+                wall_delta = -0.05
+            elif ext_ctx.at_put_wall and right == "C":
+                # Put wall = floor → boost calls
+                wall_delta = 0.03
+            if wall_delta != 0:
+                total_delta += wall_delta
+                breakdown["gamma_wall"] = round(wall_delta, 4)
+
+        # ── 10. Volatility term structure ────────────────────────────────────
+        if ext_ctx is not None and hasattr(ext_ctx, "vol_structure"):
+            vs = ext_ctx.vol_structure
+            vs_delta = 0.0
+            vvix_elev = getattr(ext_ctx, "vvix_elevated", False)
+            if vs in ("BACKWARDATION", "STEEP_BACKWARDATION") and right == "C":
+                vs_delta = -0.05   # backwardation = fear, penalise calls
+            elif vs == "STEEP_BACKWARDATION" and right == "P":
+                vs_delta = 0.03    # panic → put premium elevated
+            elif vs in ("CONTANGO", "STEEP_CONTANGO") and right == "C":
+                vs_delta = 0.02    # calm regime, calls are cheaper
+            if vvix_elev:
+                # VVIX elevated → vol-of-vol is high; reduce conviction on any directional
+                vs_delta -= 0.03
+            if vs_delta != 0:
+                total_delta += vs_delta
+                breakdown["vol_structure"] = round(vs_delta, 4)
+
+        # ── 11. Overnight context ─────────────────────────────────────────────
+        if ext_ctx is not None and hasattr(ext_ctx, "above_overnight_high"):
+            on_delta = 0.0
+            if ext_ctx.above_overnight_high and right == "C":
+                on_delta = 0.03   # breaking above overnight high = bullish momentum
+            elif ext_ctx.below_overnight_low and right == "P":
+                on_delta = 0.03   # breaking below overnight low = bearish momentum
+            elif ext_ctx.above_overnight_high and right == "P":
+                on_delta = -0.02  # puts are swimming against the current
+            elif ext_ctx.below_overnight_low and right == "C":
+                on_delta = -0.02  # calls against the current
+            if on_delta != 0:
+                total_delta += on_delta
+                breakdown["overnight"] = round(on_delta, 4)
+
+        # ── 12. OPEX gamma environment ───────────────────────────────────────
+        if ext_ctx is not None and hasattr(ext_ctx, "gamma_environment"):
+            ge = ext_ctx.gamma_environment
+            opex_delta = 0.0
+            if ge == "PINNING" and right in ("C", "P"):
+                # Pinning environment → directional moves less likely
+                opex_delta = -0.03
+            elif ge == "EXPANSIVE" and right in ("C", "P"):
+                # Expansive (short gamma) → moves accelerate → boost
+                opex_delta = 0.02
+            if opex_delta != 0:
+                total_delta += opex_delta
+                breakdown["opex_gamma_env"] = round(opex_delta, 4)
+
         # ── Finalise ─────────────────────────────────────────────────────────
         final = max(0.0, min(1.0, base + total_delta))
         breakdown["base"] = round(base, 4)

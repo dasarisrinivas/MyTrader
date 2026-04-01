@@ -142,11 +142,26 @@ class SpyOptionsExternalConfig:
     # CBOE P/C ratio daily CSV (free, no auth)
     cboe_enabled: bool = True
 
-    # Options flow confirmation (yfinance options chain, GEX, dark pool proxy)
+    # Options flow confirmation (yfinance options chain, GEX, dark pool proxy, gamma walls)
     flow_enabled: bool = True
     flow_ttl_minutes: float = 10.0
     flow_barchart_enabled: bool = True   # Attempt Barchart scrape (fails gracefully)
     flow_dark_pool_enabled: bool = True  # Alpha Query dark pool + premium-skew proxy
+
+    # Market breadth (11 sector ETFs above-open ratio, SPY up/down vol — yfinance, 10-min TTL)
+    breadth_enabled: bool = True
+    breadth_ttl_minutes: float = 10.0
+
+    # Sector leadership (XLK, XLF, SMH, IWM, QQQ, XLE, XLI vs day-open — 10-min TTL)
+    sector_enabled: bool = True
+    sector_ttl_minutes: float = 10.0
+
+    # Volatility term structure (VIX/VXV ratio, VVIX — 15-min TTL)
+    vol_structure_enabled: bool = True
+    vol_structure_ttl_minutes: float = 15.0
+
+    # OPEX calendar (pure date math, zero latency)
+    opex_enabled: bool = True
 
     # External composite score impact on weighted confidence (max ±5%)
     composite_confidence_boost: float = 0.05

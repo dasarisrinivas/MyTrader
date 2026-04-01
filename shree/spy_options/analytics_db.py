@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from .signal_engine import SpySignal
 
 
-_DDL = """
+_DDL_TABLE = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
@@ -83,7 +83,10 @@ CREATE TABLE IF NOT EXISTS spy_signals (
     suggested_trade          TEXT,
     created_at               TEXT DEFAULT (datetime('now'))
 );
+"""
 
+# Indexes created AFTER migrations so columns exist on legacy databases
+_DDL_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_spy_signals_sent_at    ON spy_signals(sent_at);
 CREATE INDEX IF NOT EXISTS idx_spy_signals_type       ON spy_signals(signal_type);
 CREATE INDEX IF NOT EXISTS idx_spy_signals_confidence ON spy_signals(confidence);
@@ -122,9 +125,14 @@ class AnalyticsDB:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._path = db_path
         self._conn: sqlite3.Connection = sqlite3.connect(db_path)
-        self._conn.executescript(_DDL)
+        # 1) Create table (no-op if it already exists with old schema)
+        self._conn.executescript(_DDL_TABLE)
         self._conn.commit()
+        # 2) Add any missing columns so legacy DBs get new fields
         self._apply_migrations()
+        # 3) Now safe to create indexes — all columns guaranteed to exist
+        self._conn.executescript(_DDL_INDEXES)
+        self._conn.commit()
         logger.info("AnalyticsDB initialised → {}", db_path)
 
     def _apply_migrations(self) -> None:
