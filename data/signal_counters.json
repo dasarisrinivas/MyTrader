@@ -1,12 +1,12 @@
 {
-  "cme_session_date": "2026-03-30",
+  "cme_session_date": "2026-03-31",
   "or_break_long": 0,
   "or_break_short": 0,
-  "trend_cont_long": 1,
+  "trend_cont_long": 2,
   "trend_cont_short": 0,
   "proximity_long": 0,
   "proximity_short": 0,
   "london_fired": 0,
-  "ema21_pb_long": 0,
+  "ema21_pb_long": 1,
   "ema21_pb_short": 0
 }

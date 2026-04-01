@@ -4559,3 +4559,1306 @@
 
 2026-03-31 16:08:49 CST | INFO     | shree.execution.ib_executor:_reconcile_orders:635 - ✅ No active orders
 
+2026-04-01 07:47:11 CST | INFO     | __main__:main:49 - 🚀 Starting Shree RAG-Enhanced Bot (LIVE MODE)
+
+2026-04-01 07:47:11 CST | INFO     | shree.rag.local_vector_store:__init__:46 - Local vector store ready at rag_data/local_kb/local_kb.sqlite
+
+2026-04-01 07:47:11 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 5m (EMA period=20)
+
+2026-04-01 07:47:11 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 15m (EMA period=20)
+
+2026-04-01 07:47:11 CST | INFO     | shree.data.candle_aggregator:__init__:125 - MultiTimeframeCandleBuilder initialized: 1m -> 30m (EMA period=20)
+
+2026-04-01 07:47:11 CST | INFO     | shree.data.candle_aggregator:__init__:457 - MTFCandleManager initialized: 5m(ema=20), 15m(ema=20), 30m(ema=20)
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.mtf_gate_manager:init_mtf_manager:113 - ✅ MTFCandleManager initialized (5m, 15m, 30m aggregators)
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.mtf_gate_manager:init_mtf_gate:131 - MTFTrendGate disabled via config
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:113 - ======================================================================
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:114 - 📊 MULTI-SOURCE SENTIMENT AGGREGATOR ENABLED
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:115 - ======================================================================
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:116 -    Sources & Weights:
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:117 -       Stocktwits: 55%
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:118 -       Reddit:     45%
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:122 -       Twitter:    DISABLED (no API credentials)
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:123 -    RTH Thresholds (8:30 AM - 3:00 PM CT):
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:124 -       Entry block: ±0.3
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:125 -       Weak threshold: ±0.15
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:126 -    Low-Volume Thresholds (Evening/Overnight):
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:127 -       Entry block: ±0.35
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:128 -       Weak threshold: ±0.15
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:129 -    Refresh interval: 300s
+
+2026-04-01 07:47:11 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:130 - ======================================================================
+
+2026-04-01 07:47:11 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1239 - 🔄 Fetching fresh multi-source sentiment... [fetch_id=124711]
+
+2026-04-01 07:47:12 CST | INFO     | shree.data.sentiment_aggregator:get_stocktwits_sentiment:467 - 📊 Stocktwits: score=-0.07 (bull=7, bear=8, total=60) [ts=12:47:12]
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:_get_reddit_sentiment_public:696 - 📱 Reddit (public): score=-0.03 (samples=13, unique_posts=8)
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1271 - ==================================================
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1272 - 📊 MULTI-SOURCE SENTIMENT SUMMARY
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1273 - ==================================================
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1274 -    Stocktwits: -0.07 (60 samples)
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1275 -    Reddit:     -0.03 (13 samples)
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1276 -    Twitter:    +0.00 (0 samples)
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1277 -    VIX:        +0.00 (market-based)
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1278 -    ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1279 -    COMBINED:   -0.05
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1280 - ==================================================
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:134 -    ✅ Initial combined sentiment: -0.05
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:135 -       Stocktwits: -0.07 (60 samples)
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:_init_multi_source_sentiment:136 -       Reddit: -0.03 (13 samples)
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:198 - ======================================================================
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:199 - 📈 VX FUTURES FEED INITIALIZATION
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:200 - ======================================================================
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:201 -    IBKR Connection: 127.0.0.1:4001 (client_id=71)
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:202 -    Market Data Type: Live
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:203 -    Stale Threshold: 120s
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:204 -    Volatility Thresholds:
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:205 -       VX >= 30.0: 0.4x multiplier (extreme fear)
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:206 -       VX >= 20.0: 0.7x multiplier (elevated)
+
+2026-04-01 07:47:15 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:207 -       VX < 20.0: 1.0x multiplier (normal)
+
+2026-04-01 07:47:15 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 1/5)
+
+2026-04-01 07:47:16 CST | INFO     | shree.data.vx_futures_feed:_connect_async:177 - ✅ VX Feed connected successfully (client_id=71, Live data)
+
+2026-04-01 07:47:17 CST | INFO     | shree.data.vx_futures_feed:_get_front_month_contract:364 - VX Feed: Selected front-month contract: VX14J6 (expiry: 20260408)
+
+2026-04-01 07:47:17 CST | INFO     | shree.data.vx_futures_feed:_background_main:285 - VX Feed: Using contract VX14J6 (exp=20260408)
+
+2026-04-01 07:47:17 CST | INFO     | shree.data.vx_futures_feed:_subscribe_market_data:392 - VX Feed: Subscribed to market data for VX14J6
+
+2026-04-01 07:47:17 CST | INFO     | shree.data.vx_futures_feed:start_in_background:244 - ✅ VX Feed background thread started successfully
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:225 -    ✅ VX Feed background thread started
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.sentiment_evaluator:init_vx_feed:229 - ======================================================================
+
+2026-04-01 07:47:17 CST | INFO     | shree.utils.bot_state:load_bot_state:81 - bot_state: day rollover detected (last_trade_date=2026-03-30, today=2026-04-01) → resetting consecutive_loss_count 1 → 0, realized_pnl_today -51.25 → 0.00
+
+2026-04-01 07:47:17 CST | INFO     | shree.utils.bot_state:load_bot_state:118 - bot_state: loaded — consecutive_loss_count=0, realized_pnl_today=0.00, cooldown=none, written_at=2026-03-31T04:27:13.186877+00:00
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.live_trading_manager:__init__:534 - ✅ Prometheus metrics initialized on port 8000
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:48 - Initializing trading components...
+
+2026-04-01 07:47:17 CST | INFO     | shree.strategies.es_fifteen_min:_load_counters:2149 - 🔄 Counter file session 2026-03-30 != current 2026-03-31, starting fresh
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:84 - ============================================================
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:85 - 📊 STRATEGY: ES 15-Minute (EMA21 Pullback + OR Breakout)
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:86 -    Timeframe: 15m | Max hold: 120 min
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:87 -    Warmup: 60 bars | Window: 200 bars
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:90 -    Mode: LONG + SHORT (short-side signals enabled)
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:93 - ============================================================
+
+2026-04-01 07:47:17 CST | INFO     | shree.utils.telegram_notifier:__init__:56 - ✅ Telegram notifications enabled
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.components.trading_session_manager:initialize:118 - ✅ Telegram notifications initialized
+
+2026-04-01 07:47:17 CST | INFO     | shree.monitoring.order_tracker:_init_database:195 - Order tracker database initialized: /Users/svss/Documents/code/ShreeBot/data/orders.db
+
+2026-04-01 07:47:17 CST | INFO     | shree.execution.ib_executor:connect:439 - Connecting executor to IBKR 127.0.0.1:4001 (client_id=11, timeout=120s)
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.ib_executor:connect:477 - Connected to IBKR - using snapshot market data requests
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.ib_executor:_register_event_handlers:504 - 📡 Registering IB event handlers
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.ib_executor:connect:486 - Skipping startup order cancel per config (cancel_orders_on_startup=False)
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.ib_executor:_start_keepalive:2929 - Keepalive task started
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.components.trading_session_manager:force_order_reconciliation:400 - Forcing reconciliation of active orders with IBKR...
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.ib_executor:_reconcile_orders:635 - ✅ No active orders
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.components.trading_session_manager:force_order_reconciliation:402 - Order reconciliation complete.
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.components.cooldown_manager:load_persistent_cooldown_state:79 - ⏱️ Cooldown resume: last trade at 2026-03-30 22:30:26 CST
+
+2026-04-01 07:47:18 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2026-04-01 07:47:18 CST | INFO     | shree.rag.rag_storage_manager:__init__:200 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.components.trading_session_manager:initialize:155 - ✅ RAG Storage initialized
+
+2026-04-01 07:47:18 CST | INFO     | shree.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/ShreeBot/data/llm_trades.db
+
+2026-04-01 07:47:18 CST | INFO     | shree.execution.components.trading_session_manager:initialize:162 - ✅ Decision metrics logger initialized
+
+2026-04-01 07:47:18 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2026-04-01 07:47:18 CST | INFO     | shree.rag.rag_storage_manager:__init__:200 - RAGStorageManager initialized with S3: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2026-04-01 07:47:18 CST | INFO     | shree.rag.trade_logger:__init__:67 - TradeLogger initialized
+
+2026-04-01 07:47:18 CST | INFO     | shree.rag.mistake_analyzer:__init__:146 - MistakeAnalyzer initialized
+
+2026-04-01 07:47:19 CST | INFO     | shree.rag.s3_storage:__init__:137 - S3Storage initialized: s3://rag-bot-storage-897729113303/spy-futures-bot/
+
+2026-04-01 07:47:20 CST | INFO     | shree.rag.embedding_builder:_init_sentence_transformer:120 - Loaded sentence transformer: all-MiniLM-L6-v2 (dim=384)
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/index.faiss
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.s3_storage:read_binary_from_s3:350 - Downloaded binary from S3: spy-futures-bot/vectors/metadata.pkl
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.embedding_builder:_load_index:600 - Loaded FAISS index from S3 with 6 vectors
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.embedding_builder:__init__:109 - EmbeddingBuilder initialized with S3 (dim=384, backend=local)
+
+2026-04-01 07:47:21 CST | INFO     | shree.hybrid.multi_factor_scorer:__init__:80 - MultiFactorScorer initialized with weights={'technical': 0.4000000000000001, 'llm': 0.0, 'rag': 0.30000000000000004, 'news': 0.10000000000000002, 'macro': 0.10000000000000002, 'risk': 0.10000000000000002}
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:246 - RuleEngine initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1236 - RAGRetriever initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:1458 - LLMDecisionMaker initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.hybrid_rag_pipeline:__init__:2002 - HybridRAGPipeline initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.data_ingestion:__init__:49 - RAGDataIngestionPipeline watching data
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.rag_daily_updater:__init__:47 - RAGDailyUpdater initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.pipeline_integration:__init__:220 - HybridPipelineIntegration initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:initialize:182 - 🔎 Hybrid RAG index ready (faiss, 6 docs)
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:initialize:186 - ✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_configure_aws_agents:623 - ℹ️  AWS Agents disabled: OpenSearch backend not permitted
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:675 - 📊 Loading historical market context...
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.ib_executor:keepalive_loop:2837 - Starting connection keepalive task (checking every 30s)
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.ib_executor:get_qualified_contract:411 - Qualified contract: MESM6 (exp: 20260618) [offset=0]
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:773 - ✅ Historical context loaded from IBKR daily bars:
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:774 -    📈 Previous Day (2026-03-30): High=6471.00, Low=6359.50, Close=6388.25
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:778 -    📊 Today (2026-03-31): High=6583.00, Low=6446.00
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:779 -    📅 Weekly Range: 6359.50 - 6684.75
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_load_historical_context:780 -    ⏱️  Loaded at: 2026-04-01T07:47:21.500713-05:00
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_store_historical_context_in_rag:848 - ✅ Stored market context in RAG: rag_data/docs_dynamic/market_context_2026-04-01.txt
+
+2026-04-01 07:47:21 CST | INFO     | shree.risk.dynamic_support:_recompute:175 - 🛡️ Dynamic support floor updated: 6354.50 (lowest=PDL=6359.50 - 5.0pt buffer) [sources: PDL=6359.50, WL=6359.50] trigger=historical_context
+
+2026-04-01 07:47:21 CST | INFO     | shree.rag.pipeline_integration:set_price_levels:246 - 📊 Price levels set from ibkr_historical: PDH=6471.0, PDL=6359.5, WeekHigh=6684.75, WeekLow=6359.5
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:initialize:208 - ✅ Historical context wired to hybrid pipeline for decision-making
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:966 - 📚 Bootstrapped 61 historical 15m bars for structural context
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:969 -    ⏱️  First bar: 2026-03-31 15:45:00-05:00, Last bar: 2026-04-01 07:45:00-05:00, Now: 2026-04-01T07:47:21.593407-05:00
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.live_trading_manager:_bootstrap_price_history:974 -    ⏱️  Data age: 142s (acceptable if <1200s)
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:initialize:217 - ✅ Connected to IBKR
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:initialize:224 - ✅ Live trading manager initialized
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:start:239 - 🔄 Starting trading loop...
+
+2026-04-01 07:47:21 CST | INFO     | shree.execution.components.trading_session_manager:start:253 - 🔁 Entering main loop: running=True, stop_requested=False, tf=15m, poll=30s
+
+2026-04-01 07:47:27 CST | INFO     | shree.data.vx_futures_feed:_background_main:305 - 📈 VX Feed: Price=25.00 (multiplier=0.6x)
+
+2026-04-01 07:52:23 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=61 | price=None
+
+2026-04-01 07:57:24 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=61 | price=None
+
+2026-04-01 08:00:25 CST | INFO     | shree.execution.live_trading_manager:_should_block_new_entry:1421 - Entry blocked: waiting for 1/2 completed bars after startup
+
+2026-04-01 08:02:26 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=62 | price=6597.0
+
+2026-04-01 08:07:27 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=62 | price=6597.0
+
+2026-04-01 08:12:28 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=62 | price=6597.0
+
+2026-04-01 08:15:29 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 08:15:29 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 08:15:00 CST
+
+2026-04-01 08:15:29 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:generate:478 - 🔁 OR reconstruction check: et_time=09:15:00 or_end=00:30:00 or_computed=False opening_bars=0
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:generate:484 - 🔁 Enriched index range: 2026-03-31 15:45:00-05:00 -> 2026-04-01 08:15:00-05:00
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:_compute_opening_range:1985 - 📊 OR computed: HIGH=6585.00 LOW=6579.50 (2 bars)
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:_compute_opening_range:1996 - 💾 OR persisted to data/or_2026-04-01.json
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:_reconstruct_or_from_history:2037 - 🔄 OR RECONSTRUCTED from 2 historical bars: HIGH=6585.00 LOW=6579.50
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:generate:524 - 📌 Seeded prev_close=6597.00 from prior bar
+
+2026-04-01 08:15:29 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:close(6597.0)<=ema21(6609.1) | B:no_cross(c=6597.0,prev=6597.0,OR_H=6585.0) | C:close(6597.0)<=ema9(6609.8) | D:ema21(6609.1)>=ema50(6600.9) | E:no_cross(c=6597.0,prev=6597.0,OR_L=6579.5) | F:close(6597.0)<=ema9(6609.8) | G:outside_london(08:15:00)
+
+2026-04-01 08:15:29 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 08:15:29 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 08:15:29 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 08:17:30 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=63 | price=6597.0
+
+2026-04-01 08:22:31 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=63 | price=6597.0
+
+2026-04-01 08:27:32 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=63 | price=6597.0
+
+2026-04-01 08:30:33 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 08:30:33 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 08:30:00 CST
+
+2026-04-01 08:30:33 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 08:30:33 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:close(6608.8)<=ema21(6609.1) | B:no_cross(c=6608.8,prev=6597.0,OR_H=6585.0) | C:close(6608.8)<=ema9(6609.6) | D:ema21(6609.1)>=ema50(6601.2) | E:no_cross(c=6608.8,prev=6597.0,OR_L=6579.5) | F:close(6608.8)<=ema9(6609.6) | G:outside_london(08:30:00)
+
+2026-04-01 08:30:33 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 08:30:33 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 08:30:33 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 08:32:34 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=64 | price=6608.75
+
+2026-04-01 08:37:35 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=64 | price=6608.75
+
+2026-04-01 08:42:37 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=64 | price=6608.75
+
+2026-04-01 08:45:07 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 08:45:07 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 08:45:00 CST
+
+2026-04-01 08:45:07 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 08:45:07 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:macd_div(-1.94)<-0.5 | B:no_cross(c=6610.2,prev=6608.8,OR_H=6585.0) | C:ema21_overlap(low=6606.8<=touch21=6619.1) | D:ema21(6609.2)>=ema50(6601.5) | E:no_cross(c=6610.2,prev=6608.8,OR_L=6579.5) | F:macd(-1.94)<=0 | G:outside_london(08:45:00)
+
+2026-04-01 08:45:07 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 08:45:07 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 08:45:07 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 08:47:38 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=65 | price=6610.25
+
+2026-04-01 08:52:40 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=65 | price=6610.25
+
+2026-04-01 08:57:41 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=65 | price=6610.25
+
+2026-04-01 09:00:12 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:00:12 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 09:00:00 CST
+
+2026-04-01 09:00:12 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 09:00:12 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:close(6608.5)<=ema21(6609.1) | B:no_cross(c=6608.5,prev=6610.2,OR_H=6585.0) | C:close(6608.5)<=ema9(6609.5) | D:ema21(6609.1)>=ema50(6601.8) | E:no_cross(c=6608.5,prev=6610.2,OR_L=6579.5) | F:close(6608.5)<=ema9(6609.5) | G:outside_london(09:00:00)
+
+2026-04-01 09:00:12 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 09:00:12 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:00:12 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 09:02:43 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=66 | price=6608.5
+
+2026-04-01 09:07:44 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=66 | price=6608.5
+
+2026-04-01 09:12:45 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=66 | price=6608.5
+
+2026-04-01 09:15:16 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:15:16 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 09:15:00 CST
+
+2026-04-01 09:15:16 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 09:15:16 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:macd_div(-1.03)<-0.5 | B:no_cross(c=6617.8,prev=6608.5,OR_H=6585.0) | C:ema21_overlap(low=6613.2<=touch21=6619.8) | D:ema21(6609.9)>=ema50(6602.4) | E:no_cross(c=6617.8,prev=6608.5,OR_L=6579.5) | F:macd(-1.03)<=0 | G:outside_london(09:15:00)
+
+2026-04-01 09:15:16 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 09:15:16 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:15:16 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 09:17:47 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=67 | price=6617.75
+
+2026-04-01 09:22:49 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=67 | price=6617.75
+
+2026-04-01 09:27:18 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 1/5)
+
+2026-04-01 09:27:18 CST | WARNING  | shree.data.vx_futures_feed:_connect_async:191 - VX Feed connection failed (attempt 1/5): [Errno 61] Connect call failed ('127.0.0.1', 4001)
+
+2026-04-01 09:27:18 CST | INFO     | shree.data.vx_futures_feed:_connect_async:203 - VX Feed: Retrying in 1.0s...
+
+2026-04-01 09:27:19 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 2/5)
+
+2026-04-01 09:27:19 CST | WARNING  | shree.data.vx_futures_feed:_connect_async:191 - VX Feed connection failed (attempt 2/5): [Errno 61] Connect call failed ('127.0.0.1', 4001)
+
+2026-04-01 09:27:19 CST | INFO     | shree.data.vx_futures_feed:_connect_async:203 - VX Feed: Retrying in 2.0s...
+
+2026-04-01 09:27:19 CST | WARNING  | shree.execution.live_trading_manager:_fetch_latest_15m_bar:1108 - Latest 15m bar fetch FAILED: Not connected
+
+2026-04-01 09:27:21 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 3/5)
+
+2026-04-01 09:27:21 CST | WARNING  | shree.data.vx_futures_feed:_connect_async:191 - VX Feed connection failed (attempt 3/5): [Errno 61] Connect call failed ('127.0.0.1', 4001)
+
+2026-04-01 09:27:21 CST | INFO     | shree.data.vx_futures_feed:_connect_async:203 - VX Feed: Retrying in 4.0s...
+
+2026-04-01 09:27:21 CST | WARNING  | shree.execution.ib_executor:keepalive_loop:2843 - ⚠️  Connection lost, attempting auto-reconnect...
+
+2026-04-01 09:27:21 CST | ERROR    | shree.execution.ib_executor:keepalive_loop:2907 - ❌ Auto-reconnection failed: [Errno 61] Connect call failed ('127.0.0.1', 4001)
+
+2026-04-01 09:27:25 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 4/5)
+
+2026-04-01 09:27:25 CST | WARNING  | shree.data.vx_futures_feed:_connect_async:191 - VX Feed connection failed (attempt 4/5): [Errno 61] Connect call failed ('127.0.0.1', 4001)
+
+2026-04-01 09:27:25 CST | INFO     | shree.data.vx_futures_feed:_connect_async:203 - VX Feed: Retrying in 8.0s...
+
+2026-04-01 09:27:33 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 5/5)
+
+2026-04-01 09:27:33 CST | WARNING  | shree.data.vx_futures_feed:_connect_async:191 - VX Feed connection failed (attempt 5/5): [Errno 61] Connect call failed ('127.0.0.1', 4001)
+
+2026-04-01 09:27:33 CST | ERROR    | shree.data.vx_futures_feed:_connect_async:206 - VX Feed: Failed to connect after 5 attempts
+
+2026-04-01 09:27:49 CST | WARNING  | shree.execution.live_trading_manager:_fetch_latest_15m_bar:1108 - Latest 15m bar fetch FAILED: Not connected
+
+2026-04-01 09:27:49 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=67 | price=6617.75
+
+2026-04-01 09:27:51 CST | WARNING  | shree.execution.ib_executor:keepalive_loop:2843 - ⚠️  Connection lost, attempting auto-reconnect...
+
+2026-04-01 09:27:52 CST | INFO     | shree.execution.ib_executor:_register_event_handlers:504 - 📡 Registering IB event handlers
+
+2026-04-01 09:27:52 CST | INFO     | shree.execution.ib_executor:keepalive_loop:2875 - ✅ Auto-reconnection successful
+
+2026-04-01 09:27:52 CST | INFO     | shree.execution.ib_executor:_reconcile_orders:635 - ✅ No active orders
+
+2026-04-01 09:28:03 CST | INFO     | shree.data.vx_futures_feed:_connect_async:156 - VX Feed: Connecting to IBKR at 127.0.0.1:4001 with client_id=71 (attempt 1/5)
+
+2026-04-01 09:28:03 CST | INFO     | shree.data.vx_futures_feed:_connect_async:177 - ✅ VX Feed connected successfully (client_id=71, Live data)
+
+2026-04-01 09:30:20 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:30:20 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 09:30:00 CST
+
+2026-04-01 09:30:20 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 09:30:20 CST | INFO     | shree.strategies.es_fifteen_min:generate:1094 - 📊 2026-04-01 09:30:00-05:00 | BUY: close=6619.25 ema21=6610.77 atr=10.6 adx=32 rsi=57 macd_h=-0.44 SL=6608.66 TP=6633.25 [RTH] | EMA21_PB_LONG | ADX=32 | RSI=57 | MACD_H=-0.44 | ATR=10.6 | SL=10.6pts | TP=14.0pts
+
+2026-04-01 09:30:20 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: BUY (conf=0.70, meta=EMA21_PB_LONG | ADX=32 | RSI=57 | MACD_H=-0.44 | ATR=10.6 | SL=10.6pts | TP=14.0pts)
+
+2026-04-01 09:30:20 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1239 - 🔄 Fetching fresh multi-source sentiment... [fetch_id=143020]
+
+2026-04-01 09:30:22 CST | INFO     | shree.data.sentiment_aggregator:get_stocktwits_sentiment:467 - 📊 Stocktwits: score=-0.23 (bull=5, bear=8, total=60) [ts=14:30:22]
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:_get_reddit_sentiment_public:696 - 📱 Reddit (public): score=-0.03 (samples=13, unique_posts=8)
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_vix_sentiment:978 - 📊 VIX Regime: VIX=25.00 -> HIGH_UNCERTAINTY (score=-0.40, conf=0.80, source=vx_futures)
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1256 -    Blended with VIX: social=-0.16, vix=-0.40 -> -0.26
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1271 - ==================================================
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1272 - 📊 MULTI-SOURCE SENTIMENT SUMMARY
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1273 - ==================================================
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1274 -    Stocktwits: -0.23 (60 samples)
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1275 -    Reddit:     -0.03 (13 samples)
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1276 -    Twitter:    +0.00 (0 samples)
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1277 -    VIX:        -0.40 (market-based)
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1278 -    ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1279 -    COMBINED:   -0.26
+
+2026-04-01 09:30:24 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1280 - ==================================================
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:330 - 📊 Multi-Source Sentiment Check (RTH):
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:331 -    Combined Score: -0.26
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:333 -    Breakdown:
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:334 -       Stocktwits: -0.23
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:335 -       Reddit:     -0.03
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:336 -       Twitter:    +0.00
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:337 -    Thresholds: block=±0.3, weak=±0.15
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:338 -    Recommendation: REDUCE_SIZE
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:339 -    Reason: Moderate bearish sentiment (-0.26) - reduce position size
+
+2026-04-01 09:30:24 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - MultiSource Sentiment REDUCE_SIZE
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:377 -    Confidence: 0.700 → 0.490 (sentiment: 0.70, low_vol: 1.00)
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:502 - 📡 Sentiment overlay: score=-0.257 bias=BEARISH conf_delta=-0.210 (0.700 → 0.490)
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.sentiment_evaluator:get_vx_multiplier:249 - 📈 VX Volatility Adjustment: VX=25.00 → 0.6x multiplier
+
+2026-04-01 09:30:24 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:581 - 📈 VX Adjustment: VX=25.0 | 0.490 -0.050 = 0.440 (pullback)
+
+2026-04-01 09:30:24 CST | INFO     | shree.llm.trade_logger:_init_database:77 - Trade logger database initialized: /Users/svss/Documents/code/ShreeBot/data/llm_trades.db
+
+2026-04-01 09:30:24 CST | INFO     | shree.rag.trade_logger:_get_metrics_logger:464 - Metrics logger ready for structural persistence
+
+2026-04-01 09:30:24 CST | INFO     | shree.rag.hybrid_rag_pipeline:evaluate:1168 - SCORE_DEBUG: buy=39.0, sell=8.2, threshold=20, scalp_mode=False, daily_bias=BULLISH
+
+2026-04-01 09:30:24 CST | INFO     | shree.rag.hybrid_rag_pipeline:evaluate:1170 - SCORE_BREAKDOWN: TREND_SCORE:+65(EMA_STACK_UP+ABOVE_EMA50+MACD_NEG) | UPTREND:+30 | RSI_HIGH(57.4):+7.5 | MACD_NEG(-0.44):+6.2 | NO_LEVEL(PDH:2.24%,PDL:3.92%) | DAILY_BULLISH(BUY*1.3,SELL*0.6)
+
+2026-04-01 09:30:25 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/190810_efcfe16e.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/173410_6a54a25b.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/162307_d9c30f67.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/161355_f188b596.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/161208_d2dab2af.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/155109_ad4e5ed7.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/152211_8cb8fc7e.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/152108_8dd091ac.json
+
+2026-04-01 09:30:26 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/151810_abe7cb47.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/151710_7fb00e3e.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/151112_8a29fbc2.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/145010_be4875e4.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/201011_f138ff7d.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/200906_c2a58ac5.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/150907_ca768f54.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/150839_84fc1132.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/145218_c4d72f32.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-30/174320_2bbc848b.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-30/173609_1ab59c03.json
+
+2026-04-01 09:30:27 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/194840_24ff5aff.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/181706_8f6e4b9f.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/181701_544a9807.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/153512_858a8feb.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-26/025007_d8415f56.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-19/153007_53e3be8b.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-18/013010_02879f3e.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-16/020504_3d5d3415.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-15/172708_349b8dd1.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-12/094939_cfbffda2.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-08/190350_test_007.json
+
+2026-04-01 09:30:28 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-07/190350_test_006.json
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-06/190350_test_005.json
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-05/190350_test_004.json
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-04/190350_test_003.json
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-03/190350_test_002.json
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-02/190350_test_001.json
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.hybrid_rag_pipeline:process:2744 - Pipeline result: BUY (conf=31%, time=4457ms)
+
+2026-04-01 09:30:29 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - BUY entry=6619.25 SL=6587.48 (31.77) TP=6682.78 (63.53)
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.pipeline_integration:_log_protection_snapshot:1001 - 🛡️ Protection snapshot | BUY entry=6619.25 SL=6587.48 (31.77) TP=6682.78 (63.53) fallback=no
+
+2026-04-01 09:30:29 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - BUY @ 0.31
+
+2026-04-01 09:30:29 CST | INFO     | shree.rag.pipeline_integration:process_sync:827 - Hybrid Pipeline: BUY (conf=0.31, trend=UPTREND, vol=MEDIUM)
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:634 - 🤖 Hybrid AGREES (BUY): rag_win_rate=0% (n=5) conf boost +0.000 → 0.440
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:1016 - 📊 Final Signal: BUY conf=0.440 (base=0.700, overlays={'sentiment': -0.21000000000000002, 'vx_additive': -0.05, 'hybrid_agreement_boost': 0.0})
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.live_trading_manager:_process_hybrid_signal:1982 -   ↳ Placing HYBRID order: BUY
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.live_trading_manager:_place_hybrid_order:2428 - 🤖 HYBRID: Placing BUY order
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.live_trading_manager:_place_hybrid_order:2506 - 🎯 Using STRATEGY risk params: SL=10.59 (abs=6608.66), TP=14.00 (abs=6633.25)
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.live_trading_manager:_place_hybrid_order:2590 - 🔍 Stop-Loss Calculation Debug:
+   Action: BUY
+   Current Price: 6619.25
+   Entry Price: 6619.25
+   ATR Value: 10.5887
+   Stop Offset: 10.59
+   Target Offset: 14.00
+   Stop-Loss: 6608.66 (below entry)
+   Take-Profit: 6633.25 (above entry)
+   Fallback Used: no (ok)
+
+2026-04-01 09:30:29 CST | INFO     | shree.execution.ib_executor:get_current_price:2786 - Requesting market data for MESM6...
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:get_current_price:2801 - Got last price: 6618.25
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.live_trading_manager:_place_hybrid_order:2715 - 📊 Order telemetry | qty=1 position=0 lock=False entry=6619.25 SL=6608.66 TP=6633.25 fallback=no
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.live_trading_manager:_enforce_risk_gate:3210 - ✅ RiskGate pass: margin=4816.13 required=3464.00 stopPts=10.50
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:place_order:1457 - ✅ PositionManager approved: 1 contracts (Reason: Approved)
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:place_order:1478 - 📊 Using LIMIT order @ 6620.25 (market_hint: 6619.25, buffer: 1.0)
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:place_order:1588 - Adding take-profit order at 6633.25
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:place_order:1595 - Adding stop-loss order: stop=6608.75 (STOP-MARKET)
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:place_order:1611 - 📡 Bracket telemetry | qty=1 lock=False entry=6619.25 SL=6608.75 TP=6633.25 fallback=no
+
+2026-04-01 09:30:30 CST | WARNING  | shree.execution.order_lock:engage:85 - 🔒 Order lock engaged: BUY 1 @ 6619.25
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ parent-submit | backend=IB mock=False orderId=11574 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-04-01 09:30:30 CST | INFO     | shree.monitoring.order_tracker:record_order_placement:442 - 📝 Recorded order placement: ID=11574, BUY 1 MES
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ child-submit-1 | backend=IB mock=False orderId=11575 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-04-01 09:30:30 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ child-11575-ack-start | backend=IB mock=False orderId=11575 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-04-01 09:30:33 CST | WARNING  | shree.execution.ib_executor:_await_order_submission:1989 - ⏳ child-11575 11575 still PendingSubmit after 3.0s
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ child-11575-ack-complete | backend=IB mock=False orderId=11575 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:record_order_placement:442 - 📝 Recorded order placement: ID=11575, SELL 1 MES
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:place_order:1773 - 📝 Placed bracket order 11575 (LIMIT) (parent=11574)
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ child-submit-2 | backend=IB mock=False orderId=11576 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ child-11576-ack-start | backend=IB mock=False orderId=11576 permId=0 status=PendingSubmit filled=0.0 remaining=0.0 clientId=0
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11576 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11576 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11576 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11576 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11574 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11574 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11574 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11574 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1062 - ✅ Execution: Order 11574, qty=1.0, price=6618.75, slippage=$1.50
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:record_execution:570 - ✅ Execution recorded: Order 11574, 1.0 @ 6618.75
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1202 - 📱 Checking Telegram: enabled=True
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1224 - 📱 Sending Telegram alert: BUY 1.0 @ 6618.75, SL=6608.75, TP=6633.25
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1273 - 📱 Telegram alert queued successfully
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1062 - ✅ Execution: Order 11574, qty=1.0, price=6618.75, slippage=$1.50
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:record_execution:570 - ✅ Execution recorded: Order 11574, 1.0 @ 6618.75
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1202 - 📱 Checking Telegram: enabled=True
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1224 - 📱 Sending Telegram alert: BUY 1.0 @ 6618.75, SL=6608.75, TP=6633.25
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1273 - 📱 Telegram alert queued successfully
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11574 status: Filled (filled=1.0, remaining=0.0, avg=6618.75)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11574 status: Filled (1.0 filled)
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11574 status: Filled (filled=1.0, remaining=0.0, avg=6618.75)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11574 status: Filled (1.0 filled)
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_reconcile_positions:762 - Reconciled position: MES qty=1 secType=FUT price=6618.75 multiplier=5.0 total_cost=33093.75
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_reconcile_positions:762 - Reconciled position: MES qty=1 secType=FUT price=6618.75 multiplier=5.0 total_cost=33093.75
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11576 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11576 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11576 status: PreSubmitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11576 status: PreSubmitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: Submitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: Submitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: Submitted (filled=0.0, remaining=1.0, avg=0.00)
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: Submitted
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ child-11576-ack-complete | backend=IB mock=False orderId=11576 permId=1370303496 status=PreSubmitted filled=0.0 remaining=1.0 clientId=11
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.order_tracker:record_order_placement:442 - 📝 Recorded order placement: ID=11576, SELL 1.0 MES
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:place_order:1773 - 📝 Placed bracket order 11576 (STOP) (parent=11574)
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ parent-ack-start | backend=IB mock=False orderId=11574 permId=1370303494 status=Filled filled=1.0 remaining=0.0 clientId=11
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:_log_trade_status:1967 - 🛰️ parent-ack-complete | backend=IB mock=False orderId=11574 permId=1370303494 status=Filled filled=1.0 remaining=0.0 clientId=11
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.order_lock:release:90 - 🔓 Order lock released (bracket submission complete)
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:place_order:1816 - Position metadata stored for trailing stops
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.ib_executor:place_order:1818 - Order BUY placed: orderId=11574 status=Filled
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.live_trading_manager:_place_hybrid_order:2824 - ⏱️ HYBRID trade fill - cooldown activated
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.live_trading_manager:_notify_position_opened:1395 - 📊 MTF Gate notified of position open: long
+
+2026-04-01 09:30:33 CST | INFO     | shree.monitoring.live_tracker:record_trade:173 - Recorded trade: BUY 1 @ 6618.75, position=1
+
+2026-04-01 09:30:33 CST | INFO     | shree.rag.trade_logger:log_entry:298 - Trade entry logged: 11bd266b - BUY 1 @ 6618.75 (SL: 6608.75, TP: 6633.25)
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.live_trading_manager:_place_hybrid_order:2854 - ✅ Trade logged to Hybrid RAG system
+
+2026-04-01 09:30:33 CST | INFO     | shree.execution.components.order_coordinator:register_trade_entry:143 - 📝 Registered trade entry: cycle_id=275fc29918b4, action=BUY, qty=1, entry=6618.75
+
+2026-04-01 09:33:04 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=68 | price=6619.25
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: PendingCancel (filled=0.0, remaining=0.0, avg=0.00)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: PendingCancel
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: PendingCancel (filled=0.0, remaining=0.0, avg=0.00)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: PendingCancel
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1064 - ✅ Execution: Order 11576, qty=1.0, price=6608.75, commission=0.0
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1085 - 💰 Realized PnL gross=-50.00 net=-57.20 (points=-10.00, commission=7.20, totals gross=-50.00 net=-57.20)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:record_execution:570 - ✅ Execution recorded: Order 11576, 1.0 @ 6608.75
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1202 - 📱 Checking Telegram: enabled=True
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1224 - 📱 Sending Telegram alert: SELL 1.0 @ 6608.75, SL=6608.75, TP=6633.25
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1273 - 📱 Telegram alert queued successfully
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1064 - ✅ Execution: Order 11576, qty=1.0, price=6608.75, commission=0.0
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:record_execution:570 - ✅ Execution recorded: Order 11576, 1.0 @ 6608.75
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1202 - 📱 Checking Telegram: enabled=True
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1224 - 📱 Sending Telegram alert: SELL 1.0 @ 6608.75, SL=6608.75, TP=6633.25
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_execution:1273 - 📱 Telegram alert queued successfully
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11576 status: Filled (filled=1.0, remaining=0.0, avg=6608.75)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11576 status: Filled (1.0 filled)
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11576 status: Filled (filled=1.0, remaining=0.0, avg=6608.75)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11576 status: Filled (1.0 filled)
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_reconcile_positions:777 - Reconciled position: MES is flat; cleared stale local cache
+
+2026-04-01 09:35:33 CST | INFO     | shree.learning.trade_learning:record_outcome:78 - 📘 Learning record written: rag_data/training/trade_outcomes/2026-04-01/275fc29918b4.json
+
+2026-04-01 09:35:33 CST | INFO     | shree.learning.trade_learning:record_history_snapshot:101 - 📚 History snapshot stored: rag_data/history_snapshots/275fc29918b4.json
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.live_trading_manager:_notify_position_closed:1324 - 📊 Daily P&L updated: $-51.24 → daily=$-51.24
+
+2026-04-01 09:35:33 CST | WARNING  | shree.execution.live_trading_manager:_notify_position_closed:1332 - 📉 Consecutive losses: 1 (trigger at 3)
+
+2026-04-01 09:35:33 CST | INFO     | shree.utils.bot_state:save_bot_state:161 - bot_state: saved — loss_count=1, realized_pnl_today=-51.24, cooldown=None
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.live_trading_manager:_notify_position_closed:1378 - 📊 MTF Gate notified of position close: LONG LOSS (pnl=$-51.24)
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: Cancelled (filled=0.0, remaining=0.0, avg=0.00)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: Cancelled
+
+2026-04-01 09:35:33 CST | INFO     | shree.execution.ib_executor:_on_order_status:1001 - 📊 Order 11575 status: Cancelled (filled=0.0, remaining=0.0, avg=0.00)
+
+2026-04-01 09:35:33 CST | INFO     | shree.monitoring.order_tracker:update_order_status:524 - 📊 Order 11575 status: Cancelled
+
+2026-04-01 09:38:06 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=68 | price=6619.25
+
+2026-04-01 09:43:07 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=68 | price=6619.25
+
+2026-04-01 09:45:08 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 09:45:08 CST | INFO     | shree.execution.live_trading_manager:_should_block_new_entry:1467 - Entry blocked: cooldown 25.4s remaining
+
+2026-04-01 09:48:10 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=69 | price=6625.0
+
+2026-04-01 09:53:11 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=69 | price=6625.0
+
+2026-04-01 09:58:13 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=69 | price=6625.0
+
+2026-04-01 10:00:14 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 10:00:14 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 10:00:00 CST
+
+2026-04-01 10:00:14 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 10:00:14 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6632.5)>touch(6623.9) | B:no_cross(c=6633.0,prev=6619.2,OR_H=6585.0) | C:low(6632.5)>touch(6628.7) | D:ema21(6614.0)>=ema50(6605.1) | E:no_cross(c=6633.0,prev=6619.2,OR_L=6579.5) | F:bearish(c=6633.0,o=6633.8) | G:outside_london(10:00:00)
+
+2026-04-01 10:00:14 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 10:00:14 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 10:00:14 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 10:03:14 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=70 | price=6633.0
+
+2026-04-01 10:08:16 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=70 | price=6633.0
+
+2026-04-01 10:13:17 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=70 | price=6633.0
+
+2026-04-01 10:15:17 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 10:15:17 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 10:15:00 CST
+
+2026-04-01 10:15:17 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 10:15:17 CST | INFO     | shree.strategies.es_fifteen_min:generate:1094 - 📊 2026-04-01 10:15:00-05:00 | BUY: close=6635.00 ema21=6615.88 atr=9.7 adx=35 rsi=65 macd_h=1.83 SL=6625.29 TP=6647.14 [RTH] | TREND_CONT_LONG | ADX=35 | RSI=65 | MACD_H=1.83 | e9=6622.0 | #1 | SL=9.7pts | TP=12.1pts
+
+2026-04-01 10:15:17 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: BUY (conf=0.70, meta=TREND_CONT_LONG | ADX=35 | RSI=65 | MACD_H=1.83 | e9=6622.0 | #1 | SL=9.7pts | TP=12.1pts)
+
+2026-04-01 10:15:17 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1239 - 🔄 Fetching fresh multi-source sentiment... [fetch_id=151517]
+
+2026-04-01 10:15:18 CST | INFO     | shree.data.sentiment_aggregator:get_stocktwits_sentiment:467 - 📊 Stocktwits: score=-0.47 (bull=5, bear=14, total=60) [ts=15:15:18]
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:_get_reddit_sentiment_public:696 - 📱 Reddit (public): score=-0.11 (samples=16, unique_posts=10)
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_vix_sentiment:978 - 📊 VIX Regime: VIX=25.00 -> HIGH_UNCERTAINTY (score=-0.40, conf=0.80, source=vx_futures)
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1256 -    Blended with VIX: social=-0.33, vix=-0.40 -> -0.36
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1271 - ==================================================
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1272 - 📊 MULTI-SOURCE SENTIMENT SUMMARY
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1273 - ==================================================
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1274 -    Stocktwits: -0.47 (60 samples)
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1275 -    Reddit:     -0.11 (16 samples)
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1276 -    Twitter:    +0.00 (0 samples)
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1277 -    VIX:        -0.40 (market-based)
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1278 -    ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1279 -    COMBINED:   -0.36
+
+2026-04-01 10:15:21 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1280 - ==================================================
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:330 - 📊 Multi-Source Sentiment Check (RTH):
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:331 -    Combined Score: -0.36
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:333 -    Breakdown:
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:334 -       Stocktwits: -0.47
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:335 -       Reddit:     -0.11
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:336 -       Twitter:    +0.00
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:337 -    Thresholds: block=±0.3, weak=±0.15
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:338 -    Recommendation: BLOCK
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:339 -    Reason: Strong bearish sentiment (-0.36) blocks LONG entry
+
+2026-04-01 10:15:21 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - MultiSource Sentiment BLOCK
+
+2026-04-01 10:15:21 CST | WARNING  | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:361 - 🚫 MULTI-SOURCE SENTIMENT BLOCK (RTH): Strong bearish sentiment (-0.36) blocks LONG entry
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:502 - 📡 Sentiment overlay: score=-0.357 bias=BEARISH conf_delta=-0.700 (0.700 → 0.000)
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.sentiment_evaluator:get_vx_multiplier:249 - 📈 VX Volatility Adjustment: VX=25.00 → 0.6x multiplier
+
+2026-04-01 10:15:21 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:581 - 📈 VX Adjustment: VX=25.0 | 0.000 +0.050 = 0.100 (trend_cont)
+
+2026-04-01 10:15:21 CST | INFO     | shree.rag.hybrid_rag_pipeline:evaluate:1168 - SCORE_DEBUG: buy=65.0, sell=0.0, threshold=20, scalp_mode=False, daily_bias=BULLISH
+
+2026-04-01 10:15:21 CST | INFO     | shree.rag.hybrid_rag_pipeline:evaluate:1170 - SCORE_BREAKDOWN: TREND_SCORE:+100(EMA_STACK_UP+ABOVE_EMA50+MACD_POS) | UPTREND:+30 | RSI_BULLISH_ZONE(65.4):BUY+7.5 | MACD_STRONG_POS(1.83):+12.5 | NO_LEVEL(PDH:2.47%,PDL:4.15%) | BULLISH_ACCEPTANCE(BUY*1.3,SELL*0.4)
+
+2026-04-01 10:15:22 CST | INFO     | shree.rag.hybrid_rag_pipeline:process:2744 - Pipeline result: BUY (conf=52%, time=815ms)
+
+2026-04-01 10:15:22 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - BUY entry=6635.00 SL=6605.87 (29.13) TP=6693.25 (58.25)
+
+2026-04-01 10:15:22 CST | INFO     | shree.rag.pipeline_integration:_log_protection_snapshot:1001 - 🛡️ Protection snapshot | BUY entry=6635.00 SL=6605.87 (29.13) TP=6693.25 (58.25) fallback=no
+
+2026-04-01 10:15:22 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - BUY @ 0.52
+
+2026-04-01 10:15:22 CST | INFO     | shree.rag.pipeline_integration:process_sync:827 - Hybrid Pipeline: BUY (conf=0.52, trend=UPTREND, vol=MEDIUM)
+
+2026-04-01 10:15:22 CST | WARNING  | shree.execution.components.signal_processor:_generate_strategy_first_signal:678 - 🚫 Hybrid OPPOSES (BUY vs HOLD) @ hybrid_conf=0.52: BLOCKED (conf 0.100 → 0.0)
+
+2026-04-01 10:15:22 CST | WARNING  | shree.execution.components.signal_processor:_generate_strategy_first_signal:1004 - ⚠️ Safety: overlay changed action from BUY to HOLD. Restoring strategy action.
+
+2026-04-01 10:15:22 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:1016 - 📊 Final Signal: BUY conf=0.000 (base=0.700, overlays={'sentiment': -0.7, 'vx_additive': 0.05, 'hybrid_oppose_dampen': -0.1})
+
+2026-04-01 10:15:22 CST | INFO     | shree.execution.live_trading_manager:_process_hybrid_signal:1753 -   ↳ BLOCKED: Signal confidence 0.00 < threshold 0.40
+
+2026-04-01 10:18:23 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=71 | price=6635.0
+
+2026-04-01 10:23:26 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=71 | price=6635.0
+
+2026-04-01 10:28:28 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=71 | price=6635.0
+
+2026-04-01 10:30:29 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 10:30:29 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 10:30:00 CST
+
+2026-04-01 10:30:29 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 10:30:29 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6628.2)>touch(6627.0) | B:no_cross(c=6629.0,prev=6635.0,OR_H=6585.0) | C:bearish(c=6629.0,o=6631.8) | D:ema21(6617.1)>=ema50(6607.1) | E:no_cross(c=6629.0,prev=6635.0,OR_L=6579.5) | F:bearish(c=6629.0,o=6631.8) | G:outside_london(10:30:00)
+
+2026-04-01 10:30:29 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 10:30:29 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 10:30:29 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 10:33:30 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=72 | price=6629.0
+
+2026-04-01 10:38:31 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=72 | price=6629.0
+
+2026-04-01 10:43:32 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=72 | price=6629.0
+
+2026-04-01 10:45:33 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 10:45:33 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 10:45:00 CST
+
+2026-04-01 10:45:33 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 10:45:33 CST | INFO     | shree.strategies.es_fifteen_min:generate:1094 - 📊 2026-04-01 10:45:00-05:00 | BUY: close=6642.50 ema21=6619.39 atr=9.8 adx=36 rsi=67 macd_h=2.34 SL=6632.68 TP=6654.77 [RTH] | TREND_CONT_LONG | ADX=36 | RSI=67 | MACD_H=2.34 | e9=6627.2 | #2 | SL=9.8pts | TP=12.3pts
+
+2026-04-01 10:45:33 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: BUY (conf=0.70, meta=TREND_CONT_LONG | ADX=36 | RSI=67 | MACD_H=2.34 | e9=6627.2 | #2 | SL=9.8pts | TP=12.3pts)
+
+2026-04-01 10:45:33 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1239 - 🔄 Fetching fresh multi-source sentiment... [fetch_id=154533]
+
+2026-04-01 10:45:34 CST | INFO     | shree.data.sentiment_aggregator:get_stocktwits_sentiment:467 - 📊 Stocktwits: score=-0.07 (bull=7, bear=8, total=60) [ts=15:45:34]
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:_get_reddit_sentiment_public:696 - 📱 Reddit (public): score=-0.11 (samples=16, unique_posts=10)
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_vix_sentiment:978 - 📊 VIX Regime: VIX=25.00 -> HIGH_UNCERTAINTY (score=-0.40, conf=0.80, source=vx_futures)
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1256 -    Blended with VIX: social=-0.08, vix=-0.40 -> -0.21
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1271 - ==================================================
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1272 - 📊 MULTI-SOURCE SENTIMENT SUMMARY
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1273 - ==================================================
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1274 -    Stocktwits: -0.07 (60 samples)
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1275 -    Reddit:     -0.11 (16 samples)
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1276 -    Twitter:    +0.00 (0 samples)
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1277 -    VIX:        -0.40 (market-based)
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1278 -    ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1279 -    COMBINED:   -0.21
+
+2026-04-01 10:45:37 CST | INFO     | shree.data.sentiment_aggregator:get_combined_mes_sentiment:1280 - ==================================================
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:330 - 📊 Multi-Source Sentiment Check (RTH):
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:331 -    Combined Score: -0.21
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:333 -    Breakdown:
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:334 -       Stocktwits: -0.07
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:335 -       Reddit:     -0.11
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:336 -       Twitter:    +0.00
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:337 -    Thresholds: block=±0.3, weak=±0.15
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:338 -    Recommendation: REDUCE_SIZE
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:339 -    Reason: Moderate bearish sentiment (-0.21) - reduce position size
+
+2026-04-01 10:45:37 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - MultiSource Sentiment REDUCE_SIZE
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:_evaluate_multi_source_sentiment:377 -    Confidence: 0.700 → 0.490 (sentiment: 0.70, low_vol: 1.00)
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:502 - 📡 Sentiment overlay: score=-0.210 bias=BEARISH conf_delta=-0.210 (0.700 → 0.490)
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.sentiment_evaluator:get_vx_multiplier:249 - 📈 VX Volatility Adjustment: VX=25.00 → 0.6x multiplier
+
+2026-04-01 10:45:37 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:581 - 📈 VX Adjustment: VX=25.0 | 0.490 +0.050 = 0.540 (trend_cont)
+
+2026-04-01 10:45:37 CST | INFO     | shree.rag.hybrid_rag_pipeline:evaluate:1168 - SCORE_DEBUG: buy=65.0, sell=0.0, threshold=20, scalp_mode=False, daily_bias=BULLISH
+
+2026-04-01 10:45:37 CST | INFO     | shree.rag.hybrid_rag_pipeline:evaluate:1170 - SCORE_BREAKDOWN: TREND_SCORE:+100(EMA_STACK_UP+ABOVE_EMA50+MACD_POS) | UPTREND:+30 | RSI_BULLISH_ZONE(66.6):BUY+7.5 | MACD_STRONG_POS(2.34):+12.5 | NO_LEVEL(PDH:2.58%,PDL:4.26%) | BULLISH_ACCEPTANCE(BUY*1.3,SELL*0.4)
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/190810_efcfe16e.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/173410_6a54a25b.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/162307_d9c30f67.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/161355_f188b596.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/161208_d2dab2af.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/155109_ad4e5ed7.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/152211_8cb8fc7e.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/152108_8dd091ac.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/151810_abe7cb47.json
+
+2026-04-01 10:45:38 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/151710_7fb00e3e.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/151112_8a29fbc2.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2026-01-02/145010_be4875e4.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/201011_f138ff7d.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/200906_c2a58ac5.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/150907_ca768f54.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/150839_84fc1132.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-31/145218_c4d72f32.json
+
+2026-04-01 10:45:39 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-30/174320_2bbc848b.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-30/173609_1ab59c03.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/194840_24ff5aff.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/181706_8f6e4b9f.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/181701_544a9807.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-29/153512_858a8feb.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-26/025007_d8415f56.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-19/153007_53e3be8b.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-18/013010_02879f3e.json
+
+2026-04-01 10:45:40 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-16/020504_3d5d3415.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-15/172708_349b8dd1.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-12/094939_cfbffda2.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-08/190350_test_007.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-07/190350_test_006.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-06/190350_test_005.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-05/190350_test_004.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-04/190350_test_003.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-03/190350_test_002.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.s3_storage:read_from_s3:311 - Downloaded from S3: spy-futures-bot/trade-logs/2025-12-02/190350_test_001.json
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.hybrid_rag_pipeline:process:2744 - Pipeline result: BUY (conf=52%, time=4269ms)
+
+2026-04-01 10:45:41 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - BUY entry=6642.50 SL=6613.04 (29.46) TP=6701.41 (58.91)
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.pipeline_integration:_log_protection_snapshot:1001 - 🛡️ Protection snapshot | BUY entry=6642.50 SL=6613.04 (29.46) TP=6701.41 (58.91) fallback=no
+
+2026-04-01 10:45:41 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - BUY @ 0.52
+
+2026-04-01 10:45:41 CST | INFO     | shree.rag.pipeline_integration:process_sync:827 - Hybrid Pipeline: BUY (conf=0.52, trend=UPTREND, vol=MEDIUM)
+
+2026-04-01 10:45:41 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:634 - 🤖 Hybrid AGREES (BUY): rag_win_rate=0% (n=5) conf boost +0.000 → 0.540
+
+2026-04-01 10:45:41 CST | WARNING  | shree.execution.components.signal_processor:_generate_strategy_first_signal:932 - 🚫 MES dead-zone guard: blocking TREND_CONT signal (TREND_CONT_LONG | ADX=36 | RSI=67 | MACD_H=2.34 | e9=6627.2 | #2 | SL=9.8pts | TP=12.3pts) at 10:45 CST — MES liquidity thins 10:30-13:00, trend signals chop out. Was BUY conf=0.540
+
+2026-04-01 10:45:41 CST | INFO     | shree.execution.live_trading_manager:_process_hybrid_signal:1777 -   ↳ Signal is HOLD, skipping order placement
+
+2026-04-01 10:48:42 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=73 | price=6642.5
+
+2026-04-01 10:53:43 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=73 | price=6642.5
+
+2026-04-01 10:58:45 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=73 | price=6642.5
+
+2026-04-01 11:00:15 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:00:15 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 11:00:00 CST
+
+2026-04-01 11:00:15 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 11:00:15 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6646.2)>touch(6631.9) | B:no_cross(c=6647.2,prev=6642.5,OR_H=6585.0) | C:low(6646.2)>touch(6641.2) | D:ema21(6621.9)>=ema50(6610.1) | E:no_cross(c=6647.2,prev=6642.5,OR_L=6579.5) | F:maxed(2) | G:outside_london(11:00:00)
+
+2026-04-01 11:00:15 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 11:00:15 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:00:15 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 11:03:46 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=74 | price=6647.25
+
+2026-04-01 11:08:47 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=74 | price=6647.25
+
+2026-04-01 11:13:49 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=74 | price=6647.25
+
+2026-04-01 11:15:19 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:15:19 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 11:15:00 CST
+
+2026-04-01 11:15:19 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 11:15:19 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6642.8)>touch(6633.8) | B:no_cross(c=6643.8,prev=6647.2,OR_H=6585.0) | C:bearish(c=6643.8,o=6643.8) | D:ema21(6623.9)>=ema50(6611.4) | E:no_cross(c=6643.8,prev=6647.2,OR_L=6579.5) | F:maxed(2) | G:outside_london(11:15:00)
+
+2026-04-01 11:15:19 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 11:15:19 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:15:19 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 11:18:50 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=75 | price=6643.75
+
+2026-04-01 11:23:52 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=75 | price=6643.75
+
+2026-04-01 11:28:53 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=75 | price=6643.75
+
+2026-04-01 11:30:24 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:30:24 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 11:30:00 CST
+
+2026-04-01 11:30:24 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 11:30:24 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6639.2)>touch(6635.3) | B:no_cross(c=6639.8,prev=6643.8,OR_H=6585.0) | C:bearish(c=6639.8,o=6640.0) | D:ema21(6625.3)>=ema50(6612.5) | E:no_cross(c=6639.8,prev=6643.8,OR_L=6579.5) | F:maxed(2) | G:outside_london(11:30:00)
+
+2026-04-01 11:30:24 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 11:30:24 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:30:24 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 11:33:55 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=76 | price=6639.75
+
+2026-04-01 11:38:57 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=76 | price=6639.75
+
+2026-04-01 11:44:00 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=76 | price=6639.75
+
+2026-04-01 11:45:30 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:45:30 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 11:45:00 CST
+
+2026-04-01 11:45:30 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 11:45:30 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6646.2)>touch(6637.3) | B:no_cross(c=6647.0,prev=6639.8,OR_H=6585.0) | C:bearish(c=6647.0,o=6647.0) | D:ema21(6627.3)>=ema50(6613.8) | E:no_cross(c=6647.0,prev=6639.8,OR_L=6579.5) | F:maxed(2) | G:outside_london(11:45:00)
+
+2026-04-01 11:45:30 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 11:45:30 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 11:45:30 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 11:49:02 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=77 | price=6647.0
+
+2026-04-01 11:54:03 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=77 | price=6647.0
+
+2026-04-01 11:59:05 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=77 | price=6647.0
+
+2026-04-01 12:00:35 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:00:35 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 12:00:00 CST
+
+2026-04-01 12:00:35 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 12:00:35 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6645.8)>touch(6639.0) | B:no_cross(c=6646.0,prev=6647.0,OR_H=6585.0) | C:bearish(c=6646.0,o=6646.2) | D:ema21(6629.0)>=ema50(6615.1) | E:no_cross(c=6646.0,prev=6647.0,OR_L=6579.5) | F:maxed(2) | G:outside_london(12:00:00)
+
+2026-04-01 12:00:35 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 12:00:35 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:00:35 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 12:04:07 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=78 | price=6646.0
+
+2026-04-01 12:09:08 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=78 | price=6646.0
+
+2026-04-01 12:14:09 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=78 | price=6646.0
+
+2026-04-01 12:15:09 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:15:09 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 12:15:00 CST
+
+2026-04-01 12:15:09 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 12:15:09 CST | INFO     | shree.strategies.es_fifteen_min:generate:619 - 🚫 EXHAUSTION_COOLDOWN: LONG exhaustion detected | move=+70.2pts (8.7×ATR) — blocking BUY signals for 4 bars
+
+2026-04-01 12:15:09 CST | INFO     | shree.strategies.es_fifteen_min:_check_trend_continuation_short:1898 - TREND_EXHAUSTION_SHORT: move=-70.2pts (8.7×ATR) > 8.0×ATR threshold — blocking TREND_CONT_SHORT
+
+2026-04-01 12:15:09 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6652.0)>touch(6641.1) | B:no_cross(c=6652.5,prev=6646.0,OR_H=6585.0) | C:low(6652.0)>touch(6651.7) | D:ema21(6631.1)>=ema50(6616.6) | E:no_cross(c=6652.5,prev=6646.0,OR_L=6579.5) | F:maxed(2) | G:outside_london(12:15:00)
+
+2026-04-01 12:15:09 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 12:15:09 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:15:09 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 12:19:10 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=79 | price=6652.5
+
+2026-04-01 12:24:12 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=79 | price=6652.5
+
+2026-04-01 12:29:14 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=79 | price=6652.5
+
+2026-04-01 12:30:14 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:30:14 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 12:30:00 CST
+
+2026-04-01 12:30:14 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 12:30:14 CST | INFO     | shree.strategies.es_fifteen_min:_check_trend_continuation_short:1898 - TREND_EXHAUSTION_SHORT: move=-69.0pts (9.1×ATR) > 8.0×ATR threshold — blocking TREND_CONT_SHORT
+
+2026-04-01 12:30:14 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6650.8)>touch(6639.6) | B:no_cross(c=6651.2,prev=6652.5,OR_H=6585.0) | C:bearish(c=6651.2,o=6651.2) | D:ema21(6633.0)>=ema50(6617.9) | E:no_cross(c=6651.2,prev=6652.5,OR_L=6579.5) | F:maxed(2) | G:outside_london(12:30:00)
+
+2026-04-01 12:30:14 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 12:30:14 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:30:14 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 12:34:16 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=80 | price=6651.25
+
+2026-04-01 12:39:17 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=80 | price=6651.25
+
+2026-04-01 12:44:19 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=80 | price=6651.25
+
+2026-04-01 12:45:19 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:45:19 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1294 - 🕐 New candle close at 12:45:00 CST
+
+2026-04-01 12:45:19 CST | INFO     | shree.utils.structured_logging:log_structured_event:83 - Cycle start
+
+2026-04-01 12:45:19 CST | INFO     | shree.strategies.es_fifteen_min:_check_trend_continuation_short:1898 - TREND_EXHAUSTION_SHORT: move=-65.5pts (8.9×ATR) > 8.0×ATR threshold — blocking TREND_CONT_SHORT
+
+2026-04-01 12:45:19 CST | INFO     | shree.strategies.es_fifteen_min:generate:808 - 🚫 EXHAUSTION_COOLDOWN: blocking BUY signals ['C'] (2 bars remaining)
+
+2026-04-01 12:45:19 CST | INFO     | shree.strategies.es_fifteen_min:generate:993 - 🔍 NO_SIGNAL diag: A:low(6646.8)>touch(6641.0) | B:no_cross(c=6647.8,prev=6651.2,OR_H=6585.0) | D:ema21(6634.3)>=ema50(6619.1) | E:no_cross(c=6647.8,prev=6651.2,OR_L=6579.5) | F:maxed(2) | G:outside_london(12:45:00)
+
+2026-04-01 12:45:19 CST | INFO     | shree.execution.components.signal_processor:_generate_strategy_first_signal:438 - 📊 Strategy Signal: HOLD (conf=0.00, meta=NO_SIGNAL)
+
+2026-04-01 12:45:19 CST | INFO     | shree.execution.ib_executor:get_active_order_count:2428 - 🔍 Sync: 0 active orders (0 PendingSubmit, lock=idle)
+
+2026-04-01 12:45:19 CST | INFO     | shree.execution.components.signal_processor:process_trading_cycle:1510 - Skipping trade (HOLD)
+
+2026-04-01 12:49:20 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=81 | price=6647.75
+
+2026-04-01 12:54:22 CST | INFO     | shree.execution.components.trading_session_manager:start:267 - 💓 Heartbeat: waiting for 15m bar | bars=81 | price=6647.75
+

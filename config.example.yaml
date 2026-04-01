@@ -353,6 +353,30 @@ spy_options:
     enabled: true
     db_path: "data/spy_options_signals.db"
 
+  # External signal sources (free / no API key required by default)
+  external:
+    enabled: true
+    # Economic calendar — Forex Factory JSON (no key)
+    calendar_enabled: true
+    event_risk_window_minutes: 30    # Flag event risk within ±30 min of high-impact events
+    # RSS news sentiment (Yahoo Finance, MarketWatch, CNBC, Reuters — VADER scoring)
+    news_enabled: true
+    news_ttl_minutes: 10.0
+    # StockTwits retail sentiment — free public API, no auth
+    stocktwits_enabled: true
+    stocktwits_ttl_minutes: 10.0
+    # Reddit (asyncpraw) — disabled by default; needs app credentials
+    reddit_enabled: false
+    reddit_client_id: ""             # Create at https://www.reddit.com/prefs/apps
+    reddit_client_secret: ""
+    reddit_ttl_minutes: 15.0
+    # Macro signals (yfinance — 10Y yield, DXY, oil, gold; refreshed daily)
+    macro_enabled: true
+    # CBOE equity P/C ratio (daily CSV — no auth)
+    cboe_enabled: true
+    # Impact on weighted confidence: strong composite score adds/subtracts up to this
+    composite_confidence_boost: 0.05
+
   log_file: "logs/spy_options.log"
 
 # Observability / Prometheus Metrics

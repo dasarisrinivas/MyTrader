@@ -34,6 +34,8 @@ from typing import List, Optional, Set
 from ..config.spy_options import SpyOptionsSignalConfig
 from ..utils.logger import logger
 from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker
+from .dynamic_confidence import DynamicConfidence, ConfidenceAdjustment
+from .external import ExternalContext
 from .regime_detector import RegimeContext
 from .sentiment_engine import SentimentContext
 from .sweep_tracker import SweepTracker
@@ -55,9 +57,10 @@ class SignalContext:
 
     regime: RegimeContext
     sentiment: SentimentContext
-    iv_rank: float          # 0-100 based on VIX 52w range
+    iv_rank: float                              # 0-100 based on VIX 52w range
     vix: Optional[float]
     spy_price: float
+    external: Optional[ExternalContext] = None  # External signals (news/macro/social)
 
 
 @dataclass
@@ -77,6 +80,7 @@ class SpySignal:
     ask_size: int
     reasoning: List[str] = field(default_factory=list)
     suggested_trade: str = ""
+    expiry_date: str = ""   # YYYYMMDD (e.g. "20260417") — actual contract expiration
 
     # Rich fields (populated by engine)
     confidence_tier: str = "MEDIUM"  # "MEDIUM" | "HIGH" | "EXTREME"
@@ -94,6 +98,34 @@ class SpySignal:
     sentiment_score: float = 0.0
     sentiment_label: str = "NEUTRAL"
     flow_score: float = 0.0
+
+    # DTE (days to expiry) — populated from expiry string
+    dte: int = 0
+
+    # External signal context (news/macro/social/flow)
+    external_composite: float = 0.0   # -1.0 to +1.0
+    event_risk: bool = False
+    event_minutes: float = 999.0
+    next_event_title: str = ""
+    news_score: float = 0.0
+    retail_score: float = 0.0
+    macro_headwind: float = 0.0
+    macro_label: str = "NEUTRAL"
+    tnx_trend: str = "FLAT"
+    dxy_trend: str = "FLAT"
+    equity_pc: Optional[float] = None
+
+    # Flow confirmation fields
+    flow_confirmation_score: float = 0.0  # -100..+100
+    dark_pool_bias: str = "NEUTRAL"
+    gex_bias: str = "NEUTRAL"
+    intraday_pc_ratio: Optional[float] = None
+
+    # Dynamic confidence adjustment
+    dynamic_confidence_delta: float = 0.0
+    confidence_time_bucket: str = "MIDDAY"
+    confidence_dte_rule: str = "STANDARD"
+    conflict_detected: bool = False
 
     @property
     def dedup_key(self) -> str:
@@ -114,6 +146,7 @@ class SignalEngine:
     def __init__(self, cfg: SpyOptionsSignalConfig, tracker: VolumeTracker) -> None:
         self._cfg = cfg
         self._tracker = tracker
+        self._dyn = DynamicConfidence()
 
     def evaluate(
         self,
@@ -185,7 +218,49 @@ class SignalEngine:
         if iv_high or (context.vix is not None and context.vix > c.vix_high):
             signals.extend(self._high_iv_signal(chain, context, c))
 
+        # ── Event risk modifier ────────────────────────────────────────────────
+        ext = context.external
+        if ext is not None and ext.event_risk:
+            for sig in signals:
+                directional = sig.signal_type in {
+                    SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
+                    SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
+                    SignalType.PC_RATIO_EXTREME,
+                }
+                if directional:
+                    # 30% confidence penalty within event window
+                    sig.confidence = max(0.0, sig.confidence * 0.70)
+                    sig.confidence_tier = _tier(sig.confidence)
+                    sig.reasoning.append(
+                        f"⚠ Event risk: {ext.next_event_title} in {ext.event_minutes:.0f} min — confidence penalised"
+                    )
+                elif sig.signal_type == SignalType.LONG_STRADDLE:
+                    # Boost straddle during event window (big move expected)
+                    sig.confidence = min(1.0, sig.confidence * 1.10)
+                    sig.confidence_tier = _tier(sig.confidence)
+                    sig.reasoning.append(
+                        f"📅 Event catalyst: {ext.next_event_title} in {ext.event_minutes:.0f} min — straddle boosted"
+                    )
+
+        # Populate expiry_date and DTE on all signals from chain metadata
+        for sig in signals:
+            sig.expiry_date = chain.expiry_date
+            if chain.expiry_date:
+                try:
+                    exp_dt = datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                    sig.dte = max(0, (exp_dt - datetime.now().date()).days)
+                except ValueError:
+                    pass
+
         filtered = [s for s in signals if s.confidence >= c.min_confidence]
+        rejected = [s for s in signals if s.confidence < c.min_confidence]
+        if rejected:
+            for s in rejected:
+                logger.info(
+                    "Signal below threshold: {} {} {}{} conf={:.1f}% (need {:.0f}%)",
+                    s.signal_type.value, s.expiry, s.strike, s.right,
+                    s.confidence * 100, c.min_confidence * 100,
+                )
         if filtered:
             logger.info(
                 "SignalEngine {}: {} signals → {} passed (threshold={:.0f}%)",
@@ -278,7 +353,22 @@ class SignalEngine:
         # 5% — flow score (repeat sweep confirmation)
         w_flow = 0.05 * flow_score
 
-        return min(1.0, w_vol + w_imb + w_delta + w_gamma + w_theta + w_iv + w_sent + w_oi + w_flow)
+        base = w_vol + w_imb + w_delta + w_gamma + w_theta + w_iv + w_sent + w_oi + w_flow
+
+        # External composite adjustment (±composite_confidence_boost)
+        ext = context.external
+        if ext is not None:
+            boost_cap = 0.05   # max ±5% from external
+            # Directional alignment: composite positive boosts calls, negative boosts puts
+            if right == "C":
+                ext_adj = ext.composite_score * boost_cap
+            elif right == "P":
+                ext_adj = -ext.composite_score * boost_cap
+            else:
+                ext_adj = abs(ext.composite_score) * boost_cap * 0.5  # small boost for straddle
+            base += ext_adj
+
+        return min(1.0, max(0.0, base))
 
     def _enrich(self, sig: SpySignal, quote: OptionQuote, context: SignalContext) -> SpySignal:
         """Copy Greek/liquidity/context fields from quote and context into signal."""
@@ -296,6 +386,19 @@ class SignalEngine:
         sig.sentiment_score = context.sentiment.score
         sig.sentiment_label = context.sentiment.label
         sig.confidence_tier = _tier(sig.confidence)
+        # External fields
+        if context.external is not None:
+            ext = context.external
+            sig.external_composite = ext.composite_score
+            sig.event_risk = ext.event_risk
+            sig.event_minutes = ext.event_minutes
+            sig.next_event_title = ext.next_event_title
+            sig.news_score = ext.news_score
+            sig.retail_score = ext.retail_score
+            sig.macro_headwind = ext.macro_headwind
+            sig.tnx_trend = ext.tnx_trend
+            sig.dxy_trend = ext.dxy_trend
+            sig.equity_pc = ext.equity_pc
         return sig
 
     # ── Rule implementations ──────────────────────────────────────────────────
@@ -316,7 +419,8 @@ class SignalEngine:
         if pc > c.pc_ratio_bearish and chain.total_put_volume >= c.min_volume_for_signal:
             atm_put = chain.put_at(atm)
             # Confidence: base from ratio distance, boosted by sentiment
-            base = min(0.62 + (pc - c.pc_ratio_bearish) * 0.05, 0.82)
+            # Scale: P/C 1.8→0.70, 2.5→0.77, 3.0→0.82, 5.0→0.90
+            base = min(0.70 + (pc - c.pc_ratio_bearish) * 0.10, 0.90)
             sent_boost = max(0.0, -context.sentiment.score / 100.0) * 0.08
             conf = min(1.0, base + sent_boost)
             sig = SpySignal(
@@ -348,7 +452,7 @@ class SignalEngine:
             signals.append(sig)
 
         elif pc < c.pc_ratio_bullish and chain.total_call_volume >= c.min_volume_for_signal:
-            base = min(0.60 + (c.pc_ratio_bullish - pc) * 0.08, 0.80)
+            base = min(0.70 + (c.pc_ratio_bullish - pc) * 0.15, 0.90)
             sent_boost = max(0.0, context.sentiment.score / 100.0) * 0.08
             conf = min(1.0, base + sent_boost)
             sig = SpySignal(

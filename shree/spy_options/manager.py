@@ -27,6 +27,7 @@ from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
 from .analytics_db import AnalyticsDB
 from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker, passes_liquidity
+from .external import ExternalDataManager
 from .ib_client import IBOptionsClient
 from .regime_detector import RegimeContext, RegimeDetector
 from .sentiment_engine import SentimentContext, SentimentEngine
@@ -87,6 +88,21 @@ class SpyOptionsManager:
         else:
             self._analytics = None
 
+        # External signals (news, social, macro, economic calendar)
+        ext_cfg = cfg.external
+        if ext_cfg.enabled:
+            self._external: Optional[ExternalDataManager] = ExternalDataManager(
+                reddit_enabled=ext_cfg.reddit_enabled,
+                reddit_client_id=ext_cfg.reddit_client_id,
+                reddit_client_secret=ext_cfg.reddit_client_secret,
+                news_ttl_minutes=ext_cfg.news_ttl_minutes,
+                reddit_ttl_minutes=ext_cfg.reddit_ttl_minutes,
+                stocktwits_ttl_minutes=ext_cfg.stocktwits_ttl_minutes,
+                event_risk_window_minutes=ext_cfg.event_risk_window_minutes,
+            )
+        else:
+            self._external = None
+
         if telegram_cfg and telegram_cfg.enabled:
             self._telegram = TelegramNotifier(
                 bot_token=telegram_cfg.bot_token,
@@ -99,6 +115,11 @@ class SpyOptionsManager:
         # Deduplication: dedup_key → last sent datetime
         self._sent_times: Dict[str, datetime] = {}
         self._last_reset_date: Optional[str] = None
+
+        # Active signal tracking for exit alerts
+        # dedup_key → {signal, entry_price, entry_regime, sent_at}
+        self._active_signals: Dict[str, Dict] = {}
+        self._exit_sent: Set[str] = set()  # dedup_keys for which exit was already sent
 
         # Option conid resolution cache: (expiry_month, strike, right) → conid
         self._conid_map: Dict[tuple, int] = {}
@@ -184,6 +205,8 @@ class SpyOptionsManager:
             self._conid_map.clear()
             self._conid_details.clear()
             self._vix_history.clear()
+            self._active_signals.clear()
+            self._exit_sent.clear()
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -254,7 +277,11 @@ class SpyOptionsManager:
         # Fetch price + Greeks (snapshot=False + explicit cancel)
         snaps = await self._ib.get_snapshot_with_greeks(all_conids)
 
-        chain = ChainSnapshot(expiry_month)
+        # Resolve actual expiry date (YYYYMMDD) for this month
+        expiry_date = self._ib._best_expiry(expiry_month) or ""
+
+        chain = ChainSnapshot(expiry_month, expiry_date=expiry_date)
+        filtered_count = 0
 
         for conid, snap in snaps.items():
             details = self._conid_details.get(conid)
@@ -298,16 +325,24 @@ class SpyOptionsManager:
                 max_spread_pct=cfg_c.liquidity_max_spread_pct,
                 min_volume=cfg_c.liquidity_min_volume,
             ):
-                logger.debug(
-                    "Liquidity filter drop: {} OI={} spread={:.1f}% vol={}",
-                    quote.symbol, quote.open_interest, quote.spread_pct, quote.volume,
-                )
+                filtered_count += 1
+                if filtered_count <= 3:  # Log first 3 drops at INFO
+                    logger.info(
+                        "Liquidity drop: {} bid={:.2f} ask={:.2f} OI={} vol={} delta={:.3f}",
+                        quote.symbol, quote.bid, quote.ask, quote.open_interest, quote.volume, quote.delta,
+                    )
                 continue
 
             if right == "C":
                 chain.calls.append(quote)
             else:
                 chain.puts.append(quote)
+
+        if filtered_count > 0:
+            logger.info(
+                "Chain {}: {}/{} options filtered by liquidity",
+                expiry_month, filtered_count, len(snaps),
+            )
 
         return chain
 
@@ -344,14 +379,24 @@ class SpyOptionsManager:
             regime=regime_ctx,
         )
 
+        # Refresh external signals (TTL-gated; most sources won't re-fetch every 60s)
+        ext_ctx = None
+        if self._external is not None:
+            try:
+                await self._external.refresh_if_stale()
+                ext_ctx = self._external.context
+            except Exception as exc:
+                logger.warning("External data refresh failed: {}", exc)
+
         logger.info(
-            "Poll: SPY={:.2f}  VIX={}  IVRank={:.0f}  Regime={}  Sentiment={:+.0f}({})",
+            "Poll: SPY={:.2f}  VIX={}  IVRank={:.0f}  Regime={}  Sentiment={:+.0f}({}){}",
             spy_price,
             f"{vix:.1f}" if vix is not None else "n/a",
             iv_rank,
             regime_ctx.regime,
             sentiment_ctx.score,
             sentiment_ctx.label,
+            f"  ExtComposite={ext_ctx.composite_score:+.2f}" if ext_ctx else "",
         )
 
         ctx = SignalContext(
@@ -360,6 +405,7 @@ class SpyOptionsManager:
             iv_rank=iv_rank,
             vix=vix,
             spy_price=spy_price,
+            external=ext_ctx,
         )
 
         now_et = datetime.now(ET)
@@ -372,7 +418,7 @@ class SpyOptionsManager:
         for expiry in expiry_months:
             chain = await self._build_chain(spy_conid, spy_price, expiry)
             if chain:
-                logger.debug(
+                logger.info(
                     "Chain {}: {} calls vol={:,}  {} puts vol={:,}  P/C={}",
                     expiry,
                     len(chain.calls), chain.total_call_volume,
@@ -380,8 +426,18 @@ class SpyOptionsManager:
                     f"{chain.put_call_ratio:.2f}" if chain.put_call_ratio else "n/a",
                 )
                 all_signals.extend(self._engine.evaluate(chain, ctx, self._sweep_tracker))
+            else:
+                logger.info("Chain {}: empty (all options filtered out or no conids)", expiry)
+
+        if all_signals:
+            logger.info("Signal engine produced {} signal(s)", len(all_signals))
+        else:
+            logger.info("Signal engine: no signals this cycle")
 
         await self._dispatch_signals(all_signals)
+
+        # Check whether any previously-sent signals now warrant an EXIT alert
+        await self._check_exit_conditions(spy_price, regime_ctx)
 
     async def _dispatch_signals(self, signals: List[SpySignal]) -> None:
         dedup_td = timedelta(minutes=self._cfg.signals.dedup_window_minutes)
@@ -396,6 +452,196 @@ class SpyOptionsManager:
             self._sent_times[key] = now
             if self._analytics:
                 self._analytics.insert(sig)
+
+            # Track directional signals for exit monitoring
+            if sig.signal_type in {
+                SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
+                SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
+                SignalType.PC_RATIO_EXTREME,
+            }:
+                self._active_signals[key] = {
+                    "signal": sig,
+                    "entry_price": sig.spy_price,
+                    "entry_regime": sig.regime,
+                    "sent_at": now,
+                }
+
+    # ── Exit monitoring ──────────────────────────────────────────────────────
+
+    # Bullish signals expect SPY to go up; bearish signals expect SPY to go down
+    _BULLISH_SIGNALS = {
+        SignalType.CALL_SWEEP, SignalType.BULL_CALL_SPREAD,
+    }
+    _BEARISH_SIGNALS = {
+        SignalType.PUT_SWEEP, SignalType.BEAR_PUT_SPREAD,
+    }
+
+    @staticmethod
+    def _signal_direction(sig: SpySignal) -> str:
+        """Return 'BULLISH', 'BEARISH', or 'NEUTRAL' for a signal."""
+        if sig.signal_type in SpyOptionsManager._BULLISH_SIGNALS:
+            return "BULLISH"
+        if sig.signal_type in SpyOptionsManager._BEARISH_SIGNALS:
+            return "BEARISH"
+        # PC_RATIO_EXTREME: direction depends on which side triggered
+        if sig.signal_type == SignalType.PC_RATIO_EXTREME:
+            return "BEARISH" if sig.right == "P" else "BULLISH"
+        return "NEUTRAL"
+
+    async def _check_exit_conditions(
+        self,
+        spy_price: float,
+        regime_ctx: RegimeContext,
+    ) -> None:
+        """Check active signals and send EXIT alerts when conditions reverse.
+
+        Three independent triggers (any one fires the exit):
+        1. **Price adverse ≥ 0.5%** — SPY moved against the signal direction
+        2. **Regime flip** — TREND_UP → TREND_DOWN (for bullish) or vice-versa
+        3. **Significant adverse move ≥ 1.0%** — urgent exit regardless of regime
+        """
+        if not self._active_signals:
+            return
+
+        expired_keys: List[str] = []
+        now = datetime.utcnow()
+        max_age = timedelta(hours=6)  # auto-expire stale signals
+
+        for key, entry in list(self._active_signals.items()):
+            # Auto-expire old signals
+            if (now - entry["sent_at"]) > max_age:
+                expired_keys.append(key)
+                continue
+
+            # Already sent exit for this signal
+            if key in self._exit_sent:
+                continue
+
+            sig: SpySignal = entry["signal"]
+            entry_price: float = entry["entry_price"]
+            entry_regime: str = entry["entry_regime"]
+            direction = self._signal_direction(sig)
+
+            if direction == "NEUTRAL":
+                continue
+
+            price_chg_pct = (spy_price - entry_price) / entry_price * 100.0
+            reasons: List[str] = []
+
+            # ── Trigger 1: price adverse ≥ 0.5% ──
+            if direction == "BULLISH" and price_chg_pct <= -0.5:
+                reasons.append(
+                    f"SPY dropped {abs(price_chg_pct):.2f}% since entry "
+                    f"(${entry_price:.2f} → ${spy_price:.2f})"
+                )
+            elif direction == "BEARISH" and price_chg_pct >= 0.5:
+                reasons.append(
+                    f"SPY rallied {price_chg_pct:.2f}% since entry "
+                    f"(${entry_price:.2f} → ${spy_price:.2f})"
+                )
+
+            # ── Trigger 2: regime flip ──
+            cur_regime = regime_ctx.regime
+            if direction == "BULLISH" and entry_regime == "TREND_UP" and cur_regime == "TREND_DOWN":
+                reasons.append(f"Regime flipped: {entry_regime} → {cur_regime}")
+            elif direction == "BEARISH" and entry_regime == "TREND_DOWN" and cur_regime == "TREND_UP":
+                reasons.append(f"Regime flipped: {entry_regime} → {cur_regime}")
+
+            # ── Trigger 3: large adverse move ≥ 1.0% (urgent) ──
+            if direction == "BULLISH" and price_chg_pct <= -1.0:
+                if not any("dropped" in r for r in reasons):
+                    reasons.append(
+                        f"⚠️ URGENT — SPY dropped {abs(price_chg_pct):.2f}% "
+                        f"(${entry_price:.2f} → ${spy_price:.2f})"
+                    )
+            elif direction == "BEARISH" and price_chg_pct >= 1.0:
+                if not any("rallied" in r for r in reasons):
+                    reasons.append(
+                        f"⚠️ URGENT — SPY rallied {price_chg_pct:.2f}% "
+                        f"(${entry_price:.2f} → ${spy_price:.2f})"
+                    )
+
+            if reasons:
+                logger.info(
+                    "EXIT trigger for {}: {}", key, " | ".join(reasons),
+                )
+                await self._send_exit_alert(sig, spy_price, entry_price, reasons, regime_ctx.regime)
+                self._exit_sent.add(key)
+
+        # Clean up expired signals
+        for k in expired_keys:
+            self._active_signals.pop(k, None)
+            self._exit_sent.discard(k)
+
+    async def _send_exit_alert(
+        self,
+        sig: SpySignal,
+        current_price: float,
+        entry_price: float,
+        reasons: List[str],
+        current_regime: str,
+    ) -> None:
+        """Format and send an EXIT alert via Telegram."""
+        msg = self._format_exit(sig, current_price, entry_price, reasons, current_regime)
+        logger.info(
+            "Sending EXIT alert: {} {}{}  entry=${:.2f} now=${:.2f}",
+            sig.signal_type.value, sig.strike, sig.right,
+            entry_price, current_price,
+        )
+        await self._telegram.send_message(msg)
+
+    def _format_exit(
+        self,
+        sig: SpySignal,
+        current_price: float,
+        entry_price: float,
+        reasons: List[str],
+        current_regime: str,
+    ) -> str:
+        """Build the EXIT alert Telegram message."""
+        price_chg = current_price - entry_price
+        price_chg_pct = price_chg / entry_price * 100.0
+        direction = self._signal_direction(sig)
+        arrow = "📈" if price_chg > 0 else "📉"
+
+        # Contract display (same logic as entry format)
+        if sig.expiry_date:
+            try:
+                exp_dt = datetime.strptime(sig.expiry_date, "%Y%m%d")
+                exp_display = exp_dt.strftime("%b %d, %Y")
+            except ValueError:
+                exp_display = sig.expiry
+        else:
+            exp_display = sig.expiry
+        dte_tag = f"  ({sig.dte} DTE)" if sig.dte > 0 else ""
+
+        now_et = datetime.now(ET).strftime("%H:%M ET")
+
+        lines = [
+            f"🚨 <b>EXIT ALERT — {sig.signal_type.value}</b> 🚨",
+            "",
+            f"📌 <b>SPY {exp_display} {sig.strike:.0f}{sig.right}</b>{dte_tag}",
+            "",
+            f"Original signal was <b>{direction}</b>",
+            f"🔹 Entry SPY: <b>${entry_price:.2f}</b>",
+            f"{arrow} Current SPY: <b>${current_price:.2f}</b>  "
+            f"({price_chg:+.2f}, {price_chg_pct:+.2f}%)",
+            "",
+            "<b>⚠️ Exit Reason(s):</b>",
+        ]
+        for r in reasons:
+            lines.append(f"  • {_html.escape(r)}")
+
+        lines += [
+            "",
+            f"🌍 Current Regime: <b>{current_regime}</b>",
+            f"🕐 {now_et}",
+            "",
+            "<i>⚠️ Consider closing or hedging this position. "
+            "Not financial advice.</i>",
+            "#SPY #Options #EXIT #ShreeBot",
+        ]
+        return "\n".join(lines)
 
     # ── Signal formatting ─────────────────────────────────────────────────────
 
@@ -421,10 +667,24 @@ class SpyOptionsManager:
         tier_label = self._TIER_LABEL.get(sig.confidence_tier, sig.confidence_tier)
         now_et = datetime.now(ET).strftime("%H:%M ET")
 
+        # Format expiry: "Apr 17, 2026 (16 DTE)" if date available, else "APR26"
+        if sig.expiry_date:
+            try:
+                exp_dt = datetime.strptime(sig.expiry_date, "%Y%m%d")
+                exp_display = exp_dt.strftime("%b %d, %Y")
+            except ValueError:
+                exp_display = sig.expiry
+        else:
+            exp_display = sig.expiry
+        dte_tag = f"  ({sig.dte} DTE)" if sig.dte > 0 else ""
+
+        # Contract line: "SPY Apr 17, 2026 659P (16 DTE)"
+        contract_line = f"📌 <b>SPY {exp_display} {sig.strike:.0f}{sig.right}</b>{dte_tag}"
+
         lines = [
             f"{emoji} <b>SPY OPTIONS — {sig.signal_type.value}</b>",
             "",
-            f"📌 <b>{sig.strike:.0f}{sig.right}</b>  exp <b>{sig.expiry}</b>",
+            contract_line,
             f"💰 SPY: <b>${sig.spy_price:.2f}</b>",
         ]
 
@@ -471,10 +731,46 @@ class SpyOptionsManager:
         if sig.spread_pct > 0:
             lines.append(f"↔ Spread: {sig.spread_pct:.1f}%")
 
-        # Sentiment
+        # Sentiment (IB-based)
         lines.append(
             f"🧭 Sentiment: <b>{sig.sentiment_score:+.0f}</b> ({sig.sentiment_label})"
         )
+
+        # External signals block (only shown when data is available)
+        if sig.external_composite != 0.0 or sig.news_score != 0.0 or sig.retail_score != 0.0:
+            ext_label = (
+                "BULLISH" if sig.external_composite > 0.15 else
+                "BEARISH" if sig.external_composite < -0.15 else
+                "NEUTRAL"
+            )
+            lines.append(
+                f"🌐 Ext Sentiment: <b>{sig.external_composite:+.2f}</b> ({ext_label})"
+            )
+            if sig.news_score != 0.0:
+                news_tag = "📰 bullish" if sig.news_score > 0.05 else "📰 bearish" if sig.news_score < -0.05 else "📰 neutral"
+                lines.append(f"  {news_tag} news ({sig.news_score:+.3f})")
+            if sig.retail_score != 0.0:
+                bull_pct = getattr(sig, "bullish_pct", 0.0) if hasattr(sig, "bullish_pct") else 0.0
+                lines.append(f"  📱 StockTwits: {sig.retail_score:+.2f}")
+            if sig.macro_headwind != 0.0:
+                headwind_tag = "↑" if sig.macro_headwind < -0.1 else "↓" if sig.macro_headwind > 0.1 else "→"
+                lines.append(
+                    f"  📉 Macro: TNX {sig.tnx_trend} | DXY {sig.dxy_trend} {headwind_tag}"
+                )
+            if sig.equity_pc is not None:
+                lines.append(f"  ⚖️ CBOE Equity P/C: {sig.equity_pc:.2f}")
+
+        # Event risk warning
+        if sig.event_risk:
+            lines.append(
+                f"⚠️ <b>EVENT RISK</b>: {_html.escape(sig.next_event_title)} "
+                f"in <b>{sig.event_minutes:.0f} min</b>"
+            )
+        elif sig.next_event_title and sig.event_minutes < 120:
+            lines.append(
+                f"📅 Next event: {_html.escape(sig.next_event_title)} "
+                f"({sig.event_minutes:.0f} min)"
+            )
 
         # Confidence
         lines.append(f"🎯 Confidence: <b>{conf_pct}%</b> [{tier_label}]")
@@ -503,9 +799,10 @@ class SpyOptionsManager:
     async def _send_signal(self, sig: SpySignal) -> None:
         msg = self._format(sig)
         logger.info(
-            "Sending signal: {} {}{}  exp={}  conf={:.0f}%  tier={}  regime={}",
+            "Sending signal: {} {}{}  exp={} ({})  dte={}  conf={:.0f}%  tier={}  regime={}",
             sig.signal_type.value, sig.strike, sig.right,
-            sig.expiry, sig.confidence * 100,
+            sig.expiry_date or sig.expiry, sig.expiry,
+            sig.dte, sig.confidence * 100,
             sig.confidence_tier, sig.regime,
         )
         await self._telegram.send_message(msg)

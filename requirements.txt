@@ -28,6 +28,11 @@ websockets>=15.0
 # Telegram notifications
 aiohttp>=3.9.0
 
+# External signals (SPY options bot)
+feedparser>=6.0.11        # RSS news feeds
+asyncpraw>=7.7.1          # Reddit PRAW async
+vaderSentiment>=3.3.2     # Headline sentiment scoring
+
 # Reinforcement learning (optional)
 # stable-baselines3>=2.2.1
 # gymnasium>=0.29.1

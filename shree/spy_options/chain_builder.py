@@ -136,8 +136,9 @@ class VolumeTracker:
 class ChainSnapshot:
     """All option quotes for a single SPY expiry month."""
 
-    def __init__(self, expiry_month: str) -> None:
+    def __init__(self, expiry_month: str, expiry_date: str = "") -> None:
         self.expiry_month = expiry_month
+        self.expiry_date = expiry_date   # YYYYMMDD (e.g. "20260417")
         self.calls: List[OptionQuote] = []
         self.puts: List[OptionQuote] = []
         self.timestamp: datetime = datetime.utcnow()

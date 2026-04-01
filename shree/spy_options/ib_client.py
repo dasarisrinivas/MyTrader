@@ -50,11 +50,19 @@ class IBOptionsClient:
         self._chain_params: Optional[Dict] = None
         self._spy_contract: Optional[Any] = None
         self._vix_contract: Optional[Any] = None
+        self._keepalive_task: Optional[asyncio.Task] = None
+        self._reconnecting = False
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        """Connect to IB Gateway and set live market data type."""
+        """Connect to IB Gateway and set market data type.
+
+        Tries live data (type 1) first. If the account lacks the required
+        ARCA/TOP subscription for SPY stock, IB returns error 10089. We
+        register an error handler that automatically falls back to delayed
+        data (type 3, 15-min delay) so the bot can still operate.
+        """
         try:
             await self._ib.connectAsync(
                 self._cfg.ibkr_host,
@@ -71,6 +79,23 @@ class IBOptionsClient:
             )
             raise
 
+        # Register error handler to detect missing market data subscriptions
+        self._tried_delayed_fallback = False
+
+        def _on_error(reqId, errorCode, errorString, *args):
+            if errorCode == 10089 and not self._tried_delayed_fallback:
+                self._tried_delayed_fallback = True
+                logger.warning(
+                    "Error 10089: live market data not subscribed for SPY. "
+                    "Falling back to delayed data (15-min delay). "
+                    "To fix: IB Account → Settings → Market Data Subscriptions → "
+                    "1) Subscribe to 'US Securities Snapshot and Futures Value Bundle' "
+                    "2) Add 'US Equity and Options Add-On Streaming Bundle' for live data",
+                )
+                self._ib.reqMarketDataType(3)  # 3=delayed
+
+        self._ib.errorEvent += _on_error
+
         self._ib.reqMarketDataType(1)  # 1=live, 2=frozen, 3=delayed
         logger.info(
             "IBOptionsClient connected → IB Gateway {}:{} (client_id={})",
@@ -79,9 +104,89 @@ class IBOptionsClient:
             self._cfg.ibkr_client_id,
         )
 
+        # Start keepalive task to prevent idle disconnects
+        self._keepalive_task = asyncio.ensure_future(self._keepalive_loop())
+
+        # Auto-reconnect on unexpected disconnect
+        self._ib.disconnectedEvent += self._on_disconnect
+
+    async def _keepalive_loop(self) -> None:
+        """Ping IB Gateway every 30s to keep the connection alive.
+
+        IB Gateway drops idle connections. The MES bot has a similar
+        keepalive — without it, the SPY Options bot disconnects between polls.
+        """
+        while True:
+            await asyncio.sleep(30)
+            try:
+                if self._ib.isConnected():
+                    # reqCurrentTime is a lightweight ping that keeps the socket alive
+                    self._ib.reqCurrentTime()
+                else:
+                    logger.warning("Keepalive: IB not connected, triggering reconnect")
+                    await self._reconnect()
+            except Exception as exc:
+                logger.debug("Keepalive ping failed: {}", exc)
+
+    def _on_disconnect(self) -> None:
+        """Handle unexpected IB Gateway disconnection."""
+        if not self._reconnecting:
+            logger.warning("IB Gateway disconnected — scheduling reconnect")
+            asyncio.ensure_future(self._reconnect())
+
+    async def _reconnect(self) -> None:
+        """Reconnect to IB Gateway and reset cached state."""
+        if self._reconnecting:
+            return
+        self._reconnecting = True
+        try:
+            # Clear stale state so fresh data is fetched after reconnect
+            self._chain_params = None
+            self._spy_ticker = None
+
+            for attempt in range(1, 6):  # up to 5 retries
+                try:
+                    if self._ib.isConnected():
+                        self._ib.disconnect()
+                    await asyncio.sleep(min(attempt * 5, 30))  # backoff: 5s, 10s, 15s, 20s, 25s
+                    await self._ib.connectAsync(
+                        self._cfg.ibkr_host,
+                        self._cfg.ibkr_port,
+                        clientId=self._cfg.ibkr_client_id,
+                        timeout=30,
+                    )
+                    self._ib.reqMarketDataType(1)
+                    logger.info(
+                        "IBOptionsClient reconnected (attempt {}/5)", attempt,
+                    )
+                    return
+                except Exception as exc:
+                    logger.warning(
+                        "Reconnect attempt {}/5 failed: {}", attempt, exc,
+                    )
+            logger.error("All 5 reconnect attempts failed — bot will retry on next keepalive")
+        finally:
+            self._reconnecting = False
+
     async def close(self) -> None:
-        """Disconnect from IB Gateway."""
+        """Disconnect from IB Gateway, cancelling any active subscriptions."""
+        # Cancel keepalive task
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            self._keepalive_task = None
+
         if self._ib.isConnected():
+            # Cancel persistent SPY streaming subscription
+            if hasattr(self, "_spy_ticker") and self._spy_ticker is not None:
+                try:
+                    self._ib.cancelMktData(self._spy_contract)
+                except Exception:
+                    pass
+                self._spy_ticker = None
             self._ib.disconnect()
         logger.info("IBOptionsClient disconnected")
 
@@ -129,11 +234,15 @@ class IBOptionsClient:
             self._chain_params = {"expirations": [], "strikes": []}
             return
 
-        chain = (
-            next((c for c in chains if c.exchange == exchange), None)
-            or next((c for c in chains if c.exchange == "SMART"), None)
-            or chains[0]
-        )
+        # IB returns MULTIPLE entries per exchange (e.g. two "SMART" entries:
+        # one with 1 expiration/strike, another with 36/436). Pick the one
+        # with the most expirations for the target exchange.
+        candidates = [c for c in chains if c.exchange == exchange]
+        if not candidates:
+            candidates = [c for c in chains if c.exchange == "SMART"]
+        if not candidates:
+            candidates = chains
+        chain = max(candidates, key=lambda c: len(c.expirations))
         self._chain_params = {
             "expirations": sorted(chain.expirations),
             "strikes": sorted(chain.strikes),
@@ -255,6 +364,11 @@ class IBOptionsClient:
           "31","84","85","86","87","88" — price/size (same as get_snapshot)
           "delta","gamma","theta","vega","impl_vol","open_interest" — Greeks
         """
+        if not self._ib.isConnected():
+            logger.warning("get_snapshot_with_greeks: not connected, triggering reconnect")
+            await self._reconnect()
+            if not self._ib.isConnected():
+                return {}
         contracts = [self._contract_cache[c] for c in conids if c in self._contract_cache]
         if not contracts:
             return {}
@@ -275,7 +389,8 @@ class IBOptionsClient:
         result: Dict[int, Dict] = {}
         for conid, ticker in tickers.items():
             greeks = ticker.modelGreeks  # OptionComputation or None
-            oi = ticker.optionOpenInterest
+            # ib_insync uses callOpenInterest / putOpenInterest (not optionOpenInterest)
+            oi = getattr(ticker, "callOpenInterest", None) or getattr(ticker, "putOpenInterest", None)
 
             result[conid] = {
                 "31": _safe_float(ticker.last),
@@ -301,18 +416,39 @@ class IBOptionsClient:
 
         return result
 
-    # ── SPY price ──────────────────────────────────────────────────────────────
+    # ── SPY price (persistent streaming subscription) ───────────────────────
 
     async def get_spy_price(self, spy_conid: int) -> Optional[float]:
-        """Return current SPY price (last, close, or bid/ask mid)."""
+        """Return current SPY price from a persistent streaming subscription.
+
+        On first call, subscribes to live streaming data for SPY (snapshot=False).
+        Subsequent calls just read the latest value from the ticker — no new
+        IB requests needed. This is more efficient than re-requesting a snapshot
+        every 60s and ensures the bot always has the freshest price.
+
+        If live data isn't available (error 10089), falls back to delayed data.
+        """
+        if not self._ib.isConnected():
+            logger.warning("get_spy_price: not connected, triggering reconnect")
+            await self._reconnect()
+            if not self._ib.isConnected():
+                return None
         if not self._spy_contract:
             await self.get_spy_conid()
         if not self._spy_contract:
             return None
 
-        ticker = self._ib.reqMktData(self._spy_contract, genericTickList="", snapshot=True)
-        await asyncio.sleep(self._cfg.snapshot_wait_s)
+        # Start persistent subscription on first call
+        if not hasattr(self, "_spy_ticker") or self._spy_ticker is None:
+            self._spy_ticker = self._ib.reqMktData(
+                self._spy_contract, genericTickList="", snapshot=False,
+            )
+            # Wait for first data to arrive
+            await asyncio.sleep(self._cfg.snapshot_wait_s)
 
+        ticker = self._spy_ticker
+
+        # Try live fields first
         for val in (
             ticker.last,
             ticker.close,
@@ -322,6 +458,47 @@ class IBOptionsClient:
                 f = _safe_float(val)
                 if f > 0:
                     return f
+
+        # If live failed, try delayed fields (populated after 10089 fallback)
+        for val in (
+            getattr(ticker, "delayedLast", None),
+            getattr(ticker, "delayedClose", None),
+        ):
+            if val is not None:
+                f = _safe_float(val)
+                if f > 0:
+                    logger.debug("SPY price from delayed data: {:.2f}", f)
+                    return f
+
+        # If still nothing and we haven't tried delayed mode yet, switch
+        if not self._tried_delayed_fallback:
+            self._tried_delayed_fallback = True
+            logger.warning(
+                "SPY streaming returned no price — switching to delayed data and resubscribing"
+            )
+            try:
+                self._ib.cancelMktData(self._spy_contract)
+            except Exception:
+                pass
+            self._ib.reqMarketDataType(3)
+            self._spy_ticker = self._ib.reqMktData(
+                self._spy_contract, genericTickList="", snapshot=False,
+            )
+            await asyncio.sleep(self._cfg.snapshot_wait_s + 2)
+
+            ticker = self._spy_ticker
+            for val in (
+                ticker.last, ticker.close,
+                getattr(ticker, "delayedLast", None),
+                getattr(ticker, "delayedClose", None),
+                (ticker.bid + ticker.ask) / 2 if (ticker.bid and ticker.ask) else None,
+            ):
+                if val is not None:
+                    f = _safe_float(val)
+                    if f > 0:
+                        logger.info("SPY price recovered via delayed streaming: {:.2f}", f)
+                        return f
+
         return None
 
     # ── VIX ───────────────────────────────────────────────────────────────────

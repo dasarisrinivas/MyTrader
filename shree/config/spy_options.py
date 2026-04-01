@@ -113,6 +113,41 @@ class SpyOptionsAnalyticsConfig:
 
 
 @dataclass
+class SpyOptionsExternalConfig:
+    """External signal sources (economic calendar, news, social, macro)."""
+
+    enabled: bool = True
+
+    # Economic calendar (Forex Factory JSON — free, no key)
+    calendar_enabled: bool = True
+    event_risk_window_minutes: int = 30   # Flag event risk within ±N min
+
+    # RSS news sentiment (VADER scoring — no API key)
+    news_enabled: bool = True
+    news_ttl_minutes: float = 10.0
+
+    # StockTwits retail sentiment (free, no auth)
+    stocktwits_enabled: bool = True
+    stocktwits_ttl_minutes: float = 10.0
+
+    # Reddit sentiment (asyncpraw — requires credentials; disabled by default)
+    reddit_enabled: bool = False
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    reddit_ttl_minutes: float = 15.0
+
+    # Macro signals via yfinance (10Y yield, DXY, oil, gold — daily refresh)
+    macro_enabled: bool = True
+
+    # CBOE P/C ratio daily CSV (free, no auth)
+    cboe_enabled: bool = True
+
+    # External composite score impact on weighted confidence
+    # A strong composite score (±0.5+) adds/subtracts this to confidence
+    composite_confidence_boost: float = 0.05
+
+
+@dataclass
 class SpyOptionsConfig:
     """Top-level SPY Options signal bot configuration.
 
@@ -127,5 +162,6 @@ class SpyOptionsConfig:
     signals: SpyOptionsSignalConfig = field(default_factory=SpyOptionsSignalConfig)
     session: SpyOptionsSessionConfig = field(default_factory=SpyOptionsSessionConfig)
     analytics: SpyOptionsAnalyticsConfig = field(default_factory=SpyOptionsAnalyticsConfig)
+    external: SpyOptionsExternalConfig = field(default_factory=SpyOptionsExternalConfig)
 
     log_file: str = "logs/spy_options.log"
