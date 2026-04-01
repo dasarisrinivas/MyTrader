@@ -1,243 +1,82 @@
-# Copilot Instructions — ShreeBot (MES Futures Trading Bot)
+# Copilot Instructions — ShreeBot (Multi-Strategy Futures Trading Platform)
 
-## Quick Reference — "How do I check…?"
+## Architecture — Three Independent Bots
 
-| Question | Command / Location |
-|---|---|
-| Is the bot running? | `pgrep -f "python.*run_bot.py"` or `cat logs/bot.pid` |
-| Current price / market state? | `tail -50 logs/live_trading.log \| grep -E "Heartbeat\|price="` |
-| Why is it not trading? | `grep -E "NO_SIGNAL diag\|BLOCKED\|CHOP_REGIME\|HOLD" logs/live_trading.log \| tail -20` |
-| Today's signals & decisions? | `grep -E "Signal:\|Pipeline result\|SCORE_DEBUG\|SCORING" logs/live_trading.log \| tail -30` |
-| Sentiment right now? | `grep "MULTI-SOURCE SENTIMENT SUMMARY" -A8 logs/live_trading.log \| tail -10` |
-| VX / volatility multiplier? | `grep "VX Feed: Price" logs/live_trading.log \| tail -1` |
-| Today's Opening Range? | `cat data/or_$(date +%Y-%m-%d).json` |
-| Dynamic support floor? | `grep "Dynamic support floor" logs/live_trading.log \| tail -1` |
-| Historical context (PDH/PDL)? | `grep "Historical context loaded" -A4 logs/live_trading.log \| tail -5` |
-| Active orders / position? | `grep -E "Sync:.*active orders\|Position:" logs/live_trading.log \| tail -3` |
-| Recent trades? | `grep "order_placed" logs/reconcile.log \| tail -10` |
-| Risk gate blocks? | `grep -E "RiskGate\|BLOCKED\|evaluate_entry" logs/live_trading.log \| tail -10` |
-| Today's P&L? | `grep "realized_pnl\|Daily P&L" logs/live_trading.log \| tail -5` |
-| Cooldown status? | `grep "cooldown\|Cooldown" logs/live_trading.log \| tail -5` |
-| Trade journal — weekly report? | `python3 scripts/daily_journal.py --report 2026-03-02 2026-03-07` |
-| Trade journal — blocked signals? | `python3 scripts/daily_journal.py --blocked` |
-| Trade journal — near-misses? | `python3 scripts/daily_journal.py --misses` |
-| Trade journal — ingest today? | `python3 scripts/daily_journal.py $(date +%Y-%m-%d)` *(auto-runs daily at 3 PM CT)* |
-| Trade journal DB (raw SQL)? | `sqlite3 data/trade_journal.db` |
-| Start / stop the bot? | `. start_bot.sh` / `. stop.sh` |
-| Run tests? | `python3 -m pytest tests/ -x` |
-| Backtest? | `python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m` |
-| Optimization roadmap? | `docs/SIGNAL_OPTIMIZATION_REMAINING.md` |
+ShreeBot runs **three independent trading bots** sharing one IB Gateway (`127.0.0.1`). Each has its own entry point, IB client_id, log files, and state:
+
+| Bot | Entry Point | IB client_id | Contract | Status |
+|---|---|---|---|---|
+| **MES** | `run_bot.py` → `LiveTradingManager` | 11 (exec), 71 (VX), 1 (data) | MES (Micro E-mini S&P 500) | Live — places orders |
+| **Gold** | `run_gold.py` → `GoldTradingManager` | 3 | MGC (Micro Gold) / GC | Live — places orders |
+| **SPY Options** | `run_spy_options.py` → `SpyOptionsManager` | 5 | SPY options chain | Signal-only — Telegram alerts, no orders |
+
+All connect via `ib_insync`. All timestamps must use `shree.utils.timezone_utils.now_cst()` — **never** `datetime.now()`.
+
+### MES Pipeline (15m bars)
+```
+es_fifteen_min.generate() → signal_processor.py → hybrid_rag_pipeline.py
+  → live_trading_manager._process_hybrid_signal() → order_coordinator.py
+  → ib_executor.py (bracket order) → exit_manager.py (breakeven/profit locks)
+```
+Signals A–G + A-prime/D-prime. See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full signal reference.
+
+### Gold Pipeline (1m bars aggregated from 5s)
+```
+GoldIntradayStrategy.generate() → GoldRiskManager → GoldTradingManager
+  → IB bracket order → staged time stop (20/40/60 bar)
+```
+Signal families: VWAP/EMA pullback + ORB. Session-aware 5-bucket system (OVERNIGHT/LONDON_OPEN/COMEX_OPEN/MIDDAY/PRE_CLOSE). See `docs/GOLD_TRADING_IMPROVEMENTS_ROADMAP.md`.
 
 ---
 
-## Trade Journal DB — Auto-Ingested Daily
+## Quick Commands
 
-The trade journal database (`data/trade_journal.db`) is **auto-ingested every day at 3:00 PM CT** via macOS launchd (`com.shreebot.journal-ingest`). It contains all signals, blocked signals (with hypothetical outcomes), near-misses, trades, and daily summaries.
-
-**Copilot behavior:** When the user asks about performance, trades, blocked signals, P&L, weekly reports, or "how is the bot doing" — **always query the trade journal DB first** before grepping logs. The DB has structured, queryable data that is more reliable than log parsing.
-
-Key queries:
 ```bash
-# Quick signal outcome summary (was each signal executed or blocked?)
-sqlite3 data/trade_journal.db "SELECT date, time, signal_type, direction, outcome FROM signals ORDER BY date DESC, time DESC LIMIT 20"
+# MES bot
+. start_bot.sh               # Live (port 4001)
+. start_paper_bot.sh          # Paper (port 4002)
+. stop.sh                     # Graceful shutdown
 
-# Blocked signals with hypothetical P&L (would it have been a winner?)
-sqlite3 data/trade_journal.db "SELECT date, time, signal_type, direction, hypo_outcome, hypo_pnl FROM blocked_signals ORDER BY date DESC LIMIT 15"
+# Gold bot
+. start_gold.sh               # Paper by default (port 4002)
+GOLD_SIMULATION=0 . start_gold.sh  # Live
+. stop_gold.sh
 
-# Scorecard: how many winners did CHOP guard block?
-sqlite3 data/trade_journal.db "SELECT hypo_outcome, COUNT(*) as cnt, ROUND(SUM(hypo_pnl),2) as total_pnl FROM blocked_signals WHERE hypo_outcome NOT IN ('NO_DATA') GROUP BY hypo_outcome"
+# SPY Options
+. start_spy_options.sh
 
-# Weekly summary
+# Tests
+python3 -m pytest tests/ -x                  # All (no IB needed)
+python3 -m pytest tests/gold/ -v             # Gold-specific (18 test files)
+python3 -m pytest tests/ -k "overnight"      # By keyword
+
+# Backtesting
+python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m
+
+# Trade journal (auto-ingested daily at 3 PM CT via launchd)
 python3 scripts/daily_journal.py --report YYYY-MM-DD YYYY-MM-DD
+sqlite3 data/trade_journal.db "SELECT date, signals_generated, trades_taken, realized_pnl FROM daily_summary ORDER BY date DESC LIMIT 10"
 ```
 
-**Launchd management:**
-```bash
-launchctl list | grep shreebot                                    # Check if running
-launchctl unload ~/Library/LaunchAgents/com.shreebot.journal-ingest.plist  # Stop
-launchctl load ~/Library/LaunchAgents/com.shreebot.journal-ingest.plist    # Start
-tail -20 logs/journal_ingest.log                                  # Check ingest log
-```
+**Runtime selection rule:** During **RTH** → use live bot scripts. **Outside RTH** → use paper bot scripts. When user says "restart the bot" without specifying, infer from session time.
 
 ---
 
-## Optimization Roadmap (Phase 3+4 Status — MAR 16 2026)
+## Project Conventions
 
-Phase 3 changes deployed MAR 9 2026:
-- ✅ **T2: Regime-adaptive touch band** — 4-bucket ATR thresholds for A/D signals (Fix #6)
-- ✅ **T3: Proximity entry (A-prime / D-prime)** — near-miss recovery signals
-- ✅ **T4: Tiered drawdown** — 3-tier system replacing halt-all
-- ✅ **T4: Walk-forward optimization framework** — `backtest/walk_forward.py`
-- ✅ **CHOP exception enabled** — bidirectional 4-gate framework (was blocking 19 signals/week)
+- **Always `python3`** — never bare `python`. Python 3.11+.
+- **Logging:** `from shree.utils.logger import logger` (loguru). Structured events via `log_structured_event()`.
+- **Strategy pattern:** Subclass `BaseStrategy` (`shree/strategies/base.py`), implement `generate(features: pd.DataFrame) -> Signal`. Signal = `{action, confidence, metadata}`.
+- **Config:** Dataclasses in `shree/config/*.py`, loaded from `config.yaml` via `settings_loader.py`. Root: `Settings` in `settings.py`. Paper overrides: `config.paper.yaml`.
+- **Risk values** in points, ticks, or USD — comments always clarify unit. MES=$5/point, MGC=$1/point, tick_size=0.25.
+- **Feature flags** via env vars: `FF_ENTRY_RISK_GUARDS`, `FF_EXIT_GUARDS`, `ENABLE_CHOP_EXCEPTION`. See `FeatureFlagsConfig` in `shree/config/misc.py`.
+- **Graceful imports** — external integrations use `try/except ImportError` with fallback flags (`HYBRID_PIPELINE_AVAILABLE`, `AWS_AGENTS_AVAILABLE`).
+- **Tests** construct config objects directly (no YAML loading). Pattern: `cfg = RiskGateConfig(); cfg.field = value; gate = RiskGate(cfg)`.
 
-MAR 15 2026 additions:
-- ✅ **Session gate fix** — removed `classify_session` day-of-week guard that blocked overnight bars on fresh Sunday/evening restarts. Now only blocks CME maintenance window (16:00–17:00 CT).
-- ✅ **Overnight entry-quality guards** — two new guards in `es_fifteen_min.generate()`, active outside 09:30–16:00 ET only (see "Overnight Entry Guards" section below).
-
-MAR 16 2026 additions:
-- ⏳ **Fix #17: Overnight sentiment conflict block** — pending 10+ overnight A/D outcomes. Block overnight BUY when combined sentiment < −0.25. See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` Phase 7.
-- ✅ **Fix #18: Overnight ATR floor for A/D** — deployed MAR 17 2026. Block A/D/A-prime/D-prime overnight when ATR < 6.0. Evidence: 3/3 low-ATR overnight A/D fills were SL_HIT losers (−$110). Guard 3 in `es_fifteen_min.generate()`, RTH-exempt.
-
-### ⚠️ Contract Roll — Action Required This Week
-
-| Date | Day | Action |
-|---|---|---|
-| **Mar 17** | **Tuesday** | ✅ Restart bot pre-RTH (~8:00 AM CT) → rolls MESH6→MESM6 automatically |
-| **Mar 18** | **Wednesday** | ⚠️ **Hard deadline** — VXH6 expires. VX feed breaks if not restarted before this. Also FOMC day — set `HIGH_IMPACT_DATES=2026-03-18,2026-03-19` |
-| **Mar 20** | **Friday** | MESH6 final expiry |
-
-```bash
-# Roll procedure (run Tue Mar 17 pre-RTH):
-. stop.sh && sleep 2 && . start_bot.sh
-# Verify roll:
-grep "Qualified contract" logs/live_trading.log | tail -2
-# Expected: MESM6 (exp: 20260619) and VXJ6
-```
-
-**⛔ Date awareness rule — MANDATORY:** Copilot MUST NOT state a day-of-week from a date without first running the Python check below. No exceptions. Hallucinating "Monday" vs "Tuesday" causes real operational errors (missed contract rolls, wrong FOMC prep).
-
-```bash
-python3 -c "from datetime import date; d=date(YYYY,M,D); print(d.strftime('%A %b %d %Y'))"
-```
-
-Current verified dates (do not re-derive from memory — run the check for any new date):
-- Mar 16 2026 → **Monday** (today)
-- Mar 17 2026 → **Tuesday** (contract roll day)
-- Mar 18 2026 → **Wednesday** (VXH6 expiry + FOMC)
-- Mar 19 2026 → **Thursday** (FOMC day 2)
-- Mar 20 2026 → **Friday** (MESH6 final expiry)
-
-See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for full details. Remaining gates:
-
-| Date | Day | Gate | Action |
-|---|---|---|---|
-| **Mar 17** | **Tue** | 2-week review: trades/day < 2? | → Start Fix #3 (day-type classifier) |
-| **Mar 18** | **Wed** | VXH6 expires + FOMC | → Must restart before RTH. Set HIGH_IMPACT_DATES. |
-| **Mar 24** | **Mon** | Phase 3 checkpoint | → Deploy Fix #7 (doji) + #8 (F cap) if #3 is done |
-| **Apr 1** | **Wed** | Signal variety insufficient? | → Start Fix #9 (OR continuation pattern) |
-
-When the current date matches or passes a gate date, **proactively suggest** checking the gate criteria and starting the corresponding work.
-
----
-
-## Architecture Overview
-
-ShreeBot is an autonomous **MES (Micro E-mini S&P 500) futures trading bot** connecting to Interactive Brokers via `ib_insync`. All timestamps use **Central Time (America/Chicago)** — use `shree.utils.timezone_utils.now_cst()`, never `datetime.now()`.
-
-**Entry point:** `run_bot.py` → `LiveTradingManager` (the 3,200-line orchestrator in `shree/execution/live_trading_manager.py`). The legacy `main.py` is **deprecated** — do not add new logic there.
-
-### Core Decision Pipeline (every 15m bar)
-
-```
-15m Bar Close
-  → es_fifteen_min.py :: generate()        # Signals A–G (deterministic)
-  → signal_processor.py                    # Hybrid overlay, sentiment, VX scaling, CHOP guard
-  → hybrid_rag_pipeline.py :: process()    # Rule engine + RAG retriever + LLM (advisory)
-  → live_trading_manager._process_hybrid_signal()  # Confidence threshold gate
-  → order_coordinator.py                   # Support floor, risk gate, order building
-  → ib_executor.py                         # IBKR bracket order (SL + TP)
-  → exit_manager.py                        # Time stops, profit locks, emergency exits
-```
-
-### Signal Types (A–G + A-prime, D-prime)
-
-| Signal | Type | Direction | Entry Condition |
-|---|---|---|---|
-| **A** | EMA21 Pullback | LONG | EMA21 > EMA50, bar low touches EMA21 (regime-adaptive band), bullish close, ADX 18–45 |
-| **A-prime** | EMA21 Proximity | LONG | Same as A but price *nearly* touches band (within 0.3×ATR). 70% size, tighter SL/TP. Max 2/day. Only ATR ≥ 13. |
-| **B** | OR Breakout | LONG | Close crosses above OR High, EMA9 > EMA21, ADX > 18 |
-| **C** | EMA9 Pullback | LONG | Shallow dip to EMA9 in uptrend, MACD > 0, tighter stop |
-| **D** | EMA21 Pullback | SHORT | Mirror of A in downtrend (EMA21 < EMA50), ADX 18–45 |
-| **D-prime** | EMA21 Proximity | SHORT | Same as D but price *nearly* touches band. 70% size, tighter SL/TP. Max 2/day. Only ATR ≥ 13. |
-| **E** | OR Breakdown | SHORT | Close crosses below OR Low, EMA9 < EMA21, ADX > 18 |
-| **F** | Trend Continuation | LONG/SHORT | Price runs from EMA21, EMA stack aligned, 2+ ascending/descending closes, ADX >= 25, MACD confirms |
-| **G** | London Momentum | LONG/SHORT | EMA9 crosses EMA21 during London session (2–5 AM CST), ADX ≥ 15, directional bar confirmation, max 1/day |
-
-**Note (Mar 2026):** MACD and RSI filters removed from A/B/D/E signals to reduce over-filtering. MACD intentionally kept on C (shallow pullback needs momentum confirmation) and F (trend continuation needs momentum). RSI kept on C only.
-
-**Priority:** A > A-prime > C > B > F_long > D > D-prime > E > F_short  
-**Note:** Signal G is evaluated *before* the RTH gate — it fires only during the London window (2–5 AM CST) and returns immediately if triggered.
-
-**Touch Band (T2 — Mar 9 2026):** Regime-adaptive 4-bucket system for A/D signal touch detection:
-- ATR < 8: tight pct band (0.0010) — low-vol, reduce false touches
-- ATR 8–13: normal pct band (0.0015) — standard regime
-- ATR 13–20: ATR × 0.75 — high-vol, wider band
-- ATR ≥ 20: ATR × 1.0 — extreme vol, widest band
-
-**Stop/Target (fixed-point system, Feb 2026):**
-- A/B/D/E: SL=6pts ($30), TP=8pts ($40) — R:R 1.33:1
-- A-prime/D-prime: SL=4.8pts ($24), TP=6.4pts ($32) — 80% of normal, 70% size
-- C: SL=ATR-adaptive (8–20pt), TP=SL x 1.25 — R:R 1.25:1
-- F: SL=ATR-adaptive (8–20pt), TP=SL x 1.25 — R:R 1.25:1
-- G: SL=4pts ($20), TP=6pts ($30) — R:R 1.5:1 (tighter for low-vol London session)
-
-**Overnight scaling (outside 09:30–16:00 ET):**
-- `ft_overnight_sl_mult: 1.2` — SL widened 20% (e.g. A/D: 6pt → 7.2pt)
-- `ft_overnight_tp_mult: 1.5` — TP extended 50% (e.g. A/D: 8pt → 12pt), R:R = 1.67:1
-- `ft_overnight_min_rr: 1.5` — hard R:R floor after scaling; blocks if still below
-- Entry-quality guards (MAR 15 2026) — see "Overnight Entry Guards" section below
-
-### Overnight Entry Guards (MAR 15 2026)
-
-Two guards in `es_fifteen_min.generate()`, evaluated **after** all signals are computed, **before** the priority selection block. Only active outside core RTH (09:30–16:00 ET). Controlled by `_is_core_rth_guard` computed from `et_time`.
-
-**Guard 1 — RSI Extreme (`ft_overnight_rsi_extreme_block`, default 35.0):**
-- Block `TREND_CONT_SHORT` (signal_f_short) overnight when RSI < 35 — oversold exhaustion, not continuation
-- Block `TREND_CONT_LONG` (signal_f_long) overnight when RSI > 65 — overbought exhaustion
-- Rationale: DB forensic — 2 losing TREND_CONT overnight trades had RSI=30 and RSI=32
-- Log pattern: `🚫 ON_RSI_EXTREME: blocking TREND_CONT_SHORT overnight (RSI=32.0 < 35.0)`
-
-**Guard 2 — MACD Divergence (`ft_overnight_macd_divergence_threshold`, default 0.5):**
-- Block D/D-prime/E short overnight when MACD histogram > +0.5 (bullish momentum opposes short)
-- Block A/C long overnight when MACD histogram < −0.5 (bearish momentum opposes long)
-- Rationale: MACD was removed globally from D/E in Mar 2026 to reduce RTH over-filtering, but divergence is reliable in thin overnight markets. These two guards restore it for overnight only.
-- Log pattern: `🚫 ON_MACD_DIVERGE: blocking D-short overnight (MACD=+1.03 > +0.5)`
-
-**Guard 3 — ATR Floor for A/D (`ft_overnight_min_atr_ad`, default 6.0):** *(Fix #18, MAR 17 2026)*
-- Block A/D/A-prime/D-prime overnight when ATR < 6.0
-- Rationale: 3/3 overnight A/D fills with ATR < 6.0 were SL_HIT losers (−$110). Low ATR = thin liquidity, SL easily clipped by random noise. The sole overnight A/D winner had ATR=7.7.
-- Log pattern: `🚫 ON_ATR_FLOOR: blocking D-short overnight (ATR=4.6 < 6.0)`
-
-**All three guards are RTH-exempt** — `_is_core_rth_guard = (9:30 ET ≤ et_time < 16:00 ET)`. If true, the entire guard block is skipped. Zero impact on daytime signals.
-
-**Config params** (in `one_minute:` section of `config.yaml`):
-```yaml
-ft_overnight_rsi_extreme_block: 35.0    # Guard 1. Set to 0 to disable.
-ft_overnight_macd_divergence_threshold: 0.5  # Guard 2. Set to 0 to disable.
-ft_overnight_min_atr_ad: 6.0            # Guard 3. Set to 0 to disable.
-```
-
-**Threshold history:** Originally set to 30.0 on Mar 15, corrected to 35.0 after forensic check showed `RSI=30 < 30.0 = False` — the boundary case was not blocked. Lesson: always set threshold *above* the highest known failing value, not equal to it.
-
-### Confidence Flow
-
-```
-Strategy base confidence (0.70)
-  → Hybrid overlay: agree (+0), uncertain (-0.05), oppose (-0.05 max)
-  → Sentiment adjustment: REDUCE_SIZE (x0.7), BLOCK (→HOLD), PROCEED (x1.0–1.1)
-  → VX additive scaling (signal-type-aware, MAR 2026):
-      VX < 16:  continuation -0.08, others -0.03
-      VX 16-22: neutral (0.0)
-      VX 22-28: breakout +0.03, continuation +0.05, pullback -0.05
-      VX 28-35: breakout 0.0, others -0.08
-      VX 35+:   breakout -0.03, others -0.15
-  → CHOP guard (block-all): ALL pullback/trend_cont in CHOP → HOLD
-    Bidirectional exception (ENABLE_CHOP_EXCEPTION=1, enabled MAR 9 2026):
-      ADX≥25 + bias aligned (BULLISH→LONG, BEARISH→SHORT) + conf≥0.70 + ATR expanding → dampen −0.05
-  → Final confidence must be >= 0.40 (min_confidence_for_trade in LTM)
-```
-
-### Risk Layers (9 gates, evaluated in order)
-
-1. **Session gate** — CME maintenance 4–5 PM CT blocks all entries
-2. **Daily loss cap** — $250/day (5% of $5K capital)
-3. **Weekly loss cap** — $500/week (10% of capital)
-4. **Margin check** — available_funds > initial_margin + $1000 buffer
-5. **Stop-loss bounds** — min 6pts, max 25pts
-6. **Risk per trade** — $25 min, $125 max (stop_distance x $5)
-7. **Consecutive losses** — 5 in a row → halt
-8. **Peak drawdown** — tiered system (Mar 9 2026): 3% → 50% size, 5% → 25% size, 7% → halt + flatten
-9. **Max contracts** — hard cap at 1 MES contract
+### Adding a New Config Field
+1. Add to appropriate `shree/config/*.py` dataclass
+2. Add to `config.yaml` + `config.example.yaml` + `config.paper.yaml` if applicable
+3. If risk-related: ensure `Settings.validate()` reconciles it (duplicate params exist in `trading:` and `risk_gate:`)
 
 ---
 
@@ -245,332 +84,69 @@ Strategy base confidence (0.70)
 
 | Directory | Purpose |
 |---|---|
-| `shree/strategies/` | Signal generators. **Active: `es_fifteen_min.py`** (Signals A–F on 15m bars). Legacy 1m strategies are retired. |
-| `shree/execution/` | Order lifecycle. `LiveTradingManager` → `components/` submodules. |
-| `shree/execution/components/` | `signal_processor.py` (hybrid overlay, sentiment, scoring), `order_coordinator.py` (floor checks, order building), `exit_manager.py` (time stops, profit locks), `cooldown_manager.py`, `sentiment_evaluator.py`, `trading_session_manager.py` |
-| `shree/risk/` | `risk_gate.py` (9-layer gate), `dynamic_support.py` (auto-computed floor), `atr_module.py`, `trade_math.py` |
-| `shree/rag/` | `hybrid_rag_pipeline.py` (rule engine + RAG + LLM), `pipeline_integration.py` (wiring to LTM), `embedding_builder.py` (FAISS), `s3_storage.py` |
-| `shree/data/` | `candle_aggregator.py` (15m bar construction), `sentiment_aggregator.py` (Stocktwits + Reddit + VIX), `vx_futures_feed.py` (real-time VX from IBKR) |
-| `shree/config/` | Split dataclass configs in `settings.py` / `risk.py` / `strategy.py` / `misc.py`. Loaded from `config.yaml` via `settings_loader.py`. |
-| `shree/features/` | `feature_engineer.py` — computes EMA, RSI, ATR, ADX, MACD on OHLCV DataFrames. |
-| `shree/hybrid/` | `d_engine.py` (deterministic), `h_engine.py` (LLM+RAG), `confidence.py` (merger), `multi_factor_scorer.py` |
-| `shree/monitoring/` | `order_tracker.py` (SQLite order log), `pnl_calculator.py`, `trade_journal_db.py` (SQLite trade journal — signals, blocked, near-misses, trades, observations) |
-| `backtest/` | `engine.py` reuses same strategy/risk logic as live. `walk_forward.py` (WFO grid search). `regime_monitor.py` (rolling performance by ATR regime). Run via `python3 -m backtest.run`. |
-| `agent/` | Autonomous analysis agent (separate process, `start_analyst.sh`). |
-| `tools/` | Trade replay, order checking, historical data download utilities. |
-| `scripts/` | Ops scripts: backup, IB status check, metrics, data download, `daily_journal.py` (trade journal ingest + reports). |
-
----
-
-## Configuration
-
-All runtime config lives in **`config.yaml`** (~1000 lines, never committed with secrets). Config dataclasses in `shree/config/` submodules.
-
-### Config Sections Quick Map
-
-| Section | Key Fields | Notes |
-|---|---|---|
-| `data:` | `ibkr_host`, `ibkr_port` (4001=live, 4002=paper), `ibkr_client_id` | IBKR connection |
-| `trading:` | `max_position_size`, `max_daily_loss`, `min_confidence_for_trade`, `entry_filters:`, `ft_*` params | Strategy + risk params |
-| `risk_gate:` | `risk_per_trade_usd`, `daily_max_loss_usd`, `weekly_max_loss_usd`, `min/max_stop_points` | Hard dollar limits |
-| `dynamic_support:` | `buffer_points`, `use_pdl`, `use_weekly_low`, `use_or_low` | Auto-computed support floor |
-| `one_minute:` | `use_15m_strategy: true`, all `ft_*` params | 15m strategy params (despite section name) |
-| `multi_source_sentiment:` | Stocktwits/Reddit weights, thresholds | Sentiment aggregation |
-| `vix_feed:` | `client_id: 71`, thresholds (20=elevated, 30=extreme) | VX futures feed |
-| `rag:` | `backend: local_faiss`, FAISS settings | RAG pipeline |
-| `llm:` | `enabled: false` (disabled — too conservative) | AWS Bedrock LLM |
-| `hybrid_rag_pipeline:` | Session-specific params (RTH, evening, overnight, premarket) | Pipeline tuning |
-
-### Environment Variable Overrides
-
-```bash
-MAX_MES_CONTRACTS=1          # Risk gate hard cap
-DAILY_MAX_LOSS_USD=250       # Daily loss limit
-RISK_PER_TRADE_USD=100       # Per-trade risk
-SHREE_SIMULATION=1           # Simulation mode (no real orders)
-HIGH_IMPACT_DATES=2026-03-15,2026-03-20  # Block entries on event dates
-FF_ENTRY_RISK_GUARDS=1       # Feature flag: entry risk guards
-FF_EXIT_GUARDS=1             # Feature flag: exit guards
-ENABLE_CHOP_EXCEPTION=1      # Enable CHOP guard bidirectional exception (default ON since Mar 9)
-```
-
-### Adding a New Config Field
-
-1. Add field to appropriate `shree/config/*.py` dataclass
-2. Add to `config.yaml` and `config.example.yaml`
-3. If it affects risk: make sure `Settings.validate()` considers it
-4. Test with direct config construction (no YAML loading needed in tests)
-
----
-
-## Log Files & Databases
-
-### Log Files (`logs/`)
-
-| File | Content |
-|---|---|
-| `live_trading.log` | **Primary runtime log** — signals, decisions, orders, errors, heartbeats |
-| `bot.log` | Audit log (same content, tee'd) |
-| `bot.pid` | PID of running bot process |
-| `reconcile.log` | Structured JSON: every `order_placed`, `order_inserted` event |
-| `decisions.csv` | Historical decision log |
-| `live_trading.YYYY-MM-DD_HH-MM-SS.log` | Rotated live trading logs from previous runs |
-| `backtest.*.log` | Backtest run logs |
-
-### Databases (`data/`)
-
-| File | Content |
-|---|---|
-| `orders.db` | SQLite: order tracker (all orders placed, fills, cancels) |
-| `llm_trades.db` | SQLite: LLM trade logger (decisions, outcomes) |
-| `rag_storage.db` | SQLite: RAG trade patterns and outcomes |
-| `trade_journal.db` | SQLite: trade journal — daily summaries, signals, blocked signals, near-misses, trades, observations. Queried by `scripts/daily_journal.py` and directly via `sqlite3`. See schema in `shree/monitoring/trade_journal_db.py`. |
-
-### Market Data Files (`data/`)
-
-| File | Content |
-|---|---|
-| `or_YYYY-MM-DD.json` | Today's Opening Range: `{"date": "...", "or_high": N, "or_low": N}` |
-| `es_historical.csv` | Historical OHLCV data for backtesting |
-
----
-
-## Reading Log Output — Key Patterns
-
-### Signal Diagnostics (NO_SIGNAL)
-```
-NO_SIGNAL diag: A:ema21(6812.2)<=ema50(6815.4) | B:no_cross(c=6810.0,prev=6808.8,OR_H=6833.0) | D:adx(17)out[18.0-45.0] | E:no_cross(...) | F:stack(...)
-```
-Each signal shows WHY it didn't fire. Common reasons:
-- `A:ema21<=ema50` — no uptrend (EMA alignment wrong)
-- `A:low(N)>touch(N)` — bar didn't pull back to EMA21
-- `A:bearish(c,o)` — close <= open (not a bullish candle)
-- `A:adx(N)out[min-max]` — ADX outside 18–45 range
-- `B:no_cross(c,prev,OR_H)` — price didn't cross OR High this bar
-- `B:maxed(N)` — max OR breakouts per day reached
-- `D:ema21>=ema50` — no downtrend for short pullback
-- `D:bullish(c,o)` — close >= open (not bearish candle, needed for short)
-- `E:no_cross(c,prev,OR_L)` — price didn't cross OR Low
-- `F:stack(e9,e21,e50)` — EMAs not stacked for trend continuation
-- `F:adx(N)<25` — ADX too low for trend continuation
-- `F:asc(c1,c2,c3)` — not enough ascending/descending closes
-
-### Pipeline Result
-```
-SCORE_DEBUG: buy=12.0, sell=0.0, threshold=15, scalp_mode=True, daily_bias=BEARISH
-SCORE_BREAKDOWN: TREND_SCORE:-30(...) | RANGE_RSI<48:+12.0 | RSI_NEUTRAL(45.9) | ...
-Pipeline result: SCALP_SELL (conf=13%, time=377ms)
-```
-
-### Confidence Adjustments
-```
-Hybrid OPPOSES (SELL vs BUY): conf dampen -0.050 -> 0.650
-SENTIMENT-TREND: bearish sentiment (+0.03)
-VX Adjustment: VX=24.5 | 0.700 +0.030 = 0.730 (breakout)
-VX Adjustment: VX=30.0 | 0.700 -0.080 = 0.620 (pullback)
-VX Neutral: VX=19.0 — no adjustment (signal_type=other)
-CHOP Block-All Guard Activated: blocking BUY pullback signal (EMA21_PB_LONG) in CHOP regime
-CHOP Block-All Guard Activated: blocking SELL trend_cont signal (TREND_CONT_SHORT) in CHOP regime
-CHOP Exception Activated: LONG allowed | ADX=28 | conf=0.700→0.650 | bias=BULLISH | ATR_expanding=True
-CHOP Exception Activated: SHORT allowed | ADX=30 | conf=0.700→0.650 | bias=BEARISH | ATR_expanding=True
-BLOCKED: Signal confidence 0.11 < threshold 0.15
-```
-
-### Dynamic Support Floor
-```
-Dynamic support floor updated: 6823.50 (lowest=WL=6828.50 - 5.0pt buffer) [sources: PDL=6870.75, WL=6828.50] trigger=historical_context
-```
-
-### Heartbeat (normal operation)
-```
-Heartbeat: waiting for 15m bar | bars=63 | price=6810.0
-```
-
----
-
-## Common User Questions — How to Answer
-
-### "How is the market performing?" / "What's happening?"
-1. `tail -50 logs/live_trading.log` — latest heartbeat shows price + bar count
-2. `grep "VX Feed: Price" logs/live_trading.log | tail -1` — volatility regime
-3. `grep "Historical context loaded" -A4 logs/live_trading.log | tail -5` — PDH/PDL/weekly range
-4. `cat data/or_$(date +%Y-%m-%d).json` — today's Opening Range
-5. `grep "Dynamic support floor" logs/live_trading.log | tail -1` — current floor
-6. `grep "NO_SIGNAL diag" logs/live_trading.log | tail -3` — why no signals
-7. `grep "MULTI-SOURCE SENTIMENT SUMMARY" -A8 logs/live_trading.log | tail -10` — sentiment
-
-### "Why isn't the bot trading?"
-Check in this order:
-1. **HOLD signals**: `grep "NO_SIGNAL diag" logs/live_trading.log | tail -5` — signal conditions not met
-2. **Confidence too low**: `grep "BLOCKED.*confidence" logs/live_trading.log | tail -5`
-3. **CHOP regime**: `grep "CHOP Block-All Guard\|CHOP Exception" logs/live_trading.log | tail -5`
-4. **Risk gate block**: `grep "RiskGate" logs/live_trading.log | tail -5`
-5. **Cooldown active**: `grep -i "cooldown" logs/live_trading.log | tail -5`
-6. **Startup grace**: `grep "waiting for.*completed bars" logs/live_trading.log | tail -3`
-7. **Sentiment block**: `grep "BLOCK\|REDUCE_SIZE" logs/live_trading.log | tail -5`
-8. **Maintenance window**: check if 4–5 PM CT
-
-### "What trades happened today?"
-```bash
-grep "order_placed" logs/reconcile.log | tail -20
-grep "order_inserted" logs/reconcile.log | tail -5
-```
-
-### "Is the bot connected to IBKR?"
-```bash
-grep "Connected to IBKR\|connection keepalive\|Sync:.*active orders" logs/live_trading.log | tail -5
-```
-
-### "How did this week go?" / "Show me recent performance"
-Use the trade journal DB (`data/trade_journal.db`) for historical analysis:
-```bash
-# Weekly summary report
-python3 scripts/daily_journal.py --report 2026-03-03 2026-03-07
-
-# All blocked signals (what the bot wanted to trade but couldn't)
-python3 scripts/daily_journal.py --blocked
-
-# Near-miss signals (signals that almost fired)
-python3 scripts/daily_journal.py --misses
-
-# Direct SQL for custom queries
-sqlite3 data/trade_journal.db "SELECT date, signals_generated, trades_taken, realized_pnl, chop_blocks FROM daily_summary ORDER BY date DESC LIMIT 10"
-
-# Blocked signals by reason
-sqlite3 data/trade_journal.db "SELECT block_reason, COUNT(*) FROM blocked_signals GROUP BY block_reason"
-
-# D signal near-misses (touch-band analysis for Phase 3 Fix #6)
-sqlite3 data/trade_journal.db "SELECT date, gap_points FROM near_misses WHERE signal_type='D' ORDER BY gap_points"
-```
-
-**Trade Journal DB Tables** (schema in `shree/monitoring/trade_journal_db.py`):
-| Table | Content |
-|---|---|
-| `daily_summary` | Per-day stats: signals, trades, P&L, CHOP blocks, near-miss counts |
-| `signals` | Every signal generated (type, direction, confidence, entry price) |
-| `blocked_signals` | Signals blocked by CHOP/confidence/risk (includes reason + hypothetical outcome) |
-| `near_misses` | Signals that almost fired (gap in points from trigger condition) |
-| `trades` | Executed trades with entry/exit prices, P&L, duration |
-| `observations` | Free-text notes and analysis for a given date |
-
----
-
-## Coding Conventions
-
-- **Always use `python3`** — never bare `python` in commands, scripts, shebangs, or documentation. Python 3.11+.
-- **Logging:** `from shree.utils.logger import logger` (loguru). Structured events via `log_structured_event()` from `shree/utils/structured_logging.py`.
-- **Timezone:** Always `from shree.utils.timezone_utils import now_cst`. Never `datetime.now()`.
-- **Strategy pattern:** Subclass `BaseStrategy` (`shree/strategies/base.py`), implement `generate(features: pd.DataFrame) -> Signal`. The `Signal` dataclass: `action` (BUY/SELL/HOLD), `confidence` (0–1), `metadata` (dict).
-- **Risk values are in points, ticks, or USD** — comments always clarify which unit. MES = $5/point, $1.25/tick, tick_size=0.25.
-- **Feature flags** control experimental features via env vars (`FF_ENTRY_RISK_GUARDS`, `FF_WAIT_BLOCKING`, `FF_EXIT_GUARDS`, `FF_LEARNING_HOOKS`). Check `FeatureFlagsConfig` in `shree/config/misc.py`.
-- **Graceful imports** — external integrations use `try/except ImportError` with fallback flags like `HYBRID_PIPELINE_AVAILABLE`, `AWS_AGENTS_AVAILABLE`.
-
----
-
-## Commands
-
-```bash
-# Bot Management
-. start_bot.sh                # Production start (sources .venv, checks IB Gateway, backgrounds)
-. stop.sh                     # Graceful shutdown (SIGTERM -> SIGKILL after 5s)
-
-# Simulation (no real orders)
-SHREE_SIMULATION=1 . start_bot.sh
-python3 run_bot.py --simulation
-
-# Backtesting
-python3 -m backtest.run --symbol MES --start 2025-02-01 --end 2026-01-31 --bar 15m
-./start_backtest.sh           # Wrapper with defaults
-
-# Tests
-python3 -m pytest tests/ -x                    # All tests (no live IB needed)
-python3 -m pytest tests/test_risk_gate.py -v   # Single test file
-python3 -m pytest tests/ -k "dynamic_support"  # By keyword
-ENABLE_GUARDRAILS=1 . start_bot.sh             # Runs guardrail tests before starting
-
-# Debugging / Inspection
-python3 check_dbs.py          # Inspect SQLite databases
-python3 inspect_parquet.py    # Inspect parquet data files
-python3 analyze_trades.py     # Analyze recent trade outcomes
-python3 test_ib_connections.py # Test IBKR connectivity
-
-# Trade Journal
-python3 scripts/daily_journal.py 2026-03-10           # Ingest today's log into trade_journal.db
-python3 scripts/daily_journal.py 2026-03-10 --week     # Ingest last 5 trading days
-python3 scripts/daily_journal.py --report 2026-03-03 2026-03-07  # Weekly summary report
-python3 scripts/daily_journal.py --blocked             # List all blocked signals
-python3 scripts/daily_journal.py --misses              # List all near-miss signals
-sqlite3 data/trade_journal.db                          # Raw SQL queries on journal DB
-```
+| `shree/strategies/es_fifteen_min.py` | MES signal generator (Signals A–G, 15m bars) |
+| `shree/strategies/gold/` | Gold signal generator (`signals.py`), regime detector (`regime.py`), strategy wiring (`strategy.py`) |
+| `shree/spy_options/` | SPY Options signal engine, IB client, chain builder, sweep tracker |
+| `shree/execution/live_trading_manager.py` | MES orchestrator (3,200+ lines — prefer surgical edits, add to `components/`) |
+| `shree/execution/components/` | Signal processor, order coordinator, exit manager, cooldown, sentiment |
+| `shree/execution/gold/` | Gold manager, risk, state, journal, contract rollover |
+| `shree/risk/` | `risk_gate.py` (9-layer gate), `dynamic_support.py`, `trade_math.py` |
+| `shree/config/` | All config dataclasses. `settings.py` (root), `gold.py` (527 lines), `spy_options.py` |
+| `shree/data/` | Candle aggregation, sentiment (Stocktwits+Reddit), VX futures feed |
+| `shree/rag/` | Hybrid RAG pipeline (advisory only, max -0.05 confidence dampen) |
+| `backtest/` | Engine reuses live strategy/risk. `walk_forward.py` for WFO grid search |
+| `shree/utils/news_calendar.py` | ForexFactory feed → news lockout windows for Gold |
 
 ---
 
 ## Critical Safety Rules
 
-- **Runtime selection / restart rule:** During **RTH**, the authoritative runtime is the **live bot** (`./start_bot.sh` / `./stop.sh`). Outside RTH (overnight, evening, premarket), the authoritative runtime is the **paper bot** (`./start_paper_bot.sh` / `./stop_paper_bot.sh`). When the user says "restart the bot" without specifying live vs paper, infer it from session: **RTH → live**, **non-RTH → paper**. If both are running, avoid restarting the wrong one.
-- **Max 1 contract** for automated MES trading — enforced at config validation, `RiskGate`, and executor level.
-- **CME maintenance window 4–5 PM CT** — hard block on all entries. Respect `avoid_close_window_minutes` (20 min) before maintenance.
-- **Cooldowns are layered:** base 10min → loss 20min → consecutive-loss 45min. See `CooldownManager` in `shree/execution/components/cooldown_manager.py`.
-- **Never bypass `RiskGate`** — it is the last line of defense. If adding a new entry path, it must call `RiskGate.evaluate_entry()`.
-- **Stop-loss bounds:** min 6 points ($30), max 25 points ($125). The 15m strategy uses fixed-point or ATR-adaptive stops.
-- **Dynamic support floor** auto-computes from `min(PDL, weekly_low, OR_low) - buffer`. It replaces the old hardcoded `structural_support_floor`.
-- **Account:** $5K capital, single MES contract. $250 daily loss cap, $500 weekly cap. $100 risk per trade default.
+- **Max 1 contract** per bot — enforced at config validation, RiskGate, and executor level
+- **Never bypass `RiskGate`** — every new entry path must call `RiskGate.evaluate_entry()`
+- **CME maintenance 4–5 PM CT** — hard block on all entries
+- **Daily loss cap:** MES $250/day (5% of $5K), Gold has separate caps in `gold:` config
+- **Cooldowns are layered:** base 10min → loss 20min → consecutive-loss (3 in a row) 30min
+- **Overnight guards** (MES): RSI extreme block, MACD divergence block, ATR floor — all in `es_fifteen_min.generate()`, all RTH-exempt. Thresholds use strict inequality (`<` not `<=`)
+- **Gold session buckets** control per-session entry enable/disable, confidence offsets, and SL/TP multipliers. Config: `shree/config/gold.py :: GoldSessionBucketConfig`
 
 ---
 
-## IBKR Connection Details
+## ⛔ Date Awareness Rule
 
-| Parameter | Value |
-|---|---|
-| Host | `127.0.0.1` |
-| Port | `4001` (IB Gateway LIVE), `4002` (paper) |
-| Executor client_id | `11` (primary order execution) |
-| VX feed client_id | `71` (volatility data — separate to avoid conflicts) |
-| Data client_id | `1` (historical bar requests) |
-| Contract | `MES` (Micro E-mini S&P 500), exchange `CME`, currency `USD` |
-| Front month | Auto-qualified via `ib_executor.get_qualified_contract()` |
-
----
-
-## Testing Patterns
-
-Tests in `tests/` using `pytest` + `pytest-mock`. Most tests construct config objects directly (no YAML loading).
-
-```python
-cfg = RiskGateConfig()
-cfg.min_stop_points = 2.0
-gate = RiskGate(cfg)
-account = {"available_funds": 5000.0, "realized_pnl_today": 0.0}
-result = gate.evaluate_entry(action="BUY", entry_price=5000.0, ...)
-assert not result.allowed
+Copilot MUST NOT state a day-of-week from a date without verifying:
+```bash
+python3 -c "from datetime import date; d=date(YYYY,M,D); print(d.strftime('%A %b %d %Y'))"
 ```
-
-Key test files:
-- `test_risk_gate.py` — risk gate logic (9 layers)
-- `test_dynamic_support_floor.py` — dynamic support floor (32 tests)
-- `test_chop_regime_guard.py` — CHOP regime guard (block-all + bidirectional 4-gate exception framework, 24 tests)
-- `test_london_momentum.py` — Signal G London Momentum Breakout (12 tests)
-- `test_or_break_counter.py` — OR breakout counting
-- `test_trend_cont_guards.py` — trend continuation guards
-- `test_sentiment_aggregator.py` — multi-source sentiment
-- `test_vx_or_breakout_exempt.py` — VX additive signal-type-aware scaling (12 tests)
-- `test_vx_futures_feed.py` — VX volatility feed
-- `test_overnight_entry_guards.py` — overnight RSI extreme + MACD divergence guards (18 tests)
-
-Known pre-existing failures (~29): `test_backtest.py`, `test_exhaustion_dampening.py`, `test_jan2026_audit_fixes.py`, `test_vx_futures_feed.py`, `test_mes_one_minute_strategy.py`, `test_rsi_pullback_filter.py`, `test_trend_pullback_enhancer.py`, `test_reconciliation_and_exits.py`, `test_trend_cont_atr_adaptive.py` — unrelated to recent work.
+Hallucinating "Monday" vs "Tuesday" causes real operational errors (missed contract rolls, wrong event prep).
 
 ---
 
-## Things to Watch Out For
+## Diagnosing Issues
 
-- `LiveTradingManager` is 3,200+ lines — changes should be surgical. Prefer adding logic to `shree/execution/components/` submodules.
-- The `backtest/engine.py` imports strategy classes directly — if you rename or restructure a strategy, update the backtest imports.
-- Config has **duplicate risk parameters** in `trading` and `risk_gate` sections; `Settings.validate()` reconciles them. Don't assume one is authoritative without checking.
-- `main.py` is legacy but still importable — don't break its imports even though it's deprecated.
-- The `one_minute:` config section contains all `ft_*` (fifteen-minute) parameters — historical naming, don't rename.
-- `structural_support_floor: 0` in config means static fallback is disabled; dynamic floor handles it now.
-- Opening Range is computed from first 2 bars after ETH open (17:00 CT), not RTH open. Check `_compute_opening_range()` in `es_fifteen_min.py`.
-- The hybrid pipeline (RAG) is **advisory only** — it dampens confidence but capped at -0.05. It does NOT have veto power.
-- VX futures use a separate IBKR client connection (client_id=71) — if VX feed disconnects, bot continues with no VX adjustment (additive 0.0).
-- Sentiment sources: Stocktwits (55%) + Reddit (45%). Twitter is disabled (0%). VIX regime blended in separately.
-- **Overnight guard thresholds are strict inequalities (`<`, not `<=`)** — when setting `ft_overnight_rsi_extreme_block`, the threshold must be *above* the highest known failing RSI value, not equal to it. E.g. RSI=32 requires threshold > 32, so 35 is correct; 30 or 32 would be a boundary miss.
+| Question | Command |
+|---|---|
+| Is the MES bot running? | `pgrep -f "python.*run_bot.py"` or `cat logs/bot.pid` |
+| Is the Gold bot running? | `pgrep -f "python.*run_gold.py"` |
+| Why no MES trades? | `grep -E "NO_SIGNAL diag\|BLOCKED\|CHOP" logs/live_trading.log \| tail -10` |
+| Why no Gold trades? | `grep -E "HOLD\|cooldown\|BLOCKED" logs/gold_trading.log \| tail -10` |
+| Recent MES trades? | `grep "order_placed" logs/reconcile.log \| tail -10` |
+| Performance history? | `sqlite3 data/trade_journal.db` (prefer DB over log grep) |
+| Contract roll needed? | `grep "Qualified contract" logs/live_trading.log \| tail -2` |
+| VX feed alive? | `grep "VX Feed: Price" logs/live_trading.log \| tail -1` |
+
+When user asks about performance/P&L/trades — **always query `data/trade_journal.db` first**, not logs.
+
+---
+
+## Pitfalls & Gotchas
+
+- The `one_minute:` config section holds all `ft_*` (fifteen-minute) params — historical naming, do not rename
+- `LiveTradingManager` is 3,200+ lines — add new logic to `shree/execution/components/` submodules instead
+- Config has **duplicate risk params** in `trading:` and `risk_gate:` — `Settings.validate()` reconciles to most conservative
+- `archive/main.py` is legacy — still importable but deprecated, don't add logic there
+- Opening Range computed from first 2 bars after **ETH open (17:00 CT)**, not RTH open
+- VX feed uses separate IB connection (client_id=71) — if disconnected, MES continues with zero VX adjustment
+- Gold bot's `GoldTradingManager` is fully independent (1,320 lines) — shares no runtime state with MES bot
+- MES and Gold bots can run simultaneously on the same IB Gateway (different client_ids)
+- `backtest/engine.py` imports strategy classes directly — update imports if renaming strategies
+- See `docs/SIGNAL_OPTIMIZATION_REMAINING.md` for MES optimization roadmap and pending fixes

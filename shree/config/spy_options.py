@@ -1,95 +1,93 @@
 """SPY Options signal-only bot configuration.
 
-Signal-only: no orders are placed. Signals are sent via Telegram.
-Uses IB Client Portal REST API (port 5000) — separate from the TWS Gateway
-used by the MES/Gold bots.
+Signal-only: no orders placed. Signals sent via Telegram.
+Uses ib_insync connecting to the same IB Gateway as the MES/Gold bots (port 4001).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 
 @dataclass
 class SpyOptionsIBConfig:
-    """IB Client Portal REST API connection settings."""
+    """IB Gateway connection settings (same gateway as MES/Gold bots)."""
 
-    host: str = "127.0.0.1"
-    port: int = 5000               # Client Portal default; some use 5001
-    use_https: bool = True
-    verify_ssl: bool = False       # IB uses a self-signed cert — must be False
-    request_timeout_s: float = 10.0
+    ibkr_host: str = "127.0.0.1"
+    ibkr_port: int = 4001            # Live IB Gateway (4002 = paper)
+    ibkr_client_id: int = 5          # Separate from MES(1), VIX(2), Gold(3)
 
-    # Keep-alive tickle (IB requires POST /tickle every ~1 min)
-    tickle_interval_s: float = 55.0
+    # How long to wait for snapshot price data after reqMktData(snapshot=True)
+    snapshot_wait_s: float = 3.0
 
-    # Retry settings for transient errors
-    max_retries: int = 3
-    retry_delay_s: float = 2.0
+    # Extra wait for modelGreeks to populate (Greeks arrive after price data)
+    greeks_wait_s: float = 4.0
 
-    # First snapshot call subscribes but returns no data; second returns data.
-    # Wait this many seconds between pre-flight subscribe and actual read.
-    snapshot_preflight_delay_s: float = 1.5
-
-    # VIX index conid on IBKR (used to fetch VIX for IV regime detection).
-    # Set to 0 to disable VIX fetching.
-    vix_conid: int = 13455763
+    # Maximum options to subscribe simultaneously (IB allows ~100 lines)
+    max_subscriptions: int = 60
 
 
 @dataclass
 class SpyOptionsChainConfig:
     """Option chain construction settings."""
 
-    # Strikes fetched = all strikes within ±strike_pct_range of SPY price
+    # Strikes fetched: all within ±strike_pct_range of current SPY price
     strike_pct_range: float = 0.04    # ±4% ATM window
 
-    # Hard cap: maximum strikes to subscribe per expiry (calls + puts combined)
+    # Hard cap per expiry (calls + puts combined)
     max_strikes_per_expiry: int = 30
 
-    # How many near-term monthly expiries to track simultaneously
+    # How many near-term expiries to track simultaneously
     num_expiries: int = 2
 
-    # IB option exchange
+    # IB exchange
     exchange: str = "SMART"
 
-    # Inter-request delay when resolving option conids (stay under 10 req/s limit)
-    conid_resolve_delay_s: float = 0.15
+    # Delay (seconds) between successive option contract qualifications
+    conid_resolve_delay_s: float = 0.1
+
+    # Liquidity filters — applied per contract before signal generation
+    liquidity_min_oi: int = 1000          # Minimum open interest
+    liquidity_max_spread_pct: float = 8.0 # Max bid/ask spread as % of mid
+    liquidity_min_volume: int = 500       # Minimum daily volume
 
 
 @dataclass
 class SpyOptionsSignalConfig:
     """Signal generation thresholds and rules."""
 
-    # Volume spike: poll-increment > spike_mult × rolling-avg of past increments
+    # Volume spike: poll-increment > spike_mult × rolling avg of past increments
     volume_spike_mult: float = 4.0
 
     # Absolute floor: ignore strikes with total session volume below this
     min_volume_for_signal: int = 500
 
-    # Sweep: minimum contracts added in a single poll window to flag as sweep
+    # Minimum contracts added in a single poll window to flag as a sweep
     sweep_poll_volume_threshold: int = 300
 
-    # VIX proxy for IV regime
-    vix_low: float = 16.0          # VIX < this → low IV → debit spreads preferred
-    vix_high: float = 26.0         # VIX > this → high IV → premium selling preferred
+    # VIX regime thresholds
+    vix_low: float = 16.0            # Below → low IV → debit spreads preferred
+    vix_high: float = 26.0           # Above → high IV → premium selling preferred
 
     # Put/Call volume ratio extremes (chain-level)
-    pc_ratio_bearish: float = 1.8  # P/C > 1.8 → strong bearish skew
-    pc_ratio_bullish: float = 0.5  # P/C < 0.5 → heavy call bias / complacency
+    pc_ratio_bearish: float = 1.8    # P/C > 1.8 → strong bearish skew
+    pc_ratio_bullish: float = 0.5    # P/C < 0.5 → heavy call bias
 
     # Bid/ask size imbalance to infer directional pressure
-    # bid_size / ask_size > threshold → aggressive call buying
     bid_ask_imbalance_threshold: float = 3.0
 
-    # Straddle: call AND put must both spike by at least this multiple
+    # Straddle: both call AND put must spike by at least this multiple
     straddle_spike_mult: float = 3.0
 
-    # Don't send a signal unless confidence >= this
-    min_confidence: float = 0.55
+    # Weighted confidence thresholds (replaces simple 0.55 threshold)
+    min_confidence: float = 0.70          # Drop signals below this
+    confidence_tier_high: float = 0.80    # HIGH tier starts here
+    confidence_tier_extreme: float = 0.90 # EXTREME tier starts here
 
-    # Deduplication: suppress re-sending the same (type, expiry, strike, right)
-    # for this many minutes after the first alert
+    # Suppress re-sending same (type, expiry, strike, right) within this window
     dedup_window_minutes: int = 90
+
+    # Repeat sweep detection window — same strike flagged N× within this boosts score
+    sweep_window_minutes: int = 15
 
 
 @dataclass
@@ -98,12 +96,20 @@ class SpyOptionsSessionConfig:
 
     rth_only: bool = True
 
-    # All times in America/New_York (ET)
+    # America/New_York (ET)
     rth_start_et: str = "09:35"    # Skip first 5 min open noise
     rth_stop_et: str = "15:45"     # Stop 15 min before close
 
-    # How often to poll IB for new snapshots
+    # Poll interval in seconds
     poll_interval_s: int = 60
+
+
+@dataclass
+class SpyOptionsAnalyticsConfig:
+    """Signal analytics persistence (SQLite)."""
+
+    enabled: bool = True
+    db_path: str = "data/spy_options_signals.db"
 
 
 @dataclass
@@ -111,8 +117,7 @@ class SpyOptionsConfig:
     """Top-level SPY Options signal bot configuration.
 
     Signal-only — no orders are ever placed.
-    Signals are always sent via Telegram when enabled.
-    Requires IB Client Portal Gateway to be running and authenticated.
+    Uses ib_insync connecting to IB Gateway (same as MES/Gold bots).
     """
 
     enabled: bool = False
@@ -121,5 +126,6 @@ class SpyOptionsConfig:
     chain: SpyOptionsChainConfig = field(default_factory=SpyOptionsChainConfig)
     signals: SpyOptionsSignalConfig = field(default_factory=SpyOptionsSignalConfig)
     session: SpyOptionsSessionConfig = field(default_factory=SpyOptionsSessionConfig)
+    analytics: SpyOptionsAnalyticsConfig = field(default_factory=SpyOptionsAnalyticsConfig)
 
     log_file: str = "logs/spy_options.log"

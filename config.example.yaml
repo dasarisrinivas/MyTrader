@@ -298,47 +298,48 @@ telegram:
 # Quickstart:
 #   1. Download IB Client Portal Gateway from IBKR
 #   2. Start it and log in via browser (one-time)
-#   3. Set enabled: true and simulation: false below
+#   3. Set enabled: true below
 #   4. Fill in telegram.bot_token + telegram.chat_id
 #   5. python run_spy_options.py
 spy_options:
   enabled: false          # Set to true to activate
-  simulation: true        # true = log signals only, no Telegram
 
-  # IB Client Portal REST API (separate from TWS Gateway used by MES/Gold)
+  # IB Gateway connection (same gateway as MES/Gold bots — port 4001 live, 4002 paper)
   ib:
-    host: "127.0.0.1"
-    port: 5000            # Client Portal default (some installs use 5001)
-    use_https: true
-    verify_ssl: false     # IB uses self-signed cert — must stay false
-    request_timeout_s: 10.0
-    tickle_interval_s: 55.0    # Keep-alive POST /tickle interval
-    max_retries: 3
-    retry_delay_s: 2.0
-    snapshot_preflight_delay_s: 1.5
-    vix_conid: 13455763   # IB conid for VIX index. Set to 0 to disable VIX.
+    ibkr_host: "127.0.0.1"
+    ibkr_port: 4001         # Live IB Gateway (use 4002 for paper trading)
+    ibkr_client_id: 5       # Separate from MES(1), VIX feed(2), Gold(3)
+    snapshot_wait_s: 3.0    # Seconds to wait for price snapshot data
+    greeks_wait_s: 4.0      # Extra wait for modelGreeks to populate (Greeks lag price)
+    max_subscriptions: 60   # IB allows ~100 simultaneous market data lines
 
-  # Option chain construction
+  # Option chain construction and liquidity filters
   chain:
-    strike_pct_range: 0.04     # Fetch strikes within ±4% of current SPY price
-    max_strikes_per_expiry: 30 # Max calls+puts subscribed per expiry (API rate limit)
-    num_expiries: 2            # Track current + next monthly expiry simultaneously
+    strike_pct_range: 0.04        # Fetch strikes within ±4% of current SPY price
+    max_strikes_per_expiry: 30    # Max calls+puts subscribed per expiry
+    num_expiries: 2               # Track current + next monthly expiry simultaneously
     exchange: "SMART"
-    conid_resolve_delay_s: 0.15  # Inter-request delay to stay under 10 req/s IB limit
+    conid_resolve_delay_s: 0.1    # Small pause between option contract qualifications
+    liquidity_min_oi: 1000        # Min open interest — illiquid strikes are ignored
+    liquidity_max_spread_pct: 8.0 # Max bid/ask spread as % of mid price
+    liquidity_min_volume: 500     # Min daily volume before a contract is tracked
 
-  # Signal generation rules
+  # Signal generation and weighted confidence rules
   signals:
-    volume_spike_mult: 4.0         # Poll-increment must be ≥ 4× rolling avg
-    min_volume_for_signal: 500     # Ignore strikes with session volume below this
+    volume_spike_mult: 4.0            # Poll-increment must be ≥ 4× rolling avg
+    min_volume_for_signal: 500        # Ignore strikes with session volume below this
     sweep_poll_volume_threshold: 300  # Min contracts in one poll to flag as sweep
-    vix_low: 16.0                  # VIX below this → low IV → debit spreads
-    vix_high: 26.0                 # VIX above this → high IV → premium selling
-    pc_ratio_bearish: 1.8          # P/C > 1.8 → bearish chain skew signal
-    pc_ratio_bullish: 0.5          # P/C < 0.5 → bullish chain skew signal
+    vix_low: 16.0                     # VIX below this → low IV → debit spreads preferred
+    vix_high: 26.0                    # VIX above this → high IV → premium selling preferred
+    pc_ratio_bearish: 1.8             # P/C > 1.8 → bearish chain skew signal
+    pc_ratio_bullish: 0.5             # P/C < 0.5 → bullish chain skew signal
     bid_ask_imbalance_threshold: 3.0  # bid_size/ask_size > 3 → aggressive buyer
-    straddle_spike_mult: 3.0       # Both C+P must spike ≥ this × for straddle signal
-    min_confidence: 0.55           # Drop signals below this confidence
-    dedup_window_minutes: 90       # Suppress re-sending same signal within this window
+    straddle_spike_mult: 3.0          # Both C+P must spike ≥ this × for straddle signal
+    min_confidence: 0.70              # Weighted confidence threshold (was 0.55)
+    confidence_tier_high: 0.80        # HIGH tier threshold
+    confidence_tier_extreme: 0.90     # EXTREME tier threshold
+    dedup_window_minutes: 90          # Suppress re-sending same signal within this window
+    sweep_window_minutes: 15          # Repeat sweep window for flow score boost
 
   # Session gates
   session:
@@ -346,6 +347,11 @@ spy_options:
     rth_start_et: "09:35"    # Skip first 5 min of open noise
     rth_stop_et: "15:45"     # Stop 15 min before close
     poll_interval_s: 60      # Poll IB every 60 seconds
+
+  # Signal analytics (SQLite — every sent signal is persisted)
+  analytics:
+    enabled: true
+    db_path: "data/spy_options_signals.db"
 
   log_file: "logs/spy_options.log"
 

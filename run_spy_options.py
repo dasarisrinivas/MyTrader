@@ -53,7 +53,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 
-def main() -> None:
+def main() -> None:  # noqa: ANN201
     args = _parse_args()
 
     settings = load_settings(args.config)
@@ -70,7 +70,7 @@ def main() -> None:
     configure_logging(log_file=cfg.log_file, level=args.log_level)
 
     logger.info("=== ShreeBot SPY Options Signal Bot starting ===")
-    logger.info("IB Gateway: {}:{}", cfg.ib.host, cfg.ib.port)
+    logger.info("IB Gateway: {}:{}", cfg.ib.ibkr_host, cfg.ib.ibkr_port)
 
     telegram_cfg = getattr(settings, "telegram", None)
     manager = SpyOptionsManager(cfg, telegram_cfg=telegram_cfg)
@@ -83,7 +83,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
 
     try:
-        manager.start()
+        asyncio.run(manager.start())
     except Exception as exc:
         logger.opt(exception=True).error("SPY Options manager terminated: {}", exc)
         sys.exit(1)

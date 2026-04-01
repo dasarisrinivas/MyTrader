@@ -101,10 +101,10 @@ def get(obj, path, default):
 s = data.get("spy_options", {})
 ib = s.get("ib", {})
 values = [
-    str(get(ib, "host",     "127.0.0.1")),
-    str(get(ib, "port",     5000)),
-    str(get(s,  "enabled",  False)),
-    str(get(s,  "log_file", "logs/spy_options.log")),
+    str(get(ib, "ibkr_host",    "127.0.0.1")),
+    str(get(ib, "ibkr_port",    4001)),
+    str(get(s,  "enabled",      False)),
+    str(get(s,  "log_file",     "logs/spy_options.log")),
 ]
 print("|".join(values))
 PY
@@ -122,18 +122,17 @@ fi
 IB_HOST=${IB_HOST:-$CFG_HOST}
 IB_PORT=${IB_PORT:-$CFG_PORT}
 
-# ── IB Client Portal check ────────────────────────────────────────────────────
-echo -e "${BLUE}[INFO]${NC} Checking IB Client Portal Gateway on ${IB_HOST}:${IB_PORT}..."
+# ── IB Gateway check ─────────────────────────────────────────────────────────
+echo -e "${BLUE}[INFO]${NC} Checking IB Gateway on ${IB_HOST}:${IB_PORT}..."
 if lsof -i:"$IB_PORT" > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ IB Client Portal Gateway is running on port ${IB_PORT}${NC}"
+    echo -e "${GREEN}✅ IB Gateway is running on port ${IB_PORT}${NC}"
 else
-    echo -e "${RED}❌ IB Client Portal Gateway is NOT running on port ${IB_PORT}${NC}"
+    echo -e "${RED}❌ IB Gateway is NOT running on port ${IB_PORT}${NC}"
     echo ""
     echo "Start steps:"
-    echo "  1. Download IB Client Portal Gateway from IBKR website"
-    echo "  2. Run: bin/run.sh root/conf.yaml"
-    echo "  3. Authenticate via browser at https://localhost:${IB_PORT}"
-    echo "  4. Re-run this script"
+    echo "  1. Launch IB Gateway (ibgateway) and log in"
+    echo "  2. Verify API port is set to ${IB_PORT} in IB Gateway settings"
+    echo "  3. Re-run this script"
     return 1 2>/dev/null || exit 1
 fi
 
@@ -161,7 +160,7 @@ echo ""
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 nohup "$PYTHON_BIN" run_spy_options.py "${SPY_ARGS[@]}" \
-    >> "$CFG_LOG_FILE" 2>&1 &
+    > logs/spy_options_nohup.log 2>&1 &
 SPY_PID=$!
 echo "$SPY_PID" > logs/spy_options.pid
 

@@ -1,9 +1,8 @@
-"""Option chain data structures and intraday volume tracking.
+"""Option chain data structures, liquidity filtering, and intraday volume tracking.
 
 ChainSnapshot holds all option quotes for one expiry.
 VolumeTracker detects volume spikes by comparing poll-to-poll increments
-against a rolling baseline, since IB REST provides cumulative day-volume
-(not tick-level flow data).
+against a rolling baseline, since IB provides cumulative day-volume.
 """
 from __future__ import annotations
 
@@ -28,11 +27,20 @@ class OptionQuote:
     last: float = 0.0
     bid_size: int = 0
     ask_size: int = 0
-    volume: int = 0      # cumulative day volume from IB field 87
+    volume: int = 0      # cumulative day volume from IB
+
+    # Greeks (from IB modelGreeks — 0.0 if unavailable)
+    delta: float = 0.0
+    gamma: float = 0.0
+    theta: float = 0.0   # per day, negative for long options
+    vega: float = 0.0
+    impl_vol: float = 0.0
+
+    # Liquidity
+    open_interest: int = 0
 
     @property
     def mid(self) -> float:
-        """Mid-market price."""
         if self.ask > 0 and self.bid > 0:
             return (self.bid + self.ask) / 2.0
         return self.last
@@ -40,6 +48,14 @@ class OptionQuote:
     @property
     def spread(self) -> float:
         return max(0.0, self.ask - self.bid)
+
+    @property
+    def spread_pct(self) -> float:
+        """Bid/ask spread as percentage of mid price."""
+        m = self.mid
+        if m > 0:
+            return self.spread / m * 100.0
+        return 0.0
 
     @property
     def bid_ask_ratio(self) -> float:
@@ -56,28 +72,41 @@ class OptionQuote:
         return float(self.ask_size)
 
 
+def passes_liquidity(
+    quote: OptionQuote,
+    min_oi: int = 1000,
+    max_spread_pct: float = 8.0,
+    min_volume: int = 500,
+) -> bool:
+    """Return True if quote passes all liquidity gates.
+
+    Called in manager._build_chain() before adding quotes to ChainSnapshot.
+    Contracts failing this are silently dropped — no signal can fire on them.
+    """
+    if quote.open_interest > 0 and quote.open_interest < min_oi:
+        return False
+    if quote.spread_pct > max_spread_pct and quote.spread_pct > 0:
+        return False
+    if quote.volume > 0 and quote.volume < min_volume:
+        return False
+    return True
+
+
 class VolumeTracker:
     """Tracks cumulative-to-incremental volume conversion per option conid.
 
-    IB field 87 gives total day volume (cumulative).  To detect sweeps we need
-    the delta between successive polls.  We maintain a rolling history of those
+    IB provides total day volume (cumulative). To detect sweeps we need
+    the delta between successive polls. We maintain a rolling history of those
     deltas to compute a per-strike baseline.
     """
 
     def __init__(self, max_history: int = 20) -> None:
-        self._last: Dict[int, int] = {}          # conid → last known cum-volume
-        self._increments: Dict[int, List[int]] = {}  # conid → [delta0, delta1, ...]
+        self._last: Dict[int, int] = {}
+        self._increments: Dict[int, List[int]] = {}
         self._max_history = max_history
 
     def update(self, conid: int, current_volume: int) -> int:
-        """Record the latest cumulative volume and return the poll-interval delta.
-
-        Args:
-            current_volume: Cumulative day volume from IB snapshot.
-
-        Returns:
-            Contracts traded since the last poll (≥ 0).
-        """
+        """Record latest cumulative volume and return the poll-interval delta."""
         prev = self._last.get(conid, current_volume)
         increment = max(0, current_volume - prev)
         self._last[conid] = current_volume
@@ -89,11 +118,7 @@ class VolumeTracker:
         return increment
 
     def rolling_avg(self, conid: int) -> float:
-        """Rolling average of past poll deltas (excludes the most recent).
-
-        Uses all-but-last entry as the baseline so the current spike is not
-        self-normalising.
-        """
+        """Rolling average of past poll deltas (excludes most recent)."""
         history = self._increments.get(conid, [])
         if len(history) < 2:
             return 0.0
@@ -104,7 +129,6 @@ class VolumeTracker:
         return self._last.get(conid, 0)
 
     def reset(self) -> None:
-        """Clear all state (call at start of each trading day)."""
         self._last.clear()
         self._increments.clear()
 
@@ -117,8 +141,6 @@ class ChainSnapshot:
         self.calls: List[OptionQuote] = []
         self.puts: List[OptionQuote] = []
         self.timestamp: datetime = datetime.utcnow()
-
-    # ── Aggregate metrics ─────────────────────────────────────────────────────
 
     @property
     def total_call_volume(self) -> int:
@@ -133,10 +155,7 @@ class ChainSnapshot:
         cv = self.total_call_volume
         return self.total_put_volume / cv if cv > 0 else None
 
-    # ── Strike lookups ────────────────────────────────────────────────────────
-
     def atm_strike(self, spy_price: float) -> float:
-        """Return the listed strike closest to current SPY price."""
         all_strikes = sorted({q.strike for q in self.calls + self.puts})
         if not all_strikes:
             return spy_price
@@ -157,6 +176,5 @@ class ChainSnapshot:
     def __repr__(self) -> str:
         return (
             f"ChainSnapshot({self.expiry_month} "
-            f"calls={len(self.calls)} puts={len(self.puts)} "
-            f"P/C={self.put_call_ratio:.2f if self.put_call_ratio else 'n/a'})"
+            f"calls={len(self.calls)} puts={len(self.puts)})"
         )

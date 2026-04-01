@@ -1,13 +1,26 @@
-"""Rule-based SPY options signal engine.
+"""Enhanced SPY options signal engine with weighted confidence scoring.
 
-Signal types generated:
-  CALL_SWEEP       — Large call volume spike with bullish bid pressure
-  PUT_SWEEP        — Large put volume spike with bearish ask pressure
-  BULL_CALL_SPREAD — Low VIX + call sweep → debit spread recommended
-  BEAR_PUT_SPREAD  — Low VIX + put sweep  → debit spread recommended
-  LONG_STRADDLE    — Both call AND put volume spike simultaneously
-  HIGH_IV_ALERT    — Elevated VIX → premium selling opportunity
-  PC_RATIO_EXTREME — Chain-level put/call ratio at bullish/bearish extreme
+Signal types:
+    CALL_SWEEP       — Large call volume spike with bullish bid pressure
+    PUT_SWEEP        — Large put volume spike with bearish pressure
+    BULL_CALL_SPREAD — Low IV rank + call sweep → debit spread recommended
+    BEAR_PUT_SPREAD  — Low IV rank + put sweep  → debit spread recommended
+    LONG_STRADDLE    — Both call AND put volume spike simultaneously
+    HIGH_IV_ALERT    — Elevated VIX / high IV rank → premium selling opportunity
+    PC_RATIO_EXTREME — Chain-level put/call ratio at bullish/bearish extreme
+
+Confidence model (replaces simple spike scoring):
+    25% volume spike strength
+    15% bid/ask imbalance
+    10% delta quality      (ideal range: calls 0.30-0.60, puts -0.60 to -0.30)
+    10% gamma quality      (ideal: 0.005-0.08 for ATM SPY options)
+    10% theta penalty      (penalise rapid decay for short-dated longs)
+    10% IV regime alignment (low IV rank → good for debit, high → good for credit)
+    10% sentiment alignment
+     5% open interest strength
+     5% flow score         (repeat sweeps within 15 min)
+
+Threshold: 0.70 (was 0.55). Tiers: MEDIUM 70-79, HIGH 80-89, EXTREME 90+.
 
 All signals are informational only — no orders are placed.
 """
@@ -21,6 +34,9 @@ from typing import List, Optional, Set
 from ..config.spy_options import SpyOptionsSignalConfig
 from ..utils.logger import logger
 from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker
+from .regime_detector import RegimeContext
+from .sentiment_engine import SentimentContext
+from .sweep_tracker import SweepTracker
 
 
 class SignalType(str, Enum):
@@ -34,27 +50,62 @@ class SignalType(str, Enum):
 
 
 @dataclass
+class SignalContext:
+    """Per-poll context passed from manager to signal engine."""
+
+    regime: RegimeContext
+    sentiment: SentimentContext
+    iv_rank: float          # 0-100 based on VIX 52w range
+    vix: Optional[float]
+    spy_price: float
+
+
+@dataclass
 class SpySignal:
-    """A single SPY options signal ready for delivery."""
+    """A single SPY options signal ready for delivery and analytics."""
 
     signal_type: SignalType
     strike: float
     expiry: str
-    right: str            # "C", "P", or "BOTH"
-    confidence: float     # 0.0 – 1.0
+    right: str              # "C", "P", or "BOTH"
+    confidence: float       # 0.0 – 1.0
     spy_price: float
     vix: Optional[float]
-    volume: int           # total session volume at the strike
-    volume_spike_mult: float  # how many × the rolling avg
+    volume: int
+    volume_spike_mult: float
     bid_size: int
     ask_size: int
     reasoning: List[str] = field(default_factory=list)
     suggested_trade: str = ""
 
+    # Rich fields (populated by engine)
+    confidence_tier: str = "MEDIUM"  # "MEDIUM" | "HIGH" | "EXTREME"
+    delta: float = 0.0
+    gamma: float = 0.0
+    theta: float = 0.0
+    vega: float = 0.0
+    impl_vol: float = 0.0
+    open_interest: int = 0
+    spread_pct: float = 0.0
+    bid: float = 0.0
+    ask: float = 0.0
+    iv_rank: float = 0.0
+    regime: str = "RANGE_BOUND"
+    sentiment_score: float = 0.0
+    sentiment_label: str = "NEUTRAL"
+    flow_score: float = 0.0
+
     @property
     def dedup_key(self) -> str:
-        """Unique key used to suppress duplicate alerts within the dedup window."""
         return f"{self.signal_type}:{self.expiry}:{self.strike:.0f}:{self.right}"
+
+
+def _tier(confidence: float) -> str:
+    if confidence >= 0.90:
+        return "EXTREME"
+    if confidence >= 0.80:
+        return "HIGH"
+    return "MEDIUM"
 
 
 class SignalEngine:
@@ -67,94 +118,192 @@ class SignalEngine:
     def evaluate(
         self,
         chain: ChainSnapshot,
-        spy_price: float,
-        vix: Optional[float] = None,
+        context: SignalContext,
+        sweep_tracker: SweepTracker,
     ) -> List[SpySignal]:
-        """Run all signal rules against the provided chain snapshot.
+        """Run all signal rules against the chain snapshot.
 
         Args:
-            chain: Current option chain data for one expiry.
-            spy_price: Current SPY last/mid price.
-            vix: Current VIX level (None if unavailable).
+            chain:         Current option chain data for one expiry.
+            context:       Per-poll regime, sentiment, IV rank, VIX, SPY price.
+            sweep_tracker: Shared repeat-sweep detector.
 
         Returns:
-            List of signals passing the minimum confidence threshold.
+            List of signals passing minimum confidence threshold.
         """
         c = self._cfg
         signals: List[SpySignal] = []
 
-        iv_low  = vix is not None and vix < c.vix_low
-        iv_high = vix is not None and vix > c.vix_high
-        vix_str = f"VIX={vix:.1f}" if vix is not None else "VIX unavailable"
+        iv_low = context.iv_rank < 30          # Low IV → debit spreads cheap
+        iv_high = context.iv_rank > 70         # High IV → premium selling
 
         # ── Rule 1: Chain-level P/C ratio ─────────────────────────────────────
-        signals.extend(self._pc_ratio_signal(chain, spy_price, vix, c))
+        signals.extend(self._pc_ratio_signal(chain, context, c))
 
         # ── Rules 2-5: Per-strike volume spike signals ─────────────────────────
         spiked_call_strikes: Set[float] = set()
         spiked_put_strikes: Set[float] = set()
 
-        all_quotes = [(q, "C") for q in chain.calls] + [(q, "P") for q in chain.puts]
-
-        for quote, right in all_quotes:
+        for quote, right in (
+            [(q, "C") for q in chain.calls] + [(q, "P") for q in chain.puts]
+        ):
             if quote.volume < c.min_volume_for_signal:
-                # Update tracker to keep baseline moving even for quiet strikes
                 self._tracker.update(quote.conid, quote.volume)
                 continue
 
             increment = self._tracker.update(quote.conid, quote.volume)
             avg = self._tracker.rolling_avg(quote.conid)
-
-            # Spike check: large poll-interval delta AND meets absolute threshold
             spike_mult = (increment / avg) if avg > 1 else 0.0
             is_spike = (
                 spike_mult >= c.volume_spike_mult
                 and increment >= c.sweep_poll_volume_threshold
             )
-
             if not is_spike:
                 continue
+
+            # Record in sweep tracker before calculating flow score
+            sweep_tracker.record(quote.strike, right, chain.expiry_month)
+            fscore = sweep_tracker.flow_score(quote.strike, right, chain.expiry_month)
 
             if right == "C":
                 spiked_call_strikes.add(quote.strike)
                 signals.extend(
-                    self._call_spike_signals(quote, chain.expiry_month, spike_mult, spy_price, vix, iv_low, c)
+                    self._call_spike_signals(quote, chain.expiry_month, spike_mult, fscore, iv_low, context, c)
                 )
             else:
                 spiked_put_strikes.add(quote.strike)
                 signals.extend(
-                    self._put_spike_signals(quote, chain.expiry_month, spike_mult, spy_price, vix, iv_low, c)
+                    self._put_spike_signals(quote, chain.expiry_month, spike_mult, fscore, iv_low, context, c)
                 )
 
-        # ── Rule 6: Straddle (both C and P spike at same/adjacent strikes) ────
+        # ── Rule 6: Straddle ──────────────────────────────────────────────────
         signals.extend(
-            self._straddle_signals(
-                spiked_call_strikes, spiked_put_strikes,
-                chain, spy_price, vix, vix_str, c,
-            )
+            self._straddle_signals(spiked_call_strikes, spiked_put_strikes, chain, context, c)
         )
 
-        # ── Rule 7: High IV alert ──────────────────────────────────────────────
-        if iv_high:
-            signals.extend(self._high_iv_signal(chain, spy_price, vix, c))
+        # ── Rule 7: High IV alert ─────────────────────────────────────────────
+        if iv_high or (context.vix is not None and context.vix > c.vix_high):
+            signals.extend(self._high_iv_signal(chain, context, c))
 
-        # Filter by minimum confidence threshold
         filtered = [s for s in signals if s.confidence >= c.min_confidence]
         if filtered:
             logger.info(
-                "SignalEngine: {} signals generated ({} passed confidence filter)",
-                len(signals),
-                len(filtered),
+                "SignalEngine {}: {} signals → {} passed (threshold={:.0f}%)",
+                chain.expiry_month, len(signals), len(filtered),
+                c.min_confidence * 100,
             )
         return filtered
 
-    # ── Individual rule methods ───────────────────────────────────────────────
+    # ── Weighted confidence model ─────────────────────────────────────────────
+
+    def _weighted_confidence(
+        self,
+        quote: OptionQuote,
+        right: str,
+        spike_mult: float,
+        flow_score: float,
+        signal_type: SignalType,
+        context: SignalContext,
+        c: SpyOptionsSignalConfig,
+    ) -> float:
+        """Compute weighted confidence score (0.0–1.0) for a spike-based signal."""
+
+        # 25% — volume spike strength (normalized against threshold)
+        vol_score = min(1.0, max(0.0, (spike_mult - c.volume_spike_mult) / 10.0))
+        w_vol = 0.25 * vol_score
+
+        # 15% — bid/ask imbalance
+        if right == "C":
+            ratio = quote.bid_ask_ratio
+        else:
+            ratio = quote.ask_bid_ratio
+        threshold = c.bid_ask_imbalance_threshold
+        imb_score = min(1.0, max(0.0, (ratio - 1.0) / max(1.0, threshold - 1.0)))
+        w_imb = 0.15 * imb_score
+
+        # 10% — delta quality
+        d = quote.delta
+        if d == 0.0:
+            delta_score = 0.5  # unknown
+        elif right == "C":
+            delta_score = 1.0 if 0.30 <= d <= 0.60 else 0.3
+        else:
+            delta_score = 1.0 if -0.60 <= d <= -0.30 else 0.3
+        w_delta = 0.10 * delta_score
+
+        # 10% — gamma quality (ideal ATM range for SPY: 0.005–0.08)
+        g = quote.gamma
+        if g == 0.0:
+            gamma_score = 0.5
+        else:
+            gamma_score = 1.0 if 0.005 <= g <= 0.08 else 0.3
+        w_gamma = 0.10 * gamma_score
+
+        # 10% — theta penalty (theta is negative; rapid decay hurts long premium)
+        t = quote.theta
+        if t == 0.0:
+            theta_score = 0.5
+        elif t < -0.15:    # very high decay
+            theta_score = 0.2
+        elif t < -0.08:
+            theta_score = 0.6
+        else:
+            theta_score = 1.0
+        w_theta = 0.10 * theta_score
+
+        # 10% — IV regime alignment
+        # Credit signals (HIGH_IV_ALERT, BEAR_PUT_SPREAD, BULL_CALL_SPREAD) → high rank better
+        # Directional debit signals (SWEEP) → low rank better
+        credit_types = {SignalType.HIGH_IV_ALERT, SignalType.BEAR_PUT_SPREAD, SignalType.BULL_CALL_SPREAD}
+        if signal_type in credit_types:
+            iv_score = context.iv_rank / 100.0
+        else:
+            iv_score = 1.0 - (context.iv_rank / 100.0)
+        w_iv = 0.10 * iv_score
+
+        # 10% — sentiment alignment
+        sent = context.sentiment.score / 100.0  # -1 to +1
+        if right == "C":
+            sent_score = (sent + 1.0) / 2.0        # +1 bullish → 1.0
+        elif right == "P":
+            sent_score = (-sent + 1.0) / 2.0       # -1 bearish → 1.0
+        else:
+            sent_score = 0.5                        # direction-agnostic
+        w_sent = 0.10 * sent_score
+
+        # 5% — open interest strength (10k+ = max)
+        oi_score = min(1.0, quote.open_interest / 10_000.0)
+        w_oi = 0.05 * oi_score
+
+        # 5% — flow score (repeat sweep confirmation)
+        w_flow = 0.05 * flow_score
+
+        return min(1.0, w_vol + w_imb + w_delta + w_gamma + w_theta + w_iv + w_sent + w_oi + w_flow)
+
+    def _enrich(self, sig: SpySignal, quote: OptionQuote, context: SignalContext) -> SpySignal:
+        """Copy Greek/liquidity/context fields from quote and context into signal."""
+        sig.delta = quote.delta
+        sig.gamma = quote.gamma
+        sig.theta = quote.theta
+        sig.vega = quote.vega
+        sig.impl_vol = quote.impl_vol
+        sig.open_interest = quote.open_interest
+        sig.spread_pct = quote.spread_pct
+        sig.bid = quote.bid
+        sig.ask = quote.ask
+        sig.iv_rank = context.iv_rank
+        sig.regime = context.regime.regime
+        sig.sentiment_score = context.sentiment.score
+        sig.sentiment_label = context.sentiment.label
+        sig.confidence_tier = _tier(sig.confidence)
+        return sig
+
+    # ── Rule implementations ──────────────────────────────────────────────────
 
     def _pc_ratio_signal(
         self,
         chain: ChainSnapshot,
-        spy_price: float,
-        vix: Optional[float],
+        context: SignalContext,
         c: SpyOptionsSignalConfig,
     ) -> List[SpySignal]:
         signals = []
@@ -162,56 +311,69 @@ class SignalEngine:
         if pc is None:
             return signals
 
-        atm = chain.atm_strike(spy_price)
+        atm = chain.atm_strike(context.spy_price)
 
         if pc > c.pc_ratio_bearish and chain.total_put_volume >= c.min_volume_for_signal:
             atm_put = chain.put_at(atm)
-            signals.append(SpySignal(
+            # Confidence: base from ratio distance, boosted by sentiment
+            base = min(0.62 + (pc - c.pc_ratio_bearish) * 0.05, 0.82)
+            sent_boost = max(0.0, -context.sentiment.score / 100.0) * 0.08
+            conf = min(1.0, base + sent_boost)
+            sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
-                strike=atm,
-                expiry=chain.expiry_month,
-                right="P",
-                confidence=min(0.62 + (pc - c.pc_ratio_bearish) * 0.05, 0.85),
-                spy_price=spy_price,
-                vix=vix,
-                volume=chain.total_put_volume,
-                volume_spike_mult=pc,
+                strike=atm, expiry=chain.expiry_month, right="P",
+                confidence=conf, spy_price=context.spy_price, vix=context.vix,
+                volume=chain.total_put_volume, volume_spike_mult=pc,
                 bid_size=atm_put.bid_size if atm_put else 0,
                 ask_size=atm_put.ask_size if atm_put else 0,
                 reasoning=[
                     f"P/C ratio = {pc:.2f} (bearish threshold: >{c.pc_ratio_bearish})",
                     f"Total put volume: {chain.total_put_volume:,} vs calls: {chain.total_call_volume:,}",
-                    "Elevated put buying signals bearish hedging or directional bets",
+                    f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})",
+                    f"Regime: {context.regime.regime}",
                 ],
                 suggested_trade=(
                     f"Watch for SPY weakness near {atm:.0f}. "
-                    f"Consider protective puts or Bear Put Spread exp {chain.expiry_month}"
+                    f"Bear Put Spread or protective puts exp {chain.expiry_month}"
                 ),
-            ))
+            )
+            if atm_put:
+                self._enrich(sig, atm_put, context)
+            else:
+                sig.confidence_tier = _tier(conf)
+                sig.iv_rank = context.iv_rank
+                sig.regime = context.regime.regime
+                sig.sentiment_score = context.sentiment.score
+                sig.sentiment_label = context.sentiment.label
+            signals.append(sig)
 
         elif pc < c.pc_ratio_bullish and chain.total_call_volume >= c.min_volume_for_signal:
-            signals.append(SpySignal(
+            base = min(0.60 + (c.pc_ratio_bullish - pc) * 0.08, 0.80)
+            sent_boost = max(0.0, context.sentiment.score / 100.0) * 0.08
+            conf = min(1.0, base + sent_boost)
+            sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
-                strike=atm,
-                expiry=chain.expiry_month,
-                right="C",
-                confidence=min(0.60 + (c.pc_ratio_bullish - pc) * 0.08, 0.80),
-                spy_price=spy_price,
-                vix=vix,
-                volume=chain.total_call_volume,
-                volume_spike_mult=1.0 / pc if pc > 0 else 0.0,
-                bid_size=0,
-                ask_size=0,
+                strike=atm, expiry=chain.expiry_month, right="C",
+                confidence=conf, spy_price=context.spy_price, vix=context.vix,
+                volume=chain.total_call_volume, volume_spike_mult=1.0 / pc if pc > 0 else 0.0,
+                bid_size=0, ask_size=0,
                 reasoning=[
                     f"P/C ratio = {pc:.2f} (bullish threshold: <{c.pc_ratio_bullish})",
                     f"Total call volume: {chain.total_call_volume:,} vs puts: {chain.total_put_volume:,}",
-                    "Heavy call-to-put skew — possible speculative bull run or complacency",
+                    f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})",
+                    f"Regime: {context.regime.regime}",
                 ],
                 suggested_trade=(
                     f"Broad call interest near {atm:.0f} exp {chain.expiry_month}. "
                     "Watch for extended rally or mean-reversion setup."
                 ),
-            ))
+            )
+            sig.confidence_tier = _tier(conf)
+            sig.iv_rank = context.iv_rank
+            sig.regime = context.regime.regime
+            sig.sentiment_score = context.sentiment.score
+            sig.sentiment_label = context.sentiment.label
+            signals.append(sig)
 
         return signals
 
@@ -220,74 +382,68 @@ class SignalEngine:
         quote: OptionQuote,
         expiry: str,
         spike_mult: float,
-        spy_price: float,
-        vix: Optional[float],
+        flow_score: float,
         iv_low: bool,
+        context: SignalContext,
         c: SpyOptionsSignalConfig,
     ) -> List[SpySignal]:
         signals: List[SpySignal] = []
-        buying_bias = quote.bid_ask_ratio >= c.bid_ask_imbalance_threshold
+        conf = self._weighted_confidence(quote, "C", spike_mult, flow_score, SignalType.CALL_SWEEP, context, c)
 
-        # ── CALL SWEEP ────────────────────────────────────────────────────────
-        confidence = 0.60
         reasoning = [
-            f"Call volume spike: +{quote.volume:,} contracts this session at {quote.strike:.0f}C",
-            f"Spike rate: {spike_mult:.1f}× rolling avg",
+            f"Call volume spike: {quote.volume:,} contracts at {quote.strike:.0f}C",
+            f"Spike: {spike_mult:.1f}× rolling avg",
         ]
-        if buying_bias:
-            confidence += 0.10
-            reasoning.append(
-                f"Bid/Ask size ratio {quote.bid_ask_ratio:.1f}× — aggressive buyer at the ask"
-            )
+        if quote.bid_ask_ratio >= c.bid_ask_imbalance_threshold:
+            reasoning.append(f"Bid/Ask ratio {quote.bid_ask_ratio:.1f}× — aggressive buyer at ask")
         if iv_low:
-            confidence += 0.05
-            reasoning.append(f"VIX={vix:.1f} (low IV) — debit strategies are cheap")
+            reasoning.append(f"Low IV rank ({context.iv_rank:.0f}) — debit strategies are cheap")
+        if flow_score > 0:
+            reasoning.append(f"Repeat sweep detected (flow score: {flow_score:.1f})")
+        reasoning.append(f"Regime: {context.regime.regime}  Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})")
+        if quote.delta != 0.0:
+            reasoning.append(f"Delta {quote.delta:+.3f}  Gamma {quote.gamma:.4f}  IV {quote.impl_vol:.1%}")
 
         wing = quote.strike + 5
-        suggested = f"🐂 Call Sweep: {quote.strike:.0f}C exp {expiry}"
+        suggested = f"Call Sweep: {quote.strike:.0f}C exp {expiry}"
         if iv_low:
-            suggested += f"\nConsider Bull Call Spread: Buy {quote.strike:.0f}C / Sell {wing:.0f}C exp {expiry}"
+            suggested += f"\nBull Call Spread: Buy {quote.strike:.0f}C / Sell {wing:.0f}C exp {expiry}"
+        suggested += f"\nRisk: Exit if SPY loses VWAP (${context.regime.vwap:.2f})"
 
-        signals.append(SpySignal(
+        sig = SpySignal(
             signal_type=SignalType.CALL_SWEEP,
-            strike=quote.strike,
-            expiry=expiry,
-            right="C",
-            confidence=min(confidence, 0.88),
-            spy_price=spy_price,
-            vix=vix,
-            volume=quote.volume,
-            volume_spike_mult=spike_mult,
-            bid_size=quote.bid_size,
-            ask_size=quote.ask_size,
-            reasoning=reasoning,
-            suggested_trade=suggested,
-        ))
+            strike=quote.strike, expiry=expiry, right="C",
+            confidence=conf, spy_price=context.spy_price, vix=context.vix,
+            volume=quote.volume, volume_spike_mult=spike_mult,
+            bid_size=quote.bid_size, ask_size=quote.ask_size,
+            reasoning=reasoning, suggested_trade=suggested,
+            flow_score=flow_score,
+        )
+        self._enrich(sig, quote, context)
+        signals.append(sig)
 
-        # ── BULL CALL SPREAD (low IV bonus) ───────────────────────────────────
+        # BULL_CALL_SPREAD — low IV rank bonus
         if iv_low and quote.volume >= c.min_volume_for_signal * 2:
-            signals.append(SpySignal(
+            conf2 = self._weighted_confidence(quote, "C", spike_mult, flow_score, SignalType.BULL_CALL_SPREAD, context, c)
+            sig2 = SpySignal(
                 signal_type=SignalType.BULL_CALL_SPREAD,
-                strike=quote.strike,
-                expiry=expiry,
-                right="C",
-                confidence=min(0.62 + (spike_mult - c.volume_spike_mult) * 0.02, 0.82),
-                spy_price=spy_price,
-                vix=vix,
-                volume=quote.volume,
-                volume_spike_mult=spike_mult,
-                bid_size=quote.bid_size,
-                ask_size=quote.ask_size,
+                strike=quote.strike, expiry=expiry, right="C",
+                confidence=conf2, spy_price=context.spy_price, vix=context.vix,
+                volume=quote.volume, volume_spike_mult=spike_mult,
+                bid_size=quote.bid_size, ask_size=quote.ask_size,
                 reasoning=[
-                    f"Low VIX ({vix:.1f}) makes debit spreads cost-effective",
-                    f"Confirmed call volume spike {spike_mult:.1f}× at {quote.strike:.0f}C",
-                    "Capped-risk structure: buy lower call, sell higher call",
+                    f"Low IV rank ({context.iv_rank:.0f}) makes debit spreads cost-effective",
+                    f"Call spike {spike_mult:.1f}× at {quote.strike:.0f}C",
+                    "Capped-risk: buy lower call, sell higher call",
                 ],
                 suggested_trade=(
                     f"Buy {quote.strike:.0f}C / Sell {wing:.0f}C exp {expiry}\n"
-                    f"Max risk = net debit paid. Max profit if SPY closes above {wing:.0f}"
+                    f"Max profit if SPY closes above {wing:.0f} at expiry"
                 ),
-            ))
+                flow_score=flow_score,
+            )
+            self._enrich(sig2, quote, context)
+            signals.append(sig2)
 
         return signals
 
@@ -296,74 +452,68 @@ class SignalEngine:
         quote: OptionQuote,
         expiry: str,
         spike_mult: float,
-        spy_price: float,
-        vix: Optional[float],
+        flow_score: float,
         iv_low: bool,
+        context: SignalContext,
         c: SpyOptionsSignalConfig,
     ) -> List[SpySignal]:
         signals: List[SpySignal] = []
-        selling_bias = quote.ask_bid_ratio >= c.bid_ask_imbalance_threshold
+        conf = self._weighted_confidence(quote, "P", spike_mult, flow_score, SignalType.PUT_SWEEP, context, c)
 
-        # ── PUT SWEEP ─────────────────────────────────────────────────────────
-        confidence = 0.60
         reasoning = [
-            f"Put volume spike: +{quote.volume:,} contracts this session at {quote.strike:.0f}P",
-            f"Spike rate: {spike_mult:.1f}× rolling avg",
+            f"Put volume spike: {quote.volume:,} contracts at {quote.strike:.0f}P",
+            f"Spike: {spike_mult:.1f}× rolling avg",
         ]
-        if selling_bias:
-            confidence += 0.10
-            reasoning.append(
-                f"Ask/Bid size ratio {quote.ask_bid_ratio:.1f}× — aggressive seller (put buyer)"
-            )
+        if quote.ask_bid_ratio >= c.bid_ask_imbalance_threshold:
+            reasoning.append(f"Ask/Bid ratio {quote.ask_bid_ratio:.1f}× — aggressive put buyer")
         if iv_low:
-            confidence += 0.05
-            reasoning.append(f"VIX={vix:.1f} (low IV) — puts are cheap")
+            reasoning.append(f"Low IV rank ({context.iv_rank:.0f}) — puts are cheap")
+        if flow_score > 0:
+            reasoning.append(f"Repeat sweep detected (flow score: {flow_score:.1f})")
+        reasoning.append(f"Regime: {context.regime.regime}  Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})")
+        if quote.delta != 0.0:
+            reasoning.append(f"Delta {quote.delta:+.3f}  Gamma {quote.gamma:.4f}  IV {quote.impl_vol:.1%}")
 
         wing = quote.strike - 5
-        suggested = f"🐻 Put Sweep: {quote.strike:.0f}P exp {expiry}"
+        suggested = f"Put Sweep: {quote.strike:.0f}P exp {expiry}"
         if iv_low:
-            suggested += f"\nConsider Bear Put Spread: Buy {quote.strike:.0f}P / Sell {wing:.0f}P exp {expiry}"
+            suggested += f"\nBear Put Spread: Buy {quote.strike:.0f}P / Sell {wing:.0f}P exp {expiry}"
+        suggested += f"\nRisk: Exit if SPY reclaims VWAP (${context.regime.vwap:.2f}) or VIX spikes"
 
-        signals.append(SpySignal(
+        sig = SpySignal(
             signal_type=SignalType.PUT_SWEEP,
-            strike=quote.strike,
-            expiry=expiry,
-            right="P",
-            confidence=min(confidence, 0.88),
-            spy_price=spy_price,
-            vix=vix,
-            volume=quote.volume,
-            volume_spike_mult=spike_mult,
-            bid_size=quote.bid_size,
-            ask_size=quote.ask_size,
-            reasoning=reasoning,
-            suggested_trade=suggested,
-        ))
+            strike=quote.strike, expiry=expiry, right="P",
+            confidence=conf, spy_price=context.spy_price, vix=context.vix,
+            volume=quote.volume, volume_spike_mult=spike_mult,
+            bid_size=quote.bid_size, ask_size=quote.ask_size,
+            reasoning=reasoning, suggested_trade=suggested,
+            flow_score=flow_score,
+        )
+        self._enrich(sig, quote, context)
+        signals.append(sig)
 
-        # ── BEAR PUT SPREAD (low IV bonus) ────────────────────────────────────
+        # BEAR_PUT_SPREAD — low IV rank bonus
         if iv_low and quote.volume >= c.min_volume_for_signal * 2:
-            signals.append(SpySignal(
+            conf2 = self._weighted_confidence(quote, "P", spike_mult, flow_score, SignalType.BEAR_PUT_SPREAD, context, c)
+            sig2 = SpySignal(
                 signal_type=SignalType.BEAR_PUT_SPREAD,
-                strike=quote.strike,
-                expiry=expiry,
-                right="P",
-                confidence=min(0.62 + (spike_mult - c.volume_spike_mult) * 0.02, 0.82),
-                spy_price=spy_price,
-                vix=vix,
-                volume=quote.volume,
-                volume_spike_mult=spike_mult,
-                bid_size=quote.bid_size,
-                ask_size=quote.ask_size,
+                strike=quote.strike, expiry=expiry, right="P",
+                confidence=conf2, spy_price=context.spy_price, vix=context.vix,
+                volume=quote.volume, volume_spike_mult=spike_mult,
+                bid_size=quote.bid_size, ask_size=quote.ask_size,
                 reasoning=[
-                    f"Low VIX ({vix:.1f}) makes debit spreads cost-effective",
-                    f"Confirmed put volume spike {spike_mult:.1f}× at {quote.strike:.0f}P",
-                    "Capped-risk structure: buy higher put, sell lower put",
+                    f"Low IV rank ({context.iv_rank:.0f}) makes debit spreads cost-effective",
+                    f"Put spike {spike_mult:.1f}× at {quote.strike:.0f}P",
+                    "Capped-risk: buy higher put, sell lower put",
                 ],
                 suggested_trade=(
                     f"Buy {quote.strike:.0f}P / Sell {wing:.0f}P exp {expiry}\n"
-                    f"Max risk = net debit paid. Max profit if SPY closes below {wing:.0f}"
+                    f"Max profit if SPY closes below {wing:.0f} at expiry"
                 ),
-            ))
+                flow_score=flow_score,
+            )
+            self._enrich(sig2, quote, context)
+            signals.append(sig2)
 
         return signals
 
@@ -372,79 +522,83 @@ class SignalEngine:
         spiked_calls: Set[float],
         spiked_puts: Set[float],
         chain: ChainSnapshot,
-        spy_price: float,
-        vix: Optional[float],
-        vix_str: str,
+        context: SignalContext,
         c: SpyOptionsSignalConfig,
     ) -> List[SpySignal]:
         signals: List[SpySignal] = []
+        both: Set[float] = spiked_calls & spiked_puts
 
-        # Direct hit: same strike spiking on both sides
-        both = spiked_calls & spiked_puts
-
-        # Adjacent: call and put spikes within ±5 strike of each other
+        # Adjacent: call and put spikes within ±5 strike
         if not both:
             for cs in spiked_calls:
                 for ps in spiked_puts:
                     if abs(cs - ps) <= 5:
-                        both.add(round((cs + ps) / 2 / 5) * 5)  # snap to nearest $5
+                        both.add(round((cs + ps) / 2 / 5) * 5)
 
         for strike in both:
-            atm = chain.atm_strike(spy_price)
-            signals.append(SpySignal(
+            atm = chain.atm_strike(context.spy_price)
+            # Straddle confidence: sentiment neutral is good (direction-agnostic)
+            neutrality = 1.0 - abs(context.sentiment.score) / 100.0
+            conf = min(0.78 + neutrality * 0.10, 0.90)
+            sig = SpySignal(
                 signal_type=SignalType.LONG_STRADDLE,
-                strike=strike,
-                expiry=chain.expiry_month,
-                right="BOTH",
-                confidence=0.73,
-                spy_price=spy_price,
-                vix=vix,
+                strike=strike, expiry=chain.expiry_month, right="BOTH",
+                confidence=conf, spy_price=context.spy_price, vix=context.vix,
                 volume=chain.total_call_volume + chain.total_put_volume,
                 volume_spike_mult=c.straddle_spike_mult,
-                bid_size=0,
-                ask_size=0,
+                bid_size=0, ask_size=0,
                 reasoning=[
                     "Both call AND put volume spiking simultaneously",
                     "Smart money buying both sides → large move expected",
                     f"Total flow: {chain.total_call_volume + chain.total_put_volume:,} contracts",
-                    vix_str,
+                    f"Regime: {context.regime.regime}  IV rank: {context.iv_rank:.0f}",
                 ],
                 suggested_trade=(
                     f"Long Straddle: Buy {atm:.0f}C + Buy {atm:.0f}P exp {chain.expiry_month}\n"
-                    f"Profit if SPY moves more than the combined premium in either direction"
+                    f"Profit if SPY moves more than combined premium in either direction\n"
+                    f"VWAP: ${context.regime.vwap:.2f}"
                 ),
-            ))
+            )
+            sig.confidence_tier = _tier(conf)
+            sig.iv_rank = context.iv_rank
+            sig.regime = context.regime.regime
+            sig.sentiment_score = context.sentiment.score
+            sig.sentiment_label = context.sentiment.label
+            signals.append(sig)
         return signals
 
     def _high_iv_signal(
         self,
         chain: ChainSnapshot,
-        spy_price: float,
-        vix: Optional[float],
+        context: SignalContext,
         c: SpyOptionsSignalConfig,
     ) -> List[SpySignal]:
         if (chain.total_call_volume + chain.total_put_volume) < c.min_volume_for_signal:
             return []
-        atm = chain.atm_strike(spy_price)
-        return [SpySignal(
+        atm = chain.atm_strike(context.spy_price)
+        # Higher IV rank = stronger signal for premium selling
+        conf = min(0.65 + context.iv_rank / 100.0 * 0.20, 0.85)
+        sig = SpySignal(
             signal_type=SignalType.HIGH_IV_ALERT,
-            strike=atm,
-            expiry=chain.expiry_month,
-            right="BOTH",
-            confidence=0.65,
-            spy_price=spy_price,
-            vix=vix,
+            strike=atm, expiry=chain.expiry_month, right="BOTH",
+            confidence=conf, spy_price=context.spy_price, vix=context.vix,
             volume=chain.total_call_volume + chain.total_put_volume,
-            volume_spike_mult=0.0,
-            bid_size=0,
-            ask_size=0,
+            volume_spike_mult=0.0, bid_size=0, ask_size=0,
             reasoning=[
-                f"VIX={vix:.1f} > high IV threshold ({c.vix_high})",
-                "Elevated implied volatility → options are expensive",
-                "Premium selling strategies (Iron Condor, credit spreads) may be favourable",
+                f"VIX={context.vix:.1f}" if context.vix else "VIX elevated",
+                f"IV rank: {context.iv_rank:.0f}/100 — options are expensive",
+                "Premium selling strategies (Iron Condor, credit spreads) favoured",
+                f"Regime: {context.regime.regime}",
             ],
             suggested_trade=(
-                f"Consider Iron Condor or credit spread on SPY near {atm:.0f} exp {chain.expiry_month}\n"
-                f"Sell OTM call + OTM put. Collect premium, profit if SPY stays range-bound."
+                f"Iron Condor or credit spread near {atm:.0f} exp {chain.expiry_month}\n"
+                "Sell OTM call + OTM put. Profit if SPY stays range-bound.\n"
+                f"VWAP anchor: ${context.regime.vwap:.2f}"
             ),
-        )]
+        )
+        sig.confidence_tier = _tier(conf)
+        sig.iv_rank = context.iv_rank
+        sig.regime = context.regime.regime
+        sig.sentiment_score = context.sentiment.score
+        sig.sentiment_label = context.sentiment.label
+        return [sig]
