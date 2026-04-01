@@ -58,11 +58,12 @@ def _make_bars(
 ) -> list[dict]:
     """Generate synthetic 5-min bars for regime/sentiment testing."""
     bars = []
+    base_time = datetime(2026, 3, 30, 9, 35)
     for i in range(n):
         c = base_close + trend * i
         spread = 0.5 * atr_factor
         bars.append({
-            "date": datetime(2026, 3, 30, 9, 35 + i * 5),
+            "date": base_time + timedelta(minutes=i * 5),
             "open": c - spread / 2,
             "high": c + spread,
             "low": c - spread,
@@ -149,39 +150,50 @@ class TestRegimeDetector:
         assert ctx.regime == "HIGH_VOL"
 
     def test_high_vol_atr_expanded(self):
-        """ATR expanded 2× median → HIGH_VOL."""
-        # Build bars with normal ATR for first 22, then sudden expansion
-        bars = _make_bars(25, base_close=560.0, trend=0.0, atr_factor=0.5)
-        # Last 5 bars: huge range (simulates ATR blow-up)
-        for i in range(5):
+        """ATR expanded 2× median → HIGH_VOL (but < 2.5× so not NEWS_DRIVEN)."""
+        # 35 baseline bars (low ATR) then 8 expanded bars. The lookback median
+        # stays near 0.5 (baseline) while Wilder-smoothed ATR14 reaches ~1.17
+        # (ratio ≈ 2.34, inside [2.0, 2.5) → HIGH_VOL, not NEWS_DRIVEN).
+        # VIX=20 (below 26) so only the ATR path can fire HIGH_VOL.
+        bars = _make_bars(35, base_close=560.0, trend=0.0, atr_factor=0.5)
+        for i in range(8):
             c = 560.0
             bars.append({
-                "date": datetime(2026, 3, 30, 12, 0 + i * 5),
-                "open": c - 3,
-                "high": c + 4,
-                "low": c - 4,
+                "date": datetime(2026, 3, 30, 14, 0) + timedelta(minutes=i * 5),
+                "open": c - 0.5,
+                "high": c + 1.0,
+                "low": c - 1.0,
                 "close": c,
                 "volume": 200_000,
             })
         ctx = self.det.classify(bars, spy_price=560.0, vix=20.0)
-        assert ctx.regime == "HIGH_VOL"
+        assert ctx.regime == "HIGH_VOL", (
+            f"Expected HIGH_VOL from ATR expansion, got {ctx.regime} "
+            f"(atr14={ctx.atr14:.4f})"
+        )
 
     def test_low_vol(self):
         """VIX < 12 AND ATR compressed < 0.5× median → LOW_VOL."""
-        # Start with normal ATR bars, then compress
-        bars = _make_bars(22, base_close=560.0, atr_factor=2.0)  # Normal
-        for i in range(8):
+        # Build bars where the first 22 have a normal-ish ATR (atr_factor=2.0),
+        # then the final bars are extremely compressed. ATR14 uses Wilder smoothing
+        # so we need many compressed bars to drag atr_last well below 0.5× median.
+        # Strategy: 22 bars with atr_factor=1.0 then 20 bars of near-zero range.
+        bars = _make_bars(22, base_close=560.0, atr_factor=1.0)
+        for i in range(20):
             c = 560.0
             bars.append({
-                "date": datetime(2026, 3, 30, 12, 0 + i * 5),
-                "open": c - 0.05,
-                "high": c + 0.05,
-                "low": c - 0.05,
+                "date": datetime(2026, 3, 30, 12, 0) + timedelta(minutes=i * 5),
+                "open": c,
+                "high": c + 0.01,
+                "low": c - 0.01,
                 "close": c,
                 "volume": 50_000,
             })
         ctx = self.det.classify(bars, spy_price=560.0, vix=10.0)
-        assert ctx.regime == "LOW_VOL"
+        assert ctx.regime == "LOW_VOL", (
+            f"Expected LOW_VOL (vix=10 < 12, compressed ATR), got {ctx.regime} "
+            f"(atr14={ctx.atr14:.4f})"
+        )
 
     def test_news_driven(self):
         """ATR blow-up > 2.5× recent median → NEWS_DRIVEN (highest priority)."""
@@ -792,33 +804,41 @@ class TestSignalEngineE2E:
 
     def test_pc_ratio_bearish(self):
         """P/C ratio > 1.8 → PC_RATIO_EXTREME (bearish)."""
-        # Heavy put volume, light call volume
-        calls = [_make_quote(strike=560.0, right="C", volume=1000, conid=6001)]
-        puts = [_make_quote(strike=560.0, right="P", volume=2500, conid=6002)]
+        # Heavy put volume, light call volume — need extreme ratio to push
+        # base confidence above min_confidence (0.70).
+        # base = min(0.62 + (pc - 1.8) * 0.05, 0.82)
+        # sent_boost = max(0.0, -sentiment/100) * 0.08
+        # P/C = 5000/600 ≈ 8.3 → base = 0.82, sent_boost = 0.064 → conf = 0.884
+        calls = [_make_quote(strike=560.0, right="C", volume=600, conid=6001)]
+        puts = [_make_quote(strike=560.0, right="P", volume=5000, conid=6002)]
 
         chain = self._build_chain(calls=calls, puts=puts)
-        # P/C = 2500/1000 = 2.5 > 1.8
         assert chain.put_call_ratio > 1.8
 
-        ctx = self._context(regime="TREND_DOWN", iv_rank=40.0, sentiment=-50.0)
+        ctx = self._context(regime="TREND_DOWN", iv_rank=40.0, sentiment=-80.0)
         signals = self.engine.evaluate(chain, ctx, self.sweep)
 
         pc = [s for s in signals if s.signal_type == SignalType.PC_RATIO_EXTREME]
         assert len(pc) >= 1, f"Expected PC_RATIO_EXTREME with P/C={chain.put_call_ratio:.2f}"
+        assert pc[0].right == "P", "Bearish P/C should produce put-side signal"
 
     def test_pc_ratio_bullish(self):
         """P/C ratio < 0.5 → PC_RATIO_EXTREME (bullish)."""
-        calls = [_make_quote(strike=560.0, right="C", volume=3000, conid=7001)]
-        puts = [_make_quote(strike=560.0, right="P", volume=800, conid=7002)]
+        # Extreme call dominance: P/C = 100/8000 = 0.0125
+        # base = min(0.60 + (0.5 - 0.0125) * 0.08, 0.80) = min(0.639, 0.80) = 0.639
+        # sent_boost = max(0.0, 90/100) * 0.08 = 0.072 → conf = 0.711 (above 0.70)
+        calls = [_make_quote(strike=560.0, right="C", volume=8000, conid=7001)]
+        puts = [_make_quote(strike=560.0, right="P", volume=100, conid=7002)]
 
         chain = self._build_chain(calls=calls, puts=puts)
         assert chain.put_call_ratio < 0.5
 
-        ctx = self._context(regime="TREND_UP", iv_rank=20.0, sentiment=60.0)
+        ctx = self._context(regime="TREND_UP", iv_rank=20.0, sentiment=90.0)
         signals = self.engine.evaluate(chain, ctx, self.sweep)
 
         pc = [s for s in signals if s.signal_type == SignalType.PC_RATIO_EXTREME]
-        assert len(pc) >= 1
+        assert len(pc) >= 1, f"Expected PC_RATIO_EXTREME with P/C={chain.put_call_ratio:.4f}"
+        assert pc[0].right == "C", "Bullish P/C should produce call-side signal"
 
     def test_min_confidence_filter(self):
         """Signals below 70% threshold should be dropped."""
