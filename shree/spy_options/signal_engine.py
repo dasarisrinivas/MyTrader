@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import html as _html
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Set
 
@@ -252,6 +253,35 @@ class SignalEngine:
                 except ValueError:
                     pass
 
+        # ── Dynamic confidence adjustment ─────────────────────────────────────
+        # Applied after event-risk modifier; updates confidence, tier, and stores
+        # the adjustment breakdown on the signal for logging / analytics.
+        for sig in signals:
+            adj = self._dyn.adjust(
+                base=sig.confidence,
+                right=sig.right,
+                dte=sig.dte,
+                ext_ctx=context.external,
+                ib_sentiment_score=context.sentiment.score,
+                vix=context.vix,
+            )
+            sig.confidence = adj.final
+            sig.confidence_tier = _tier(adj.final)
+            sig.dynamic_confidence_delta = adj.delta
+            sig.confidence_time_bucket = adj.time_bucket
+            sig.confidence_dte_rule = adj.dte_rule
+            sig.conflict_detected = adj.conflict_detected
+            if adj.conflict_detected:
+                sig.reasoning.append(
+                    f"⚡ Conflict: flow + sentiment + macro oppose signal direction "
+                    f"({adj.flow_factor}) — confidence adjusted {adj.delta:+.0%}"
+                )
+            elif abs(adj.delta) >= 0.05:
+                sig.reasoning.append(
+                    f"📊 Dynamic adj: {adj.delta:+.0%} "
+                    f"[{adj.time_bucket} | {adj.dte_rule} | {adj.flow_factor}]"
+                )
+
         filtered = [s for s in signals if s.confidence >= c.min_confidence]
         rejected = [s for s in signals if s.confidence < c.min_confidence]
         if rejected:
@@ -396,9 +426,15 @@ class SignalEngine:
             sig.news_score = ext.news_score
             sig.retail_score = ext.retail_score
             sig.macro_headwind = ext.macro_headwind
+            sig.macro_label = ext.macro_label
             sig.tnx_trend = ext.tnx_trend
             sig.dxy_trend = ext.dxy_trend
             sig.equity_pc = ext.equity_pc
+            # Flow confirmation
+            sig.flow_confirmation_score = ext.flow_score
+            sig.dark_pool_bias = ext.flow_dark_pool
+            sig.gex_bias = ext.flow_gex_bias
+            sig.intraday_pc_ratio = ext.flow_pc_ratio
         return sig
 
     # ── Rule implementations ──────────────────────────────────────────────────

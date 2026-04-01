@@ -88,7 +88,7 @@ class SpyOptionsManager:
         else:
             self._analytics = None
 
-        # External signals (news, social, macro, economic calendar)
+        # External signals (news, social, macro, flow, economic calendar)
         ext_cfg = cfg.external
         if ext_cfg.enabled:
             self._external: Optional[ExternalDataManager] = ExternalDataManager(
@@ -99,6 +99,9 @@ class SpyOptionsManager:
                 reddit_ttl_minutes=ext_cfg.reddit_ttl_minutes,
                 stocktwits_ttl_minutes=ext_cfg.stocktwits_ttl_minutes,
                 event_risk_window_minutes=ext_cfg.event_risk_window_minutes,
+                flow_ttl_minutes=ext_cfg.flow_ttl_minutes,
+                flow_barchart_enabled=ext_cfg.flow_barchart_enabled,
+                flow_dark_pool_enabled=ext_cfg.flow_dark_pool_enabled,
             )
         else:
             self._external = None
@@ -389,14 +392,17 @@ class SpyOptionsManager:
                 logger.warning("External data refresh failed: {}", exc)
 
         logger.info(
-            "Poll: SPY={:.2f}  VIX={}  IVRank={:.0f}  Regime={}  Sentiment={:+.0f}({}){}",
+            "Poll: SPY={:.2f}  VIX={}  IVRank={:.0f}  Regime={}  Sentiment={:+.0f}({})"
+            "{}{}",
             spy_price,
             f"{vix:.1f}" if vix is not None else "n/a",
             iv_rank,
             regime_ctx.regime,
             sentiment_ctx.score,
             sentiment_ctx.label,
-            f"  ExtComposite={ext_ctx.composite_score:+.2f}" if ext_ctx else "",
+            f"  Ext={ext_ctx.composite_score:+.2f}" if ext_ctx else "",
+            f"  Flow={ext_ctx.flow_score:+.0f}  DP={ext_ctx.flow_dark_pool}"
+            if ext_ctx else "",
         )
 
         ctx = SignalContext(
@@ -736,29 +742,60 @@ class SpyOptionsManager:
             f"🧭 Sentiment: <b>{sig.sentiment_score:+.0f}</b> ({sig.sentiment_label})"
         )
 
-        # External signals block (only shown when data is available)
-        if sig.external_composite != 0.0 or sig.news_score != 0.0 or sig.retail_score != 0.0:
+        # ── External signals block ─────────────────────────────────────────────
+        has_ext = (
+            sig.external_composite != 0.0 or sig.news_score != 0.0
+            or sig.flow_confirmation_score != 0.0
+        )
+        if has_ext:
             ext_label = (
                 "BULLISH" if sig.external_composite > 0.15 else
                 "BEARISH" if sig.external_composite < -0.15 else
                 "NEUTRAL"
             )
             lines.append(
-                f"🌐 Ext Sentiment: <b>{sig.external_composite:+.2f}</b> ({ext_label})"
+                f"🌐 Ext Composite: <b>{sig.external_composite:+.2f}</b> ({ext_label})"
             )
-            if sig.news_score != 0.0:
-                news_tag = "📰 bullish" if sig.news_score > 0.05 else "📰 bearish" if sig.news_score < -0.05 else "📰 neutral"
-                lines.append(f"  {news_tag} news ({sig.news_score:+.3f})")
-            if sig.retail_score != 0.0:
-                bull_pct = getattr(sig, "bullish_pct", 0.0) if hasattr(sig, "bullish_pct") else 0.0
-                lines.append(f"  📱 StockTwits: {sig.retail_score:+.2f}")
-            if sig.macro_headwind != 0.0:
-                headwind_tag = "↑" if sig.macro_headwind < -0.1 else "↓" if sig.macro_headwind > 0.1 else "→"
+
+            # Options flow
+            if sig.flow_confirmation_score != 0.0:
+                flow_arrow = "🟢" if sig.flow_confirmation_score > 10 else "🔴" if sig.flow_confirmation_score < -10 else "🟡"
                 lines.append(
-                    f"  📉 Macro: TNX {sig.tnx_trend} | DXY {sig.dxy_trend} {headwind_tag}"
+                    f"  {flow_arrow} Flow: <b>{sig.flow_confirmation_score:+.0f}</b>"
+                    f"  GEX: {sig.gex_bias.replace('_', ' ')}"
                 )
+                if sig.dark_pool_bias != "NEUTRAL":
+                    dp_icon = "🏦↑" if sig.dark_pool_bias == "ACCUMULATION" else "🏦↓"
+                    lines.append(f"  {dp_icon} Dark Pool: <b>{sig.dark_pool_bias}</b>")
+                if sig.intraday_pc_ratio is not None:
+                    lines.append(f"  ⚖️ Intraday P/C: {sig.intraday_pc_ratio:.2f}")
+
+            # Macro
+            if sig.macro_headwind != 0.0 or sig.macro_label != "NEUTRAL":
+                hw_icon = "🔴" if "HEADWIND" in sig.macro_label else "🟢" if "TAILWIND" in sig.macro_label else "🟡"
+                lines.append(
+                    f"  {hw_icon} Macro: <b>{sig.macro_label}</b> "
+                    f"| TNX {sig.tnx_trend} | DXY {sig.dxy_trend}"
+                )
+
+            # News / social
+            if sig.news_score != 0.0:
+                news_icon = "📰+" if sig.news_score > 0.05 else "📰-" if sig.news_score < -0.05 else "📰~"
+                lines.append(f"  {news_icon} News: {sig.news_score:+.3f}")
+            if sig.retail_score != 0.0:
+                lines.append(f"  📱 StockTwits: {sig.retail_score:+.2f}")
             if sig.equity_pc is not None:
                 lines.append(f"  ⚖️ CBOE Equity P/C: {sig.equity_pc:.2f}")
+
+        # Dynamic confidence note (show when adjustment is meaningful)
+        if abs(sig.dynamic_confidence_delta) >= 0.03:
+            sign = "+" if sig.dynamic_confidence_delta > 0 else ""
+            lines.append(
+                f"⚙️ Dyn adj: <b>{sign}{sig.dynamic_confidence_delta:.0%}</b> "
+                f"[{sig.confidence_time_bucket} | {sig.confidence_dte_rule}]"
+            )
+        if sig.conflict_detected:
+            lines.append("⚡ <b>Conflicting signals detected</b> — reduced conviction")
 
         # Event risk warning
         if sig.event_risk:

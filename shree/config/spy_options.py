@@ -114,7 +114,7 @@ class SpyOptionsAnalyticsConfig:
 
 @dataclass
 class SpyOptionsExternalConfig:
-    """External signal sources (economic calendar, news, social, macro)."""
+    """External signal sources (economic calendar, news, social, macro, flow)."""
 
     enabled: bool = True
 
@@ -130,20 +130,25 @@ class SpyOptionsExternalConfig:
     stocktwits_enabled: bool = True
     stocktwits_ttl_minutes: float = 10.0
 
-    # Reddit sentiment (asyncpraw — requires credentials; disabled by default)
+    # Reddit enhanced sentiment (asyncpraw — full body+comments; disabled by default)
     reddit_enabled: bool = False
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
     reddit_ttl_minutes: float = 15.0
 
-    # Macro signals via yfinance (10Y yield, DXY, oil, gold — daily refresh)
+    # Macro signals via yfinance — daily EOD + 15-min intraday refresh
     macro_enabled: bool = True
 
     # CBOE P/C ratio daily CSV (free, no auth)
     cboe_enabled: bool = True
 
-    # External composite score impact on weighted confidence
-    # A strong composite score (±0.5+) adds/subtracts this to confidence
+    # Options flow confirmation (yfinance options chain, GEX, dark pool proxy)
+    flow_enabled: bool = True
+    flow_ttl_minutes: float = 10.0
+    flow_barchart_enabled: bool = True   # Attempt Barchart scrape (fails gracefully)
+    flow_dark_pool_enabled: bool = True  # Alpha Query dark pool + premium-skew proxy
+
+    # External composite score impact on weighted confidence (max ±5%)
     composite_confidence_boost: float = 0.05
 
 
