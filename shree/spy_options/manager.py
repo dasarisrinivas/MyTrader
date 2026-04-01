@@ -825,6 +825,29 @@ class SpyOptionsManager:
             for part in sig.suggested_trade.split("\n"):
                 lines.append(f"  {_html.escape(part)}")
 
+        # Exit trigger levels (only for directional signals)
+        direction = self._signal_direction(sig)
+        if direction in ("BULLISH", "BEARISH") and sig.spy_price:
+            entry_px = sig.spy_price
+            if direction == "BULLISH":
+                exit_05 = entry_px * (1 - 0.005)
+                exit_10 = entry_px * (1 - 0.010)
+                lines += [
+                    "",
+                    f"⚠️ Exit trigger: SPY ≤ ~${exit_05:,.2f} "
+                    f"(−0.5% from ${entry_px:.2f})",
+                    f"🔴 Urgent exit: SPY ≤ ~${exit_10:,.2f} (−1.0%)",
+                ]
+            else:  # BEARISH
+                exit_05 = entry_px * (1 + 0.005)
+                exit_10 = entry_px * (1 + 0.010)
+                lines += [
+                    "",
+                    f"⚠️ Exit trigger: SPY ≥ ~${exit_05:,.2f} "
+                    f"(+0.5% from ${entry_px:.2f})",
+                    f"🔴 Urgent exit: SPY ≥ ~${exit_10:,.2f} (+1.0%)",
+                ]
+
         lines += [
             "",
             "<i>⚠️ For informational purposes only. Not financial advice. "

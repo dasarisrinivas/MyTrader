@@ -543,6 +543,9 @@ After sending a directional entry signal, the bot monitors market conditions eve
   Bull Call Spread: Buy 565C / Sell 570C exp APR26
   Risk: Exit if SPY loses VWAP ($559.80) or VIX spikes
 
+⚠️ Exit trigger: SPY ≤ ~$559.59 (−0.5% from $562.40)
+🔴 Urgent exit: SPY ≤ ~$556.78 (−1.0%)
+
 ⚠️ For informational purposes only. Not financial advice.
 Options carry significant risk of loss.
 #SPY #Options #ShreeBot
