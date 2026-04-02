@@ -141,6 +141,7 @@ class DynamicConfidence:
         ib_sentiment_score: float = 0.0,  # IB sentiment -100 to +100
         vix: Optional[float] = None,
         now_et: Optional[datetime] = None,
+        regime: str = "RANGE_BOUND",      # current market regime
     ) -> ConfidenceAdjustment:
         """
         Args:
@@ -285,18 +286,20 @@ class DynamicConfidence:
             sent_directional = ib_sentiment_score  # -100..+100
             macro_directional = macro_hw * 100  # -100..+100
 
-            # Call signal: all 3 should be positive; penalise if majority oppose
+            # Call signal: all sources should be positive; penalise if majority oppose
             if right == "C":
                 opposing = sum([
                     flow_directional < -self._conflict_flow_thr,
                     sent_directional < -self._conflict_sent_thr,
                     macro_directional < -20,
+                    regime == "TREND_DOWN",  # regime opposes call signal
                 ])
             elif right == "P":
                 opposing = sum([
                     flow_directional > self._conflict_flow_thr,
                     sent_directional > self._conflict_sent_thr,
                     macro_directional > 20,
+                    regime == "TREND_UP",    # regime opposes put signal
                 ])
             else:
                 opposing = 0
@@ -409,8 +412,171 @@ class DynamicConfidence:
                 total_delta += opex_delta
                 breakdown["opex_gamma_env"] = round(opex_delta, 4)
 
+        # ── 13. Opening Range Breakout ────────────────────────────────────────
+        # The 30-min ORB is the most reliable intraday directional filter for SPY.
+        # A confirmed breakout above ORB strongly favours calls; below favours puts.
+        # Signals fired while price is INSIDE the ORB (range-bound) are penalised.
+        if ext_ctx is not None and hasattr(ext_ctx, "orb_established"):
+            orb_delta = 0.0
+            orb_status = getattr(ext_ctx, "orb_status", "BUILDING")
+            orb_confirmed = getattr(ext_ctx, "orb_breakout_confirmed", False)
+
+            if orb_status == "ABOVE_ORB" and orb_confirmed:
+                if right == "C":
+                    orb_delta = 0.05   # confirmed ORB breakout → strong call bias
+                elif right == "P":
+                    orb_delta = -0.05  # fading ORB breakout = lower probability
+            elif orb_status == "BELOW_ORB" and orb_confirmed:
+                if right == "P":
+                    orb_delta = 0.05   # confirmed ORB breakdown → strong put bias
+                elif right == "C":
+                    orb_delta = -0.05  # fading ORB breakdown = lower probability
+            elif orb_status == "INSIDE" and getattr(ext_ctx, "orb_established", False):
+                # Price stuck inside ORB after 10:00 ET → range-bound; avoid direction
+                if right in ("C", "P"):
+                    orb_delta = -0.03
+            # BUILDING: ORB not yet established — no adjustment
+
+            if orb_delta != 0:
+                total_delta += orb_delta
+                breakdown["orb"] = round(orb_delta, 4)
+
+        # ── 14. VWAP band exhaustion ──────────────────────────────────────────
+        # SPY at ±2σ VWAP is statistically stretched — mean-reversion more likely
+        # than continuation.  Fade trades warrant a boost; continuation a penalty.
+        if ext_ctx is not None and hasattr(ext_ctx, "vwap_band_position"):
+            band_pos = ext_ctx.vwap_band_position
+            band_delta = 0.0
+
+            if band_pos == "ABOVE_2SD":
+                if right == "P":
+                    band_delta = 0.05   # at extreme extension → fade is valid
+                elif right == "C":
+                    band_delta = -0.06  # chasing an already-stretched move is dangerous
+            elif band_pos == "BELOW_2SD":
+                if right == "C":
+                    band_delta = 0.05
+                elif right == "P":
+                    band_delta = -0.06
+            elif band_pos == "ABOVE_1SD":
+                if right == "P":
+                    band_delta = 0.02   # mild fade bias
+                elif right == "C":
+                    band_delta = -0.02
+            elif band_pos == "BELOW_1SD":
+                if right == "C":
+                    band_delta = 0.02
+                elif right == "P":
+                    band_delta = -0.02
+
+            if band_delta != 0:
+                total_delta += band_delta
+                breakdown["vwap_band"] = round(band_delta, 4)
+
+        # ── 15. Expected Daily Range (EDR) exhaustion ─────────────────────────
+        # When SPY has already consumed ≥85% of its VIX-implied expected daily
+        # range, the probability of meaningful continuation shrinks sharply.
+        # This is the most common 0DTE afternoon over-trade mistake.
+        if ext_ctx is not None and hasattr(ext_ctx, "edr_used_pct"):
+            edr_used = ext_ctx.edr_used_pct
+            edr_delta = 0.0
+            if edr_used >= 120:
+                # Extreme extension — heavy penalty for continuation
+                if right in ("C", "P"):
+                    edr_delta = -0.08
+            elif edr_used >= 85:
+                # Exhausted — moderate penalty for directional
+                if right in ("C", "P"):
+                    edr_delta = -0.05
+            elif edr_used >= 60:
+                # Getting stretched — mild caution
+                if right in ("C", "P"):
+                    edr_delta = -0.02
+
+            if edr_delta != 0:
+                total_delta += edr_delta
+                breakdown["edr_exhaustion"] = round(edr_delta, 4)
+
+        # ── 16. RSI divergence and overbought/oversold ────────────────────────
+        # RSI divergence on the 5-min chart is a reliable early reversal warning,
+        # especially when combined with VWAP band extremes or ORB fades.
+        if ext_ctx is not None and hasattr(ext_ctx, "rsi_divergence"):
+            rsi_div = ext_ctx.rsi_divergence
+            rsi_5m  = getattr(ext_ctx, "rsi_5m", 50.0)
+            rsi_ob  = getattr(ext_ctx, "rsi_overbought", False)
+            rsi_os  = getattr(ext_ctx, "rsi_oversold", False)
+            rsi_delta = 0.0
+
+            if rsi_div == "BEARISH_DIV":
+                if right == "P":
+                    rsi_delta = 0.05   # divergence confirms the put thesis
+                elif right == "C":
+                    rsi_delta = -0.05  # divergence contradicts the call
+            elif rsi_div == "BULLISH_DIV":
+                if right == "C":
+                    rsi_delta = 0.05
+                elif right == "P":
+                    rsi_delta = -0.05
+            else:
+                # No divergence, but extreme RSI values still matter
+                if rsi_ob and right == "P":
+                    rsi_delta = 0.02   # overbought + put = slight boost
+                elif rsi_ob and right == "C":
+                    rsi_delta = -0.02  # overbought momentum already baked in
+                elif rsi_os and right == "C":
+                    rsi_delta = 0.02
+                elif rsi_os and right == "P":
+                    rsi_delta = -0.02
+
+            if rsi_delta != 0:
+                total_delta += rsi_delta
+                breakdown["rsi"] = round(rsi_delta, 4)
+
+        # ── 17. Pivot point proximity ─────────────────────────────────────────
+        # Floor-Trader pivot levels (PP, R1, R2, S1, S2) are key intraday support
+        # and resistance. SPY exhibits measurable mean-reversion at these levels.
+        if ext_ctx is not None and getattr(ext_ctx, "near_pivot", False):
+            pivot_bias  = getattr(ext_ctx, "pivot_bias", "NEUTRAL")
+            pivot_delta = 0.0
+
+            if pivot_bias == "AT_RESISTANCE":
+                if right == "P":
+                    pivot_delta = 0.03   # natural ceiling → puts have edge
+                elif right == "C":
+                    pivot_delta = -0.04  # buying into resistance is low-probability
+            elif pivot_bias == "AT_SUPPORT":
+                if right == "C":
+                    pivot_delta = 0.03   # natural floor → calls have edge
+                elif right == "P":
+                    pivot_delta = -0.04  # shorting at support is low-probability
+            elif pivot_bias == "AT_PIVOT":
+                # At PP exactly: direction could go either way — reduce conviction
+                if right in ("C", "P"):
+                    pivot_delta = -0.02
+
+            if pivot_delta != 0:
+                total_delta += pivot_delta
+                breakdown["pivot"] = round(pivot_delta, 4)
+
+        # ── 18. Max pain proximity ────────────────────────────────────────────
+        # When SPY is near the max pain strike (options market-maker pinning target),
+        # strong directional moves become less likely — especially 0DTE after noon.
+        # Straddle/neutral signals are unaffected.
+        if ext_ctx is not None and getattr(ext_ctx, "near_max_pain", False):
+            mp_delta = 0.0
+            if dte == 0 and right in ("C", "P"):
+                mp_delta = -0.06   # 0DTE near max pain = strong pin risk
+            elif dte <= 2 and right in ("C", "P"):
+                mp_delta = -0.03   # short-dated options still affected
+            if mp_delta != 0:
+                total_delta += mp_delta
+                breakdown["max_pain"] = round(mp_delta, 4)
+
         # ── Finalise ─────────────────────────────────────────────────────────
-        final = max(0.0, min(1.0, base + total_delta))
+        # Hard cap at 0.95 — no signal should ever reach 100% confidence.
+        # This preserves uncertainty and prevents over-conviction from
+        # stacking additive adjustments on an already-high base.
+        final = max(0.0, min(0.95, base + total_delta))
         breakdown["base"] = round(base, 4)
         breakdown["total_delta"] = round(total_delta, 4)
 

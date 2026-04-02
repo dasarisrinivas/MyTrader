@@ -5,11 +5,13 @@
 Every 60 seconds during market hours (9:35–3:45 ET), the bot:
 1. Fetches SPY price, VIX, 5-minute bars, and option chain data from IB Gateway
 2. Classifies the market regime and scores IB-based sentiment
-3. Refreshes external signals (news, options flow, macro, social, economic calendar)
-4. Fetches Greeks (delta, gamma, theta, vega, IV) for every tracked contract
-5. Runs a weighted confidence model with dynamic time-of-day / DTE adjustments
-6. Sends Telegram entry alerts — **no trades placed, ever**
-7. Monitors active signals and sends EXIT alerts when the thesis breaks down
+3. Computes intraday technical levels (ORB, VWAP bands, pivot points, EDR, RSI)
+4. Refreshes external signals (news, options flow, macro, social, economic calendar)
+5. Fetches Greeks (delta, gamma, theta, vega, IV) for every tracked contract
+6. Computes max pain strike from live chain OI (0DTE pinning target)
+7. Runs a weighted confidence model with dynamic time-of-day / DTE adjustments
+8. Sends Telegram entry alerts — **no trades placed, ever**
+9. Monitors active signals and sends EXIT alerts when the thesis breaks down
 
 ---
 
@@ -18,11 +20,17 @@ Every 60 seconds during market hours (9:35–3:45 ET), the bot:
 ```
 1.  Fetch SPY price          (IB streaming — persistent subscription, not re-fetched)
 2.  Fetch VIX                (IB snapshot)
-3.  Fetch SPY 5-min bars     (IB historical — regime + sentiment inputs)
+3.  Fetch SPY 5-min bars     (IB historical — regime + sentiment + tech-level inputs)
 4.  Classify market regime   (EMA9/21, ATR14, VWAP — pure math on bar data)
 5.  Score IB sentiment       (VIX trend + VWAP position + EMA slope)
 6.  Compute IV rank          (VIX vs 52-week range, cached at startup)
-7.  Refresh external signals (TTL-gated — most sources don't refetch every 60s)
+7.  Compute technical levels (pure Python, zero network calls — every poll)
+    a. Opening Range Breakout (ORB)   — 30-min session high/low; breakout/breakdown status
+    b. VWAP std-dev bands             — ±1σ / ±2σ volume-weighted extension zones
+    c. Daily pivot points             — PP, R1, R2, S1, S2 (Floor-Trader, prior session)
+    d. Expected Daily Range (EDR)     — VIX-implied 1-σ range; exhaustion % consumed
+    e. RSI (5-min) + divergence       — overbought/oversold; bearish/bullish divergence
+8.  Refresh external signals (TTL-gated — most sources don't refetch every 60s)
     a. Economic calendar     (Forex Factory JSON — daily refresh)
     b. News RSS sentiment    (Yahoo/MarketWatch/CNBC/Reuters + VADER — 10-min TTL)
     c. StockTwits retail     (free public API — 10-min TTL)
@@ -30,17 +38,18 @@ Every 60 seconds during market hours (9:35–3:45 ET), the bot:
     e. Macro signals         (yfinance: TNX, DXY, VIX, oil, gold — daily + 15-min intraday)
     f. CBOE P/C ratio        (daily CSV — daily refresh)
     g. Options flow confirm  (yfinance options chain → unusual activity, GEX, dark pool)
-8.  For each of 2 expiries:
+9.  For each of 2 expiries:
     a. Resolve option conids (cached after day 1)
     b. Fetch price + Greeks  (streaming subscription, explicit cancel after read)
     c. Apply liquidity filter (OI ≥ 100, spread < 8%, volume ≥ 50)
-    d. Run signal engine     (7 signal types, weighted confidence model)
-    e. Apply event risk      (−30% directional near High-impact event, +10% straddle)
-    f. Apply dynamic conf.   (time-of-day, DTE, flow alignment, conflict detection)
-9.  Deduplicate signals      (90-min window per strike/type/expiry)
-10. Send Telegram entry alerts
-11. Persist to SQLite analytics DB
-12. Check active signals → send EXIT alerts if price/regime conditions reverse
+    d. Compute max pain      (from IB chain OI — first expiry only; 0DTE pin target)
+    e. Run signal engine     (8 signal types, weighted confidence model)
+    f. Apply event risk      (−30% directional near High-impact event, +10% straddle)
+    g. Apply dynamic conf.   (time-of-day, DTE, flow, ORB, VWAP bands, EDR, RSI, pivots)
+10. Deduplicate signals      (90-min window per strike/type/expiry)
+11. Send Telegram entry alerts
+12. Persist to SQLite analytics DB
+13. Check active signals → send EXIT alerts if price/regime conditions reverse
 ```
 
 ---
@@ -281,12 +290,128 @@ The following sources are **not included in the composite score** but directly a
 | Volatility term structure | −5% (backwardation), +2% (contango); −3% if VVIX elevated |
 | Overnight context | +3% breaking range high/low; −2% trading against range |
 | OPEX gamma environment | −3% (PINNING), +2% (EXPANSIVE) |
+| **ORB breakout** | ±5% confirmed breakout/breakdown direction |
+| **VWAP bands** | ±2–6% based on extension zone (±2σ = strongest) |
+| **EDR exhaustion** | −2% to −8% when VIX-implied range is consumed |
+| **RSI divergence** | ±5% when price/RSI diverge; ±2% for overbought/oversold |
+| **Pivot proximity** | ±3–4% at R1/R2/S1/S2; −2% at PP |
+| **Max pain** | −3% to −6% when near pin target (0DTE strongest) |
+
+---
+
+## Intraday Technical Levels (TechnicalLevelsTracker)
+
+Pure Python computation from the 5-minute IB bars — zero network calls, zero latency. Computed every poll cycle and injected into `ExternalContext` before signals are evaluated.
+
+### 1. Opening Range Breakout (ORB)
+
+The single most-watched SPY intraday reference. Institutional desks and systematic traders use the first 30-minute range (9:30–10:00 ET) as the primary directional filter.
+
+| Field | Description |
+|---|---|
+| `orb_high` / `orb_low` | High/low of the 9:30–10:00 ET session |
+| `orb_established` | True once the 10:00 ET build window closes |
+| `orb_status` | `BUILDING` / `INSIDE` / `ABOVE_ORB` / `BELOW_ORB` |
+| `orb_breakout_confirmed` | Price closed outside range for ≥1 bar |
+| `orb_width_pct` | Range width as % of SPY price (tight < 0.20% = reliable) |
+
+**Confidence effect**: Confirmed breakout above ORB → +5% for calls, −5% for puts. Confirmed breakdown → +5% for puts, −5% for calls. Price stuck inside ORB after 10:00 ET → −3% for all directional signals.
+
+### 2. VWAP Standard Deviation Bands
+
+Volume-weighted standard deviation computed from the full session's bar data. SPY rarely sustains above ±2σ — these are fade zones, not continuation zones.
+
+| Band Position | Meaning | Effect |
+|---|---|---|
+| `ABOVE_2SD` | Stretched above normal range | +5% puts / −6% calls |
+| `ABOVE_1SD` | Elevated | +2% puts / −2% calls |
+| `INSIDE_1SD` | Normal range | No adjustment |
+| `BELOW_1SD` | Depressed | +2% calls / −2% puts |
+| `BELOW_2SD` | Stretched below normal range | +5% calls / −6% puts |
+
+### 3. Daily Pivot Points (Floor-Trader Formula)
+
+Computed from the prior session's high, low, and close. SPY exhibits measurable mean-reversion at these levels intraday.
+
+```
+PP = (prev_high + prev_low + prev_close) / 3
+R1 = 2×PP − prev_low       R2 = PP + (prev_high − prev_low)
+S1 = 2×PP − prev_high      S2 = PP − (prev_high − prev_low)
+```
+
+**Proximity threshold**: 0.3% of SPY price or $1.50, whichever is larger.
+
+**Confidence effect**:
+- At R1/R2 (resistance) + call signal → −4% (buying into resistance)
+- At R1/R2 + put signal → +3% (natural ceiling)
+- At S1/S2 (support) + put signal → −4% (shorting at support)
+- At S1/S2 + call signal → +3% (natural floor)
+- At PP exactly → −2% (direction undecided)
+
+### 4. Expected Daily Range (EDR) Exhaustion
+
+VIX implies a 1-σ expected intraday range for SPY. When most of that range is already consumed, fade signals are more likely than continuation signals. This is the most common 0DTE afternoon over-trade mistake.
+
+```
+EDR (points) = VIX / √252 / 100 × SPY_price
+EDR used %   = max(high − open, open − low) / EDR × 100
+```
+
+**Confidence effect**:
+
+| EDR consumed | Effect on directional signals |
+|---|---|
+| ≥ 120% (extreme extension) | −8% |
+| ≥ 85% (exhausted) | −5% |
+| ≥ 60% (getting stretched) | −2% |
+| < 60% | No adjustment |
+
+### 5. RSI (5-min) with Divergence Detection
+
+14-period Wilder RSI computed on the 5-minute close series. Divergence detection compares price direction vs RSI direction over the last 8 bars.
+
+**Divergence rules**:
+- **Bearish divergence**: price making higher highs but RSI not following — only flagged when RSI is still elevated (> 55 now, > 60 at lookback start)
+- **Bullish divergence**: price making lower lows but RSI recovering — only flagged when RSI is still depressed (< 45 now, < 40 at lookback start)
+
+**Confidence effect**:
+
+| Condition | Effect |
+|---|---|
+| Bearish divergence + put signal | +5% |
+| Bearish divergence + call signal | −5% |
+| Bullish divergence + call signal | +5% |
+| Bullish divergence + put signal | −5% |
+| RSI overbought (≥70) + put | +2% |
+| RSI oversold (≤30) + call | +2% |
+
+### 6. Max Pain Strike
+
+Computed from the live IB options chain open interest every poll cycle (first available expiry). Max pain is the closing price where total option-buyer losses are maximised — the pinning target for market makers.
+
+```
+pain(K) = Σ_calls(max(S − K, 0) × OI[S]) + Σ_puts(max(K − S, 0) × OI[S])
+max_pain = K that minimises pain(K)
+```
+
+**Near max pain**: SPY within $1.50 of the max pain strike.
+
+**Confidence effect**:
+
+| Condition | Effect |
+|---|---|
+| Near max pain + 0DTE directional | −6% |
+| Near max pain + 1–2 DTE directional | −3% |
 
 ---
 
 ## Dynamic Confidence Engine
 
 After the base confidence model (10 components) and event-risk modifier, a second layer of adjustments is applied that adapts to:
+
+> **Adjustment blocks 1–12** cover time-of-day, DTE, flow alignment, macro environment, event risk, conflict detection, market breadth, sector leadership, gamma walls, volatility term structure, overnight context, and OPEX gamma environment — all described below.
+>
+> **Adjustment blocks 13–18** are the new intraday technical level adjustments added in the April 2026 update.
 
 ### Time of Day (ET)
 
@@ -325,7 +450,12 @@ After the base confidence model (10 components) and event-risk modifier, a secon
 
 ### Conflict Detection
 
-If **2 or more** of flow score, IB sentiment, and macro headwind all oppose the signal direction → confidence −8% with `conflict_detected=True`.
+If **2 or more** of the following four sources oppose the signal direction → confidence −8% with `conflict_detected=True`:
+
+1. **Flow score** (opposing flow > ±20)
+2. **IB sentiment** (opposing sentiment > ±20)
+3. **Macro headwind** (opposing macro > ±0.20)
+4. **Market regime** (TREND_DOWN opposes calls; TREND_UP opposes puts)
 
 ### Market Breadth Adjustment
 
@@ -378,6 +508,62 @@ If **2 or more** of flow score, IB sentiment, and macro headwind all oppose the 
 |---|---|
 | PINNING (opex week + positive GEX) | −3% for directional signals |
 | EXPANSIVE (short gamma or far from OPEX) | +2% for directional signals |
+
+### Opening Range Breakout Adjustment (Block 13)
+
+| Condition | Effect |
+|---|---|
+| ABOVE_ORB confirmed + call | +5% (breakout direction) |
+| ABOVE_ORB confirmed + put | −5% (fading breakout) |
+| BELOW_ORB confirmed + put | +5% |
+| BELOW_ORB confirmed + call | −5% |
+| INSIDE ORB (after 10:00 ET) + directional | −3% (range-bound) |
+
+### VWAP Band Exhaustion Adjustment (Block 14)
+
+| Condition | Effect |
+|---|---|
+| ABOVE_2SD + put (fade) | +5% |
+| ABOVE_2SD + call (chase) | −6% |
+| BELOW_2SD + call (fade) | +5% |
+| BELOW_2SD + put (chase) | −6% |
+| ABOVE_1SD / BELOW_1SD | ±2% (mild) |
+
+### EDR Exhaustion Adjustment (Block 15)
+
+| EDR consumed | Effect |
+|---|---|
+| ≥ 120% | −8% directional |
+| ≥ 85% | −5% directional |
+| ≥ 60% | −2% directional |
+
+### RSI Divergence Adjustment (Block 16)
+
+| Condition | Effect |
+|---|---|
+| Bearish divergence + put | +5% |
+| Bearish divergence + call | −5% |
+| Bullish divergence + call | +5% |
+| Bullish divergence + put | −5% |
+| RSI overbought + put (no divergence) | +2% |
+| RSI oversold + call (no divergence) | +2% |
+
+### Pivot Point Proximity Adjustment (Block 17)
+
+| Condition | Effect |
+|---|---|
+| At R1/R2 + put | +3% (natural ceiling) |
+| At R1/R2 + call | −4% (resistance) |
+| At S1/S2 + call | +3% (natural floor) |
+| At S1/S2 + put | −4% (support) |
+| At PP + directional | −2% (indecision) |
+
+### Max Pain Proximity Adjustment (Block 18)
+
+| Condition | Effect |
+|---|---|
+| Near max pain + 0DTE directional | −6% (pin risk) |
+| Near max pain + 1–2 DTE directional | −3% |
 
 ### Net Adjustment Tiers
 
@@ -433,7 +619,7 @@ A spike fires if: `delta ≥ 4× rolling_average` AND `delta ≥ 300 contracts`
 
 ---
 
-## The 7 Signal Types
+## The 8 Signal Types
 
 | Signal | Trigger | Best regime |
 |---|---|---|
@@ -444,10 +630,16 @@ A spike fires if: `delta ≥ 4× rolling_average` AND `delta ≥ 300 contracts`
 | **LONG STRADDLE** | Both call AND put spike simultaneously | Any (big move expected) |
 | **HIGH IV ALERT** | IV rank > 70 or VIX > 26 | HIGH_VOL / RANGE_BOUND |
 | **P/C RATIO EXTREME** | Chain put/call ratio > 1.8 or < 0.5 | Any |
+| **ORB BREAKOUT** | SPY closes outside 30-min opening range for ≥1 bar | TREND_UP / TREND_DOWN |
+
+**ORB BREAKOUT** fires once the 10:00 ET build window closes and price has confirmed a break above (→ call) or below (→ put) the range. Base confidence 72%, boosted by regime/sentiment/flow alignment and a tight ORB width. Monitored for EXIT alerts like all other directional signals.
 
 P/C confidence formula (tuned for 70% min threshold):
-- Bearish (P/C > 1.8): `0.70 + (pc − 1.8) × 0.10`, capped 0.90
-- Bullish (P/C < 0.5): `0.70 + (0.5 − pc) × 0.15`, capped 0.90
+- Bearish (P/C > 1.8): `base = 0.70 + (pc − 1.8) × 0.10` (base capped 0.90)
+- Bullish (P/C < 0.5): `base = 0.70 + (0.5 − pc) × 0.15` (base capped 0.90)
+- Sentiment adjustment: opposing sentiment penalises (up to −10%), aligned boosts (+8%)
+- Regime gate: TREND_UP opposes puts (−12%), TREND_DOWN opposes calls (−12%)
+- Final: `min(0.95, base + sent_adj + regime_adj)` — hard cap prevents 100% signals
 
 ---
 
@@ -470,13 +662,15 @@ P/C confidence formula (tuned for 70% min threshold):
 
 Then **event risk** modifier → **dynamic confidence** adjustment → **threshold filter** at 70%.
 
+> **Hard cap: 95%.** No signal can ever reach 100% confidence. Both the base PC_RATIO formula (capped at 0.90) and the dynamic confidence finaliser (`min(0.95, …)`) enforce this ceiling. This preserves uncertainty and prevents over-conviction from stacking additive adjustments.
+
 **Confidence tiers:**
 
 | Score | Tier | Meaning |
 |---|---|---|
 | 70–79% | MEDIUM | Worth watching |
 | 80–89% | ★ HIGH | Strong signal |
-| 90%+ | ★★ EXTREME ★★ | Multiple confirming factors |
+| 90–95% | ★★ EXTREME ★★ | Multiple confirming factors (hard cap at 95%) |
 
 ---
 
@@ -484,7 +678,7 @@ Then **event risk** modifier → **dynamic confidence** adjustment → **thresho
 
 After sending a directional entry signal, the bot monitors market conditions every poll cycle.
 
-**Monitored signals**: CALL_SWEEP, PUT_SWEEP, BULL_CALL_SPREAD, BEAR_PUT_SPREAD, PC_RATIO_EXTREME
+**Monitored signals**: CALL_SWEEP, PUT_SWEEP, BULL_CALL_SPREAD, BEAR_PUT_SPREAD, PC_RATIO_EXTREME, ORB_BREAKOUT
 
 **Three independent triggers** (any one fires the EXIT alert):
 
@@ -625,6 +819,14 @@ Schema migrations applied automatically on startup — existing databases are up
 | Exit price threshold | 0.5% adverse | manager hardcoded |
 | Exit urgent threshold | 1.0% adverse | manager hardcoded |
 | Signal max age | 6 hours | manager hardcoded |
+| ORB build window | 9:30–10:00 ET (30 min) | TechnicalLevelsTracker hardcoded |
+| ORB breakout confirm | ≥1 bar closed outside range | TechnicalLevelsTracker hardcoded |
+| VWAP band SD | volume-weighted 1σ / 2σ | TechnicalLevelsTracker hardcoded |
+| Pivot proximity threshold | 0.3% or $1.50 (whichever larger) | TechnicalLevelsTracker hardcoded |
+| EDR exhaustion threshold | 85% of VIX-implied range | TechnicalLevelsTracker hardcoded |
+| RSI period (5-min) | 14 | TechnicalLevelsTracker hardcoded |
+| RSI divergence lookback | 8 bars (40 min) | TechnicalLevelsTracker hardcoded |
+| Max pain proximity | $1.50 | manager hardcoded |
 
 ---
 
@@ -633,6 +835,7 @@ Schema migrations applied automatically on startup — existing databases are up
 | Source | Data | Requires | Refresh |
 |---|---|---|---|
 | IB Gateway (ib_insync) | SPY price, VIX, bars, Greeks | IB account + Gateway | Every 60s |
+| TechnicalLevelsTracker | ORB, VWAP bands, pivots, EDR, RSI, max pain | Nothing (pure Python) | Every 60s (instant) |
 | yfinance options chain | SPY options flow, GEX, gamma walls, unusual activity | Nothing | 10 min |
 | yfinance sector ETFs | 11-sector breadth ratio, up/down vol proxy | Nothing | 10 min |
 | yfinance sector leaders | XLK/XLF/SMH/IWM/QQQ vs open, gap, overnight range, ES premium | Nothing | 10 min |

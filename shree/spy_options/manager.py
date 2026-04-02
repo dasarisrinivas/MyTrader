@@ -33,6 +33,7 @@ from .regime_detector import RegimeContext, RegimeDetector
 from .sentiment_engine import SentimentContext, SentimentEngine
 from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal
 from .sweep_tracker import SweepTracker
+from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 
 ET = ZoneInfo("America/New_York")
 
@@ -128,6 +129,22 @@ class SpyOptionsManager:
         self._conid_map: Dict[tuple, int] = {}
         self._conid_details: Dict[int, tuple] = {}
 
+        # Technical levels tracker (ORB, VWAP bands, pivots, EDR, RSI)
+        self._tech_tracker = TechnicalLevelsTracker()
+
+        # Last-poll technical levels cache (read by Telegram formatter)
+        self._last_orb_status: str = "BUILDING"
+        self._last_orb_high: Optional[float] = None
+        self._last_orb_low: Optional[float] = None
+        self._last_vwap_band: str = "INSIDE_1SD"
+        self._last_edr_pct: float = 0.0
+        self._last_rsi_5m: float = 50.0
+        self._last_rsi_div: str = "NONE"
+        self._last_pivot_nearest: Optional[str] = None
+        self._last_pivot_bias: Optional[str] = None
+        self._last_max_pain: Optional[float] = None
+        self._last_near_max_pain: bool = False
+
         # VIX history for sentiment engine (rolling, newest last)
         self._vix_history: Deque[float] = deque(maxlen=10)
 
@@ -205,6 +222,7 @@ class SpyOptionsManager:
             self._sent_times.clear()
             self._tracker.reset()
             self._sweep_tracker.reset()
+            self._tech_tracker.reset()
             self._conid_map.clear()
             self._conid_details.clear()
             self._vix_history.clear()
@@ -382,6 +400,9 @@ class SpyOptionsManager:
             regime=regime_ctx,
         )
 
+        # Compute intraday technical levels from bars (ORB, VWAP bands, pivots, EDR, RSI)
+        tech_levels = self._tech_tracker.update(bars_5m, spy_price, vix)
+
         # Refresh external signals (TTL-gated; most sources won't re-fetch every 60s)
         ext_ctx = None
         if self._external is not None:
@@ -390,6 +411,50 @@ class SpyOptionsManager:
                 ext_ctx = self._external.context
             except Exception as exc:
                 logger.warning("External data refresh failed: {}", exc)
+
+        # Inject technical levels into external context (create a stub if needed)
+        if ext_ctx is None:
+            from .external.composite import ExternalContext
+            ext_ctx = ExternalContext()
+        ext_ctx.orb_high              = tech_levels.orb_high
+        ext_ctx.orb_low               = tech_levels.orb_low
+        ext_ctx.orb_established       = tech_levels.orb_established
+        ext_ctx.orb_width_pct         = tech_levels.orb_width_pct
+        ext_ctx.orb_status            = tech_levels.orb_status
+        ext_ctx.orb_breakout_confirmed = tech_levels.orb_breakout_confirmed
+        ext_ctx.vwap_1sd_upper        = tech_levels.vwap_1sd_upper
+        ext_ctx.vwap_1sd_lower        = tech_levels.vwap_1sd_lower
+        ext_ctx.vwap_2sd_upper        = tech_levels.vwap_2sd_upper
+        ext_ctx.vwap_2sd_lower        = tech_levels.vwap_2sd_lower
+        ext_ctx.vwap_band_position    = tech_levels.vwap_band_position
+        ext_ctx.pivot_pp              = tech_levels.pivot_pp
+        ext_ctx.pivot_r1              = tech_levels.pivot_r1
+        ext_ctx.pivot_r2              = tech_levels.pivot_r2
+        ext_ctx.pivot_s1              = tech_levels.pivot_s1
+        ext_ctx.pivot_s2              = tech_levels.pivot_s2
+        ext_ctx.near_pivot            = tech_levels.near_pivot
+        ext_ctx.pivot_nearest         = tech_levels.pivot_nearest
+        ext_ctx.pivot_bias            = tech_levels.pivot_bias
+        ext_ctx.edr_points            = tech_levels.edr_points
+        ext_ctx.edr_used_pct          = tech_levels.edr_used_pct
+        ext_ctx.edr_exhausted         = tech_levels.edr_exhausted
+        ext_ctx.rsi_5m                = tech_levels.rsi_5m
+        ext_ctx.rsi_overbought        = tech_levels.rsi_overbought
+        ext_ctx.rsi_oversold          = tech_levels.rsi_oversold
+        ext_ctx.rsi_divergence        = tech_levels.rsi_divergence
+
+        # Cache for Telegram formatter (which only receives the signal, not ext_ctx)
+        self._last_orb_status     = tech_levels.orb_status
+        self._last_orb_high       = tech_levels.orb_high
+        self._last_orb_low        = tech_levels.orb_low
+        self._last_vwap_band      = tech_levels.vwap_band_position
+        self._last_edr_pct        = tech_levels.edr_used_pct
+        self._last_rsi_5m         = tech_levels.rsi_5m
+        self._last_rsi_div        = tech_levels.rsi_divergence
+        self._last_pivot_nearest  = tech_levels.pivot_nearest if tech_levels.near_pivot else None
+        self._last_pivot_bias     = tech_levels.pivot_bias if tech_levels.near_pivot else None
+        self._last_max_pain       = None        # will be set after chain build
+        self._last_near_max_pain  = False
 
         logger.info(
             "Poll: SPY={:.2f}  VIX={}  IVRank={:.0f}  Regime={}  Sentiment={:+.0f}({})"
@@ -403,6 +468,20 @@ class SpyOptionsManager:
             f"  Ext={ext_ctx.composite_score:+.2f}" if ext_ctx else "",
             f"  Flow={ext_ctx.flow_score:+.0f}  DP={ext_ctx.flow_dark_pool}"
             if ext_ctx else "",
+        )
+        # Log technical levels summary
+        _orb_tag = (
+            f"ORB={tech_levels.orb_status}"
+            + (f"({tech_levels.orb_high:.2f}/{tech_levels.orb_low:.2f})"
+               if tech_levels.orb_high else "")
+        )
+        _vwap_tag = f"VWAP_band={tech_levels.vwap_band_position}"
+        _edr_tag  = f"EDR={tech_levels.edr_used_pct:.0f}%{'[EXHAUSTED]' if tech_levels.edr_exhausted else ''}"
+        _rsi_tag  = f"RSI5m={tech_levels.rsi_5m:.0f}{'' if tech_levels.rsi_divergence == 'NONE' else f'[{tech_levels.rsi_divergence}]'}"
+        _pvt_tag  = f"Pivot={tech_levels.pivot_nearest or 'none'}" if tech_levels.near_pivot else ""
+        logger.info(
+            "TechLevels: {}  {}  {}  {}  {}",
+            _orb_tag, _vwap_tag, _edr_tag, _rsi_tag, _pvt_tag,
         )
 
         ctx = SignalContext(
@@ -421,6 +500,7 @@ class SpyOptionsManager:
         ]
 
         all_signals: List[SpySignal] = []
+        max_pain_computed = False   # compute once from the first available chain
         for expiry in expiry_months:
             chain = await self._build_chain(spy_conid, spy_price, expiry)
             if chain:
@@ -431,6 +511,27 @@ class SpyOptionsManager:
                     len(chain.puts), chain.total_put_volume,
                     f"{chain.put_call_ratio:.2f}" if chain.put_call_ratio else "n/a",
                 )
+
+                # Compute max pain from the first available chain and inject into ctx
+                if not max_pain_computed:
+                    call_oi = {q.strike: q.open_interest for q in chain.calls if q.open_interest > 0}
+                    put_oi  = {q.strike: q.open_interest for q in chain.puts  if q.open_interest > 0}
+                    strikes = sorted(set(list(call_oi) + list(put_oi)))
+                    mp = compute_max_pain(strikes, call_oi, put_oi)
+                    if mp is not None:
+                        ctx.external.max_pain_strike = mp
+                        dist = abs(spy_price - mp)
+                        ctx.external.max_pain_distance = round(dist, 2)
+                        ctx.external.near_max_pain = dist <= 1.50
+                        self._last_max_pain      = mp
+                        self._last_near_max_pain = ctx.external.near_max_pain
+                        logger.info(
+                            "Max pain: ${:.2f}  SPY=${:.2f}  dist={:.2f}{}",
+                            mp, spy_price, dist,
+                            "  [NEAR MAX PAIN]" if ctx.external.near_max_pain else "",
+                        )
+                    max_pain_computed = True
+
                 all_signals.extend(self._engine.evaluate(chain, ctx, self._sweep_tracker))
             else:
                 logger.info("Chain {}: empty (all options filtered out or no conids)", expiry)
@@ -463,7 +564,7 @@ class SpyOptionsManager:
             if sig.signal_type in {
                 SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
                 SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
-                SignalType.PC_RATIO_EXTREME,
+                SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT,
             }:
                 self._active_signals[key] = {
                     "signal": sig,
@@ -481,6 +582,7 @@ class SpyOptionsManager:
     _BEARISH_SIGNALS = {
         SignalType.PUT_SWEEP, SignalType.BEAR_PUT_SPREAD,
     }
+    # ORB_BREAKOUT direction is determined by the .right field (C=bullish, P=bearish)
 
     @staticmethod
     def _signal_direction(sig: SpySignal) -> str:
@@ -489,8 +591,8 @@ class SpyOptionsManager:
             return "BULLISH"
         if sig.signal_type in SpyOptionsManager._BEARISH_SIGNALS:
             return "BEARISH"
-        # PC_RATIO_EXTREME: direction depends on which side triggered
-        if sig.signal_type == SignalType.PC_RATIO_EXTREME:
+        # PC_RATIO_EXTREME and ORB_BREAKOUT: direction determined by .right field
+        if sig.signal_type in (SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT):
             return "BEARISH" if sig.right == "P" else "BULLISH"
         return "NEUTRAL"
 
@@ -659,6 +761,7 @@ class SpyOptionsManager:
         SignalType.LONG_STRADDLE:    "⚡",
         SignalType.HIGH_IV_ALERT:    "📈",
         SignalType.PC_RATIO_EXTREME: "⚖️",
+        SignalType.ORB_BREAKOUT:     "📐",
     }
 
     _TIER_LABEL = {
@@ -786,6 +889,41 @@ class SpyOptionsManager:
                 lines.append(f"  📱 StockTwits: {sig.retail_score:+.2f}")
             if sig.equity_pc is not None:
                 lines.append(f"  ⚖️ CBOE Equity P/C: {sig.equity_pc:.2f}")
+
+        # Technical levels block (injected from TechnicalLevelsTracker)
+        _orb_s = getattr(self, "_last_orb_status", None)
+        _orb_h = getattr(self, "_last_orb_high", None)
+        _orb_l = getattr(self, "_last_orb_low", None)
+        _vwap_band = getattr(self, "_last_vwap_band", None)
+        _edr_pct = getattr(self, "_last_edr_pct", None)
+        _rsi = getattr(self, "_last_rsi_5m", None)
+        _rsi_div = getattr(self, "_last_rsi_div", None)
+        _pvt_n = getattr(self, "_last_pivot_nearest", None)
+        _pvt_b = getattr(self, "_last_pivot_bias", None)
+        _mp = getattr(self, "_last_max_pain", None)
+        _near_mp = getattr(self, "_last_near_max_pain", False)
+
+        tech_lines = []
+        if _orb_s and _orb_s != "BUILDING":
+            orb_icon = "✅" if _orb_s in ("ABOVE_ORB", "BELOW_ORB") else "⏸"
+            orb_range = f" ({_orb_h:.2f}–{_orb_l:.2f})" if _orb_h and _orb_l else ""
+            tech_lines.append(f"  {orb_icon} ORB: <b>{_orb_s}</b>{orb_range}")
+        if _vwap_band and _vwap_band != "INSIDE_1SD":
+            band_icon = "🔴" if "ABOVE" in _vwap_band else "🟢"
+            tech_lines.append(f"  {band_icon} VWAP Band: <b>{_vwap_band.replace('_', ' ')}</b>")
+        if _edr_pct is not None and _edr_pct > 0:
+            edr_icon = "⚠️" if _edr_pct >= 85 else "📏"
+            tech_lines.append(f"  {edr_icon} EDR used: <b>{_edr_pct:.0f}%</b>")
+        if _rsi is not None:
+            rsi_div_tag = f" [{_rsi_div.replace('_', ' ')}]" if _rsi_div and _rsi_div != "NONE" else ""
+            tech_lines.append(f"  📊 RSI (5m): {_rsi:.0f}{rsi_div_tag}")
+        if _pvt_n:
+            tech_lines.append(f"  📍 Near {_pvt_n} pivot ({_pvt_b.replace('_', ' ')})")
+        if _mp is not None:
+            mp_tag = "  [NEAR PIN]" if _near_mp else ""
+            tech_lines.append(f"  📌 Max Pain: ${_mp:.2f}{mp_tag}")
+        if tech_lines:
+            lines += ["", "<b>📐 Tech Levels:</b>"] + tech_lines
 
         # Dynamic confidence note (show when adjustment is meaningful)
         if abs(sig.dynamic_confidence_delta) >= 0.03:
