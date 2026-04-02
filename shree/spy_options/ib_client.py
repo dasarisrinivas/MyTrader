@@ -516,19 +516,52 @@ class IBOptionsClient:
         return self._vix_contract
 
     async def get_vix(self) -> Optional[float]:
-        """Return VIX index level via IB Gateway."""
+        """Return VIX index level via IB Gateway.
+
+        VIX is a CBOE index — it has no 'last' trade price. The primary
+        value comes from ``ticker.marketPrice()`` (IB's best effort), with
+        fallbacks to ``last``, ``close``, and bid/ask midpoint.
+        """
         contract = await self._get_vix_contract()
         if not contract:
+            logger.warning("VIX contract unavailable — cannot fetch spot VIX")
             return None
+        ticker = None
         try:
             ticker = self._ib.reqMktData(contract, genericTickList="", snapshot=True)
             await asyncio.sleep(self._cfg.snapshot_wait_s)
+
+            # Primary: IB's computed market price (works best for indices)
+            mp = _safe_float(ticker.marketPrice())
+            if mp > 0:
+                return mp
+
+            # Fallback chain: last → close → bid/ask midpoint
             for val in (ticker.last, ticker.close):
                 f = _safe_float(val)
                 if f > 0:
                     return f
+
+            bid = _safe_float(ticker.bid)
+            ask = _safe_float(ticker.ask)
+            if bid > 0 and ask > 0:
+                return round((bid + ask) / 2, 2)
+
+            # All attempts failed — log diagnostics
+            logger.warning(
+                "VIX snapshot empty: marketPrice={} last={} close={} bid={} ask={}",
+                ticker.marketPrice(), ticker.last, ticker.close, ticker.bid, ticker.ask,
+            )
+
         except Exception as exc:
-            logger.debug("VIX fetch error: {}", exc)
+            logger.warning("VIX fetch error: {}", exc)
+        finally:
+            # Always cancel the snapshot subscription to avoid stale tickers
+            if ticker is not None:
+                try:
+                    self._ib.cancelMktData(contract)
+                except Exception:
+                    pass
         return None
 
     async def get_vix_52w_range(self) -> Optional[Tuple[float, float]]:

@@ -26,6 +26,7 @@ All signals are informational only — no orders are placed.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import html as _html
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -260,9 +261,9 @@ class SignalEngine:
             sig.expiry_date = chain.expiry_date
             if chain.expiry_date:
                 try:
-                    exp_dt = datetime.strptime(chain.expiry_date, "%Y%m%d").date()
-                    sig.dte = max(0, (exp_dt - datetime.now().date()).days)
-                except ValueError:
+                    exp_dt = _dt.datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                    sig.dte = max(0, (exp_dt - _dt.date.today()).days)
+                except (ValueError, Exception):
                     pass
 
         # ── Dynamic confidence adjustment ─────────────────────────────────────

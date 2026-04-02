@@ -382,6 +382,18 @@ class SpyOptionsManager:
             return
 
         vix = await self._ib.get_vix()
+
+        # Fallback: IB Gateway doesn't serve VIX index via reqMktData snapshot.
+        # Pull from yfinance via the MacroSignals module if available.
+        if vix is None and self._external is not None:
+            try:
+                macro_vix = self._external._macro.state.vix
+                if macro_vix is not None and macro_vix > 0:
+                    vix = macro_vix
+                    logger.debug("VIX from MacroSignals fallback: {:.1f}", vix)
+            except Exception:
+                pass
+
         if vix is not None:
             self._vix_history.append(vix)
 
