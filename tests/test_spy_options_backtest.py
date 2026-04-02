@@ -795,6 +795,8 @@ class TestSignalEngineE2E:
             calls=[_make_quote(strike=560.0, right="C", volume=1000)],
             puts=[_make_quote(strike=560.0, right="P", volume=1000, conid=5002)],
         )
+        # Set expiry_date ~30 days out so DTE > 0 (avoids 0DTE unconfirmed penalty)
+        chain.expiry_date = (datetime.utcnow() + timedelta(days=30)).strftime("%Y%m%d")
         ctx = self._context(regime="HIGH_VOL", iv_rank=80.0, sentiment=-10.0)
         ctx.vix = 28.0
         signals = self.engine.evaluate(chain, ctx, self.sweep)

@@ -42,6 +42,7 @@ from datetime import datetime, time
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from shree.utils.logger import logger
 from .external.composite import ExternalContext
 
 ET = ZoneInfo("America/New_York")
@@ -161,7 +162,7 @@ class DynamicConfidence:
         now = now_et or datetime.now(ET)
         tod = _tod_bucket(now)
 
-        flow_score   = ext_ctx.composite_score * 100.0 if ext_ctx else 0.0  # -100..+100
+        flow_score   = ext_ctx.flow_score if ext_ctx else 0.0               # -100..+100
         macro_hw     = ext_ctx.macro_headwind if ext_ctx else 0.0            # -1..+1
         event_risk   = ext_ctx.event_risk if ext_ctx else False
         event_mins   = ext_ctx.event_minutes if ext_ctx else 999.0
@@ -205,13 +206,11 @@ class DynamicConfidence:
             # Directional alignment: is flow pointing the same way as the signal?
             if right == "C":
                 aligned = flow_score > 0
-                flow_abs = flow_score
             elif right == "P":
                 aligned = flow_score < 0
-                flow_abs = -flow_score
             else:
                 aligned = True   # BOTH (straddle)
-                flow_abs = abs(flow_score)
+            flow_abs = abs(flow_score)
 
             if aligned:
                 if flow_abs >= self._flow_strong:
@@ -579,6 +578,16 @@ class DynamicConfidence:
         final = max(0.0, min(0.95, base + total_delta))
         breakdown["base"] = round(base, 4)
         breakdown["total_delta"] = round(total_delta, 4)
+
+        # Log breakdown for debugging (only when delta is significant)
+        if abs(total_delta) >= 0.03:
+            active = {k: v for k, v in breakdown.items()
+                      if k not in ("base", "total_delta") and v != 0}
+            logger.debug(
+                "DynConf {}: base={:.0%} delta={:+.0%} final={:.0%} | {}",
+                right, base, total_delta, final,
+                " ".join(f"{k}={v:+.0%}" for k, v in active.items()) or "no adj",
+            )
 
         return ConfidenceAdjustment(
             final=round(final, 4),

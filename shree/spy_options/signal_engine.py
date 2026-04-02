@@ -304,6 +304,33 @@ class SignalEngine:
                     s.signal_type.value, s.expiry, s.strike, s.right,
                     s.confidence * 100, c.min_confidence * 100,
                 )
+
+        # ── Cross-signal directional conflict filter ──────────────────────
+        # If both CALL and PUT directional signals passed the threshold in the
+        # same cycle, the signals are contradictory.  Keep only the direction
+        # with the highest single-signal confidence.
+        if filtered:
+            calls = [s for s in filtered if s.right == "C"]
+            puts  = [s for s in filtered if s.right == "P"]
+            both  = [s for s in filtered if s.right == "BOTH"]
+            if calls and puts:
+                best_call = max(s.confidence for s in calls)
+                best_put  = max(s.confidence for s in puts)
+                if best_call >= best_put:
+                    logger.warning(
+                        "Directional conflict: {} CALL + {} PUT signals — "
+                        "keeping CALL (best={:.0f}% vs PUT best={:.0f}%)",
+                        len(calls), len(puts), best_call * 100, best_put * 100,
+                    )
+                    filtered = calls + both
+                else:
+                    logger.warning(
+                        "Directional conflict: {} CALL + {} PUT signals — "
+                        "keeping PUT (best={:.0f}% vs CALL best={:.0f}%)",
+                        len(calls), len(puts), best_put * 100, best_call * 100,
+                    )
+                    filtered = puts + both
+
         if filtered:
             logger.info(
                 "SignalEngine {}: {} signals → {} passed (threshold={:.0f}%)",
@@ -779,28 +806,11 @@ class SignalEngine:
         atm = chain.atm_strike(context.spy_price)
         atm_quote = chain.call_at(atm) if right == "C" else chain.put_at(atm)
 
-        # Base confidence: ORB breakouts on SPY have strong follow-through stats
+        # Base confidence: ORB breakouts on SPY have strong follow-through stats.
+        # Sentiment, flow, regime alignment are handled by DynamicConfidence engine
+        # (blocks 3, 4, 13) to avoid double-counting — only ORB-specific width
+        # adjustment is applied here.
         base_conf = 0.72
-
-        # Sentiment alignment boost
-        sent = context.sentiment.score / 100.0
-        if right == "C":
-            base_conf += max(0.0, sent) * 0.06
-        else:
-            base_conf += max(0.0, -sent) * 0.06
-
-        # Flow score alignment (from external)
-        flow = getattr(ext, "flow_score", 0.0)
-        if right == "C" and flow > 20:
-            base_conf += 0.03
-        elif right == "P" and flow < -20:
-            base_conf += 0.03
-
-        # Regime alignment
-        if context.regime.regime == "TREND_UP" and right == "C":
-            base_conf += 0.04
-        elif context.regime.regime == "TREND_DOWN" and right == "P":
-            base_conf += 0.04
 
         # Narrow ORB = more reliable breakout (tight consolidation then range expansion)
         if orb_width < 0.20:   # < 0.20% is a tight range

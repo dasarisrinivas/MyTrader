@@ -28,6 +28,8 @@ import signal
 import sys
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from shree.config.spy_options import SpyOptionsConfig
@@ -72,7 +74,23 @@ def main() -> None:  # noqa: ANN201
     logger.info("=== ShreeBot SPY Options Signal Bot starting ===")
     logger.info("IB Gateway: {}:{}", cfg.ib.ibkr_host, cfg.ib.ibkr_port)
 
+    # Prefer spy_options.telegram (dedicated @shree_options_bot) over global telegram
     telegram_cfg = getattr(settings, "telegram", None)
+    try:
+        with open(args.config, "r", encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh) or {}
+        spy_tg = (raw.get("spy_options") or {}).get("telegram")
+        if spy_tg and spy_tg.get("enabled", False):
+            from shree.config.integrations import TelegramConfig
+            telegram_cfg = TelegramConfig(
+                enabled=True,
+                bot_token=spy_tg["bot_token"],
+                chat_id=str(spy_tg["chat_id"]),
+            )
+            logger.info("Using SPY Options Telegram bot (@shree_options_bot)")
+    except Exception as exc:
+        logger.warning("Failed to load spy_options.telegram, using global: {}", exc)
+
     manager = SpyOptionsManager(cfg, telegram_cfg=telegram_cfg)
 
     def _handle_signal(signum, frame):  # noqa: ANN001
