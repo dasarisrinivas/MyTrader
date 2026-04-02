@@ -460,6 +460,11 @@ class LiveTradingManager:
         # JAN 12, 2026: Position state tracking for MTF gate notifications
         self._last_known_position_qty: int = 0  # Track previous position for transition detection
         
+        # APR 2, 2026: Dedup guard for _notify_position_closed.
+        # Prevents double-counting when both the execution callback and the
+        # position-transition poll detect the same close.
+        self._last_close_entry_cycle_id: Optional[str] = None
+        
         # FEB 5, 2026: Profit protection tracking for MES wave behavior
         self._breakeven_stop_set: bool = False  # Track if we've moved stop to breakeven
         self._partial_profit_taken: bool = False  # Track if we've taken partial profits (for 2+ contracts)
@@ -574,7 +579,55 @@ class LiveTradingManager:
         return await self.trading_session_manager.initialize()
     
     def _on_execution_details(self, trade, fill):
-        """Handle execution details to track trade exits for RAG/learning."""
+        """Handle execution details to track trade exits for RAG/learning.
+
+        APR 2 2026 — Fix: Also update ``_last_known_position_qty`` when a
+        bracket child (SL/TP) fills and the position goes flat.  Previously,
+        the qty was only sampled once at the top of ``_process_trading_cycle``,
+        so same-candle stop-outs (entry + exit within one 15m bar) produced a
+        0→0 transition that was invisible — ``_notify_position_closed`` never
+        fired and the loss was never persisted to ``bot_state.json``.
+        """
+        order = trade.order
+        order_id = order.orderId
+        parent_id = getattr(order, "parentId", None)
+        is_bracket_child = parent_id is not None and parent_id > 0
+        logger.debug(
+            f"📩 _on_execution_details: order={order_id} parent={parent_id} "
+            f"price={fill.execution.price} qty={fill.execution.shares}"
+        )
+
+        # ── Immediate position-transition bookkeeping ──────────────────
+        # When an *entry* order fills, record that we now hold a position so
+        # that the next cycle's transition check (prev≠0 → qty==0) can fire.
+        # When a *bracket child* (SL/TP) fills, detect the close immediately
+        # and invoke _notify_position_closed so the loss/win is persisted
+        # even if the exit happens within the same candle as the entry.
+        if is_bracket_child:
+            # Bracket child fill → position is likely flat now.
+            # Determine direction from the parent entry that opened the position.
+            prev_qty = getattr(self, "_last_known_position_qty", 0)
+            # The child's action is opposite the entry direction:
+            # SL/TP for a LONG entry are SELL orders; for SHORT they are BUY.
+            child_action = getattr(order, "action", "")
+            direction = "LONG" if child_action == "SELL" else "SHORT"
+
+            if prev_qty != 0:
+                logger.info(
+                    f"📊 Same-candle bracket fill detected: order={order_id} "
+                    f"(parent={parent_id}) direction={direction} — "
+                    f"updating _last_known_position_qty {prev_qty} → 0"
+                )
+                self._last_known_position_qty = 0
+        else:
+            # Entry fill → update qty so the next cycle knows we hold a position.
+            action = getattr(order, "action", "")
+            filled_qty = int(abs(fill.execution.shares))
+            if action == "BUY":
+                self._last_known_position_qty = filled_qty
+            elif action == "SELL":
+                self._last_known_position_qty = -filled_qty
+
         # This callback can fire while an event loop is already running.
         # Never call asyncio.run() from within a running loop.
         try:
@@ -1299,6 +1352,20 @@ TRADING GUIDANCE:
             direction: "LONG" or "SHORT"
             pnl: Realized P&L
         """
+        # APR 2, 2026 — Dedup guard: both the execution callback path
+        # (handle_order_fill → finalize_trade) and the position-transition
+        # poll can invoke this for the same close.  Only process once per
+        # trade cycle when pnl≠0 to avoid double-counting losses/wins.
+        _entry_cycle = getattr(self, "_current_entry_cycle_id", None)
+        if pnl != 0.0 and _entry_cycle:
+            if _entry_cycle == getattr(self, "_last_close_entry_cycle_id", None):
+                logger.debug(
+                    f"📊 _notify_position_closed dedup: already processed "
+                    f"cycle={_entry_cycle} — skipping"
+                )
+                return
+            self._last_close_entry_cycle_id = _entry_cycle
+
         # Fix #14 (MAR 12 2026): Consecutive-loss cooldown.
         # After ft_consecutive_loss_trigger (default 3) SL hits in a row,
         # impose an extended cooldown of cooldown_on_consecutive_losses_minutes (default 30).

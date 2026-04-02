@@ -96,6 +96,49 @@ class OrderCoordinator:
         bucket_size = tick_size * bucket_ticks
         return round(price / bucket_size) * bucket_size
 
+    # ── helper: ensure _notify_position_closed always fires ────────────
+    def _fire_position_closed_hook(
+        self,
+        exit_price: float,
+        realized_pnl: float,
+    ) -> None:
+        """Invoke LTM._notify_position_closed with a best-effort P&L.
+
+        APR 2 2026 — Extracted so that *every* code-path that detects a
+        position close can call this, regardless of whether the learning
+        pipeline / _open_trade_context is available.
+        """
+        try:
+            ctx = self.manager._open_trade_context or {}
+            _side = ctx.get("action", "")
+
+            # If IB reported 0.0, fall back to price arithmetic.
+            if realized_pnl == 0.0 and ctx.get("entry_price") and exit_price:
+                _qty = ctx.get("quantity", 1) or 1
+                _pv = float(getattr(
+                    getattr(getattr(self.manager, "settings", None), "trading", None),
+                    "point_value", 5.0,
+                ) or 5.0)
+                if _side == "BUY":
+                    realized_pnl = (exit_price - ctx["entry_price"]) * _qty * _pv
+                elif _side == "SELL":
+                    realized_pnl = (ctx["entry_price"] - exit_price) * _qty * _pv
+                if realized_pnl != 0.0:
+                    logger.info(
+                        f"💡 PnL fallback (hook): {_side} entry={ctx['entry_price']:.2f} "
+                        f"exit={exit_price:.2f} → pnl=${realized_pnl:.2f}"
+                    )
+
+            if hasattr(self.manager, "_notify_position_closed"):
+                _direction = "LONG" if _side == "BUY" else "SHORT"
+                self.manager._notify_position_closed(
+                    close_reason="BRACKET_FILL",
+                    direction=_direction,
+                    pnl=realized_pnl,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"_fire_position_closed_hook skipped: {exc}")
+
     def register_trade_entry(
         self,
         cycle_id: Optional[str],
@@ -150,7 +193,18 @@ class OrderCoordinator:
         exit_time: datetime,
         realized_pnl: float,
     ) -> None:
-        if not self.manager._open_trade_context or not self.manager.learning_recorder:
+        if not self.manager._open_trade_context:
+            # No open trade context → this is likely the entry fill callback
+            # (register_trade_entry hasn't been called yet).  Nothing to finalize.
+            return
+        if not self.manager.learning_recorder:
+            # APR 2 2026 — Even when the learning recorder is absent, we MUST
+            # still invoke _notify_position_closed so the loss / cooldown /
+            # bot_state persistence path fires.  Previously an early-return
+            # here silently skipped the _notify_position_closed hook at the
+            # bottom of this method, causing same-candle stop-outs to go
+            # unrecorded (bot_state.json stale, no cooldown, no daily P&L).
+            self._fire_position_closed_hook(exit_price, realized_pnl)
             return
         ctx = self.manager._open_trade_context
         direction = 1 if ctx.get("is_long") else -1
@@ -247,8 +301,34 @@ class OrderCoordinator:
             logger.debug(f"_notify_position_closed hook skipped: {exc}")
 
     async def handle_order_fill(self, trade, fill) -> None:
-        """Handle execution details to persist fills and outcomes."""
+        """Handle execution details to persist fills and outcomes.
+
+        APR 2 2026 — Only finalize trades for *closing* fills (bracket
+        children with a parentId, or fills that leave the position flat).
+        Previously, entry fills also ran through ``_finalize_trade`` which
+        cleared ``_open_trade_context`` and called ``_notify_position_closed``
+        with pnl=0.  When the real exit fill arrived moments later,
+        ``_open_trade_context`` was already None → ``finalize_trade`` returned
+        early → loss was never persisted.
+        """
         m = self.manager
+        order_id = trade.order.orderId
+        parent_id = getattr(trade.order, "parentId", None)
+        is_bracket_child = parent_id is not None and parent_id > 0
+        logger.info(
+            f"📩 handle_order_fill: order={order_id} parent={parent_id} "
+            f"price={fill.execution.price} qty={fill.execution.shares} "
+            f"bracket_child={is_bracket_child}"
+        )
+
+        # ── Skip entry fills — only process exit (bracket child) fills ──
+        if not is_bracket_child:
+            logger.debug(
+                f"📩 handle_order_fill: skipping entry fill order={order_id} "
+                f"(no parentId)"
+            )
+            return
+
         try:
             if not m.rag_storage or not m.current_trade_id:
                 pass
