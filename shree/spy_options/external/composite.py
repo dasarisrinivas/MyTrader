@@ -126,6 +126,49 @@ class ExternalContext:
 
     sources_available: int = 0
 
+    # ── Technical levels (from TechnicalLevelsTracker — injected by manager) ──
+    # Opening Range Breakout: the single most-watched SPY intraday pattern
+    orb_high: Optional[float] = None
+    orb_low: Optional[float] = None
+    orb_established: bool = False
+    orb_width_pct: float = 0.0
+    orb_status: str = "BUILDING"          # BUILDING | INSIDE | ABOVE_ORB | BELOW_ORB
+    orb_breakout_confirmed: bool = False
+
+    # VWAP standard-deviation bands
+    vwap_1sd_upper: Optional[float] = None
+    vwap_1sd_lower: Optional[float] = None
+    vwap_2sd_upper: Optional[float] = None
+    vwap_2sd_lower: Optional[float] = None
+    vwap_band_position: str = "INSIDE_1SD"
+    # ABOVE_2SD | ABOVE_1SD | INSIDE_1SD | BELOW_1SD | BELOW_2SD
+
+    # Daily pivot points (Floor-Trader formula from prior session H/L/C)
+    pivot_pp: Optional[float] = None
+    pivot_r1: Optional[float] = None
+    pivot_r2: Optional[float] = None
+    pivot_s1: Optional[float] = None
+    pivot_s2: Optional[float] = None
+    near_pivot: bool = False
+    pivot_nearest: str = ""               # "PP" | "R1" | "R2" | "S1" | "S2"
+    pivot_bias: str = "NEUTRAL"           # AT_RESISTANCE | AT_SUPPORT | AT_PIVOT | NEUTRAL
+
+    # Expected Daily Range exhaustion (VIX-implied intraday range)
+    edr_points: float = 0.0
+    edr_used_pct: float = 0.0
+    edr_exhausted: bool = False
+
+    # RSI (5-min) — overbought/oversold and divergence detection
+    rsi_5m: float = 50.0
+    rsi_overbought: bool = False
+    rsi_oversold: bool = False
+    rsi_divergence: str = "NONE"          # BULLISH_DIV | BEARISH_DIV | NONE
+
+    # Max pain (computed from IB chain OI — injected by manager after chain build)
+    max_pain_strike: Optional[float] = None
+    near_max_pain: bool = False           # price within $1.50 of max pain
+    max_pain_distance: float = 999.0      # |SPY − max_pain| in points
+
 
 class ExternalDataManager:
     """

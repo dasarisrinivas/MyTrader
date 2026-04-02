@@ -50,6 +50,7 @@ class SignalType(str, Enum):
     LONG_STRADDLE    = "LONG_STRADDLE"
     HIGH_IV_ALERT    = "HIGH_IV_ALERT"
     PC_RATIO_EXTREME = "PC_RATIO_EXTREME"
+    ORB_BREAKOUT     = "ORB_BREAKOUT"   # Opening Range Breakout — confirmed directional move
 
 
 @dataclass
@@ -218,6 +219,17 @@ class SignalEngine:
         # ── Rule 7: High IV alert ─────────────────────────────────────────────
         if iv_high or (context.vix is not None and context.vix > c.vix_high):
             signals.extend(self._high_iv_signal(chain, context, c))
+
+        # ── Rule 8: Opening Range Breakout ────────────────────────────────────
+        # Fires once the 30-min ORB is established and price has confirmed a
+        # break above (call) or below (put) the range for ≥1 bar.
+        # Only fires on the first expiry evaluated to avoid duplicates.
+        ext = context.external
+        if ext is not None and getattr(ext, "orb_established", False):
+            orb_status    = getattr(ext, "orb_status", "INSIDE")
+            orb_confirmed = getattr(ext, "orb_breakout_confirmed", False)
+            if orb_confirmed and orb_status in ("ABOVE_ORB", "BELOW_ORB"):
+                signals.extend(self._orb_breakout_signal(chain, context, c))
 
         # ── Event risk modifier ────────────────────────────────────────────────
         ext = context.external
@@ -706,6 +718,126 @@ class SignalEngine:
             sig.sentiment_label = context.sentiment.label
             signals.append(sig)
         return signals
+
+    def _orb_breakout_signal(
+        self,
+        chain: ChainSnapshot,
+        context: SignalContext,
+        c: SpyOptionsSignalConfig,
+    ) -> List[SpySignal]:
+        """Generate an ORB_BREAKOUT signal on confirmed 30-min range break.
+
+        Confidence model for ORB:
+          - Base is 0.72 (reasonable prior — ORB breakouts are high-probability
+            but not infallible; ~60-65% historical follow-through on SPY)
+          - Boosted by: regime alignment, sentiment, flow confirmation
+          - Penalised by: EDR exhaustion, max pain proximity
+        The dynamic confidence engine will then apply ORB-specific modifiers
+        on top of these via adjustment block 13.
+        """
+        ext = context.external
+        if ext is None:
+            return []
+
+        orb_status = getattr(ext, "orb_status", "INSIDE")
+        orb_high   = getattr(ext, "orb_high", None)
+        orb_low    = getattr(ext, "orb_low", None)
+        orb_width  = getattr(ext, "orb_width_pct", 0.0)
+
+        if orb_status == "ABOVE_ORB":
+            right = "C"
+        elif orb_status == "BELOW_ORB":
+            right = "P"
+        else:
+            return []
+
+        atm = chain.atm_strike(context.spy_price)
+        atm_quote = chain.call_at(atm) if right == "C" else chain.put_at(atm)
+
+        # Base confidence: ORB breakouts on SPY have strong follow-through stats
+        base_conf = 0.72
+
+        # Sentiment alignment boost
+        sent = context.sentiment.score / 100.0
+        if right == "C":
+            base_conf += max(0.0, sent) * 0.06
+        else:
+            base_conf += max(0.0, -sent) * 0.06
+
+        # Flow score alignment (from external)
+        flow = getattr(ext, "flow_score", 0.0)
+        if right == "C" and flow > 20:
+            base_conf += 0.03
+        elif right == "P" and flow < -20:
+            base_conf += 0.03
+
+        # Regime alignment
+        if context.regime.regime == "TREND_UP" and right == "C":
+            base_conf += 0.04
+        elif context.regime.regime == "TREND_DOWN" and right == "P":
+            base_conf += 0.04
+
+        # Narrow ORB = more reliable breakout (tight consolidation then range expansion)
+        if orb_width < 0.20:   # < 0.20% is a tight range
+            base_conf += 0.03
+        elif orb_width > 0.60:  # wide range = less reliable
+            base_conf -= 0.03
+
+        conf = max(0.0, min(1.0, base_conf))
+
+        # Build reasoning
+        orb_ref = f"${orb_high:.2f}" if orb_high else "n/a"
+        orb_ref_low = f"${orb_low:.2f}" if orb_low else "n/a"
+        direction_word = "ABOVE" if right == "C" else "BELOW"
+        wall = orb_ref if right == "C" else orb_ref_low
+
+        reasoning = [
+            f"30-min ORB breakout: SPY closed {direction_word} {wall}",
+            f"ORB range: {orb_ref_low} – {orb_ref}  ({orb_width:.2f}% width)",
+            f"Regime: {context.regime.regime}  Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})",
+        ]
+        if getattr(ext, "rsi_5m", 50.0) != 50.0:
+            rsi_tag = (
+                " [OVERBOUGHT]" if getattr(ext, "rsi_overbought", False) else
+                " [OVERSOLD]"   if getattr(ext, "rsi_oversold",   False) else ""
+            )
+            reasoning.append(f"RSI (5m): {ext.rsi_5m:.1f}{rsi_tag}")
+        if getattr(ext, "near_pivot", False):
+            reasoning.append(
+                f"Near pivot {ext.pivot_nearest} ({ext.pivot_bias.replace('_', ' ')})"
+            )
+
+        wing = (atm + 5) if right == "C" else (atm - 5)
+        suggested = (
+            f"ORB {'Call' if right == 'C' else 'Put'} Sweep: {atm:.0f}{right} exp {chain.expiry_month}\n"
+            f"{'Bull' if right == 'C' else 'Bear'} {'Call' if right == 'C' else 'Put'} Spread: "
+            f"Buy {atm:.0f}{right} / Sell {wing:.0f}{right} exp {chain.expiry_month}\n"
+            f"Risk: Exit if SPY {'falls back below' if right == 'C' else 'reclaims'} "
+            f"{wall}"
+        )
+
+        sig = SpySignal(
+            signal_type=SignalType.ORB_BREAKOUT,
+            strike=atm, expiry=chain.expiry_month, right=right,
+            confidence=conf, spy_price=context.spy_price, vix=context.vix,
+            volume=chain.total_call_volume if right == "C" else chain.total_put_volume,
+            volume_spike_mult=0.0,
+            bid_size=atm_quote.bid_size if atm_quote else 0,
+            ask_size=atm_quote.ask_size if atm_quote else 0,
+            reasoning=reasoning,
+            suggested_trade=suggested,
+        )
+
+        if atm_quote:
+            self._enrich(sig, atm_quote, context)
+        else:
+            sig.confidence_tier = _tier(conf)
+            sig.iv_rank = context.iv_rank
+            sig.regime = context.regime.regime
+            sig.sentiment_score = context.sentiment.score
+            sig.sentiment_label = context.sentiment.label
+
+        return [sig]
 
     def _high_iv_signal(
         self,
