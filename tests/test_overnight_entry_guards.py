@@ -109,6 +109,7 @@ def _make_config(**overrides) -> MagicMock:
         "ft_or_break_sl_floor_pts": 6.0,
         "ft_or_break_sl_ceiling_pts": 12.0,
         "ft_or_break_rr_ratio": 1.33,
+        "ft_or_break_max_chase_atr": 1.0,
         # Trend continuation (Signal F)
         "ft_trend_cont_enabled": True,
         "ft_trend_cont_stop_mult": 1.0,

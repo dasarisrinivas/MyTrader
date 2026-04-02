@@ -60,6 +60,9 @@ def _make_strategy(or_break_max=2, adx_min=20.0, adx_max=999.0,
     strat._or_break_short_rsi_min = 40.0
     strat._or_break_long_rsi_max = 60.0
 
+    # APR 2 2026: Anti-chase guard
+    strat._or_break_max_chase_atr = 1.0
+
     strat._save_counters = lambda: None
 
     return strat

@@ -1,0 +1,1339 @@
+data:
+  tradingview_webhook_url: "http://localhost:8000/tradingview"
+  tradingview_symbol: "MES"
+  tradingview_interval: "1m"
+  ibkr_host: "127.0.0.1"
+  ibkr_port: 4001  # IB Gateway LIVE trading (4001=live, 4002=paper)
+  ibkr_client_id: 1
+  ibkr_symbol: "MES"
+  ibkr_exchange: "CME"  # Use CME, not GLOBEX
+  ibkr_currency: "USD"
+  twitter_bearer_token: ""
+  news_api_keys: []
+  sentiment_refresh_interval: 60
+
+trading:
+  # === 24-HOUR ES/MES TRADING CONFIGURATION ===
+  # CME ES/MES Sessions (Central Time):
+  #   RTH: 8:30 AM - 3:00 PM CT (most liquid)
+  #   Evening: 5:00 PM - 11:00 PM CT
+  #   Overnight: 11:00 PM - 3:00 AM CT  
+  #   Pre-Market: 3:00 AM - 8:30 AM CT
+  #   Maintenance: 4:00 PM - 5:00 PM CT (NO TRADING)
+  #   Weekend: Fri 4PM CT - Sun 5PM CT (CLOSED)
+  
+  market_hours:
+    enabled: true
+    futures_mode: true
+    # CME daily maintenance window - HARD BLOCK
+    maintenance_windows:
+      - start: "16:00"  # 4 PM CT daily maintenance start
+        end: "17:00"    # 5 PM CT daily maintenance end
+        timezone: "America/Chicago"
+    # Daily reset at CME settlement (5 PM CT)
+    daily_reset_time: "17:00"
+    daily_reset_timezone: "America/Chicago"
+
+  # === POSITION LIMITS (HARDENED) ===
+  # NOTE: All max contract limits are consolidated to use the most conservative value.
+  # See config.py Settings.validate() for enforcement logic.
+  max_position_size: 1  # MAX 1 contract for automated MES trading
+  max_contracts_limit: 1  # Hard safety cap - must match max_position_size
+  contracts_per_order: 1  # Single contract per order only
+  max_daily_loss: 1000.0  # FEB 7 2026: Increased for 15m — backtest uses 1000; 15m has fewer, larger trades
+  max_daily_trades: 10    # FEB 7 2026: Reduced from 100 — 15m strategy makes ~3-4 trades/day, max 10
+  # max_consecutive_losses moved to risk_gate section below
+  initial_capital: 5000.0     # FEB 7 2026: Actual MES account size
+  
+  # === MES CONTRACT SPECS ===
+  contract_multiplier: 5.0  # MES = $5 per point
+  tick_size: 0.25           # 0.25 point tick
+  tick_value: 1.25          # $1.25 per tick
+  commission_per_contract: 2.4
+  
+  # === STOP/TARGET SIZING (AUTHORITATIVE - used by main.py) ===
+  # These settings are the PRIMARY stop/target configuration.
+  # RiskGate.max_stop_points enforces upper bound (25 pts, see risk_gate: section).
+  # position_management/position_exit below are FALLBACK only.
+  stop_loss_ticks: 60.0     # 60 ticks = 15 points = $75 max risk (increased for current volatility)
+  take_profit_ticks: 120.0  # 120 ticks = 30 points = $150 target (2:1 R:R)
+  # Minimum stop/target distance
+  # Option A (Jan 2026): allow tighter targets/stops in low-vol regimes
+  min_stop_distance_ticks: 16  # 4 points minimum
+  max_stop_distance_ticks: 60  # 15 points maximum ($75 risk cap, increased for volatility)
+  
+  # === CONFIDENCE THRESHOLDS ===
+  min_weighted_confidence: 0.50
+  confidence_threshold: 0.60
+  min_confidence_for_trade: 0.55  # APR 2 2026: Raised from 0.40 → 0.55. Evidence: 0.44-conf (Apr 1, -$114) and 0.52-conf (Mar 25, -$72) both lost — sentiment/VX penalties are real signal. 0.55 blocks weak overlays while still allowing 0.60+ signals through.
+  emergency_mode_enabled: true
+  
+  # === COOLDOWNS (POST JAN 2026 AUDIT) ===
+  trade_cooldown_minutes: 10     # Between any trades
+  cooldown_on_loss_minutes: 20   # After a losing trade
+  cooldown_on_consecutive_losses_minutes: 30  # MAR 12 2026 Fix #14: After ft_consecutive_loss_trigger losses → 30 min pause (was 45, unused)
+  ft_consecutive_loss_trigger: 3             # MAR 12 2026 Fix #14: Trigger extended cooldown after this many consecutive SL hits
+  max_losses_before_extended_cooldown: 2
+  order_lock_timeout_seconds: 300
+  pending_order_timeout_seconds: 180
+  reset_state_on_start: false
+
+  # === STARTUP ENTRY GATING (ANTI-RESTART-IMPULSE) ===
+  # After restart, the bot has full history from bootstrap and may try to enter
+  # immediately on the next completed 1m bar. These settings block *new entries*
+  # briefly while still allowing exits/position management.
+  startup_grace_period_seconds: 120
+  startup_min_completed_bars: 2
+  
+  # === SPREAD/SLIPPAGE GATE (NEW) ===
+  max_spread_ticks: 2.0  # Block entry if spread > 0.50 pts ($2.50)
+  spread_gate_enabled: true
+  
+  # === NEW: Entry Filters (Dec 2025 audit fix) ===
+  # === UPDATED: Jan 2, 2026 audit - tighter filters after 8-trade losing session ===
+  entry_filters:
+    # Candle close validation
+    wait_for_candle_close: true  # Allow intra-bar signals during slow periods
+    
+    # Trend confirmation
+    require_trend_alignment: true  # EMA 9 > EMA 20 for buys, < for sells
+    allow_counter_trend: true  # CHANGED: Allow counter-trend trades with penalty
+    ema_fast_period: 9
+    ema_slow_period: 20
+    ema_alignment_tolerance_pct: 0.0002  # 0.02% price tolerance
+    counter_trend_penalty: 0.15  # INCREASED: Reduce confidence more when misaligned (was 0.10)
+    
+    # ADX trend strength filter (NEW - Jan 2026)
+    require_adx_confirmation: true  # Block trades when trend is weak
+    min_adx_threshold: 10.0  # LOWERED: trade more in low-to-mid trend strength regimes
+    min_adx_threshold_low_volume: 7.0  # Allow weaker trends in evening/overnight
+    adx_period: 14
+    
+    # Volatility filters
+    atr_period: 14
+    min_atr_threshold: 0.30  # Derived floor for ES micro contracts
+    min_atr_percentile: 10  # Dynamic floor = max(static, 10th percentile)
+    max_atr_threshold: 50.0  # Don't trade if ATR is too high (too volatile)
+    low_atr_penalty_mode: true  # Treat low ATR as confidence penalty
+    low_atr_penalty: 0.15
+    atr_percentile_lookback: 240
+    
+    # Level filters
+    chop_zone_buffer_pct: 0.25
+    sr_proximity_ticks: 8
+    contract_month_offset: 0  # Use current front month; expired contracts are skipped automatically post-roll
+  
+  # JAN 2026 FIX: Raised confidence thresholds
+  min_confidence_threshold: 0.45  # Raised from 0.25
+  evening_session_threshold: 0.35  # Raised from 0.20 (even lower 5PM-11PM)
+  fallback_signals_enabled: true
+  
+  # Performance optimizations
+  s3_cache_duration_minutes: 10
+  max_trade_logs_per_query: 5  # Reduce from 12+
+  position_management:
+    # FALLBACK: Used only if primary trading.stop_loss_ticks not available
+    # Primary stop/target is in trading section above
+    max_position_duration_hours: 4
+    profit_target_points: 20
+    stop_loss_points: 10
+    emergency_close_enabled: true
+    force_exits_after_hours: 4
+    emergency_exit_confidence: 60
+    bypass_filters_for_exits: true
+  position_exit:
+    # DOLLAR-BASED HARD LIMITS (emergency exits only)
+    # These trigger if position PnL hits these levels
+    stop_loss_dollars: 75      # Exit at -$75 loss
+    profit_target_dollars: 100 # Exit at +$100 profit
+    max_hold_time_hours: 4     # Force exit after 4 hours
+  exit_signals:
+    bypass_regime_filter: true  # Exit signals ignore RAG filter
+    time_based_exit: true
+    profit_target_exit: true
+    stop_loss_exit: true
+  
+  # === Risk/Reward Requirements ===
+  # FEB 18 2026: Lowered from 1.5 to 1.0 — the 1.5 floor was silently blocking
+  # ALL OR breakout signals (ft_or_target_r=1.0) and most EMA pullback signals.
+  # 1:1 R:R is standard for intraday OR/pullback setups.
+  min_risk_reward_ratio: 1.0  # Minimum R:R ratio required (blocks trades < 1.0:1)
+
+risk_gate:
+  max_contracts: 1
+  # FEB 7 2026: Risk gate values aligned with 15m strategy backtest
+  # 15m ATR ~10pt → 1.5×ATR = 15pt typical stop, high vol ATR=80pt → 120pt stop
+  # FEB 2026: PRODUCTION-HARDENED values for 15m strategy on $5K capital
+  # 15m ATR ~8-12pt → 1.5×ATR = 12-18pt typical stop → $60-$90 risk/trade
+  # High vol: ATR ~16pt → 24pt stop → $120 risk. Cap at $125 for safety.
+  risk_per_trade_usd: 100.0   # FEB 20: Raised from 90 → 100 ($100 = 20pt stop, covers ATR×1.0 adaptive stops)
+  risk_per_trade_min: 25
+  risk_per_trade_max: 125.0   # HARDENED: max $125 (25pt stop) — covers high vol
+  daily_max_loss_usd: 250     # HARDENED: 5% of $5K (was 2000 = 40%!)
+  weekly_max_loss_usd: 500    # NEW: 10% of $5K weekly cap
+  margin_buffer_usd: 1000
+  initial_margin_long: 2464.0
+  initial_margin_short: 2305.6
+  avoid_close_window_minutes: 20
+  avoid_close_enabled: true
+  min_stop_points: 6.0        # HARDENED: tighter than 3.0, prevents noise stops
+  max_stop_points: 25.0       # HARDENED: was 200 — 25pt covers 1.5×ATR at high vol
+  max_consecutive_losses: 5   # HARDENED: was 10 — 5 in a row = pause and investigate
+  peak_drawdown_enabled: true
+  peak_drawdown_pct: 4.0
+  peak_drawdown_action: "tiered"  # MAR 9 2026: Changed "halt" → "tiered" (T4 tiered drawdown)
+                                  # Tier 1 (3%): reduce to 50% size — early warning, still trading
+                                  # Tier 2 (5%): reduce to 25% size — defensive mode
+                                  # Tier 3 (7%): halt all entries — same as old "halt" but higher threshold
+  peak_drawdown_tighten_multiplier: 0.5
+  peak_drawdown_stop_buffer_points: 0.5
+  peak_drawdown_flatten_on_trigger: true
+  peak_drawdown_reset_on_new_day: true
+  # Tiered drawdown thresholds (only used when peak_drawdown_action = "tiered")
+  peak_drawdown_tier1_pct: 3.0       # 3% DD → 50% position size
+  peak_drawdown_tier1_size_mult: 0.5
+  peak_drawdown_tier2_pct: 5.0       # 5% DD → 25% position size
+  peak_drawdown_tier2_size_mult: 0.25
+  peak_drawdown_tier3_pct: 7.0       # 7% DD → full halt
+
+# ── MAR 2026: Dynamic structural support floor ─────────────────────
+# Auto-computed from market data: min(PDL, weekly_low, OR_low) - buffer.
+# No hardcoded price needed — adapts daily as levels change.
+# Set structural_support_floor to 0 or remove to disable the static fallback.
+# The dynamic floor supersedes the static value once IBKR data loads.
+structural_support_floor: 0  # DEPRECATED — dynamic floor handles this now
+
+dynamic_support:
+  buffer_points: 5.0       # Floor sits this many points below the lowest level
+  min_sources: 1           # Min number of valid levels (PDL/WL/OR_L) needed to compute floor
+  use_pdl: true            # Include previous day low
+  use_weekly_low: true     # Include weekly low
+  use_or_low: true         # Include opening range low
+
+# High-impact event dates: explicit list of dates (YYYY-MM-DD) to
+# treat as high-impact (blocks entry 8:00-9:15 AM ET, boosts news/macro weight).
+# Override/extend with env HIGH_IMPACT_DATES (comma-separated).
+high_impact_event_dates:
+  - "2026-02-20"   # Core PCE + GDP Advance dual release
+
+one_minute:
+  enabled: true
+  warmup_bars: 60           # FEB 2026: Reduced for 15m (was 300 for 1m)
+  use_eth_session: true   # CHANGED: Enable ETH session for Sunday open and overnight trading
+                          # NOTE: 15m strategy overrides to useRTH=True in live_trading_manager (overnight bars corrupt indicators)
+  breakout_enabled: true
+  pullback_lookback: 3
+  require_pullback_confirmation: false
+  atr_percentile_low: 0.10
+  atr_percentile_high: 0.90
+  tiny_candle_atr_factor: 0.4
+  atr_bounds_blocking: false
+  tiny_candle_blocking: false
+  cooldown_minutes: 15       # FEB 2026: Increased from 8 to 15 min for 15m strategy (1 bar cooldown)
+  max_trades_per_hour: 3    # FEB 2026: Reduced from 4 to 3 for 15m bars
+  max_trades_per_day: 25
+  stop_atr_multiplier: 3.0  # CHANGED: Widened from 1.5 to 3.0 (stops were too tight)
+  take_profit_multiple: 2.0
+  profit_lock_trigger_r: 0.75
+  profit_lock_stop_buffer_points: 0.5
+  max_hold_minutes: 120      # FEB 8 2026: Aligned with ft_max_hold_bars (8 × 15m = 120 min)
+  rth_stop_atr_multiplier: 3.5
+  rth_take_profit_multiple: 1.1
+  rth_trend_adx_threshold: 15.0
+  rth_rsi_long_min: 35
+  rth_rsi_long_max: 60
+  rth_rsi_short_min: 40
+  rth_rsi_short_max: 65
+  rth_require_high_atr: false
+  rth_high_atr_percentile: 0.30
+  rth_open_minutes: 90
+  rth_open_mean_reversion_enabled: true
+  rth_open_rsi_oversold: 35.0
+  rth_open_rsi_overbought: 65.0
+  rth_open_vwap_atr_mult: 0.40
+  rth_open_max_adx: 18.0
+  rth_open_min_volume: 250
+  rth_no_trade_start_hour: null
+  rth_no_trade_start_minute: null
+  rth_no_trade_end_hour: null
+  rth_no_trade_end_minute: null
+  rth_require_pullback_confirmation: true
+  rth_pullback_adx_bypass: 22.0
+  rth_only: false
+  allow_overnight_trading: true
+  rth_close_tighten_minutes: 20
+  rth_close_stop_buffer_points: 0.5
+  rth_flatten_time_et: "15:50"   # Hard RTH flatten: force exit if still in position (ET)
+  trend_adx_threshold: 10.0  # CHANGED: Lowered from 20.0 to 10.0 for low-vol sessions
+  breakout_adx_threshold: 10.0  # CHANGED: Lowered from 18.0 to 10.0
+  dry_run: false
+  allow_add_on: false
+  trend_flip_exit: true
+  breakout_use_or_levels: false
+  window_bars: 200            # FEB 2026: Reduced for 15m (was 500 for 1m)
+  # NEW: Multi-timeframe confirmation (Jan 2026)
+  require_5m_trend_alignment: false  # Check 5-min trend before 1-min entry
+  mtf_gate_enabled: false            # Disable 15m/30m MTF gate temporarily
+  mtf_ema_period: 20                 # 5-min EMA period for trend
+  
+  # FEB 2026: 15m strategy (LIVE TRADING) — replaces 1m scoring system
+  # EMA21 pullback + EMA9 pullback + OR breakout, long & short
+  # v3 backtest (FEB 8): PF 2.18, Sharpe 24.73, +$4,129 on 174 trades, DD -6.64%
+  use_15m_strategy: true             # ✅ ENABLE 15m strategy for live trading
+  use_scoring_system: false          # ❌ DISABLE 1m scoring (sunsetted)
+  
+  # 15m strategy parameters (v3 optimized — FEB 8 2026)
+  ft_pb_stop_mult: 1.5              # (LEGACY — superseded by fixed-point SL)
+  ft_pb_target_mult: 1.0            # (LEGACY — superseded by fixed-point TP)
+  ft_max_hold_bars: 8               # Max hold = 8 bars × 15min = 120 minutes (tested 10→worse)
+  ft_or_minutes: 30                 # Opening range window = 30 minutes
+  ft_or_break_max_per_day: 2         # Max OR breaks per side per day (FEB 26 2026: was 1)
+  ft_or_break_short_rsi_min: 40.0   # MAR 12 2026 Fix A: Block OR_BREAK_SHORT when RSI < 40 (oversold — high snap-back risk)
+  ft_or_break_long_rsi_max: 60.0    # MAR 12 2026 Fix A: Block OR_BREAK_LONG when RSI > 60 (overbought — high reversal risk)
+  ft_or_break_sl_atr_mult: 0.75     # MAR 12 2026 Fix B: SL = clamp(ATR × mult, floor, ceiling) — replaces fixed 6pt
+  ft_or_break_sl_floor_pts: 6.0     # MAR 12 2026 Fix B: Minimum SL in points (never below 6pt / $30)
+  ft_or_break_sl_ceiling_pts: 12.0  # MAR 12 2026 Fix B: Maximum SL in points (cap at 12pt / $60)
+  ft_or_break_rr_ratio: 1.33        # MAR 12 2026 Fix B: R:R ratio for TP (TP = SL × ratio), preserves 1.33:1
+  ft_or_break_max_chase_atr: 1.0   # APR 2 2026: Max distance past OR level as ATR multiple. Block if bar close already moved > 1.0×ATR past OR_HIGH/OR_LOW. Evidence: Apr 2 chased 13pts (1.3×ATR) → SL hit in 19s.
+  ft_or_target_r: 1.0               # (LEGACY — superseded by fixed-point TP)
+  ft_adx_min: 18.0                  # MAR 3 2026: Lowered from 20→18. ADX 18-19 blocked 3 valid pullbacks. Borderline trending with EMA alignment is sufficient.
+  ft_adx_max: 45.0                  # MAR 3 2026: Raised from 35→45. ADX 35+ blocked 6 valid pullbacks in strong trends. ADX=42 means "very strong trend" — pullbacks are highest-probability.
+  ft_ema_touch_pct: 0.0015          # EMA21 touch tolerance (0.15%) — FEB 20 2026: widened from 0.001
+  ft_ema_touch_atr_mult: 0.75       # MAR 2026 Fix #6: ATR-adaptive touch band for A/D. Replaces pct when >0.
+                                    # At ATR=14: band=10.5pts (≈ pct=0.0015 baseline). At ATR=20: 15pts (wider).
+
+  # MAR 9 2026 — T2: Regime-adaptive touch band (4-bucket ATR thresholds)
+  # Replaces single ft_ema_touch_atr_mult with regime-aware bands:
+  #   ATR < 8:   tight pct band (0.0010) — low-vol, reduce false touches
+  #   8 ≤ ATR < 13: current ft_ema_touch_pct (0.0015) — normal regime
+  #   13 ≤ ATR < 20: ATR × ft_ema_touch_atr_mult (0.75) — high vol, wider band
+  #   ATR ≥ 20: ATR × 1.0 — extreme vol, widest band
+  # T2 backtest: 49 trades, +$84, 44.9% WR, 0.59 Sharpe, -4.7% max DD
+  ft_atr_very_low_threshold: 8.0    # below → tight pct (0.0010)
+  ft_atr_high_threshold: 13.0       # above → ATR-scaled (ft_ema_touch_atr_mult)
+  ft_atr_extreme_threshold: 20.0    # above → ATR × 1.0
+
+  # MAR 9 2026 — T3: Proximity entry (A-prime / D-prime)
+  # Fires when price nearly touches the EMA21 band but misses by ≤ gap_mult × ATR.
+  # Reduced position size + tighter SL/TP. Max 2 per side per day.
+  # Only active in high-vol regimes (ATR ≥ ft_atr_high_threshold).
+  ft_proximity_enabled: true         # Enable A-prime/D-prime proximity signals
+  ft_proximity_gap_mult: 0.3         # near-miss = within 0.3 × ATR of band
+  ft_proximity_size_mult: 0.7        # 70% position size (reduced conviction)
+  ft_proximity_sl_mult: 0.8          # tighter SL (80% of normal = 4.8pts)
+  ft_proximity_tp_mult: 0.8          # tighter TP (80% of normal = 6.4pts)
+  ft_proximity_max_per_day: 2        # max 2 proximity entries per side per day
+
+  # FEB 19 2026: Fixed-point SL/TP system
+  # In MES, 1 pt = $5.  ATR-based stops + fixed TP was producing R:R < 1.0
+  # (stops 10-17 pts vs 8 pt TP).  Now both SL and TP are fixed-point:
+  #   A/B/D/E: SL=6pts($30), TP=8pts($40) → R:R 1.33:1
+  #   C:       SL=ATR-adaptive (see below), TP=SL×1.25 → R:R 1.25:1
+  #   F:       SL=8pts($40), TP=12pts($60) → R:R 1.50:1
+  ft_fixed_tp_points: 8.0           # Signals A, B, D, E: $40 target
+  ft_fixed_tp_points_ema9: 10.0     # Signal C: fallback TP (overridden by ATR-adaptive)
+  ft_fixed_tp_points_trend: 12.0    # Signal F: $60 target
+  ft_fixed_sl_points: 6.0           # Signals A, B, D, E: $30 risk
+  ft_fixed_sl_points_ema9: 8.0      # Signal C: fallback SL (overridden by ATR-adaptive)
+  ft_fixed_sl_points_trend: 8.0     # Signal F: $40 risk
+
+  # MAR 10 2026: Overnight SL/TP scaling — outside 9:30-16:00 ET
+  # RTH stops (6pt SL / 8pt TP) are too tight for overnight wick noise.
+  # Applies to Signals A, B, C, D, E, F.  Signal G excluded (already calibrated).
+  #
+  # MAR 11 2026 (Fix #12): raised ft_overnight_tp_mult 1.0 → 1.5 and added ft_overnight_min_rr.
+  # Root cause: SL was widened to 1.2× but TP was kept flat, producing ~1.11:1 R:R overnight.
+  # At 37.5% live WR, 1.11:1 is negative EV (break-even WR at 1.11:1 = 47%).
+  # With TP × 1.5: overnight R:R = 8×1.5 / 6×1.2 = 12.0 / 7.2 = 1.67:1 ✅
+  # Break-even WR at 1.67:1 = 37.5% — matches current live rate exactly, so any improvement wins.
+  # ft_overnight_min_rr enforces this as a hard gate: trades that still fail after scaling are blocked.
+  ft_overnight_sl_mult: 1.2    # Widen SL outside 9:30-16:00 ET (7.2 pts for A/D)
+  ft_overnight_tp_mult: 1.5    # MAR 11 2026: Raised from 1.0 → 1.5. TP now 12 pts overnight. R:R = 1.67:1
+  ft_overnight_min_rr: 1.5     # MAR 11 2026: Hard overnight R:R floor. Blocks trades below this after scaling.
+  # MAR 15 2026: Overnight entry-quality guards.
+  # Guard 1 — RSI extreme: Evidence — 2 TREND_CONT overnight losses (RSI=30, RSI=32) → -$110.
+  #   Blocks TREND_CONT_SHORT when RSI < threshold (oversold exhaustion, not continuation).
+  #   Blocks TREND_CONT_LONG when RSI > (100-threshold) (overbought exhaustion).
+  ft_overnight_rsi_extreme_block: 35.0  # MAR 15 2026: raised from 30 → 35 (catches RSI=30 and RSI=32)
+  # Guard 2 — MACD divergence: Evidence — 2 overnight D/E short losses (MACD=+1.03, +1.63) → -$78.
+  #   MACD was removed from D/E globally (Mar 2026) to reduce RTH over-filtering.
+  #   Overnight: a positive MACD on a SHORT entry is a reliable reversal warning in thin markets.
+  #   Blocks D/E short if MACD > threshold; blocks A/C long if MACD < -threshold. Set 0 to disable.
+  ft_overnight_macd_divergence_threshold: 0.4  # MAR 20 2026 Fix #22: lowered from 0.5 after 07:15 short (MACD_H=+0.45) slipped through
+  # MAR 17 2026 Fix #18: Overnight ATR floor for A/D signals.
+  # Evidence: 3/3 overnight EMA21_PB fills with ATR < 6.0 were SL_HIT losers (−$110 total).
+  # The sole overnight A/D winner had ATR=7.7. Low ATR = thin liquidity, SL clipped by noise.
+  # Blocks A/D/A-prime/D-prime overnight when ATR < threshold. Set 0 to disable.
+  ft_overnight_min_atr_ad: 6.0
+  ft_trend_exhaustion_atr_multiple: 8.0  # MAR 12 2026 Fix #16: Block TREND_CONT if session moved > N×ATR from OR midpoint
+  # MAR 16 2026: Post-exhaustion cooldown — when TREND_EXHAUSTION fires, block ALL
+  # same-direction signals for N bars (at 15m timeframe: 4 bars = 60 min).
+  # Root cause: Mar 16 09:45 CT — exhaustion fired at 09:15 but only blocked TREND_CONT;
+  # an A-signal fired 30 min later into the same exhausted trend and lost.
+  ft_exhaustion_cooldown_bars: 4
+  # MAR 16 2026 Fix #1: A/D per-session cap — prevents duplicate pullback trades overnight.
+  # Evidence: Mar 16 01:30 CT was second A-signal same session; first (00:00) hit TP, second SL.
+  ft_ema21_pb_max_overnight: 1   # Max A (long) or D (short) signals per overnight session per direction
+  ft_ema21_pb_max_rth: 3         # RTH cap — multiple valid pullbacks occur in trending sessions
+  # MAR 16 2026 Fix #2: Slippage buffer in overnight R:R gate.
+  # Market orders fill above/below close; gate computed from close overstates true R:R.
+  # MAR 16 2026: Disabled (0.0) — Fix #1 (overnight cap) is the right tool for A/D.
+  # At 0.5pts: (12.0-0.5)/(7.2+0.5)=1.49 permanently blocks ALL overnight A/D (below 1.5 floor).
+  # Revisit with trade journal slippage data once a sample of ≥20 overnight fills is available.
+  ft_entry_slippage_pts: 0.0
+
+  # MAR 16 2026: ATR-adaptive stops for Signal A/D (EMA21 pullback long/short)
+  # Fixed 6pt SL at ATR=10 = 0.6×ATR → noise band stop (RTH loss 09:45 CT Mar 16).
+  # Dynamic: SL = clamp(ATR × mult, floor, ceiling), TP = SL × rr_ratio
+  # At ATR=10: SL=10pt ($50), TP=13.25pt ($66.25) → R:R 1.33 (same ratio, wider absolute)
+  # At ATR≤6:  SL=6pt (floor), TP=8pt → same as old fixed behaviour
+  ft_ema21_sl_atr_mult: 1.0           # ATR multiplier — 1× ATR = 1 standard deviation of bar noise
+  ft_ema21_sl_floor_pts: 6.0          # Minimum SL — keep old floor when vol is low
+  ft_ema21_sl_ceiling_pts: 15.0       # Maximum SL — cap at 15pt ($75) to control max risk
+  ft_ema21_rr_ratio: 1.33             # TP = SL × 1.33 — same as original 8/6 ratio
+  ft_ema21_macd_divergence_block: 0.5  # Block A when MACD < -0.5, block D when MACD > +0.5. Set to 0 to disable.
+  # MAR 19 2026: Lowered from 1.0 → 0.5. At 1.0, the 11:00 RTH short (MACD_H=+0.95) slipped
+  # under the threshold and hit SL while the 09:00 short (MACD_H=-1.47) won. Any positive
+  # MACD histogram on a pullback short signals the counter-move has momentum; 0.5 catches it.
+
+  # FEB 20 2026: ATR-adaptive stops for Signal C
+  # Fixed 8pt SL was only 0.50× ATR (mean ATR 16.1) → noise band stops.
+  # Dynamic: SL = min(ceiling, max(floor, ATR × mult)), TP = SL × rr_ratio
+  # Simulation (Oct 2025 N=8): WR 37.5%→50%, PF 0.54→0.95
+  # Risk range: $40 (8pt floor) to $100 (20pt ceiling) per trade
+  ft_ema9_sl_atr_mult: 1.0          # ATR multiplier — sweet spot from sweep
+  ft_ema9_sl_floor_pts: 8.0         # Minimum SL — same as old fixed 8pt
+  ft_ema9_sl_ceiling_pts: 20.0      # Maximum SL — within RiskGate 25pt cap
+  ft_ema9_rr_ratio: 1.25            # TP = SL × 1.25 (preserves R:R)
+
+  # MAR 11 2026 (Fix #13): Breakeven / profit-lock thresholds
+  # Trade 7 (Mar 10) reached +$25 unrealized (5 pts) and gave it back to a full stop.
+  # The existing breakeven gate required total_pnl > $50 (10 pts), which was too high —
+  # only 2-contract or nearly full-TP moves qualified.  Lowered to point-based triggers
+  # so 1-contract overnight trades get protection earlier.
+  #   ft_breakeven_trigger_pts: once unrealized gain >= this many points → move SL to entry+1
+  #   ft_profit_lock_pts: once unrealized gain >= this many points → lock in 50% via trailing
+  ft_breakeven_trigger_pts: 3.0              # RTH: Move SL to breakeven when +3 pts unrealized ($15)
+  ft_overnight_breakeven_trigger_pts: 2.0   # MAR 12 2026 Fix #15: Tighter overnight/evening trigger at 2 pts ($10)
+  ft_profit_lock_pts: 5.0                   # Lock in ≥50% of gain when +5 pts unrealized ($25)
+  # MAR 12 2026: Signal-flip exit — exit at market when EMA9/EMA21 cross + MACD_H flip against position
+  ft_trend_flip_exit_enabled: true          # Exit when indicators reverse against open position
+  ft_trend_flip_exit_min_profit_pts: 2.0    # Only exit on flip if open profit >= 2 pts ($10); 0 = always exit
+  # MAR 23 2026: Thesis-aware continuous exit — re-check the original entry thesis while a trade is open.
+  # Armed only after some initial favorable excursion, then exits early if the signal family is invalidated.
+  ft_thesis_reversal_exit_enabled: true     # Enable signal-aware continuous exit checks after entry
+  ft_thesis_reversal_arm_profit_pts: 2.0    # Arm after at least +2 pts favorable move
+  ft_thesis_reversal_arm_stop_fraction: 0.35 # Or arm after 35% of initial stop distance is achieved
+  
+  # FEB 8 2026: EMA9 Pullback (Signal C) — catches shallow dips EMA21 misses
+  # 43 trades, WR 60.5%, +$519 in backtest
+  ft_ema9_pb_enabled: true           # ✅ ENABLE EMA9 pullback signal
+  ft_ema9_pb_stop_mult: 1.2         # Tighter stop for shallow pullbacks
+  ft_ema9_pb_target_mult: 1.5       # (LEGACY — superseded by fixed-point TP)
+  ft_ema9_touch_pct: 0.0015         # EMA9 touch tolerance (0.15%)
+  # MAR 16 2026: MACD floor for Signal C — near-zero momentum filter
+  # RTH loss 10:30 CT: MACD=0.20 passed "> 0" but was zero momentum after 23pt reversal.
+  # Requires genuine upward histogram (>= 0.3) before entering EMA9 pullback.
+  ft_ema9_pb_macd_min: 0.3          # Set to 0 to restore old "> 0" behaviour
+
+  # FEB 12 2026: Short-side signals (D, E) — mirror of long signals for bearish markets
+  # Signal D: EMA21 pullback short in downtrend (mirror of Signal A)
+  # Signal E: OR breakdown short below OR low (mirror of Signal B)
+  ft_shorts_enabled: true            # ✅ ENABLE short-side signals
+  ft_short_pb_stop_mult: 1.5         # Short stop loss = 1.5 × ATR above entry
+  ft_short_pb_target_mult: 1.0       # (LEGACY — superseded by fixed-point TP)
+  ft_short_or_target_r: 1.0          # (LEGACY — superseded by fixed-point TP)
+
+  # FEB 13 2026: Signal F — Trend Continuation for strong rally/selloff days
+  # Fires when price runs away from EMA21 without pulling back.
+  # Uses EMA9 as dynamic support, requires full EMA stack alignment + 3 ascending closes.
+  ft_trend_cont_enabled: true         # ✅ ENABLE trend continuation signal
+  ft_trend_cont_stop_mult: 1.0        # Tighter stop (1.0 × ATR) — trend has momentum
+  ft_trend_cont_target_mult: 2.0      # (LEGACY — superseded by fixed-point TP)
+  ft_trend_cont_adx_min: 25.0         # Minimum ADX (FEB 24: raised from 18→25; 224-trade backtest: ADX<25 = −$1,582)
+  ft_trend_cont_ema9_pct: 0.003       # EMA9 proximity tolerance (0.3%)
+  ft_trend_cont_max_per_day: 2        # Max 2 fires per day per side
+  # FEB 20 2026: Gap/extension handling — on gap-up/down days, 15m ATR is small
+  # (~3 pts) but price may gap 20-30 pts above EMAs.  Old 1.5×ATR limit was ~4pts,
+  # blocking all entries on gap days.  max_ext_pts sets an absolute ceiling;
+  # gap_adx_min requires stronger trend when extension > 3×ATR.
+  ft_trend_cont_max_ext_pts: 30.0     # Max pts from EMA9 allowed (handles gap days)
+  ft_trend_cont_gap_adx_min: 25.0     # ADX required when extension > 3×ATR (extra safety)
+
+  # MAR 10 2026: Signal G — London Momentum Breakout
+  # During London session (2-5 AM CST / 8-11 AM GMT), MES sits in tight
+  # range (ATR 2-4pts, ADX 16-18). European liquidity creates the first
+  # directional impulse — Signal G captures it via EMA9/EMA21 crossover.
+  # Historical London stats (165 sessions, Feb25-Jan26):
+  #   Range: median=16.8pts, P25=11.4, P75=25.8
+  #   Directional move: median=8.2pts, P25=4.4, P75=14.4
+  # SL structural: max(floor, EMA21_gap+0.5), capped at ATR×1.0
+  #   Floor=5pts — survives P25 wick action (11.4pt range ÷ 2 ≈ 5.7pt swing)
+  # TP=8pts — hits in ~55-60% of sessions (above median 8.2)
+  #   R:R = 8/5 = 1.6:1
+  #   Max 1 per day (first impulse only)
+  ft_london_enabled: true             # ✅ ENABLE London momentum signal
+  ft_london_start_hour: 2             # London window start (CT) — 8 AM GMT
+  ft_london_start_minute: 0
+  ft_london_end_hour: 5               # London window end (CT) — 11 AM GMT
+  ft_london_end_minute: 0
+  ft_london_adx_min: 15.0             # Lower ADX threshold (emerging from chop)
+  ft_london_sl_points: 5.0            # SL floor (pts) — structural SL uses max(floor, EMA21_gap+0.5)
+  ft_london_sl_atr_cap: 1.0           # SL ceiling = ATR × this mult (prevent over-wide SL on big bars)
+  ft_london_tp_points: 8.0            # TP ($40) — ~55-60% hit rate (above median 8.2pt move); R:R 1.6:1
+  ft_london_max_per_day: 1            # First impulse only — don't chase
+
+  # FEB 18 2026: 24-HOUR TRADING — entry window and RTH gate DISABLED
+  # CME ES/MES trades Sun 5PM CT - Fri 4PM CT (24h except 4-5 PM CT maintenance)
+  # Maintenance window is enforced separately by RiskGate + is_market_hours_cst()
+  # Setting both windows to 0:00-23:59 ET so strategy never blocks on time alone.
+  ft_entry_start_hour: 0              # 24h: midnight ET
+  ft_entry_start_minute: 0
+  ft_entry_end_hour: 23               # 24h: 11 PM ET (exclusive → covers through 22:59)
+  ft_entry_end_minute: 59
+  
+  # RTH gate — widened to full 24h (maintenance blocked by RiskGate separately)
+  rth_start_hour: 0                   # 24h: midnight ET
+  rth_start_minute: 0
+  rth_end_hour: 23                    # 24h: 11 PM ET
+  rth_end_minute: 59
+  # MES lunch hour is the lowest-quality window for trend entries.
+  # Require higher scores to enter during this period.
+  scoring_lunch_full_threshold: 72.0     # Lunch: Require strong conviction for full size
+  scoring_lunch_half_threshold: 58.0     # Lunch: Higher bar for half size (chop zone)
+  # Score < 50 → no trade (insufficient quality)
+  # Scoring components: Trend (max +40), Momentum (max +25), Regime (max +20), Entry (max +20), Penalties (negative)
+  # Backtest Results (Feb 2025 - Jan 2026): 11,003 trades, 40.3% win rate, +7.70% return, 1.53 profit factor
+
+# Optimized strategy parameters (from optimization on real data)
+strategies:
+  - name: rsi_macd_sentiment
+    enabled: true
+    params:
+      rsi_buy: 35.84  # Optimized value
+      rsi_sell: 54.83  # Optimized value
+      sentiment_buy: -0.82  # Optimized value (low bar)
+      sentiment_sell: 0.22  # Optimized value
+
+# Risk management
+risk:
+  position_sizing_method: kelly  # Use Kelly Criterion
+  use_dynamic_stops: true  # ATR-based stops
+  atr_multiplier: 2.0
+  max_portfolio_heat: 0.02  # Max 2% risk per position
+
+backtest:
+  data_path: "data/es_historical.csv"
+  start_date: null
+  end_date: null
+  initial_capital: 5000.0     # FEB 7 2026: Aligned with live MES account
+  slippage: 0.25
+  risk_free_rate: 0.02
+
+optimization:
+  window_length: 500
+  retrain_interval: 3600
+  parameter_grid:
+    rsi_buy: [25, 30, 35]
+    rsi_sell: [65, 70, 75]
+    macd_fast: [12, 16, 20]
+    macd_slow: [26, 30, 35]
+    sentiment_threshold: [0.4, 0.5, 0.6]
+    momentum_lookback: [20, 30, 40]
+
+# AWS Bedrock LLM Integration (Optional)
+llm:
+  # Enable/disable LLM enhancement
+  enabled: false  # TEMPORARILY DISABLED - LLM was blocking all trades (too conservative)
+  
+  # AWS Bedrock settings
+  model_id: "anthropic.claude-3-sonnet-20240229-v1:0"  # or "anthropic.claude-3-haiku-20240307-v1:0" for faster/cheaper
+  region_name: "us-east-1"
+  max_tokens: 2048
+  temperature: 0.3  # Lower = more deterministic (0.0-1.0)
+  
+  # Trade advisor settings
+  min_confidence_threshold: 0.60  # ADJUSTED: Lowered from 0.75 to allow medium-confidence signals (0.65) during volatile markets
+  override_mode: false  # false = consensus mode, true = LLM can override traditional signals
+  call_interval_seconds: 60  # Minimum seconds between LLM calls (to avoid rate limits)
+  
+  # AWS Comprehend sentiment analysis
+  enable_sentiment: true
+  sentiment_region: "us-east-1"
+  
+  # Training pipeline settings
+  s3_bucket: "srini-shree-east-1"  # S3 bucket for training data (fill in your bucket name)
+  s3_prefix: "llm-training-data"
+  retrain_interval_days: 7  # Retrain model every N days
+  min_training_trades: 100  # Minimum trades required for retraining
+  
+  # Database settings
+  trade_log_db_path: "data/llm_trades.db"  # SQLite database for trade logging
+
+# RAG (Retrieval-Augmented Generation) Configuration
+rag:
+  # Enable/disable RAG features
+  enabled: false  # Safe default keeps RAG offline unless explicitly enabled
+  backend: "local_faiss"  # off|local_faiss|opensearch_serverless|aurora_pgvector
+  opensearch_enabled: false  # Hard kill switch for OpenSearch-backed KB
+
+  # AWS Bedrock Embeddings settings
+  embedding_model_id: "amazon.titan-embed-text-v1"  # Titan Embeddings model
+  region_name: "us-east-1"
+  
+  # Vector store settings
+  vector_store_path: "data/rag_index"  # Path to persist FAISS index
+  embedding_dimension: 1536  # Titan v1 embedding dimension
+  
+  # Retrieval settings
+  top_k_results: 3  # Number of documents to retrieve
+  score_threshold: 0.5  # Minimum similarity score (0-1)
+  
+  # Performance settings
+  cache_enabled: true  # Enable query result caching
+  cache_ttl_seconds: 3600  # Cache time-to-live (1 hour)
+  batch_size: 10  # Number of documents to embed at once
+
+  # Knowledge base
+  knowledge_base_path: "data/knowledge_base"  # Directory for knowledge base documents
+  local_store_path: "rag_data/local_kb/local_kb.sqlite"
+  kb_cache_ttl_seconds: 120
+  min_similar_trades: 0
+  min_win_rate: 0.15
+  min_similar_trades_for_full_threshold: 8  # Relax threshold until we have 8+ close matches
+  min_weighted_win_rate: 0.3
+  min_weighted_win_rate_soft_floor: 0.15  # Allow trades in thin regimes down to 15% weighted win rate
+  min_sample_for_hard_block: 30
+  soft_penalty_when_below: 0.1
+
+# ============================================================
+# LEGACY: Single-source Stocktwits Sentiment (deprecated)
+# Use multi_source_sentiment below for comprehensive sentiment
+# ============================================================
+stocktwits_sentiment:
+  enabled: false  # Disabled - use multi_source_sentiment instead
+  symbols:
+    - "ES_F"
+    - "SPY"
+  refresh_interval_seconds: 300
+  request_timeout_seconds: 3.0
+  entry_block_threshold: 0.30  # MAR 16 2026: Lowered from 0.40 → 0.30. Mar 16 sentiment was −0.29 (REDUCE_SIZE) but never blocked; tightening catches moderate bearish days.
+  weak_threshold: 0.15         # MAR 16 2026: Lowered from 0.20 → 0.15 to match new block threshold proportionally.
+  protect_position_threshold: 0.6
+  low_volume_entry_block_threshold: 0.35   # MAR 9 2026: Relaxed from 0.25 → 0.35 to allow overnight trading. Was blocking ALL overnight signals.
+  low_volume_weak_threshold: 0.15          # MAR 9 2026: Relaxed from 0.10 → 0.15. Less aggressive confidence reduction overnight.
+  low_volume_protect_position_threshold: 0.40
+  mild_contradiction_confidence_mult: 0.8
+  agreement_confidence_mult: 1.1
+  low_volume_confidence_penalty: 0.95      # MAR 9 2026: Relaxed from 0.90 → 0.95. Was stacking with sentiment to kill signals.
+
+# ============================================================
+# MULTI-SOURCE SENTIMENT AGGREGATOR
+# Combines Stocktwits + Reddit for MES trading
+# Twitter disabled until API credentials are configured
+# ============================================================
+multi_source_sentiment:
+  enabled: true  # Enable multi-source sentiment
+  
+  # ============================================================
+  # Source Weights (must sum to 1.0)
+  # Twitter disabled - weight redistributed to Stocktwits/Reddit
+  # ============================================================
+  stocktwits_weight: 0.55  # Retail traders directly trading ES/SPY (was 0.4)
+  reddit_weight: 0.45      # Meme/retail momentum (WSB, r/stocks) (was 0.3)
+  twitter_weight: 0.0      # DISABLED - no API credentials configured
+  twitter_enabled: false   # Explicitly disable Twitter fetching
+  
+  # ============================================================
+  # API Configuration
+  # ============================================================
+  refresh_interval_seconds: 300  # Refresh every 5 minutes (minimum)
+  request_timeout_seconds: 3.0   # HTTP timeout per request (fail fast)
+  
+  # Stocktwits symbols to track
+  stocktwits_symbols:
+    - "ES_F"
+    - "SPY"
+  
+  # Reddit configuration
+  reddit_subreddits:
+    - "wallstreetbets"
+    - "stocks"
+    - "options"
+  reddit_search_terms:
+    - "SPY"
+    - "SPX"
+    - "ES"
+    - "S&P 500"
+    - "futures"
+  
+  # Twitter/X search terms
+  twitter_search_terms:
+    - "$SPY"
+    - "SPX"
+    - "ES futures"
+    - "S&P 500"
+  
+  # ============================================================
+  # RTH Thresholds (Regular Trading Hours: 8:30 AM - 3:00 PM CT)
+  # Higher liquidity = more relaxed thresholds
+  # ============================================================
+  entry_block_threshold: 0.30    # MAR 16 2026: Lowered from 0.40 → 0.30. Catches moderate bearish days (e.g. Mar 16 at −0.29 which was only REDUCE_SIZE, not BLOCK).
+  weak_threshold: 0.15           # MAR 16 2026: Lowered from 0.20 → 0.15 proportionally.
+  strong_exit_threshold: 0.6     # Tighten stop if sentiment reverses strongly
+  
+  # ============================================================
+  # Low-Volume Session Thresholds (Evening & Overnight)
+  # Lower liquidity = slightly stricter thresholds
+  # Evening: 5:00 PM - 11:00 PM CT
+  # Overnight: 11:00 PM - 8:30 AM CT
+  # MAR 9 2026: Relaxed to allow overnight trading. Was blocking ALL signals.
+  # ============================================================
+  low_volume_entry_block_threshold: 0.35  # Relaxed from 0.25 → 0.35
+  low_volume_weak_threshold: 0.15         # Relaxed from 0.10 → 0.15
+  
+  # ============================================================
+  # Confidence Modifiers
+  # ============================================================
+  mild_contradiction_confidence_mult: 0.7   # 30% reduction for REDUCE_SIZE
+  agreement_confidence_mult: 1.1            # 10% boost when sentiment agrees
+  low_volume_confidence_penalty: 0.95       # MAR 9: Relaxed from 0.90 → 0.95
+
+# ============================================================
+# VX FUTURES FEED (REAL-TIME VIX FROM IBKR)
+# Provides volatility-based position sizing multiplier
+# Requires CFE Enhanced (NP,L1) market data subscription
+# ============================================================
+vix_feed:
+  enabled: true  # Enable VX futures feed from IBKR
+  
+  # Connection settings (uses separate client_id to avoid conflicts)
+  ib_host: "127.0.0.1"
+  ib_port: 4001           # Must match data.ibkr_port (4001 for IB Gateway LIVE)
+  client_id: 71           # Unique client ID for VX feed
+  market_data_type: 1     # 1=live, 3=delayed (requires CFE subscription for live)
+  
+  # Stale data handling
+  stale_seconds: 120               # Data considered stale after 2 minutes
+  conservative_on_stale: false     # If true, use 0.5 multiplier when stale
+  
+  # Volatility multiplier thresholds
+  # VX >= extreme -> 0.4 (reduce positions significantly)
+  # VX >= elevated -> 0.7 (be cautious)
+  # VX < elevated -> 1.0 (normal sizing)
+  thresholds:
+    extreme: 30.0          # VX >= 30: 40% of normal size (panic/crisis)
+    elevated: 20.0         # VX >= 20: 70% of normal size (uncertainty)
+  
+  # Reconnection settings
+  max_retries: 5
+  base_delay: 1.0
+  max_delay: 60.0
+
+# Hybrid deterministic engine (RSI pullback filter settings)
+# Hybrid RSI Pullback Filter (D-engine component)
+# NOTE: This was renamed from 'hybrid:' to avoid YAML duplicate key collision
+hybrid_rsi_filter:
+  min_confidence_for_trade: 0.45  # STANDARDIZED: Now 0-1 scale (was 45 on 0-100 scale)
+  d_engine:
+    enable_rsi_filter: true
+    enable_session_aware_rsi: true
+    rsi_period: 14
+    ema_trend_period: 50
+    rsi_long_pullback_low: 30
+    rsi_long_pullback_reentry: 40
+    rsi_short_pullback_high: 70
+    rsi_short_pullback_reentry: 60
+    ema_no_trade_band_pct: 0.0005
+    atr_multiplier_sl: 3.0  # Widened from 1.2 to 3.0 (stops were too tight)
+    atr_multiplier_tp: 2.0  # Keep 2:1 R:R with wider stop
+    overnight_rsi_buffer: 2.0  # Reduced from 5.0
+    overnight_tp_multiplier: 0.85
+    overnight_sl_multiplier: 0.9
+  hard_block_when_below: false
+  regime_mode: "relaxed"
+  emergency_signal_generation: true
+  max_consecutive_holds: 8          # Force signals after 8 HOLDs
+  regime_filter:
+    allow_position_exits: true  # Don't block exit signals
+    min_win_rate_for_exits: 0.05  # Much lower threshold for exits
+    min_win_rate: 0.10  # Lower from 0.15
+    emergency_win_rate: 0.05  # For multiple recent losses
+    position_exit_bypass: true  # Bypass all filters for exits
+  emergency_mode:
+    recent_loss_threshold: 8  # Losses in last 10 trades
+    enable_forced_exits: true
+    max_position_duration_hours: 4
+
+# Hybrid RAG + LLM pipeline configuration (used by pipeline integration)
+hybrid:
+  # Relax CHOP_RANGE filter to allow overnight/trending trades
+  # Set to 0 to disable the EMA-spread chop filter entirely
+  chop_ema_spread_min_pct: 0.0
+  signal_threshold: 20  # Lower threshold to allow more actionable signals
+  oversold_extension_rsi_min: 25.0  # FEB 19: Lowered 35→25. RSI 30-35 is normal for shorts; only block extreme oversold snap-back zone
+  no_signal_allow_weak_signals: true
+  no_signal_allow_chop_bias: true
+  level_confirmation_enabled: false
+
+hybrid_pipeline:
+  rule_engine:
+    # Less restrictive for futures
+    rag_regime_filter:
+      enabled: true
+      strictness: "medium"  # vs "high"
+      evening_relaxed: true
+    no_signal_gate:
+      enabled: true
+      allow_weak_signals: true      # Allow weak directional signals
+      trending_market_threshold: 0.15  # Lower threshold in trends
+    
+    # Allow more market regimes  
+    allowed_regimes:
+      - "TRENDING"
+      - "RANGING" 
+      - "VOLATILE"
+      - "QUIET"
+      - "UNCERTAIN"  # Add this for low-confidence periods
+  level_confirmation:
+    enabled: false          # Temporarily disable while logic is fixed
+    strict_mode: false
+    timeout_cycles: 10
+    buffer_points: 1.0
+  llm:
+    fallback_technical_signals: true  # Enable technical fallbacks
+    hold_to_signal_conversion: true   # Convert strong HOLDs to weak signals
+
+# Range-bound trading
+range_trading:
+  enabled: true
+  min_range_size: 1.0
+  boundary_threshold: 0.1
+
+futures_trading:
+  # === SESSION-AWARE TRADING (24h ES/MES) ===
+  # Each session has tuned parameters for liquidity and volatility
+  
+  session_manager_enabled: true
+  
+  active_sessions:
+    # RTH - Most Liquid (8:30 AM - 3:00 PM CT)
+    rth:
+      start_time: "08:30"
+      end_time: "15:00"
+      timezone: "America/Chicago"
+      min_confidence: 0.55
+      atr_multiplier_sl: 3.0
+      atr_multiplier_tp: 6.0
+      min_risk_reward: 1.5
+      max_trades_per_hour: 4
+      max_trades_per_session: 8
+      cooldown_after_loss_minutes: 20
+      spread_gate_ticks: 2.0
+      
+    # Evening Session (5:00 PM - 11:00 PM CT)
+    evening:
+      start_time: "17:00"
+      end_time: "23:00"
+      timezone: "America/Chicago"
+      min_confidence: 0.45  # Lowered from 0.60 for consistency
+      atr_multiplier_sl: 3.5  # Wider stops
+      atr_multiplier_tp: 7.0
+      min_risk_reward: 2.0  # Better setups only
+      max_trades_per_hour: 3  # Increased from 1
+      max_trades_per_session: 6  # Increased from 4
+      cooldown_after_loss_minutes: 30
+      spread_gate_ticks: 2.0
+      rsi_buffer: 2.0  # Relaxed RSI buffer (was 3.0)
+    
+    # Overnight (11:00 PM - 3:00 AM CT)
+    overnight:
+      start_time: "23:00"
+      end_time: "03:00"
+      timezone: "America/Chicago"
+      min_confidence: 0.50  # Lowered from Strictest 0.70
+      atr_multiplier_sl: 4.0  # Widest stops
+      atr_multiplier_tp: 8.0
+      min_risk_reward: 2.0
+      max_trades_per_hour: 2  # Increased from 1
+      max_trades_per_session: 5  # Increased from 2
+      cooldown_after_loss_minutes: 30  # Reduced from 45
+      spread_gate_ticks: 3.0  # Allow wider spreads
+      rsi_buffer: 2.0  # Reduced from 5.0 to allow more entries
+      
+    # Pre-Market (3:00 AM - 8:30 AM CT)
+    premarket:
+      start_time: "03:00"
+      end_time: "08:30"
+      timezone: "America/Chicago"
+      min_confidence: 0.65
+      atr_multiplier_sl: 3.5
+      atr_multiplier_tp: 7.0
+      min_risk_reward: 2.0
+      max_trades_per_hour: 1
+      max_trades_per_session: 2
+      cooldown_after_loss_minutes: 30
+      spread_gate_ticks: 2.0
+      rsi_buffer: 3.0
+      
+    # Maintenance Window (4:00 PM - 5:00 PM CT) - NO TRADING
+    maintenance:
+      start_time: "16:00"
+      end_time: "17:00"
+      timezone: "America/Chicago"
+      trading_blocked: true
+      reason: "CME daily maintenance window"
+
+  # S3 cache settings
+  s3_cache:
+    trade_logs_ttl_seconds: 1800  # 30 minutes
+    max_cache_size_mb: 50
+    aggressive_caching: true
+    
+  # Rule engine relaxation
+  rule_relaxation:
+    circuit_breaker_threshold: 5
+    evening_session_relaxation: 0.15
+    low_vol_atr_floor: 0.05
+
+# Autonomous Learning Configuration
+autonomous:
+  # Enable/disable autonomous learning features
+  enabled: false  # Set to true to enable autonomous learning (CAUTION: test thoroughly first)
+  
+  # Daily analysis settings
+  run_daily_analysis: true  # Run daily performance analysis
+  daily_analysis_time: "18:00"  # Time to run daily analysis (after market close)
+  
+  # Parameter adjustment settings
+  auto_apply_changes: false  # Automatically apply parameter changes (false = human approval required)
+  require_human_approval: true  # Require human approval before applying changes
+  auto_approve_threshold: 0.85  # Auto-approve changes with confidence >= 0.85 (if human approval disabled)
+  
+  # Safety constraints for parameter changes
+  safety_constraints:
+    # RSI thresholds
+    rsi_buy_min: 20.0
+    rsi_buy_max: 45.0
+    rsi_sell_min: 55.0
+    rsi_sell_max: 80.0
+    
+    # Sentiment thresholds
+    sentiment_buy_min: -1.0
+    sentiment_buy_max: 0.0
+    sentiment_sell_min: 0.0
+    sentiment_sell_max: 1.0
+    sentiment_weight_min: 0.1
+    sentiment_weight_max: 0.9
+    
+    # Risk management bounds
+    stop_loss_min: 10.0
+    stop_loss_max: 50.0
+    take_profit_min: 15.0
+    take_profit_max: 100.0
+    
+    # LLM confidence bounds
+    min_confidence_min: 0.5
+    min_confidence_max: 0.9
+    
+    # Max change per adjustment (20% = 0.20)
+    max_parameter_change_pct: 0.20
+  
+  # Rollback settings
+  enable_auto_rollback: true  # Automatically rollback on poor performance
+  rollback_threshold_pnl: -500.0  # Rollback if P&L drops by this amount
+  rollback_check_days: 1  # Days to evaluate after parameter change
+  
+  # Weekly review settings
+  run_weekly_review: true  # Run weekly performance reviews
+  weekly_review_day: "sunday"  # Day of week to run weekly review
+  weekly_review_time: "20:00"  # Time to run weekly review
+  apply_weekly_suggestions: false  # Apply weekly optimization suggestions
+  
+  # Reporting
+  save_daily_reports: true  # Save daily analysis reports
+  save_weekly_reports: true  # Save weekly review reports
+  reports_retention_days: 90  # Keep reports for 90 days
+
+# Hybrid Decision Architecture Configuration
+# This section configures the D-engine (deterministic) + H-engine (LLM/RAG) architecture
+# NOTE: Renamed from 'hybrid:' to 'hybrid_decision:' to avoid YAML duplicate key collision
+hybrid_decision:
+  # Master enable/disable
+  enabled: true
+  min_confidence_for_trade: 0.45  # STANDARDIZED: Now 0-1 scale (was 45 on 0-100 scale)
+  # Level confirmation defaults
+  level_confirmation_enabled: true
+  level_confirm_proximity_pct: 0.30
+  level_confirm_buffer_atr_mult: 0.10
+  level_confirm_min_buffer_points: 0.0
+  level_confirm_max_wait_candles: 6
+  level_confirm_timeout_mode: "SOFT_PENALTY"
+  level_confirm_timeout_penalty: 0.12
+  
+  # D-Engine (Deterministic) Configuration
+  d_engine:
+    # Indicator weights (must sum to ~1.0)
+    rsi_weight: 0.25
+    macd_weight: 0.25
+    ema_weight: 0.25
+    atr_weight: 0.15
+    volume_weight: 0.10
+    
+    # RSI thresholds
+    rsi_oversold: 30.0
+    rsi_overbought: 70.0
+    
+    # EMA settings
+    ema_fast: 9
+    ema_slow: 20
+    
+    # ATR thresholds
+    atr_min_threshold: 0.10
+    atr_max_threshold: 90.0
+    
+    # Candidate threshold (minimum score to trigger H-engine)
+    candidate_threshold: 0.55
+    
+    # Risk parameters
+    atr_stop_mult: 3.0   # Widened from 2.0 to 3.0 (stops were too tight)
+    atr_target_mult: 6.0 # Keep 2:1 R:R with wider stop
+  
+  # H-Engine (LLM + RAG) Configuration
+  h_engine:
+    # Rate limiting
+    max_calls_per_hour: 10
+    min_interval_seconds: 60
+    
+    # RAG settings
+    top_k: 5
+    
+    # Cache settings
+    cache_ttl_seconds: 300
+  
+  # Confidence Scoring (ALL VALUES IN 0-1 SCALE)
+  confidence:
+    # Weights for final confidence calculation
+    weights:
+      technical: 0.5  # D-engine score weight
+      model: 0.3      # LLM confidence weight
+      rag: 0.2        # RAG similarity weight
+    
+    # Thresholds (0-1 scale)
+    threshold: 0.60           # Minimum final confidence to trade
+    min_technical_score: 0.50 # Minimum D-engine score
+    min_model_confidence: 0.40 # Minimum LLM confidence
+    
+    # Consensus mode
+    require_consensus: true   # Require D-engine and H-engine agreement
+  
+  # Safety Controls
+  safety:
+    order_cooldown_minutes: 5
+    max_orders_per_15min: 3
+    emergency_pnl_drop_pct: 2.5
+  
+  # Dry-run mode (no real orders)
+  dry_run: false
+
+# AWS Bedrock Agents Configuration
+# Multi-agent orchestration for trading decisions
+aws_agents:
+  # Master enable/disable
+  enabled: true  # Set to true to enable AWS agent-based trading
+  
+  # Configuration source
+  # If true, auto-loads from aws/config/deployed_resources.yaml
+  # If false, uses the values below
+  use_deployed_config: true
+  config_path: "aws/config/deployed_resources.yaml"  # Path to deployed resources config
+  
+  # Manual configuration (used if use_deployed_config=false)
+  region_name: "us-east-1"
+  
+  # Agent IDs (filled automatically from deployed_resources.yaml)
+  agent_ids:
+    data: ""  # Data Ingestion Agent (Agent 1)
+    decision: ""  # Decision Engine Agent (Agent 2)
+    risk: ""  # Risk Control Agent (Agent 3)
+    learning: ""  # Learning Agent (Agent 4)
+  
+  # Agent Alias IDs (for versioned deployments)
+  agent_alias_ids:
+    data: ""
+    decision: ""
+    risk: ""
+    learning: ""
+  
+  # S3 bucket for trade data
+  s3_bucket: ""
+  
+  # Knowledge Base
+  knowledge_base_id: ""
+  
+  # Step Functions ARNs
+  step_functions:
+    signal_flow: ""
+    nightly_flow: ""
+  
+  # Orchestration settings
+  use_step_functions: false  # Use Step Functions vs direct agent invocation
+  
+  # Agent invocation settings
+  max_retries: 3
+  timeout_seconds: 30
+  
+  # Rate limiting
+  max_requests_per_minute: 20
+  
+  # Confidence thresholds (from agents)
+  min_decision_confidence: 0.60
+  min_risk_approval_threshold: 0.50
+  
+  # Trade execution settings
+  apply_agent_decision: false  # Apply agent decisions to actual trading
+  require_risk_approval: true  # Require Risk Agent approval for trades
+  
+  # Logging
+  log_agent_responses: true
+  log_to_s3: true
+
+live_review:
+  # Enable/disable live trading review
+  enabled: true  # Set to false to disable scheduled reviews
+  
+  # Scheduling
+  run_time: "18:00"  # Daily execution time (after market close)
+  analysis_days: 3  # Number of recent days to analyze
+  
+  # Data source
+  use_database: true  # true = use llm_trades.db, false = use CSV logs
+  csv_log_path: "logs/trades.csv"  # Path to CSV trade logs (if use_database=false)
+  
+  # Report settings
+  generate_json: true  # Generate JSON reports
+  generate_markdown: true  # Generate human-readable markdown reports
+  reports_dir: "reports/daily_reviews"  # Directory for daily review reports
+  reports_retention_days: 90  # Keep reports for 90 days
+  
+  # AI insight generation
+  enable_ai_insights: true  # Generate AI-powered insights
+  insight_confidence_threshold: 0.6  # Minimum confidence for recommendations
+  max_recommendations: 10  # Maximum number of recommendations per report
+  
+  # Email notifications (optional)
+  send_email_notifications: false  # Send email after review
+  email_recipients: []  # List of email addresses
+  email_on_warnings_only: true  # Only send email if warnings detected
+  
+  # Integration with autonomous system
+  feed_to_autonomous: false  # Feed insights to autonomous learning system
+  auto_apply_recommendations: false  # Automatically apply recommendations (requires feed_to_autonomous=true)
+
+# Telegram Notifications Configuration
+telegram:
+  # Enable/disable Telegram notifications
+  enabled: true  # Set to true to enable Telegram alerts
+  
+  # Bot credentials (obtain from @BotFather on Telegram)
+  bot_token: "8277270355:AAERK77ILK3R2-jJ79h9n0E83Gt4uA31CQE"  # Your Telegram Bot API token
+  chat_id: "5524962877"  # Your Telegram chat/channel ID
+  
+  # Notification preferences
+  notify_on_trade: true  # Send alert when trade is executed
+  notify_on_signal: false  # Send alert when signal is generated (can be noisy)
+  notify_on_error: true  # Send alert on trading errors/warnings
+
+# Observability / Prometheus Metrics
+observability:
+  prometheus_enabled: true
+  prometheus_addr: "0.0.0.0"
+  prometheus_port: 8000
+  env_label: "live"
+
+
+# ── Gold Futures Strategy ──────────────────────────────────────────────────────
+gold:
+  enabled: true
+  symbol: "MGC"           # MGC = Micro Gold (10 oz, $10/pt) — safe default
+  exchange: "COMEX"
+  currency: "USD"
+  allow_gc: false         # Set true only when ready to trade full-size GC
+
+  ibkr_host: "127.0.0.1"
+  ibkr_port: 4001         # 4001 = live gateway (real market data); simulation gate blocks orders
+  ibkr_client_id: 3       # Must not conflict with MES (1) or VIX feed (2)
+
+  simulation: false       # LIVE — enabled Mar 24 2026 for end-to-end validation
+
+  session:
+    session_open_et: "08:20"
+    session_close_et: "13:30"
+    flatten_before_close_minutes: 10
+    opening_range_minutes: 15
+    no_trade_open_minutes: 3
+    extended_hours_enabled: true
+    news_lockout_windows_et: []
+    # Phase 5 — session bucket boundaries (ET)
+    bucket_overnight_start_et: "18:00"
+    bucket_pre_comex_start_et: "03:00"
+    bucket_comex_open_start_et: "08:20"
+    bucket_midday_start_et: "10:30"
+    bucket_pre_close_start_et: "12:00"
+
+  indicators:
+    warmup_bars: 60
+    ema_fast: 9
+    ema_slow: 21
+    atr_period: 14
+    adx_period: 14
+    mtf_enabled: false
+    # Phase 2 — regime quality gates
+    ema_spread_min_ratio: 0.00015
+    ema_slope_enabled: true
+    ema_slope_lookback_bars: 3
+    ema_slope_min_per_bar: 0.02
+    price_structure_enabled: true
+    price_structure_lookback_bars: 5
+
+  entry:
+    adx_trend_min: 20.0
+    adx_trend_max: 55.0
+    orb_enabled: true
+    post_loss_cooldown_bars: 3
+    # Phase 3 — anti-chase / extension guards
+    pullback_max_vwap_extension_atr: 1.5
+    pullback_max_ema_extension_atr: 1.25
+    orb_max_extension_atr: 0.75
+    orb_max_vwap_extension_atr: 1.5
+    extended_hours_extension_strictness_mult: 0.7   # Tighten thresholds 30% during extended hours
+    # Phase 4B — direction-aware cooldowns
+    post_loss_same_family_cooldown_bars: 6   # Block same signal family for longer after loss
+    post_loss_opposite_cooldown_bars: 1       # Minimal cooldown for opposite-direction entries
+
+  exit:
+    atr_sl_multiplier: 1.5
+    atr_tp_multiplier: 2.5
+    trailing_stop_enabled: true
+    time_stop_bars: 60
+    # Phase 4A — progress-aware staged time stop
+    time_stop_stage_1_bars: 20
+    time_stop_stage_1_min_progress_r: 0.25   # Require 0.25R after 20 bars
+    time_stop_stage_2_bars: 40
+    time_stop_stage_2_min_progress_r: 0.0    # Require break-even after 40 bars
+
+  risk:
+    max_risk_per_trade_usd: 50.0
+    daily_loss_limit_usd: 200.0
+    max_trades_per_day: 1
+    max_consecutive_losses: 3
+    post_loss_cooldown_minutes: 30
+    max_contracts_hard_cap: 1
+
+# ── SPY Options Bot ──────────────────────────────────────────────────────────
+spy_options:
+  enabled: true
+
+  ib:
+    ibkr_host: "127.0.0.1"
+    ibkr_port: 4001
+    ibkr_client_id: 5
+    snapshot_wait_s: 3.0
+    greeks_wait_s: 4.0
+    max_subscriptions: 60
+
+  chain:
+    strike_pct_range: 0.04
+    max_strikes_per_expiry: 30
+    num_expiries: 2
+    exchange: "SMART"
+    conid_resolve_delay_s: 0.1
+    liquidity_min_oi: 100
+    liquidity_max_spread_pct: 8.0
+    liquidity_min_volume: 50
+
+  signals:
+    volume_spike_mult: 4.0
+    min_volume_for_signal: 500
+    sweep_poll_volume_threshold: 300
+    vix_low: 16.0
+    vix_high: 26.0
+    pc_ratio_bearish: 1.8
+    pc_ratio_bullish: 0.5
+    bid_ask_imbalance_threshold: 3.0
+    straddle_spike_mult: 3.0
+    min_confidence: 0.90  # APR 2 2026: Raised from 0.70 → 0.90. Too many low-quality signals flooding Telegram. Only EXTREME tier signals should fire.
+    confidence_tier_high: 0.80
+    confidence_tier_extreme: 0.90
+    dedup_window_minutes: 90
+    sweep_window_minutes: 15
+
+  session:
+    rth_only: true
+    rth_start_et: "09:35"
+    rth_stop_et: "15:45"
+    poll_interval_s: 60
+
+  analytics:
+    enabled: true
+    db_path: "data/spy_options_signals.db"
+
+  external:
+    enabled: true
+
+    # Economic calendar — Forex Factory JSON (no key, daily refresh)
+    calendar_enabled: true
+    event_risk_window_minutes: 30        # ±30 min window flags event risk
+
+    # RSS news sentiment — Yahoo Finance, MarketWatch, CNBC, Reuters (VADER, 10-min TTL)
+    news_enabled: true
+    news_ttl_minutes: 10.0
+
+    # StockTwits retail sentiment — free public API, no auth (10-min TTL)
+    stocktwits_enabled: true
+    stocktwits_ttl_minutes: 10.0
+
+    # Reddit enhanced sentiment — full body+comments+karma; disabled by default
+    reddit_enabled: false
+    reddit_client_id: ""               # Create at https://www.reddit.com/prefs/apps
+    reddit_client_secret: ""
+    reddit_ttl_minutes: 15.0
+
+    # Macro signals — yfinance daily EOD + 15-min intraday refresh (TNX, DXY, VIX, oil)
+    macro_enabled: true
+
+    # CBOE equity P/C ratio — daily CSV (no auth)
+    cboe_enabled: true
+
+    # Options flow confirmation — yfinance options chain, GEX, dark pool proxy, gamma walls
+    flow_enabled: true
+    flow_ttl_minutes: 10.0
+    flow_barchart_enabled: true        # Attempt Barchart scrape (falls back gracefully)
+    flow_dark_pool_enabled: true       # Alpha Query + premium-skew proxy
+
+    # Market breadth — 11 sector ETFs above-open ratio + SPY up/down volume (10-min TTL)
+    breadth_enabled: true
+    breadth_ttl_minutes: 10.0
+
+    # Sector leadership — XLK, XLF, SMH, IWM, QQQ, XLE, XLI vs day-open (10-min TTL)
+    sector_enabled: true
+    sector_ttl_minutes: 10.0
+
+    # Volatility term structure — VIX/VXV ratio, VVIX (15-min TTL)
+    vol_structure_enabled: true
+    vol_structure_ttl_minutes: 15.0
+
+    # OPEX calendar — pure date math, no network required
+    opex_enabled: true
+
+    # Max confidence adjustment from external composite (±5%)
+    composite_confidence_boost: 0.05
+
+  # SPY Options uses its own Telegram bot (@shree_options_bot)
+  # so signals go to a separate chat from MES/Gold trade alerts.
+  telegram:
+    enabled: true
+    bot_token: "8252063184:AAHE_uiEcEqRaB1jfWvjGSjMsnbNfWluCfI"
+    chat_id: "5524962877"
+
+  log_file: "logs/spy_options.log"

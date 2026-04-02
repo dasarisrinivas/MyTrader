@@ -295,6 +295,12 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._or_break_sl_ceiling: float = getattr(config, 'ft_or_break_sl_ceiling_pts', 12.0)
         self._or_break_rr_ratio: float = getattr(config, 'ft_or_break_rr_ratio', 1.33)
 
+        # APR 2 2026: Anti-chase guard for OR breakout/breakdown signals
+        # Block entry when bar close is already too far past the OR level.
+        # Evidence: Apr 2 OR_BREAK_SHORT entered 13pts past OR_LOW (1.3×ATR) → SL hit in 19s.
+        # Default 1.0×ATR max chase distance keeps entries near the breakout level.
+        self._or_break_max_chase_atr: float = getattr(config, 'ft_or_break_max_chase_atr', 1.0)
+
         # MAR 16 2026 Fix: ATR-adaptive stops for EMA21 pullback signals (A/D)
         # Root cause: Mar 16 Trade #3 had fixed SL=6pt at ATR=10 → sub-ATR noise
         # stopped out in 2 min.  SL = clamp(ATR × 1.0, 6pt floor, 15pt ceiling).
@@ -1280,6 +1286,17 @@ class EsFifteenMinStrategy(BaseStrategy):
             )
             return None
 
+        # APR 2 2026: Anti-chase guard — block if price already ran too far past OR level.
+        # close is the 15m bar close, which can be well past OR_HIGH by the time signal fires.
+        _chase_dist = close - self._or_high
+        _max_chase = atr * self._or_break_max_chase_atr
+        if _chase_dist > _max_chase:
+            logger.info(
+                f"OR_BREAK_LONG blocked: chase={_chase_dist:.1f}pts > {_max_chase:.1f}pts "
+                f"({self._or_break_max_chase_atr:.1f}×ATR) past OR_H={self._or_high:.2f}"
+            )
+            return None
+
         # ---- Compute stops/targets ----
         # MAR 12 2026: ATR-adaptive SL — fixed 6pt SL at ATR=10-12 is sub-ATR (noise band).
         # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio
@@ -1709,6 +1726,17 @@ class EsFifteenMinStrategy(BaseStrategy):
         if rsi < self._or_break_short_rsi_min:
             logger.info(
                 f"OR_BREAK_SHORT blocked: RSI={rsi:.1f} < {self._or_break_short_rsi_min:.0f} (oversold — high bounce risk)"
+            )
+            return None
+
+        # APR 2 2026: Anti-chase guard — block if price already ran too far past OR level.
+        # Evidence: Apr 2 OR_BREAK_SHORT close=6520, OR_LOW=6533 → 13pts chase (1.3×ATR) → SL hit in 19s.
+        _chase_dist = self._or_low - close  # positive when close is below OR_LOW
+        _max_chase = atr * self._or_break_max_chase_atr
+        if _chase_dist > _max_chase:
+            logger.info(
+                f"OR_BREAK_SHORT blocked: chase={_chase_dist:.1f}pts > {_max_chase:.1f}pts "
+                f"({self._or_break_max_chase_atr:.1f}×ATR) past OR_L={self._or_low:.2f}"
             )
             return None
 

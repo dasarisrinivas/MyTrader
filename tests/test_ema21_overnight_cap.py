@@ -83,6 +83,7 @@ def _make_config(**overrides) -> MagicMock:
         "ft_or_break_sl_floor_pts": 6.0,
         "ft_or_break_sl_ceiling_pts": 12.0,
         "ft_or_break_rr_ratio": 1.33,
+        "ft_or_break_max_chase_atr": 1.0,
         "ft_or_break_short_rsi_min": 40.0,
         "ft_or_break_long_rsi_max": 60.0,
         "ft_ema9_pb_enabled": False,
