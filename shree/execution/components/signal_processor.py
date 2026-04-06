@@ -614,20 +614,36 @@ class SignalProcessor:
 
                     # Agreement bonus: hybrid agrees with strategy direction → boost
                     # Disagreement penalty: hybrid opposes → dampen (but never flip)
-                    if hybrid_action == signal.action:
+
+                    # APR 6 2026: Extract RAG history early — used by both agreement
+                    # boost and the new zero-win-rate hard block below.
+                    rag_win_rate = 0.5  # neutral default when no RAG data
+                    rag_count = 0
+                    if hasattr(pipeline_result, "rag_retrieval"):
+                        rag_count = getattr(pipeline_result.rag_retrieval, "similar_trade_count", 0)
+                        if rag_count > 0:
+                            rag_win_rate = getattr(pipeline_result.rag_retrieval, "weighted_win_rate", 0.5)
+
+                    # APR 6 2026: RAG zero-win-rate hard block.
+                    # Trade on 2026-04-06 entered with rag_similar_trades=5 and
+                    # rag_win_rate=0.0 (all 5 similar trades lost) yet still fired.
+                    # When RAG has >= 3 similar trades and 0% win rate, the historical
+                    # evidence is overwhelming — block the entry entirely.
+                    _rag_block_min_samples = 3
+                    if rag_count >= _rag_block_min_samples and rag_win_rate < 0.01:
+                        original_conf = signal.confidence
+                        signal.confidence = 0.0
+                        confidence_adjustments["rag_zero_winrate_block"] = -original_conf
+                        logger.warning(
+                            f"🚫 RAG_ZERO_WINRATE_BLOCK: {rag_count} similar trades, "
+                            f"win_rate={rag_win_rate:.0%} — all lost. "
+                            f"conf {original_conf:.3f} → 0.0"
+                        )
+                    elif hybrid_action == signal.action:
                         # Aligned — boost confidence scaled by RAG's own win rate.
-                        # MAR 31 2026: Previously boost = min(0.15, hybrid_conf * 0.2),
-                        # which only used the LLM's final confidence. A 24% RAG win rate
-                        # (historical data bearish) was giving the same max boost as a
-                        # 70% win rate. Now: multiply by rag_win_rate so historical data
-                        # quality gates the boost. k=0.4 preserves the current boost
-                        # magnitude at rag_win_rate=0.5 (no RAG data / neutral prior).
-                        rag_win_rate = 0.5  # neutral default when no RAG data
-                        rag_count = 0
-                        if hasattr(pipeline_result, "rag_retrieval"):
-                            rag_count = getattr(pipeline_result.rag_retrieval, "similar_trade_count", 0)
-                            if rag_count > 0:
-                                rag_win_rate = getattr(pipeline_result.rag_retrieval, "weighted_win_rate", 0.5)
+                        # MAR 31 2026: multiply by rag_win_rate so historical data
+                        # quality gates the boost. k=0.4 preserves current magnitude
+                        # at rag_win_rate=0.5 (no RAG data / neutral prior).
                         boost = min(0.15, hybrid_conf * rag_win_rate * 0.4)
                         signal.confidence = min(1.0, signal.confidence + boost)
                         confidence_adjustments["hybrid_agreement_boost"] = boost

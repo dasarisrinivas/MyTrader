@@ -658,7 +658,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if self._ema9_pb_enabled:
             signal_c = self._check_ema9_pullback(
                 close, open_price, low, ema9, ema21, ema50, atr, adx, rsi,
-                macd_hist,
+                macd_hist, pdh=pdh,
             )
 
         # ---- Signal D: EMA21 Pullback Short (downtrend mirror of A) ----
@@ -1214,6 +1214,13 @@ class EsFifteenMinStrategy(BaseStrategy):
                 f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
             )
             return None
+        # APR 6 2026: Wider 0.5% zone when RSI overbought (>65) near PDH
+        if pdh > 0 and close <= pdh and _pdh_gap_pct <= 0.005 and rsi > 65:
+            logger.info(
+                f"🚫 PDH_RSI_BLOCK: close={close:.2f} within 0.5% of PDH={pdh:.2f} "
+                f"({_pdh_gap_pct * 100:.2f}% below) + RSI={rsi:.0f}>65 — blocking BUY"
+            )
+            return None
 
         # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
         # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio, ticked to 0.25pt
@@ -1319,6 +1326,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         self, close: float, open_p: float, low: float,
         ema9: float, ema21: float, ema50: float, atr: float, adx: float,
         rsi: float, macd_hist: float = 0.0,
+        pdh: float = 0.0,
     ) -> Optional[tuple]:
         """
         EMA9 pullback in strong uptrend — captures faster moves.
@@ -1373,6 +1381,26 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Was `macd_hist > 0` — near-zero (e.g. 0.20) has no edge. Default 0.3.
         if macd_hist < self._ema9_pb_macd_min:
             return None
+
+        # 9. PDH proximity filter (APR 6 2026)
+        # Block BUY when price is at or near PDH resistance. Trade on 2026-04-06
+        # entered EMA9_PB_LONG at 6652 with PDH=6654.75 (0.04% away), stopped
+        # out in 7 minutes. Mirrors the same guard in Signal A (_check_ema21_pullback).
+        if pdh > 0:
+            _pdh_gap_pct = (pdh - close) / close if close > 0 else 0.0
+            if close <= pdh and _pdh_gap_pct <= 0.0025:
+                logger.info(
+                    f"🚫 EMA9_PDH_PROXIMITY_BLOCK: close={close:.2f} within 0.25% of PDH={pdh:.2f} "
+                    f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
+                )
+                return None
+            # Wider 0.5% zone when RSI is overbought (>65) — elevated reversal risk
+            if close <= pdh and _pdh_gap_pct <= 0.005 and rsi > 65:
+                logger.info(
+                    f"🚫 EMA9_PDH_RSI_BLOCK: close={close:.2f} within 0.5% of PDH={pdh:.2f} "
+                    f"({_pdh_gap_pct * 100:.2f}% below) + RSI={rsi:.0f}>65 — blocking BUY"
+                )
+                return None
 
         # ---- Compute ATR-adaptive stops/targets (FEB 20 2026) ----
         # SL = min(ceiling, max(floor, ATR × mult))  — adapts to volatility
