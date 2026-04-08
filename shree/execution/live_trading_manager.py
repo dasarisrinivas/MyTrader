@@ -2818,6 +2818,58 @@ TRADING GUIDANCE:
                 )
                 return
             
+            # APR 8 2026: Price-confirms-breakout guard for OR_BREAK signals.
+            # On Apr 8 13:15, candle closed at 6829.25 (above OR_H=6824.25)
+            # but the live market price was 6815.75 — 14 pts BELOW the
+            # breakout level.  The breakout was a spike that already retraced.
+            # Validate that the LIVE price confirms the breakout direction
+            # before placing the order.
+            signal_reason_for_or = metadata.get("reason", "")
+            if "OR_BREAK" in signal_reason_for_or:
+                try:
+                    live_price = await self.executor.get_current_price()
+                    if live_price and live_price > 0:
+                        # Extract OR_H / OR_L from signal metadata
+                        or_h = metadata.get("or_high")
+                        or_l = metadata.get("or_low")
+                        # Also try parsing from reason string: "OR_H=6824.25"
+                        if not or_h:
+                            import re as _re
+                            _m = _re.search(r"OR_H=([\d.]+)", signal_reason_for_or)
+                            if _m:
+                                or_h = float(_m.group(1))
+                        if not or_l:
+                            import re as _re
+                            _m = _re.search(r"OR_L=([\d.]+)", signal_reason_for_or)
+                            if _m:
+                                or_l = float(_m.group(1))
+
+                        block_entry = False
+                        if is_buy and or_h:
+                            or_h = float(or_h)
+                            if live_price < or_h:
+                                logger.warning(
+                                    f"🚫 OR_BREAK_PRICE_REJECT: BUY but live_price "
+                                    f"{live_price:.2f} < OR_H {or_h:.2f} — "
+                                    f"breakout not confirmed by market"
+                                )
+                                block_entry = True
+                        elif is_sell and or_l:
+                            or_l = float(or_l)
+                            if live_price > or_l:
+                                logger.warning(
+                                    f"🚫 OR_BREAK_PRICE_REJECT: SELL but live_price "
+                                    f"{live_price:.2f} > OR_L {or_l:.2f} — "
+                                    f"breakdown not confirmed by market"
+                                )
+                                block_entry = True
+
+                        if block_entry:
+                            self._add_reason_code("OR_BREAK_PRICE_NOT_CONFIRMED")
+                            return
+                except Exception as _exc:
+                    logger.debug(f"OR_BREAK price confirmation check skipped: {_exc}")
+
             # === Simulation mode check ===
             if self.simulation_mode:
                 logger.warning(f"🔶 SIMULATION: Would place HYBRID {signal.action} order for {qty} contracts @ {current_price:.2f}")

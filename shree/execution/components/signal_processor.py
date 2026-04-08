@@ -175,6 +175,13 @@ class SignalProcessor:
 
         # MAR 10 2026: Strategy counter rollback on blocked signals
         self._original_signal_reason: str = ""
+
+        # APR 8 2026: Same-day OR breakout reversal guard.
+        # After an OR_BREAK trade loses, block the opposite-direction OR_BREAK
+        # for the rest of the day.  Tracks the direction of each losing OR_BREAK
+        # so the guard fires on reversal whipsaws (e.g. SHORT loss → LONG block).
+        self._or_break_loss_directions: list[str] = []  # e.g. ["SHORT", "LONG"]
+        self._or_break_loss_date: Optional[str] = None   # "2026-04-08"
         
         # NEW: Multi-timeframe candle builder (Jan 2026) - single 5m aggregator
         self._mtf_builder: Optional[MultiTimeframeCandleBuilder] = None
@@ -644,14 +651,28 @@ class SignalProcessor:
                         # MAR 31 2026: multiply by rag_win_rate so historical data
                         # quality gates the boost. k=0.4 preserves current magnitude
                         # at rag_win_rate=0.5 (no RAG data / neutral prior).
-                        boost = min(0.15, hybrid_conf * rag_win_rate * 0.4)
-                        signal.confidence = min(1.0, signal.confidence + boost)
-                        confidence_adjustments["hybrid_agreement_boost"] = boost
-                        logger.info(
-                            f"🤖 Hybrid AGREES ({hybrid_action}): "
-                            f"rag_win_rate={rag_win_rate:.0%} (n={rag_count}) "
-                            f"conf boost +{boost:.3f} → {signal.confidence:.3f}"
-                        )
+                        #
+                        # APR 8 2026: Require minimum 5 RAG samples before allowing
+                        # confidence boost.  Trade on 2026-04-08 11:15 got boosted
+                        # to 0.917 based on rag_win_rate=100% with only n=2 samples
+                        # — statistically meaningless.  With n<5, log the agreement
+                        # but skip the boost (no penalty either).
+                        _rag_min_samples_for_boost = 5
+                        if rag_count < _rag_min_samples_for_boost:
+                            logger.info(
+                                f"🤖 Hybrid AGREES ({hybrid_action}): "
+                                f"rag_win_rate={rag_win_rate:.0%} (n={rag_count}) "
+                                f"— NO boost (need n≥{_rag_min_samples_for_boost})"
+                            )
+                        else:
+                            boost = min(0.15, hybrid_conf * rag_win_rate * 0.4)
+                            signal.confidence = min(1.0, signal.confidence + boost)
+                            confidence_adjustments["hybrid_agreement_boost"] = boost
+                            logger.info(
+                                f"🤖 Hybrid AGREES ({hybrid_action}): "
+                                f"rag_win_rate={rag_win_rate:.0%} (n={rag_count}) "
+                                f"conf boost +{boost:.3f} → {signal.confidence:.3f}"
+                            )
                     elif hybrid_action == "HOLD":
                         # Hybrid is uncertain — light dampening
                         # FEB 10 2026: Raised from 0.05 to 0.10.
@@ -1003,6 +1024,47 @@ class SignalProcessor:
                     logger.info(
                         f"🛑 Exhaustion gate: HOLD (was {original_action} "
                         f"conf={base_confidence:.3f})"
+                    )
+                    return SignalGenerationResult(
+                        signal=signal,
+                        pipeline_result=pipeline_result,
+                        filters_passed=False,
+                        filters_applied=list(confidence_adjustments.keys()),
+                        run_legacy_after_hybrid=False,
+                        sentiment_modifier=sentiment_modifier,
+                    )
+
+        # ── Step 2f: Same-day OR breakout reversal guard (APR 8 2026) ──
+        # After an OR_BREAK trade loses, block the opposite-direction
+        # OR_BREAK for the rest of the day.  On Apr 8, OR_BREAK_SHORT
+        # lost at 11:15, then OR_BREAK_LONG fired at 13:15 and also
+        # lost — classic whipsaw in a range-bound session.
+        if is_or_breakout and signal.action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            today_str = now_cst().strftime("%Y-%m-%d")
+            _or_loss_date = getattr(self, "_or_break_loss_date", None)
+            _or_loss_dirs = getattr(self, "_or_break_loss_directions", [])
+            # Reset tracker on new day
+            if _or_loss_date != today_str:
+                _or_loss_dirs = []
+                self._or_break_loss_directions = _or_loss_dirs
+                self._or_break_loss_date = today_str
+            if _or_loss_dirs:
+                current_direction = "LONG" if signal.action in ("BUY", "SCALP_BUY") else "SHORT"
+                # Block if ANY prior OR_BREAK lost today (prevents whipsaw)
+                opposite_lost = any(
+                    d != current_direction for d in self._or_break_loss_directions
+                )
+                same_lost = current_direction in self._or_break_loss_directions
+                if opposite_lost or same_lost:
+                    original_conf = signal.confidence
+                    signal.confidence = 0.0
+                    confidence_adjustments["or_break_reversal_block"] = -original_conf
+                    self._rollback_strategy_counter(signal_reason)
+                    logger.warning(
+                        f"🚫 OR_BREAK_REVERSAL_BLOCK: {current_direction} "
+                        f"OR_BREAK blocked — prior OR_BREAK loss(es) today: "
+                        f"{self._or_break_loss_directions}. "
+                        f"conf {original_conf:.3f} → 0.0"
                     )
                     return SignalGenerationResult(
                         signal=signal,
@@ -1610,8 +1672,33 @@ class SignalProcessor:
         self._mtf.notify_position_opened(direction)
 
     def notify_position_closed(self, close_reason: str, direction: str, pnl: float) -> None:
-        """Notify MTF gate that a position was closed (delegated)."""
+        """Notify MTF gate that a position was closed (delegated).
+
+        APR 8 2026: Also record OR_BREAK losses for same-day reversal guard.
+        """
         self._mtf.notify_position_closed(close_reason, direction, pnl)
+
+        # APR 8 2026: Track OR_BREAK losses for same-day reversal guard.
+        # The signal_type is stored in _open_trade_context by order_coordinator.
+        if pnl < 0:
+            trade_ctx = getattr(self.manager, "_open_trade_context", None) or {}
+            signal_type = trade_ctx.get("signal_type", "") or ""
+            if "OR_BREAK" in signal_type:
+                today_str = now_cst().strftime("%Y-%m-%d")
+                _or_loss_date = getattr(self, "_or_break_loss_date", None)
+                # Reset on new day
+                if _or_loss_date != today_str:
+                    self._or_break_loss_directions = []
+                    self._or_break_loss_date = today_str
+                or_direction = direction.upper()  # "LONG" or "SHORT"
+                if or_direction not in getattr(self, "_or_break_loss_directions", []):
+                    if not hasattr(self, "_or_break_loss_directions"):
+                        self._or_break_loss_directions = []
+                    self._or_break_loss_directions.append(or_direction)
+                logger.info(
+                    f"📊 OR_BREAK loss recorded: {or_direction} "
+                    f"(daily OR losses: {self._or_break_loss_directions})"
+                )
 
     def get_mtf_gate_state(self) -> Optional[str]:
         """Get current MTF gate state (delegated)."""
