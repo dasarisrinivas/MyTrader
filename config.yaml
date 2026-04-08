@@ -1261,7 +1261,7 @@ spy_options:
     pc_ratio_bullish: 0.5
     bid_ask_imbalance_threshold: 3.0
     straddle_spike_mult: 3.0
-    min_confidence: 0.80  # APR 2 2026: Lowered from 0.90 → 0.80. 90% was unreachable (max ~86% for ORB_BREAKOUT). 80% lets HIGH-tier signals through while still filtering weak PC_RATIO_EXTREME (29-35%).
+    min_confidence: 0.90  # APR 8 2026: Raised from 0.80 → 0.90. Only EXTREME-tier signals sent. PC_RATIO_EXTREME is the only type reaching 90%+ (19/58 signals historically). ORB_BREAKOUT/sweeps filtered out.
     confidence_tier_high: 0.80
     confidence_tier_extreme: 0.90
     dedup_window_minutes: 90
