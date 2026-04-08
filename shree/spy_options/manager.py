@@ -145,6 +145,11 @@ class SpyOptionsManager:
         self._last_max_pain: Optional[float] = None
         self._last_near_max_pain: bool = False
 
+        # Direction-flip cooldown: track the last PC_RATIO direction sent
+        # to suppress opposite-direction signals within the cooldown window.
+        self._last_pc_ratio_direction: Optional[str] = None   # "C" or "P"
+        self._last_pc_ratio_sent: Optional[datetime] = None
+
         # VIX history for sentiment engine (rolling, newest last)
         self._vix_history: Deque[float] = deque(maxlen=10)
 
@@ -228,6 +233,8 @@ class SpyOptionsManager:
             self._vix_history.clear()
             self._active_signals.clear()
             self._exit_sent.clear()
+            self._last_pc_ratio_direction = None
+            self._last_pc_ratio_sent = None
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -553,13 +560,39 @@ class SpyOptionsManager:
         else:
             logger.info("Signal engine: no signals this cycle")
 
+        # ── Cross-expiry directional conflict filter ──────────────────────────
+        # After collecting signals from all expiries, drop the weaker direction
+        # when both CALL and PUT signals are present simultaneously.
+        if all_signals:
+            ce_calls = [s for s in all_signals if s.right == "C"]
+            ce_puts  = [s for s in all_signals if s.right == "P"]
+            ce_both  = [s for s in all_signals if s.right == "BOTH"]
+            if ce_calls and ce_puts:
+                best_call = max(s.confidence for s in ce_calls)
+                best_put  = max(s.confidence for s in ce_puts)
+                if best_call >= best_put:
+                    logger.warning(
+                        "Cross-expiry conflict: {} CALL + {} PUT signals across expiries — "
+                        "keeping CALL (best={:.0f}% vs PUT best={:.0f}%)",
+                        len(ce_calls), len(ce_puts), best_call * 100, best_put * 100,
+                    )
+                    all_signals = ce_calls + ce_both
+                else:
+                    logger.warning(
+                        "Cross-expiry conflict: {} CALL + {} PUT signals across expiries — "
+                        "keeping PUT (best={:.0f}% vs CALL best={:.0f}%)",
+                        len(ce_calls), len(ce_puts), best_put * 100, best_call * 100,
+                    )
+                    all_signals = ce_puts + ce_both
+
         await self._dispatch_signals(all_signals)
 
         # Check whether any previously-sent signals now warrant an EXIT alert
         await self._check_exit_conditions(spy_price, regime_ctx)
 
     async def _dispatch_signals(self, signals: List[SpySignal]) -> None:
-        dedup_td = timedelta(minutes=self._cfg.signals.dedup_window_minutes)
+        dedup_td  = timedelta(minutes=self._cfg.signals.dedup_window_minutes)
+        flip_td   = timedelta(minutes=self._cfg.signals.pc_ratio_flip_cooldown_minutes)
         now = datetime.utcnow()
         for sig in signals:
             key = sig.dedup_key
@@ -567,8 +600,28 @@ class SpyOptionsManager:
             if last_sent and (now - last_sent) < dedup_td:
                 logger.debug("Dedup suppress: {}", key)
                 continue
+
+            # ── PC_RATIO direction-flip cooldown ──────────────────────────────
+            if sig.signal_type == SignalType.PC_RATIO_EXTREME:
+                opposite = "P" if sig.right == "C" else "C"
+                if (
+                    self._last_pc_ratio_direction == opposite
+                    and self._last_pc_ratio_sent is not None
+                    and (now - self._last_pc_ratio_sent) < flip_td
+                ):
+                    remaining = (flip_td - (now - self._last_pc_ratio_sent)).seconds // 60
+                    logger.info(
+                        "PC_RATIO flip suppressed: {} after {} — cooldown {}min remaining",
+                        sig.right, opposite, remaining,
+                    )
+                    continue
+
             await self._send_signal(sig)
             self._sent_times[key] = now
+
+            if sig.signal_type == SignalType.PC_RATIO_EXTREME:
+                self._last_pc_ratio_direction = sig.right
+                self._last_pc_ratio_sent = now
             if self._analytics:
                 self._analytics.insert(sig)
 

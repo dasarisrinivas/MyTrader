@@ -826,11 +826,10 @@ class TestSignalEngineE2E:
 
     def test_pc_ratio_bullish(self):
         """P/C ratio < 0.5 → PC_RATIO_EXTREME (bullish)."""
-        # Extreme call dominance: P/C = 100/8000 = 0.0125
-        # base = min(0.60 + (0.5 - 0.0125) * 0.08, 0.80) = min(0.639, 0.80) = 0.639
-        # sent_boost = max(0.0, 90/100) * 0.08 = 0.072 → conf = 0.711 (above 0.70)
+        # Extreme call dominance: P/C = 250/8000 = 0.03125 (< 0.5)
+        # Put volume 250 satisfies pc_ratio_min_denom_volume = 200
         calls = [_make_quote(strike=560.0, right="C", volume=8000, conid=7001)]
-        puts = [_make_quote(strike=560.0, right="P", volume=100, conid=7002)]
+        puts = [_make_quote(strike=560.0, right="P", volume=250, conid=7002)]
 
         chain = self._build_chain(calls=calls, puts=puts)
         assert chain.put_call_ratio < 0.5

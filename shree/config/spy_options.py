@@ -83,6 +83,14 @@ class SpyOptionsSignalConfig:
     confidence_tier_high: float = 0.80    # HIGH tier starts here
     confidence_tier_extreme: float = 0.90 # EXTREME tier starts here
 
+    # Minimum volume required for BOTH puts AND calls before computing P/C ratio.
+    # Prevents nonsense ratios like 46:1 from tiny denominators.
+    pc_ratio_min_denom_volume: int = 200
+
+    # After sending a PC_RATIO signal in one direction, suppress the opposite
+    # direction for this many minutes (prevents whipsaw flip-flop alerts).
+    pc_ratio_flip_cooldown_minutes: int = 30
+
     # Suppress re-sending same (type, expiry, strike, right) within this window
     dedup_window_minutes: int = 90
 

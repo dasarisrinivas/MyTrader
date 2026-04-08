@@ -493,7 +493,11 @@ class SignalEngine:
 
         atm = chain.atm_strike(context.spy_price)
 
-        if pc > c.pc_ratio_bearish and chain.total_put_volume >= c.min_volume_for_signal:
+        if (
+            pc > c.pc_ratio_bearish
+            and chain.total_put_volume >= c.min_volume_for_signal
+            and chain.total_call_volume >= c.pc_ratio_min_denom_volume
+        ):
             atm_put = chain.put_at(atm)
             # Confidence: base from ratio distance, adjusted by sentiment & regime
             # Scale: P/C 1.8→0.70, 2.5→0.77, 3.0→0.82, 5.0→0.90
@@ -540,7 +544,11 @@ class SignalEngine:
                 sig.sentiment_label = context.sentiment.label
             signals.append(sig)
 
-        elif pc < c.pc_ratio_bullish and chain.total_call_volume >= c.min_volume_for_signal:
+        elif (
+            pc < c.pc_ratio_bullish
+            and chain.total_call_volume >= c.min_volume_for_signal
+            and chain.total_put_volume >= c.pc_ratio_min_denom_volume
+        ):
             base = min(0.70 + (c.pc_ratio_bullish - pc) * 0.15, 0.90)
             # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES
             sent_norm = context.sentiment.score / 100.0  # -1 to +1

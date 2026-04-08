@@ -1266,6 +1266,8 @@ spy_options:
     confidence_tier_extreme: 0.90
     dedup_window_minutes: 90
     sweep_window_minutes: 15
+    pc_ratio_min_denom_volume: 200   # APR 8 2026: Both sides must have ≥200 contracts before computing P/C ratio. Prevents nonsense ratios (e.g. 46:1 from 2407 puts / 52 calls).
+    pc_ratio_flip_cooldown_minutes: 30  # APR 8 2026: After sending CALL PC_RATIO, suppress PUT PC_RATIO for 30min (and vice versa). Prevents whipsaw flip-flop alerts.
 
   session:
     rth_only: true
