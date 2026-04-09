@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple
+from zoneinfo import ZoneInfo
 
 from ..config.spy_options import SpyOptionsSignalConfig
 from ..utils.logger import logger
@@ -188,12 +189,52 @@ class SignalEngine:
             self._pc_ratio_first_seen[direction] = (now, spy_price)
             return 0.0
 
-        # Price did NOT follow through — apply decay
+        # Price did NOT follow through — apply nonlinear decay.
+        # Once a flow signal is 60+ min old without confirmation, it is
+        # often actively wrong rather than merely stale.
+        if elapsed_min >= 60:
+            return -0.10   # 60+ min: likely wrong, not just stale
         if elapsed_min >= 45:
-            return -0.05   # 45+ min stale: heavy penalty
+            return -0.07   # 45-60 min: heavy penalty
         if elapsed_min >= 30:
-            return -0.03   # 30-45 min: moderate penalty
+            return -0.04   # 30-45 min: moderate penalty
         return -0.02       # 15-30 min: mild penalty
+
+    @staticmethod
+    def _tod_ceiling() -> Tuple[float, str]:
+        """Return (max_confidence, bucket_label) based on time of day (ET).
+
+        PC_RATIO_EXTREME signals are unreliable at certain times of day:
+        - Pre-open / first 30 min: market-maker positioning skews flow
+        - Lunch hour: low volume → noisy ratios
+        - Power hour: closing hedges mimic directional flow
+
+        Buckets (Eastern Time):
+            09:30-10:00 → 0.82  (OPEN — market-maker noise)
+            10:00-11:30 → 0.95  (PRIME — highest accuracy)
+            11:30-13:30 → 0.80  (LUNCH — thin volume)
+            13:30-15:00 → 0.88  (AFTERNOON — moderate)
+            15:00-16:00 → 0.93  (CLOSE — hedging noise, still decent)
+            else        → 0.75  (OFF-HOURS — pre/post market)
+        """
+        _ET = ZoneInfo("America/New_York")
+        now_et = _dt.datetime.now(_ET).time()
+        h, m = now_et.hour, now_et.minute
+        mins = h * 60 + m
+
+        if mins < 570:        # before 09:30
+            return 0.75, "PRE_MARKET"
+        if mins < 600:        # 09:30-10:00
+            return 0.82, "OPEN"
+        if mins < 690:        # 10:00-11:30
+            return 0.95, "PRIME"
+        if mins < 810:        # 11:30-13:30
+            return 0.80, "LUNCH"
+        if mins < 900:        # 13:30-15:00
+            return 0.88, "AFTERNOON"
+        if mins < 960:        # 15:00-16:00
+            return 0.93, "CLOSE"
+        return 0.75, "POST_MARKET"   # after 16:00
 
     def evaluate(
         self,
@@ -667,6 +708,43 @@ class SignalEngine:
                     price_struct_adj -= 0.02  # at call wall = strong resistance, puts may fail
                     _price_struct_parts.append("at call wall (opposes)")
 
+            # ── Trap detector (bear trap) ──────────────────────────────────
+            # Price breaking below key support BUT internals diverge upward
+            # signals a bear trap — put buyers will get squeezed.
+            # Count bearish-surface + bullish-internals divergences.
+            trap_adj = 0.0
+            _trap_parts: list = []
+            if ext is not None:
+                _trap_flags = 0
+                # Surface looks bearish (price broke below support)
+                _surface_bearish = (
+                    ext.below_overnight_low
+                    or (ext.orb_established and ext.orb_status == "BELOW_ORB"
+                        and ext.orb_breakout_confirmed)
+                )
+                if _surface_bearish:
+                    # Check for internals diverging bullish (trap signals)
+                    if ext.breadth_ratio >= 0.55:
+                        _trap_flags += 1
+                        _trap_parts.append("breadth improving")
+                    _tick_v = getattr(ext, "tick_value", None)
+                    if _tick_v is not None and _tick_v >= 200:
+                        _trap_flags += 1
+                        _trap_parts.append("TICK positive")
+                    if getattr(ext, "vix_intraday", "FLAT") == "FALLING":
+                        _trap_flags += 1
+                        _trap_parts.append("VIX fading")
+                    _qqq_p = getattr(ext, "qqq_vs_spy_pct", 0.0)
+                    if _qqq_p > 0.10:
+                        _trap_flags += 1
+                        _trap_parts.append("QQQ leading higher")
+
+                    # 2+ divergences = likely bear trap
+                    if _trap_flags >= 3:
+                        trap_adj = -0.06
+                    elif _trap_flags >= 2:
+                        trap_adj = -0.04
+
             # Sentiment adjustment: bearish sentiment boosts, bullish PENALISES.
             # Bullish composite + extreme put flow = high probability of hedging.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
@@ -771,7 +849,17 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj + iwm_adj
 
-            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+
+            # ── Time-of-day confidence ceiling ─────────────────────────────
+            # Only apply when we have live external data; without it the
+            # signal is already weakened by missing multi-factor bonuses.
+            _tod_note = ""
+            if ext is not None:
+                _tod_cap, _tod_bucket = self._tod_ceiling()
+                if conf > _tod_cap:
+                    _tod_note = f"TOD ceiling ({_tod_bucket}): {conf:.2f}→{_tod_cap:.2f}"
+                    conf = _tod_cap
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
@@ -780,6 +868,7 @@ class SignalEngine:
             _macro_vel_note = f"TNX {ext.tnx_trend} / DXY {ext.dxy_trend}" if ext else ""
             _price_note = f"Price structure: {', '.join(_price_struct_parts)}" if _price_struct_parts else ""
             _stale_note = f"Stale flow decay: {stale_decay:+.2f}" if stale_decay < 0 else ""
+            _trap_note = f"Bear trap detected ({trap_adj:+.2f}): {', '.join(_trap_parts)}" if trap_adj < 0 else ""
             _confirm_note = f"Weighted confirmations: {confirm_pts}/10 (breadth×2/GEX×2/VWAP×2/flow/dark-pool/QQQ/IWM)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
@@ -799,6 +888,8 @@ class SignalEngine:
                         _macro_vel_note,
                         _price_note,
                         _stale_note,
+                        _trap_note,
+                        _tod_note,
                         _confirm_note,
                     ] if r
                 ],
@@ -931,6 +1022,43 @@ class SignalEngine:
                     price_struct_adj += 0.02  # at put wall = dealer support
                     _price_struct_parts.append("at put wall (support)")
 
+            # ── Trap detector (bull trap) ──────────────────────────────────
+            # Price breaking above key resistance BUT internals diverge
+            # downward signals a bull trap — call buyers will get crushed.
+            # Count bullish-surface + bearish-internals divergences.
+            trap_adj = 0.0
+            _trap_parts: list = []
+            if ext is not None:
+                _trap_flags = 0
+                # Surface looks bullish (price broke above resistance)
+                _surface_bullish = (
+                    ext.above_overnight_high
+                    or (ext.orb_established and ext.orb_status == "ABOVE_ORB"
+                        and ext.orb_breakout_confirmed)
+                )
+                if _surface_bullish:
+                    # Check for internals diverging bearish (trap signals)
+                    if ext.breadth_ratio <= 0.45:
+                        _trap_flags += 1
+                        _trap_parts.append("breadth weakening")
+                    _tick_v = getattr(ext, "tick_value", None)
+                    if _tick_v is not None and _tick_v <= -200:
+                        _trap_flags += 1
+                        _trap_parts.append("TICK fading")
+                    if getattr(ext, "vix_intraday", "FLAT") == "RISING":
+                        _trap_flags += 1
+                        _trap_parts.append("VIX rising")
+                    _qqq_p = getattr(ext, "qqq_vs_spy_pct", 0.0)
+                    if _qqq_p < -0.10:
+                        _trap_flags += 1
+                        _trap_parts.append("QQQ diverging lower")
+
+                    # 2+ divergences = likely bull trap
+                    if _trap_flags >= 3:
+                        trap_adj = -0.06
+                    elif _trap_flags >= 2:
+                        trap_adj = -0.04
+
             # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
             if sent_norm > 0:
@@ -1027,7 +1155,17 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj + iwm_adj
 
-            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+
+            # ── Time-of-day confidence ceiling ─────────────────────────────
+            # Only apply when we have live external data; without it the
+            # signal is already weakened by missing multi-factor bonuses.
+            _tod_note = ""
+            if ext is not None:
+                _tod_cap, _tod_bucket = self._tod_ceiling()
+                if conf > _tod_cap:
+                    _tod_note = f"TOD ceiling ({_tod_bucket}): {conf:.2f}→{_tod_cap:.2f}"
+                    conf = _tod_cap
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
@@ -1036,6 +1174,7 @@ class SignalEngine:
             _macro_vel_note = f"TNX {ext.tnx_trend} / DXY {ext.dxy_trend}" if ext else ""
             _price_note = f"Price structure: {', '.join(_price_struct_parts)}" if _price_struct_parts else ""
             _stale_note = f"Stale flow decay: {stale_decay:+.2f}" if stale_decay < 0 else ""
+            _trap_note = f"Bull trap detected ({trap_adj:+.2f}): {', '.join(_trap_parts)}" if trap_adj < 0 else ""
             _confirm_note = f"Weighted confirmations: {confirm_pts}/10 (breadth×2/GEX×2/VWAP×2/flow/dark-pool/QQQ/IWM)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
@@ -1054,6 +1193,8 @@ class SignalEngine:
                         _macro_vel_note,
                         _price_note,
                         _stale_note,
+                        _trap_note,
+                        _tod_note,
                         _confirm_note,
                     ] if r
                 ],
