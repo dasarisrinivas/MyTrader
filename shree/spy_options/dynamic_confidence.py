@@ -172,7 +172,28 @@ class DynamicConfidence:
         if tod == _TOD.MIDDAY:
             tod_delta = self._midday_pen          # -0.05 chop zone
         elif tod == _TOD.OPEN:
-            tod_delta = (base * self._open_mult) - base   # 10% multiplicative boost
+            # Before 10:15 ET early-session options flow is often noisy (hedging,
+            # positioning, gap-fills).  Only apply the full boost if there is
+            # directional confirmation from ORB or breadth.  Without confirmation,
+            # apply a mild penalty to avoid overstating conviction on raw flow.
+            pre_10_15 = now.time() < time(10, 15)
+            if pre_10_15:
+                orb_confirmed = (
+                    getattr(ext_ctx, "orb_breakout_confirmed", False)
+                    if ext_ctx else False
+                )
+                breadth = getattr(ext_ctx, "breadth_ratio", 0.5) if ext_ctx else 0.5
+                breadth_aligned = (
+                    (right == "C" and breadth >= 0.65)
+                    or (right == "P" and breadth <= 0.35)
+                    or right == "BOTH"
+                )
+                if orb_confirmed or breadth_aligned:
+                    tod_delta = (base * 1.05) - base   # confirmed: 5% boost (not 10%)
+                else:
+                    tod_delta = -0.04                  # unconfirmed: early-session caution
+            else:
+                tod_delta = (base * self._open_mult) - base   # post-10:15: standard 10% boost
         elif tod == _TOD.POWER_HOUR:
             tod_delta = (base * self._power_mult) - base  # 5% boost
         total_delta += tod_delta
@@ -341,6 +362,20 @@ class DynamicConfidence:
             # Additional boost if QQQ is leading (tech leadership = momentum)
             if qqq_pct > 0.20 and right == "C" and sec_delta > 0:
                 sec_delta += 0.02
+            # Rotation detection: if QQQ/IWM are strong but signal is bearish,
+            # the SPY weakness is likely sector rotation, not broad selling.
+            # Similarly, if QQQ/IWM are weak but signal is bullish, SPY strength
+            # may be defensive rotation, not a genuine rally.
+            iwm_pct = getattr(ext_ctx, "iwm_vs_spy_pct", 0.0)
+            if right == "P" and qqq_pct > 0.15:
+                sec_delta -= 0.08  # QQQ green while SPY red → rotation, not sell-off
+            elif right == "C" and qqq_pct < -0.15:
+                sec_delta -= 0.06  # QQQ lagging while SPY up → narrowing rally
+            # IWM divergence as secondary confirmation
+            if right == "P" and iwm_pct > 0.20:
+                sec_delta -= 0.04  # small caps strong → risk-on, not sell-off
+            elif right == "C" and iwm_pct < -0.20:
+                sec_delta -= 0.03  # small caps weak → risk-off headwind
             if sec_delta != 0:
                 total_delta += sec_delta
                 breakdown["sector"] = round(sec_delta, 4)
@@ -570,6 +605,25 @@ class DynamicConfidence:
             if mp_delta != 0:
                 total_delta += mp_delta
                 breakdown["max_pain"] = round(mp_delta, 4)
+
+        # ── 19. Dark pool bias ────────────────────────────────────────────────
+        # flow_dark_pool is already collected from ExternalFlowConfirmation but
+        # was never wired into confidence adjustments.  Institutional dark pool
+        # activity is a strong directional confirmer.
+        if ext_ctx is not None and hasattr(ext_ctx, "flow_dark_pool"):
+            dp_delta = 0.0
+            dp_bias = ext_ctx.flow_dark_pool
+            if dp_bias == "DISTRIBUTION" and right == "P":
+                dp_delta = 0.03    # institutional selling → confirms put thesis
+            elif dp_bias == "DISTRIBUTION" and right == "C":
+                dp_delta = -0.03   # selling pressure opposes call thesis
+            elif dp_bias == "ACCUMULATION" and right == "C":
+                dp_delta = 0.03    # institutional buying → confirms call thesis
+            elif dp_bias == "ACCUMULATION" and right == "P":
+                dp_delta = -0.03   # buying pressure opposes put thesis
+            if dp_delta != 0:
+                total_delta += dp_delta
+                breakdown["dark_pool"] = round(dp_delta, 4)
 
         # ── Finalise ─────────────────────────────────────────────────────────
         # Hard cap at 0.95 — no signal should ever reach 100% confidence.

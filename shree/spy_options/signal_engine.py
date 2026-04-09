@@ -499,15 +499,44 @@ class SignalEngine:
             and chain.total_call_volume >= c.pc_ratio_min_denom_volume
         ):
             atm_put = chain.put_at(atm)
-            # Confidence: base from ratio distance, adjusted by sentiment & regime
-            # Scale: P/C 1.8→0.70, 2.5→0.77, 3.0→0.82, 5.0→0.90
-            base = min(0.70 + (pc - c.pc_ratio_bearish) * 0.10, 0.90)
-            # Sentiment adjustment: bearish sentiment boosts, bullish PENALISES
+            # Confidence: base capped at 0.76 — extreme P/C alone does NOT warrant
+            # EXTREME tier.  High P/C can reflect hedging, dealer positioning, or
+            # protection buying rather than directional bearish conviction.
+            # Scale: P/C 1.8→0.68, 3.0→0.73, 5.0→0.76 (capped)
+            base = min(0.68 + (pc - c.pc_ratio_bearish) * 0.04, 0.76)
+
+            # Sentiment adjustment: bearish sentiment boosts, bullish PENALISES.
+            # Bullish composite + extreme put flow = high probability of hedging.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
             if sent_norm < 0:
                 sent_adj = abs(sent_norm) * 0.08   # bearish aligns → boost
             else:
-                sent_adj = -sent_norm * 0.10       # bullish opposes → penalty
+                sent_adj = -sent_norm * 0.12       # bullish opposes → stronger penalty
+
+            # External composite alignment: bullish composite with extreme put flow
+            # strongly suggests hedging activity rather than directional conviction.
+            ext = context.external
+            ext_adj = 0.0
+            if ext is not None:
+                if ext.composite_score > 0.30:
+                    ext_adj = -0.06  # bullish macro/flow composite → reduce put conviction
+                elif ext.composite_score < -0.30:
+                    ext_adj = 0.03   # bearish composite confirms put signal
+
+            # VWAP position: above VWAP → put flow more likely hedging/protection;
+            # below VWAP → bearish flow has genuine directional credibility.
+            vwap_adj = 0.0
+            if ext is not None:
+                bp = ext.vwap_band_position
+                if bp in ("ABOVE_1SD", "ABOVE_2SD"):
+                    vwap_adj = -0.07  # SPY above VWAP: puts likely protection, not directional
+                elif bp == "INSIDE_1SD":
+                    vwap_adj = -0.03  # ambiguous zone: slight caution on put conviction
+                elif bp == "BELOW_1SD":
+                    vwap_adj = 0.03   # below VWAP: bearish flow more credible
+                elif bp == "BELOW_2SD":
+                    vwap_adj = 0.05   # well below VWAP: strong confirmation
+
             # Regime alignment: TREND_UP directly opposes bearish put signal
             regime = context.regime.regime
             regime_adj = 0.0
@@ -515,7 +544,61 @@ class SignalEngine:
                 regime_adj = -0.12  # strong penalty: trend opposes put signal
             elif regime == "TREND_DOWN":
                 regime_adj = 0.05   # aligned: trend supports put signal
-            conf = max(0.0, min(0.95, base + sent_adj + regime_adj))
+
+            # ── Multi-factor confirmation bonuses ──────────────────────────
+            # P/C ratio alone caps at 0.76.  The remaining ~19% to reach the
+            # 0.90 dispatch threshold MUST come from confirming sources.
+            # Each factor independently adds a small bonus; they stack.
+            confirm_count = 0
+            flow_adj = 0.0
+            breadth_adj = 0.0
+            gex_adj = 0.0
+            dp_adj = 0.0
+            qqq_adj = 0.0
+
+            if ext is not None:
+                # Flow confirmation: aggregate flow score should be bearish
+                if ext.flow_score < -30:
+                    flow_adj = 0.04
+                    confirm_count += 1
+                elif ext.flow_score < -10:
+                    flow_adj = 0.02
+
+                # Breadth: weak internals confirm bearish thesis
+                if ext.breadth_ratio <= 0.30:
+                    breadth_adj = 0.04
+                    confirm_count += 1
+                elif ext.breadth_ratio <= 0.40:
+                    breadth_adj = 0.02
+
+                # GEX: dealer gamma exposure supports downside
+                if ext.flow_gex_bias == "SUPPORTIVE_DOWNSIDE":
+                    gex_adj = 0.04
+                    confirm_count += 1
+                elif ext.flow_gex_bias != "NEUTRAL":
+                    pass  # SUPPORTIVE_UPSIDE = no penalty, just no bonus
+
+                # Dark pool: distribution bias confirms institutional selling
+                if ext.flow_dark_pool == "DISTRIBUTION":
+                    dp_adj = 0.03
+                    confirm_count += 1
+
+                # Relative strength: QQQ also weak = broad sell, not rotation
+                qqq_pct = getattr(ext, "qqq_vs_spy_pct", 0.0)
+                if qqq_pct < -0.10:
+                    qqq_adj = 0.03
+                    confirm_count += 1
+                elif qqq_pct > 0.20:
+                    qqq_adj = -0.04  # QQQ strong while SPY weak = rotation, not sell-off
+
+            multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
+
+            conf = max(0.0, min(0.95, base + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+
+            _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
+            _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
+            _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
+            _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
                 strike=atm, expiry=chain.expiry_month, right="P",
@@ -524,14 +607,19 @@ class SignalEngine:
                 bid_size=atm_put.bid_size if atm_put else 0,
                 ask_size=atm_put.ask_size if atm_put else 0,
                 reasoning=[
-                    f"P/C ratio = {pc:.2f} (bearish threshold: >{c.pc_ratio_bearish})",
-                    f"Total put volume: {chain.total_put_volume:,} vs calls: {chain.total_call_volume:,}",
-                    f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})",
-                    f"Regime: {context.regime.regime}",
+                    r for r in [
+                        f"P/C ratio = {pc:.2f} (>{c.pc_ratio_bearish}) — may reflect hedging/protection",
+                        f"Put vol: {chain.total_put_volume:,} vs call vol: {chain.total_call_volume:,}",
+                        f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f}){_comp_note}",
+                        f"Regime: {context.regime.regime}{_gex_note}",
+                        _vwap_note,
+                        _confirm_note,
+                    ] if r
                 ],
                 suggested_trade=(
-                    f"Watch for SPY weakness near {atm:.0f}. "
-                    f"Bear Put Spread or protective puts exp {chain.expiry_month}"
+                    f"Cautious bearish below {atm:.0f}. "
+                    f"Bear Put Spread preferred (not naked puts) exp {chain.expiry_month}. "
+                    f"Exit if SPY reclaims VWAP."
                 ),
             )
             if atm_put:
@@ -549,13 +637,40 @@ class SignalEngine:
             and chain.total_call_volume >= c.min_volume_for_signal
             and chain.total_put_volume >= c.pc_ratio_min_denom_volume
         ):
-            base = min(0.70 + (c.pc_ratio_bullish - pc) * 0.15, 0.90)
-            # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES
+            # Base capped at 0.76 — extreme low P/C alone does not warrant EXTREME tier.
+            # Scale: P/C 0.5→0.68, 0.3→0.70, 0.1→0.72 (capped at 0.76)
+            base = min(0.68 + (c.pc_ratio_bullish - pc) * 0.08, 0.76)
+
+            # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
             if sent_norm > 0:
                 sent_adj = sent_norm * 0.08        # bullish aligns → boost
             else:
-                sent_adj = sent_norm * 0.10        # bearish opposes → penalty (sent_norm is negative)
+                sent_adj = sent_norm * 0.12        # bearish opposes → stronger penalty
+
+            # External composite: bearish composite opposing extreme call flow = hedging risk
+            ext = context.external
+            ext_adj = 0.0
+            if ext is not None:
+                if ext.composite_score < -0.30:
+                    ext_adj = -0.06  # bearish composite → reduce call conviction
+                elif ext.composite_score > 0.30:
+                    ext_adj = 0.03   # bullish composite confirms call signal
+
+            # VWAP position: above VWAP → calls credible (with trend);
+            # below VWAP → calls may be short-covering, not genuine breakout buying.
+            vwap_adj = 0.0
+            if ext is not None:
+                bp = ext.vwap_band_position
+                if bp in ("BELOW_1SD", "BELOW_2SD"):
+                    vwap_adj = -0.07  # SPY below VWAP: call flow may be short-covering
+                elif bp == "INSIDE_1SD":
+                    vwap_adj = -0.03  # ambiguous zone: slight caution
+                elif bp == "ABOVE_1SD":
+                    vwap_adj = 0.03   # above VWAP: bullish call flow more credible
+                elif bp == "ABOVE_2SD":
+                    vwap_adj = 0.05   # well above VWAP: confirms bullish thesis
+
             # Regime alignment: TREND_DOWN opposes bullish call signal
             regime = context.regime.regime
             regime_adj = 0.0
@@ -563,7 +678,56 @@ class SignalEngine:
                 regime_adj = -0.12  # strong penalty: trend opposes call signal
             elif regime == "TREND_UP":
                 regime_adj = 0.05   # aligned: trend supports call signal
-            conf = max(0.0, min(0.95, base + sent_adj + regime_adj))
+
+            # ── Multi-factor confirmation bonuses (symmetric to bearish) ───
+            confirm_count = 0
+            flow_adj = 0.0
+            breadth_adj = 0.0
+            gex_adj = 0.0
+            dp_adj = 0.0
+            qqq_adj = 0.0
+
+            if ext is not None:
+                # Flow confirmation: aggregate flow score should be bullish
+                if ext.flow_score > 30:
+                    flow_adj = 0.04
+                    confirm_count += 1
+                elif ext.flow_score > 10:
+                    flow_adj = 0.02
+
+                # Breadth: strong internals confirm bullish thesis
+                if ext.breadth_ratio >= 0.70:
+                    breadth_adj = 0.04
+                    confirm_count += 1
+                elif ext.breadth_ratio >= 0.60:
+                    breadth_adj = 0.02
+
+                # GEX: dealer gamma exposure supports upside
+                if ext.flow_gex_bias == "SUPPORTIVE_UPSIDE":
+                    gex_adj = 0.04
+                    confirm_count += 1
+
+                # Dark pool: accumulation bias confirms institutional buying
+                if ext.flow_dark_pool == "ACCUMULATION":
+                    dp_adj = 0.03
+                    confirm_count += 1
+
+                # Relative strength: QQQ also strong = broad rally, not rotation
+                qqq_pct = getattr(ext, "qqq_vs_spy_pct", 0.0)
+                if qqq_pct > 0.10:
+                    qqq_adj = 0.03
+                    confirm_count += 1
+                elif qqq_pct < -0.20:
+                    qqq_adj = -0.04  # QQQ weak while SPY strong = rotation, not rally
+
+            multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
+
+            conf = max(0.0, min(0.95, base + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+
+            _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
+            _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
+            _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
+            _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
                 strike=atm, expiry=chain.expiry_month, right="C",
@@ -571,14 +735,19 @@ class SignalEngine:
                 volume=chain.total_call_volume, volume_spike_mult=1.0 / pc if pc > 0 else 0.0,
                 bid_size=0, ask_size=0,
                 reasoning=[
-                    f"P/C ratio = {pc:.2f} (bullish threshold: <{c.pc_ratio_bullish})",
-                    f"Total call volume: {chain.total_call_volume:,} vs puts: {chain.total_put_volume:,}",
-                    f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})",
-                    f"Regime: {context.regime.regime}",
+                    r for r in [
+                        f"P/C ratio = {pc:.2f} (<{c.pc_ratio_bullish}) — broad call activity",
+                        f"Call vol: {chain.total_call_volume:,} vs put vol: {chain.total_put_volume:,}",
+                        f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f}){_comp_note}",
+                        f"Regime: {context.regime.regime}{_gex_note}",
+                        _vwap_note,
+                        _confirm_note,
+                    ] if r
                 ],
                 suggested_trade=(
                     f"Broad call interest near {atm:.0f} exp {chain.expiry_month}. "
-                    "Watch for extended rally or mean-reversion setup."
+                    "Bull Call Spread preferred if VWAP holds. "
+                    "Watch for short-covering vs genuine breakout."
                 ),
             )
             sig.confidence_tier = _tier(conf)
