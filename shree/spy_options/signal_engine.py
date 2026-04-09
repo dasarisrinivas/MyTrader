@@ -1418,6 +1418,11 @@ class SignalEngine:
           - Penalised by: EDR exhaustion, max pain proximity
         The dynamic confidence engine will then apply ORB-specific modifiers
         on top of these via adjustment block 13.
+
+        Guards (APR 9 2026):
+          1. Extension guard — block when price > 0.5% beyond ORB boundary
+          2. Time decay — penalise ORB signals >90min after ORB established
+          3. RSI overbought/oversold — penalise stretched momentum
         """
         ext = context.external
         if ext is None:
@@ -1435,6 +1440,46 @@ class SignalEngine:
         else:
             return []
 
+        # ── Guard 1: Extension guard ─────────────────────────────────────────
+        # If price has extended too far beyond the ORB boundary, the breakout
+        # trade is stale — we'd be chasing, not trading the breakout.
+        # Today's loss: SPY was +0.76% ($5.13) above ORB high at 12:39 CST.
+        spy = context.spy_price
+        if right == "C" and orb_high is not None:
+            extension_pct = (spy - orb_high) / orb_high * 100
+            if extension_pct > 0.50:
+                logger.info(
+                    "ORB extension block: SPY ${:.2f} is {:.2f}% above ORB high ${:.2f} "
+                    "(max 0.50%) — suppressing stale breakout",
+                    spy, extension_pct, orb_high,
+                )
+                return []
+        elif right == "P" and orb_low is not None:
+            extension_pct = (orb_low - spy) / orb_low * 100
+            if extension_pct > 0.50:
+                logger.info(
+                    "ORB extension block: SPY ${:.2f} is {:.2f}% below ORB low ${:.2f} "
+                    "(max 0.50%) — suppressing stale breakout",
+                    spy, extension_pct, orb_low,
+                )
+                return []
+
+        # ── Guard 2: ORB time decay ──────────────────────────────────────────
+        # ORB breakouts lose their edge as the day progresses. The 30-min ORB
+        # is set at 10:00 ET. After 2+ hours the move is mature; after 3+ hours
+        # it's a momentum trade, not an ORB breakout.
+        _ET = ZoneInfo("America/New_York")
+        now_et = _dt.datetime.now(_ET)
+        # ORB is established at 10:00 ET (first 30 min of RTH)
+        orb_established_mins = (now_et.hour * 60 + now_et.minute) - 600  # mins since 10:00 ET
+        orb_time_penalty = 0.0
+        if orb_established_mins > 180:    # > 3 hours after ORB
+            orb_time_penalty = -0.08
+        elif orb_established_mins > 120:  # > 2 hours
+            orb_time_penalty = -0.05
+        elif orb_established_mins > 90:   # > 1.5 hours
+            orb_time_penalty = -0.03
+
         atm = chain.atm_strike(context.spy_price)
         atm_quote = chain.call_at(atm) if right == "C" else chain.put_at(atm)
 
@@ -1450,6 +1495,20 @@ class SignalEngine:
         elif orb_width > 0.60:  # wide range = less reliable
             base_conf -= 0.03
 
+        # Apply ORB time decay
+        base_conf += orb_time_penalty
+
+        # ── Guard 3: RSI overbought/oversold penalty ─────────────────────────
+        # Buying calls when RSI > 65 (or puts when RSI < 35) means chasing
+        # stretched momentum. Today's loss had RSI 69.3 with no penalty.
+        rsi = getattr(ext, "rsi_5m", 50.0)
+        rsi_penalty = 0.0
+        if right == "C" and rsi > 65:
+            rsi_penalty = -0.03 if rsi < 70 else -0.06  # -3% mild, -6% strong
+        elif right == "P" and rsi < 35:
+            rsi_penalty = -0.03 if rsi > 30 else -0.06
+        base_conf += rsi_penalty
+
         conf = max(0.0, min(0.95, base_conf))
 
         # Build reasoning
@@ -1463,11 +1522,18 @@ class SignalEngine:
             f"ORB range: {orb_ref_low} – {orb_ref}  ({orb_width:.2f}% width)",
             f"Regime: {context.regime.regime}  Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f})",
         ]
+        if orb_time_penalty < 0:
+            reasoning.append(
+                f"⏱ ORB age: {orb_established_mins:.0f}min since 10:00 ET "
+                f"({orb_time_penalty:+.0%} decay)"
+            )
         if getattr(ext, "rsi_5m", 50.0) != 50.0:
             rsi_tag = (
                 " [OVERBOUGHT]" if getattr(ext, "rsi_overbought", False) else
                 " [OVERSOLD]"   if getattr(ext, "rsi_oversold",   False) else ""
             )
+            if rsi_penalty < 0:
+                rsi_tag += f" ({rsi_penalty:+.0%} penalty)"
             reasoning.append(f"RSI (5m): {ext.rsi_5m:.1f}{rsi_tag}")
         if getattr(ext, "near_pivot", False):
             reasoning.append(
