@@ -1261,9 +1261,9 @@ spy_options:
     pc_ratio_bullish: 0.5
     bid_ask_imbalance_threshold: 3.0
     straddle_spike_mult: 3.0
-    min_confidence: 0.90  # APR 8 2026: Raised from 0.80 → 0.90. Only EXTREME-tier signals sent. PC_RATIO_EXTREME is the only type reaching 90%+ (19/58 signals historically). ORB_BREAKOUT/sweeps filtered out.
-    confidence_tier_high: 0.80
-    confidence_tier_extreme: 0.90
+    min_confidence: 0.78  # APR 9 2026: Lowered from 0.90 → 0.78. With 13-layer signal engine (base 0.76) + 19-adjuster DynamicConfidence double-dampening, 0.90 was unreachable. Realistic best-case output is ~0.77-0.82. 0.78 dispatches only when multiple factors align.
+    confidence_tier_high: 0.70
+    confidence_tier_extreme: 0.80
     dedup_window_minutes: 90
     sweep_window_minutes: 15
     pc_ratio_min_denom_volume: 200   # APR 8 2026: Both sides must have ≥200 contracts before computing P/C ratio. Prevents nonsense ratios (e.g. 46:1 from 2407 puts / 52 calls).
