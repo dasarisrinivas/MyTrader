@@ -541,6 +541,39 @@ class SignalEngine:
                 elif vs == "BACKWARDATION":
                     vol_gate_adj = 0.02   # mild fear → slight credibility boost
 
+            # ── TNX / DXY velocity ─────────────────────────────────────
+            # Rising yields + strong dollar = bearish headwind for equities
+            # → confirms put flow.  Falling yields + weak dollar = risk-on
+            # → puts are likely hedging, not directional.
+            macro_vel_adj = 0.0
+            if ext is not None:
+                _tnx = ext.tnx_trend
+                _dxy = ext.dxy_trend
+                if _tnx == "RISING" and _dxy == "RISING":
+                    macro_vel_adj = 0.04   # double tightening confirms bearish
+                elif _tnx == "RISING" or _dxy == "RISING":
+                    macro_vel_adj = 0.02   # single tightening → mild confirmation
+                elif _tnx == "FALLING" and _dxy == "FALLING":
+                    macro_vel_adj = -0.04  # double easing opposes bearish put signal
+                elif _tnx == "FALLING" or _dxy == "FALLING":
+                    macro_vel_adj = -0.02  # single easing → mild headwind for puts
+
+            # ── NYSE TICK ──────────────────────────────────────────────────
+            # Extreme negative TICK readings confirm institutional selling;
+            # strong positive TICK opposes bearish put thesis.
+            tick_adj = 0.0
+            if ext is not None:
+                tick_val = getattr(ext, "tick_value", None)
+                if tick_val is not None:
+                    if tick_val <= -500:
+                        tick_adj = 0.03   # strong selling confirms puts
+                    elif tick_val <= -200:
+                        tick_adj = 0.01
+                    elif tick_val >= 500:
+                        tick_adj = -0.03  # strong buying opposes puts
+                    elif tick_val >= 200:
+                        tick_adj = -0.01
+
             # Sentiment adjustment: bearish sentiment boosts, bullish PENALISES.
             # Bullish composite + extreme put flow = high probability of hedging.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
@@ -628,12 +661,13 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
 
-            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
             _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
             _dte_note = f"Chain DTE: {chain_dte}" if chain_dte >= 0 else ""
+            _macro_vel_note = f"TNX {ext.tnx_trend} / DXY {ext.dxy_trend}" if ext else ""
             _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
@@ -650,6 +684,7 @@ class SignalEngine:
                         f"Regime: {context.regime.regime}{_gex_note}",
                         _vwap_note,
                         _dte_note,
+                        _macro_vel_note,
                         _confirm_note,
                     ] if r
                 ],
@@ -705,6 +740,38 @@ class SignalEngine:
                 elif vs in ("BACKWARDATION", "STEEP_BACKWARDATION"):
                     # Fear environment → calls are fighting the current
                     vol_gate_adj = -0.04
+
+            # ── TNX / DXY velocity (asymmetric to bearish) ────────────────
+            # Falling yields + weak dollar = risk-on → confirms call flow.
+            # Rising yields + strong dollar = tightening → opposes calls.
+            macro_vel_adj = 0.0
+            if ext is not None:
+                _tnx = ext.tnx_trend
+                _dxy = ext.dxy_trend
+                if _tnx == "FALLING" and _dxy == "FALLING":
+                    macro_vel_adj = 0.04   # double easing confirms bullish
+                elif _tnx == "FALLING" or _dxy == "FALLING":
+                    macro_vel_adj = 0.02   # single easing → mild confirmation
+                elif _tnx == "RISING" and _dxy == "RISING":
+                    macro_vel_adj = -0.04  # double tightening opposes call signal
+                elif _tnx == "RISING" or _dxy == "RISING":
+                    macro_vel_adj = -0.02  # single tightening → mild headwind for calls
+
+            # ── NYSE TICK (asymmetric to bearish) ──────────────────────────
+            # Strong positive TICK confirms institutional buying;
+            # extreme negative TICK opposes bullish call thesis.
+            tick_adj = 0.0
+            if ext is not None:
+                tick_val = getattr(ext, "tick_value", None)
+                if tick_val is not None:
+                    if tick_val >= 500:
+                        tick_adj = 0.03   # strong buying confirms calls
+                    elif tick_val >= 200:
+                        tick_adj = 0.01
+                    elif tick_val <= -500:
+                        tick_adj = -0.03  # strong selling opposes calls
+                    elif tick_val <= -200:
+                        tick_adj = -0.01
 
             # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
@@ -786,12 +853,13 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
 
-            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
             _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
             _dte_note = f"Chain DTE: {chain_dte}" if chain_dte >= 0 else ""
+            _macro_vel_note = f"TNX {ext.tnx_trend} / DXY {ext.dxy_trend}" if ext else ""
             _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
@@ -807,6 +875,7 @@ class SignalEngine:
                         f"Regime: {context.regime.regime}{_gex_note}",
                         _vwap_note,
                         _dte_note,
+                        _macro_vel_note,
                         _confirm_note,
                     ] if r
                 ],

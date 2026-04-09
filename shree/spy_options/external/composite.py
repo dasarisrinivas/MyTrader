@@ -97,6 +97,8 @@ class ExternalContext:
     up_vol_ratio: float = 0.5
     breadth_sector_count_up: int = 0
     breadth_sector_count_down: int = 0
+    tick_value: Optional[float] = None    # NYSE TICK snapshot (None if unavailable)
+    tick_available: bool = False
 
     # Sector leadership
     sector_bull_count: int = 0
@@ -347,6 +349,8 @@ class ExternalDataManager:
             up_vol_ratio=round(brd.up_vol_ratio, 3),
             breadth_sector_count_up=brd.sector_count_up,
             breadth_sector_count_down=brd.sector_count_down,
+            tick_value=brd.tick_value,
+            tick_available=brd.tick_available,
 
             # Sector leadership
             sector_bull_count=sec.sector_bull_count,
