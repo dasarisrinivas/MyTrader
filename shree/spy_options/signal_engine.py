@@ -505,6 +505,42 @@ class SignalEngine:
             # Scale: P/C 1.8→0.68, 3.0→0.73, 5.0→0.76 (capped)
             base = min(0.68 + (pc - c.pc_ratio_bearish) * 0.04, 0.76)
 
+            # ── 0DTE hedging discount ──────────────────────────────────────
+            # On OPEX day (DTE=0), put volume is heavily inflated by
+            # expiry-day hedging and gamma-related repositioning.  This makes
+            # P/C ratio unreliable as a directional indicator.  Multi-week
+            # accumulation (DTE>=8) is more credible.
+            chain_dte = -1
+            if chain.expiry_date:
+                try:
+                    exp_d = _dt.datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                    chain_dte = max(0, (exp_d - _dt.date.today()).days)
+                except (ValueError, Exception):
+                    pass
+            dte_adj = 0.0
+            if chain_dte == 0:
+                dte_adj = -0.06   # 0DTE: high P/C is mostly hedging noise
+            elif chain_dte == 1:
+                dte_adj = -0.03   # 1DTE: still noisy
+            elif chain_dte >= 8:
+                dte_adj = 0.03    # 8+ DTE: multi-week accumulation is directional
+
+            # ── VIX term structure gate ────────────────────────────────────
+            # Steep contango (VIX/VXV < 0.85) + extreme P/C = complacent
+            # protection buying, not genuine fear.  Cap base lower.
+            # Backwardation (VIX/VXV > 1.05) + extreme P/C = real fear,
+            # allow a small boost.
+            vol_gate_adj = 0.0
+            ext = context.external
+            if ext is not None:
+                vs = ext.vol_structure
+                if vs in ("CONTANGO", "STEEP_CONTANGO"):
+                    vol_gate_adj = -0.04  # calm vol → puts are hedging
+                elif vs == "STEEP_BACKWARDATION":
+                    vol_gate_adj = 0.04   # panic → put flow is genuine
+                elif vs == "BACKWARDATION":
+                    vol_gate_adj = 0.02   # mild fear → slight credibility boost
+
             # Sentiment adjustment: bearish sentiment boosts, bullish PENALISES.
             # Bullish composite + extreme put flow = high probability of hedging.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
@@ -515,7 +551,6 @@ class SignalEngine:
 
             # External composite alignment: bullish composite with extreme put flow
             # strongly suggests hedging activity rather than directional conviction.
-            ext = context.external
             ext_adj = 0.0
             if ext is not None:
                 if ext.composite_score > 0.30:
@@ -593,11 +628,12 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
 
-            conf = max(0.0, min(0.95, base + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
             _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
+            _dte_note = f"Chain DTE: {chain_dte}" if chain_dte >= 0 else ""
             _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
@@ -613,6 +649,7 @@ class SignalEngine:
                         f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f}){_comp_note}",
                         f"Regime: {context.regime.regime}{_gex_note}",
                         _vwap_note,
+                        _dte_note,
                         _confirm_note,
                     ] if r
                 ],
@@ -641,6 +678,34 @@ class SignalEngine:
             # Scale: P/C 0.5→0.68, 0.3→0.70, 0.1→0.72 (capped at 0.76)
             base = min(0.68 + (c.pc_ratio_bullish - pc) * 0.08, 0.76)
 
+            # ── 0DTE hedging discount (symmetric to bearish) ───────────────
+            chain_dte = -1
+            if chain.expiry_date:
+                try:
+                    exp_d = _dt.datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                    chain_dte = max(0, (exp_d - _dt.date.today()).days)
+                except (ValueError, Exception):
+                    pass
+            dte_adj = 0.0
+            if chain_dte == 0:
+                dte_adj = -0.06   # 0DTE: extreme low P/C may be call hedging
+            elif chain_dte == 1:
+                dte_adj = -0.03
+            elif chain_dte >= 8:
+                dte_adj = 0.03    # multi-week accumulation is directional
+
+            # ── VIX term structure gate (symmetric to bearish) ─────────────
+            vol_gate_adj = 0.0
+            ext = context.external
+            if ext is not None:
+                vs = ext.vol_structure
+                if vs in ("CONTANGO", "STEEP_CONTANGO"):
+                    # Calm vol favours call-buying → slight boost
+                    vol_gate_adj = 0.02
+                elif vs in ("BACKWARDATION", "STEEP_BACKWARDATION"):
+                    # Fear environment → calls are fighting the current
+                    vol_gate_adj = -0.04
+
             # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
             if sent_norm > 0:
@@ -649,7 +714,6 @@ class SignalEngine:
                 sent_adj = sent_norm * 0.12        # bearish opposes → stronger penalty
 
             # External composite: bearish composite opposing extreme call flow = hedging risk
-            ext = context.external
             ext_adj = 0.0
             if ext is not None:
                 if ext.composite_score < -0.30:
@@ -722,11 +786,12 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
 
-            conf = max(0.0, min(0.95, base + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
             _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
+            _dte_note = f"Chain DTE: {chain_dte}" if chain_dte >= 0 else ""
             _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
@@ -741,6 +806,7 @@ class SignalEngine:
                         f"Sentiment: {context.sentiment.label} ({context.sentiment.score:+.0f}){_comp_note}",
                         f"Regime: {context.regime.regime}{_gex_note}",
                         _vwap_note,
+                        _dte_note,
                         _confirm_note,
                     ] if r
                 ],
