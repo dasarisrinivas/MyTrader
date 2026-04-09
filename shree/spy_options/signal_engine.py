@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import datetime as _dt
 import html as _html
+import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from ..config.spy_options import SpyOptionsSignalConfig
 from ..utils.logger import logger
@@ -150,6 +151,49 @@ class SignalEngine:
         self._cfg = cfg
         self._tracker = tracker
         self._dyn = DynamicConfidence()
+        # Stale-flow decay tracking for PC_RATIO_EXTREME signals.
+        # Key: direction ("BEARISH" | "BULLISH"), Value: (first_seen_mono, spy_price_at_trigger)
+        self._pc_ratio_first_seen: Dict[str, Tuple[float, float]] = {}
+
+    def _stale_flow_decay(self, direction: str, spy_price: float) -> float:
+        """Return a negative confidence adjustment if extreme P/C flow has been
+        present for multiple cycles but price hasn't followed through.
+
+        SPY options flow loses value quickly intraday — if unusual put/call
+        activity occurred 30-45+ minutes ago and price hasn't moved >0.15%
+        in the signal direction, the flow is likely hedging or noise.
+
+        Returns 0.0 if signal is fresh, negative value if stale.
+        """
+        now = _time.monotonic()
+        entry = self._pc_ratio_first_seen.get(direction)
+        if entry is None:
+            # First time seeing this direction — record and return no decay
+            self._pc_ratio_first_seen[direction] = (now, spy_price)
+            return 0.0
+
+        first_seen, trigger_price = entry
+        elapsed_min = (now - first_seen) / 60.0
+
+        if elapsed_min < 15:
+            return 0.0  # too early to apply decay
+
+        # Check if price followed through (>0.15% in signal direction)
+        pct_move = (spy_price - trigger_price) / trigger_price * 100
+        if direction == "BEARISH" and pct_move <= -0.15:
+            # Price confirmed the bearish thesis — reset tracker, no decay
+            self._pc_ratio_first_seen[direction] = (now, spy_price)
+            return 0.0
+        if direction == "BULLISH" and pct_move >= 0.15:
+            self._pc_ratio_first_seen[direction] = (now, spy_price)
+            return 0.0
+
+        # Price did NOT follow through — apply decay
+        if elapsed_min >= 45:
+            return -0.05   # 45+ min stale: heavy penalty
+        if elapsed_min >= 30:
+            return -0.03   # 30-45 min: moderate penalty
+        return -0.02       # 15-30 min: mild penalty
 
     def evaluate(
         self,
@@ -505,6 +549,11 @@ class SignalEngine:
             # Scale: P/C 1.8→0.68, 3.0→0.73, 5.0→0.76 (capped)
             base = min(0.68 + (pc - c.pc_ratio_bearish) * 0.04, 0.76)
 
+            # ── Stale flow decay ───────────────────────────────────────────
+            # If extreme P/C has persisted for 15-45+ min without price
+            # follow-through, the flow is likely hedging noise.
+            stale_decay = self._stale_flow_decay("BEARISH", context.spy_price)
+
             # ── 0DTE hedging discount ──────────────────────────────────────
             # On OPEX day (DTE=0), put volume is heavily inflated by
             # expiry-day hedging and gamma-related repositioning.  This makes
@@ -574,6 +623,50 @@ class SignalEngine:
                     elif tick_val >= 200:
                         tick_adj = -0.01
 
+            # ── Price structure ────────────────────────────────────────────
+            # Price action at key levels is the strongest confirmation an
+            # experienced discretionary trader uses.  These levels are
+            # already tracked in ExternalContext.
+            price_struct_adj = 0.0
+            _price_struct_parts: list = []
+            spy = context.spy_price
+            if ext is not None:
+                # Prior-day level breaks
+                if ext.below_overnight_low:
+                    price_struct_adj += 0.03
+                    _price_struct_parts.append("below prior-day low")
+                elif ext.above_overnight_high:
+                    price_struct_adj -= 0.03   # above PDH opposes bearish
+                    _price_struct_parts.append("above prior-day high (opposes)")
+
+                # Gap direction: gap-down confirms bearish, gap-up opposes
+                if ext.gap_pct <= -0.30:
+                    price_struct_adj += 0.04   # meaningful gap-down
+                    _price_struct_parts.append(f"gap-down {ext.gap_pct:+.2f}%")
+                elif ext.gap_pct >= 0.30:
+                    price_struct_adj -= 0.04   # gap-up opposes bearish
+                    _price_struct_parts.append(f"gap-up {ext.gap_pct:+.2f}% (opposes)")
+
+                # Opening range breakout (after 10:00 ET)
+                if ext.orb_established:
+                    if ext.orb_status == "BELOW_ORB" and ext.orb_breakout_confirmed:
+                        price_struct_adj += 0.03
+                        _price_struct_parts.append("confirmed ORB breakdown")
+                    elif ext.orb_status == "ABOVE_ORB" and ext.orb_breakout_confirmed:
+                        price_struct_adj -= 0.03  # bullish ORB opposes puts
+                        _price_struct_parts.append("ORB breakout (opposes)")
+                    elif ext.orb_status == "INSIDE":
+                        price_struct_adj -= 0.02  # range-bound → uncertain
+                        _price_struct_parts.append("inside ORB (uncertain)")
+
+                # Gamma wall failure: price at/near put wall = dealers hedging
+                if ext.at_put_wall:
+                    price_struct_adj += 0.02
+                    _price_struct_parts.append("at put wall (dealer hedging)")
+                elif ext.at_call_wall:
+                    price_struct_adj -= 0.02  # at call wall = strong resistance, puts may fail
+                    _price_struct_parts.append("at call wall (opposes)")
+
             # Sentiment adjustment: bearish sentiment boosts, bullish PENALISES.
             # Bullish composite + extreme put flow = high probability of hedging.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
@@ -613,62 +706,81 @@ class SignalEngine:
             elif regime == "TREND_DOWN":
                 regime_adj = 0.05   # aligned: trend supports put signal
 
-            # ── Multi-factor confirmation bonuses ──────────────────────────
-            # P/C ratio alone caps at 0.76.  The remaining ~19% to reach the
-            # 0.90 dispatch threshold MUST come from confirming sources.
-            # Each factor independently adds a small bonus; they stack.
-            confirm_count = 0
+            # ── Weighted multi-factor confirmation ──────────────────────
+            # P/C ratio alone caps at 0.76.  The remaining ~19% to reach
+            # the 0.90 dispatch threshold MUST come from confirming sources.
+            # Weights: Breadth=2, GEX=2, VWAP=2, Flow=1, DarkPool=1, QQQ=1, IWM=1
+            # 5+ weighted points → EXTREME tier quality.
+            confirm_pts = 0   # weighted confirmation points (out of 10 possible)
             flow_adj = 0.0
             breadth_adj = 0.0
             gex_adj = 0.0
             dp_adj = 0.0
             qqq_adj = 0.0
+            iwm_adj = 0.0
 
             if ext is not None:
-                # Flow confirmation: aggregate flow score should be bearish
+                # Flow confirmation (weight=1): aggregate flow score should be bearish
                 if ext.flow_score < -30:
                     flow_adj = 0.04
-                    confirm_count += 1
+                    confirm_pts += 1
                 elif ext.flow_score < -10:
                     flow_adj = 0.02
 
-                # Breadth: weak internals confirm bearish thesis
+                # Breadth (weight=2): weak internals confirm bearish thesis
                 if ext.breadth_ratio <= 0.30:
-                    breadth_adj = 0.04
-                    confirm_count += 1
+                    breadth_adj = 0.05
+                    confirm_pts += 2
                 elif ext.breadth_ratio <= 0.40:
-                    breadth_adj = 0.02
+                    breadth_adj = 0.03
+                    confirm_pts += 1
 
-                # GEX: dealer gamma exposure supports downside
+                # GEX (weight=2): dealer gamma exposure supports downside
                 if ext.flow_gex_bias == "SUPPORTIVE_DOWNSIDE":
-                    gex_adj = 0.04
-                    confirm_count += 1
+                    gex_adj = 0.05
+                    confirm_pts += 2
                 elif ext.flow_gex_bias != "NEUTRAL":
                     pass  # SUPPORTIVE_UPSIDE = no penalty, just no bonus
 
-                # Dark pool: distribution bias confirms institutional selling
+                # Dark pool (weight=1): distribution bias confirms institutional selling
                 if ext.flow_dark_pool == "DISTRIBUTION":
                     dp_adj = 0.03
-                    confirm_count += 1
+                    confirm_pts += 1
 
-                # Relative strength: QQQ also weak = broad sell, not rotation
+                # Relative strength: QQQ (weight=1) + IWM (weight=1)
                 qqq_pct = getattr(ext, "qqq_vs_spy_pct", 0.0)
                 if qqq_pct < -0.10:
                     qqq_adj = 0.03
-                    confirm_count += 1
+                    confirm_pts += 1
                 elif qqq_pct > 0.20:
                     qqq_adj = -0.04  # QQQ strong while SPY weak = rotation, not sell-off
 
-            multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
+                iwm_pct = getattr(ext, "iwm_vs_spy_pct", 0.0)
+                if iwm_pct < -0.15:
+                    iwm_adj = 0.02
+                    confirm_pts += 1
+                elif iwm_pct > 0.20:
+                    iwm_adj = -0.02  # IWM strong = risk-on rotation
 
-            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+                # VWAP alignment also earns weighted confirmation points (weight=2)
+                # (vwap_adj amount already set above; just add confirmation credit)
+                if vwap_adj > 0:
+                    confirm_pts += 2   # below VWAP = strong bearish confirmation
+                elif vwap_adj >= -0.03:
+                    confirm_pts += 1   # inside 1SD = partial
+
+            multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj + iwm_adj
+
+            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
             _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
             _dte_note = f"Chain DTE: {chain_dte}" if chain_dte >= 0 else ""
             _macro_vel_note = f"TNX {ext.tnx_trend} / DXY {ext.dxy_trend}" if ext else ""
-            _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
+            _price_note = f"Price structure: {', '.join(_price_struct_parts)}" if _price_struct_parts else ""
+            _stale_note = f"Stale flow decay: {stale_decay:+.2f}" if stale_decay < 0 else ""
+            _confirm_note = f"Weighted confirmations: {confirm_pts}/10 (breadth×2/GEX×2/VWAP×2/flow/dark-pool/QQQ/IWM)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
                 strike=atm, expiry=chain.expiry_month, right="P",
@@ -685,6 +797,8 @@ class SignalEngine:
                         _vwap_note,
                         _dte_note,
                         _macro_vel_note,
+                        _price_note,
+                        _stale_note,
                         _confirm_note,
                     ] if r
                 ],
@@ -712,6 +826,9 @@ class SignalEngine:
             # Base capped at 0.76 — extreme low P/C alone does not warrant EXTREME tier.
             # Scale: P/C 0.5→0.68, 0.3→0.70, 0.1→0.72 (capped at 0.76)
             base = min(0.68 + (c.pc_ratio_bullish - pc) * 0.08, 0.76)
+
+            # ── Stale flow decay ───────────────────────────────────────────
+            stale_decay = self._stale_flow_decay("BULLISH", context.spy_price)
 
             # ── 0DTE hedging discount (symmetric to bearish) ───────────────
             chain_dte = -1
@@ -773,6 +890,47 @@ class SignalEngine:
                     elif tick_val <= -200:
                         tick_adj = -0.01
 
+            # ── Price structure (asymmetric to bearish) ────────────────────
+            price_struct_adj = 0.0
+            _price_struct_parts: list = []
+            spy = context.spy_price
+            if ext is not None:
+                # Prior-day level breaks
+                if ext.above_overnight_high:
+                    price_struct_adj += 0.03
+                    _price_struct_parts.append("above prior-day high")
+                elif ext.below_overnight_low:
+                    price_struct_adj -= 0.03   # below PDL opposes bullish
+                    _price_struct_parts.append("below prior-day low (opposes)")
+
+                # Gap direction: gap-up confirms bullish, gap-down opposes
+                if ext.gap_pct >= 0.30:
+                    price_struct_adj += 0.04   # meaningful gap-up
+                    _price_struct_parts.append(f"gap-up {ext.gap_pct:+.2f}%")
+                elif ext.gap_pct <= -0.30:
+                    price_struct_adj -= 0.04   # gap-down opposes bullish
+                    _price_struct_parts.append(f"gap-down {ext.gap_pct:+.2f}% (opposes)")
+
+                # Opening range breakout
+                if ext.orb_established:
+                    if ext.orb_status == "ABOVE_ORB" and ext.orb_breakout_confirmed:
+                        price_struct_adj += 0.03
+                        _price_struct_parts.append("confirmed ORB breakout")
+                    elif ext.orb_status == "BELOW_ORB" and ext.orb_breakout_confirmed:
+                        price_struct_adj -= 0.03  # bearish ORB opposes calls
+                        _price_struct_parts.append("ORB breakdown (opposes)")
+                    elif ext.orb_status == "INSIDE":
+                        price_struct_adj -= 0.02  # range-bound → uncertain
+                        _price_struct_parts.append("inside ORB (uncertain)")
+
+                # Gamma wall: price at call wall = ceiling; at put wall = floor
+                if ext.at_call_wall:
+                    price_struct_adj -= 0.02  # call wall = resistance overhead
+                    _price_struct_parts.append("at call wall (resistance)")
+                elif ext.at_put_wall:
+                    price_struct_adj += 0.02  # at put wall = dealer support
+                    _price_struct_parts.append("at put wall (support)")
+
             # Sentiment adjustment: bullish sentiment boosts, bearish PENALISES.
             sent_norm = context.sentiment.score / 100.0  # -1 to +1
             if sent_norm > 0:
@@ -810,57 +968,75 @@ class SignalEngine:
             elif regime == "TREND_UP":
                 regime_adj = 0.05   # aligned: trend supports call signal
 
-            # ── Multi-factor confirmation bonuses (symmetric to bearish) ───
-            confirm_count = 0
+            # ── Weighted multi-factor confirmation (asymmetric to bearish) ─
+            # Weights: Breadth=2, GEX=2, VWAP=2, Flow=1, DarkPool=1, QQQ=1, IWM=1
+            confirm_pts = 0
             flow_adj = 0.0
             breadth_adj = 0.0
             gex_adj = 0.0
             dp_adj = 0.0
             qqq_adj = 0.0
+            iwm_adj = 0.0
 
             if ext is not None:
-                # Flow confirmation: aggregate flow score should be bullish
+                # Flow confirmation (weight=1): aggregate flow score should be bullish
                 if ext.flow_score > 30:
                     flow_adj = 0.04
-                    confirm_count += 1
+                    confirm_pts += 1
                 elif ext.flow_score > 10:
                     flow_adj = 0.02
 
-                # Breadth: strong internals confirm bullish thesis
+                # Breadth (weight=2): strong internals confirm bullish thesis
                 if ext.breadth_ratio >= 0.70:
-                    breadth_adj = 0.04
-                    confirm_count += 1
+                    breadth_adj = 0.05
+                    confirm_pts += 2
                 elif ext.breadth_ratio >= 0.60:
-                    breadth_adj = 0.02
+                    breadth_adj = 0.03
+                    confirm_pts += 1
 
-                # GEX: dealer gamma exposure supports upside
+                # GEX (weight=2): dealer gamma exposure supports upside
                 if ext.flow_gex_bias == "SUPPORTIVE_UPSIDE":
-                    gex_adj = 0.04
-                    confirm_count += 1
+                    gex_adj = 0.05
+                    confirm_pts += 2
 
-                # Dark pool: accumulation bias confirms institutional buying
+                # Dark pool (weight=1): accumulation bias confirms institutional buying
                 if ext.flow_dark_pool == "ACCUMULATION":
                     dp_adj = 0.03
-                    confirm_count += 1
+                    confirm_pts += 1
 
-                # Relative strength: QQQ also strong = broad rally, not rotation
+                # Relative strength: QQQ (weight=1) + IWM (weight=1)
                 qqq_pct = getattr(ext, "qqq_vs_spy_pct", 0.0)
                 if qqq_pct > 0.10:
                     qqq_adj = 0.03
-                    confirm_count += 1
+                    confirm_pts += 1
                 elif qqq_pct < -0.20:
                     qqq_adj = -0.04  # QQQ weak while SPY strong = rotation, not rally
 
-            multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj
+                iwm_pct = getattr(ext, "iwm_vs_spy_pct", 0.0)
+                if iwm_pct > 0.15:
+                    iwm_adj = 0.02
+                    confirm_pts += 1
+                elif iwm_pct < -0.20:
+                    iwm_adj = -0.02  # IWM weak = risk-off undercurrent
 
-            conf = max(0.0, min(0.95, base + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+                # VWAP alignment earns weighted confirmation points (weight=2)
+                if vwap_adj > 0:
+                    confirm_pts += 2   # above VWAP = strong bullish confirmation
+                elif vwap_adj >= -0.03:
+                    confirm_pts += 1   # inside 1SD = partial
+
+            multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj + iwm_adj
+
+            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             _comp_note = f" | Composite: {ext.composite_score:+.2f}" if ext else ""
             _gex_note  = f" | GEX: {ext.flow_gex_bias}" if ext else ""
             _vwap_note = f"VWAP position: {ext.vwap_band_position}" if ext else ""
             _dte_note = f"Chain DTE: {chain_dte}" if chain_dte >= 0 else ""
             _macro_vel_note = f"TNX {ext.tnx_trend} / DXY {ext.dxy_trend}" if ext else ""
-            _confirm_note = f"Confirmations: {confirm_count}/5 (flow/breadth/GEX/dark-pool/rel-strength)"
+            _price_note = f"Price structure: {', '.join(_price_struct_parts)}" if _price_struct_parts else ""
+            _stale_note = f"Stale flow decay: {stale_decay:+.2f}" if stale_decay < 0 else ""
+            _confirm_note = f"Weighted confirmations: {confirm_pts}/10 (breadth×2/GEX×2/VWAP×2/flow/dark-pool/QQQ/IWM)"
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
                 strike=atm, expiry=chain.expiry_month, right="C",
@@ -876,6 +1052,8 @@ class SignalEngine:
                         _vwap_note,
                         _dte_note,
                         _macro_vel_note,
+                        _price_note,
+                        _stale_note,
                         _confirm_note,
                     ] if r
                 ],
