@@ -155,6 +155,11 @@ class SignalEngine:
         # Stale-flow decay tracking for PC_RATIO_EXTREME signals.
         # Key: direction ("BEARISH" | "BULLISH"), Value: (first_seen_mono, spy_price_at_trigger)
         self._pc_ratio_first_seen: Dict[str, Tuple[float, float]] = {}
+        # Intraday move exhaustion tracking: record day's high/low for
+        # detecting when the move has already happened.
+        self._intraday_high: Optional[float] = None
+        self._intraday_low: Optional[float] = None
+        self._intraday_date: Optional[str] = None
 
     def _stale_flow_decay(self, direction: str, spy_price: float) -> float:
         """Return a negative confidence adjustment if extreme P/C flow has been
@@ -199,6 +204,97 @@ class SignalEngine:
         if elapsed_min >= 30:
             return -0.04   # 30-45 min: moderate penalty
         return -0.02       # 15-30 min: mild penalty
+
+    def _intraday_move_penalty(self, direction: str, spy_price: float) -> Tuple[float, str]:
+        """Penalize continuation signals when the intraday move is already exhausted.
+
+        If SPY has already moved significantly from today's high (for PUTs) or
+        today's low (for CALLs), the probability of profitable continuation
+        drops sharply.  This was the #1 root cause of high-confidence PUT
+        signals losing money: signals fired AFTER SPY had already dropped 0.3%+.
+
+        Returns (penalty, note_str).  penalty is 0.0 or negative.
+        """
+        today_str = _dt.date.today().isoformat()
+        if self._intraday_date != today_str:
+            # New day — reset
+            self._intraday_high = spy_price
+            self._intraday_low = spy_price
+            self._intraday_date = today_str
+        else:
+            if spy_price > (self._intraday_high or spy_price):
+                self._intraday_high = spy_price
+            if spy_price < (self._intraday_low or spy_price):
+                self._intraday_low = spy_price
+
+        if direction == "BEARISH":
+            # For puts: how far has SPY already dropped from today's high?
+            day_high = self._intraday_high or spy_price
+            if day_high <= 0:
+                return 0.0, ""
+            drop_pct = (day_high - spy_price) / day_high * 100
+            if drop_pct >= 0.50:
+                return -0.12, f"Intraday move exhaustion: SPY already -{drop_pct:.2f}% from day high"
+            if drop_pct >= 0.30:
+                return -0.08, f"Intraday move extended: SPY already -{drop_pct:.2f}% from day high"
+            if drop_pct >= 0.20:
+                return -0.04, f"Intraday move in progress: SPY -{drop_pct:.2f}% from day high"
+        else:
+            # For calls: how far has SPY already rallied from today's low?
+            day_low = self._intraday_low or spy_price
+            if day_low <= 0:
+                return 0.0, ""
+            rally_pct = (spy_price - day_low) / day_low * 100
+            if rally_pct >= 0.50:
+                return -0.12, f"Intraday move exhaustion: SPY already +{rally_pct:.2f}% from day low"
+            if rally_pct >= 0.30:
+                return -0.08, f"Intraday move extended: SPY already +{rally_pct:.2f}% from day low"
+            if rally_pct >= 0.20:
+                return -0.04, f"Intraday move in progress: SPY +{rally_pct:.2f}% from day low"
+
+        return 0.0, ""
+
+    @staticmethod
+    def _rsi_divergence_penalty(direction: str, ext: Optional["ExternalContext"]) -> Tuple[float, str]:
+        """Hard penalty when RSI divergence contradicts the signal direction.
+
+        This is the #2 root cause: RSI at 30 with BULLISH_DIV while PUT signals
+        fire at 88% confidence.  The dynamic_confidence adjuster only applied
+        -0.05 which was insufficient to prevent dispatch.
+
+        Returns (penalty, note_str).  penalty is 0.0 or negative.
+        """
+        if ext is None:
+            return 0.0, ""
+        rsi_div = getattr(ext, "rsi_divergence", "NONE")
+        rsi_5m = getattr(ext, "rsi_5m", 50.0)
+        rsi_os = getattr(ext, "rsi_oversold", False)
+        rsi_ob = getattr(ext, "rsi_overbought", False)
+
+        if direction == "BEARISH":
+            # BULLISH_DIV + oversold RSI → high reversal probability, penalize puts
+            if rsi_div == "BULLISH_DIV":
+                if rsi_5m <= 30:
+                    return -0.12, f"RSI divergence block: BULLISH_DIV at RSI={rsi_5m:.0f} (strong reversal signal)"
+                if rsi_5m <= 35:
+                    return -0.08, f"RSI divergence penalty: BULLISH_DIV at RSI={rsi_5m:.0f}"
+                return -0.05, f"RSI divergence: BULLISH_DIV at RSI={rsi_5m:.0f}"
+            # No divergence but oversold → mild penalty (bounce risk)
+            if rsi_os and rsi_5m <= 30:
+                return -0.04, f"RSI oversold ({rsi_5m:.0f}) — bounce risk"
+        else:
+            # BEARISH_DIV + overbought RSI → high reversal probability, penalize calls
+            if rsi_div == "BEARISH_DIV":
+                if rsi_5m >= 70:
+                    return -0.12, f"RSI divergence block: BEARISH_DIV at RSI={rsi_5m:.0f} (strong reversal signal)"
+                if rsi_5m >= 65:
+                    return -0.08, f"RSI divergence penalty: BEARISH_DIV at RSI={rsi_5m:.0f}"
+                return -0.05, f"RSI divergence: BEARISH_DIV at RSI={rsi_5m:.0f}"
+            # No divergence but overbought → mild penalty (pullback risk)
+            if rsi_ob and rsi_5m >= 70:
+                return -0.04, f"RSI overbought ({rsi_5m:.0f}) — pullback risk"
+
+        return 0.0, ""
 
     @staticmethod
     def _tod_ceiling() -> Tuple[float, str]:
@@ -595,6 +691,22 @@ class SignalEngine:
             # follow-through, the flow is likely hedging noise.
             stale_decay = self._stale_flow_decay("BEARISH", context.spy_price)
 
+            # ── Intraday move exhaustion ───────────────────────────────────
+            # If SPY has already dropped ≥0.20% from today's high, the put
+            # thesis may be exhausted — most of the move has already happened.
+            # This was the #1 root cause of high-confidence signals losing.
+            intraday_move_adj, _intraday_note = self._intraday_move_penalty(
+                "BEARISH", context.spy_price,
+            )
+
+            # ── RSI divergence penalty ─────────────────────────────────────
+            # RSI BULLISH_DIV at oversold levels = strong reversal signal.
+            # Put signals issued during bullish RSI divergence are very
+            # likely to lose money.  #2 root cause of high-conf losses.
+            rsi_adj, _rsi_note = self._rsi_divergence_penalty(
+                "BEARISH", context.external,
+            )
+
             # ── 0DTE hedging discount ──────────────────────────────────────
             # On OPEX day (DTE=0), put volume is heavily inflated by
             # expiry-day hedging and gamma-related repositioning.  This makes
@@ -763,7 +875,10 @@ class SignalEngine:
                     ext_adj = 0.03   # bearish composite confirms put signal
 
             # VWAP position: above VWAP → put flow more likely hedging/protection;
-            # below VWAP → bearish flow has genuine directional credibility.
+            # below VWAP → BUT at extreme extension (BELOW_2SD), the move is
+            # likely exhausted and a mean-reversion bounce is imminent.
+            # Fix: BELOW_2SD was previously +0.05 which BOOSTED chasing puts
+            # into an already-stretched decline — root cause #4.
             vwap_adj = 0.0
             if ext is not None:
                 bp = ext.vwap_band_position
@@ -774,7 +889,7 @@ class SignalEngine:
                 elif bp == "BELOW_1SD":
                     vwap_adj = 0.03   # below VWAP: bearish flow more credible
                 elif bp == "BELOW_2SD":
-                    vwap_adj = 0.05   # well below VWAP: strong confirmation
+                    vwap_adj = -0.05  # STRETCHED: chasing a -2σ decline is dangerous
 
             # Regime alignment: TREND_UP directly opposes bearish put signal
             regime = context.regime.regime
@@ -849,7 +964,7 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj + iwm_adj
 
-            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + stale_decay + intraday_move_adj + rsi_adj + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             # ── Time-of-day confidence ceiling ─────────────────────────────
             # Only apply when we have live external data; without it the
@@ -888,6 +1003,8 @@ class SignalEngine:
                         _macro_vel_note,
                         _price_note,
                         _stale_note,
+                        _intraday_note,
+                        _rsi_note,
                         _trap_note,
                         _tod_note,
                         _confirm_note,
@@ -920,6 +1037,16 @@ class SignalEngine:
 
             # ── Stale flow decay ───────────────────────────────────────────
             stale_decay = self._stale_flow_decay("BULLISH", context.spy_price)
+
+            # ── Intraday move exhaustion (symmetric to bearish) ────────────
+            intraday_move_adj, _intraday_note = self._intraday_move_penalty(
+                "BULLISH", context.spy_price,
+            )
+
+            # ── RSI divergence penalty (symmetric to bearish) ──────────────
+            rsi_adj, _rsi_note = self._rsi_divergence_penalty(
+                "BULLISH", context.external,
+            )
 
             # ── 0DTE hedging discount (symmetric to bearish) ───────────────
             chain_dte = -1
@@ -1075,7 +1202,10 @@ class SignalEngine:
                     ext_adj = 0.03   # bullish composite confirms call signal
 
             # VWAP position: above VWAP → calls credible (with trend);
-            # below VWAP → calls may be short-covering, not genuine breakout buying.
+            # BUT at extreme extension (ABOVE_2SD), the rally is likely
+            # exhausted and mean-reversion is imminent.
+            # Fix: ABOVE_2SD was previously +0.05 which BOOSTED chasing calls
+            # into an already-stretched rally — mirror of bearish fix.
             vwap_adj = 0.0
             if ext is not None:
                 bp = ext.vwap_band_position
@@ -1086,7 +1216,7 @@ class SignalEngine:
                 elif bp == "ABOVE_1SD":
                     vwap_adj = 0.03   # above VWAP: bullish call flow more credible
                 elif bp == "ABOVE_2SD":
-                    vwap_adj = 0.05   # well above VWAP: confirms bullish thesis
+                    vwap_adj = -0.05  # STRETCHED: chasing a +2σ rally is dangerous
 
             # Regime alignment: TREND_DOWN opposes bullish call signal
             regime = context.regime.regime
@@ -1155,7 +1285,7 @@ class SignalEngine:
 
             multi_adj = flow_adj + breadth_adj + gex_adj + dp_adj + qqq_adj + iwm_adj
 
-            conf = max(0.0, min(0.95, base + stale_decay + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
+            conf = max(0.0, min(0.95, base + stale_decay + intraday_move_adj + rsi_adj + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             # ── Time-of-day confidence ceiling ─────────────────────────────
             # Only apply when we have live external data; without it the
@@ -1193,6 +1323,8 @@ class SignalEngine:
                         _macro_vel_note,
                         _price_note,
                         _stale_note,
+                        _intraday_note,
+                        _rsi_note,
                         _trap_note,
                         _tod_note,
                         _confirm_note,

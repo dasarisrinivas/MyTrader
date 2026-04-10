@@ -150,6 +150,13 @@ class SpyOptionsManager:
         self._last_pc_ratio_direction: Optional[str] = None   # "C" or "P"
         self._last_pc_ratio_sent: Optional[datetime] = None
 
+        # Same-direction throttle: after N directional signals in a window,
+        # suppress further same-direction alerts to prevent signal flooding.
+        # Root cause #3: 9 PUT signals in 3.5 hours — user overexposed.
+        self._dir_signal_times: Dict[str, List[datetime]] = {"C": [], "P": []}
+        self._max_same_direction_signals: int = 3   # max signals per direction per window
+        self._same_direction_window = timedelta(minutes=90)  # sliding window
+
         # VIX history for sentiment engine (rolling, newest last)
         self._vix_history: Deque[float] = deque(maxlen=10)
 
@@ -235,6 +242,7 @@ class SpyOptionsManager:
             self._exit_sent.clear()
             self._last_pc_ratio_direction = None
             self._last_pc_ratio_sent = None
+            self._dir_signal_times = {"C": [], "P": []}
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -616,8 +624,29 @@ class SpyOptionsManager:
                     )
                     continue
 
+            # ── Same-direction throttle ───────────────────────────────────────
+            # After N signals in the same direction within a sliding window,
+            # suppress further same-direction alerts to prevent signal flooding.
+            # Root cause #3: 9 PUT signals in 3.5h → user overexposed.
+            if sig.right in ("C", "P"):
+                dir_times = self._dir_signal_times[sig.right]
+                # Prune stale entries outside the window
+                dir_times[:] = [t for t in dir_times if (now - t) < self._same_direction_window]
+                if len(dir_times) >= self._max_same_direction_signals:
+                    logger.info(
+                        "Directional throttle: {} {} signals already sent in last {}min — suppressing {}",
+                        len(dir_times), sig.right,
+                        int(self._same_direction_window.total_seconds() // 60),
+                        key,
+                    )
+                    continue
+
             await self._send_signal(sig)
             self._sent_times[key] = now
+
+            # Record directional send time for throttle
+            if sig.right in ("C", "P"):
+                self._dir_signal_times[sig.right].append(now)
 
             if sig.signal_type == SignalType.PC_RATIO_EXTREME:
                 self._last_pc_ratio_direction = sig.right
