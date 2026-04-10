@@ -219,6 +219,13 @@ class GoldIndicatorConfig:
     # ADX — trend strength
     adx_period: int = 14
 
+    # RSI — exhaustion filter
+    rsi_period: int = 14
+
+    # Bollinger Bands — ORB conviction filter (BBW)
+    bb_period: int = 20
+    bb_std: float = 2.0
+
     # Warmup bars required before any signal can fire
     warmup_bars: int = 60   # 60 bars on 1-min = 1 hour warmup
 
