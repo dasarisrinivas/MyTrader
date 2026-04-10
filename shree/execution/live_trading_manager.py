@@ -1366,6 +1366,33 @@ TRADING GUIDANCE:
                 return
             self._last_close_entry_cycle_id = _entry_cycle
 
+        # APR 10 2026: Log every completed trade to CSV for live performance analysis.
+        if pnl != 0.0:
+            try:
+                from shree.utils.live_trade_journal import log_live_trade
+                _ctx = getattr(self, "_open_trade_context", None) or {}
+                _dd_tier = 0
+                if hasattr(self, "risk_gate") and self.risk_gate:
+                    _dd_tier = self.risk_gate.get_drawdown_tier()
+                _exit_px = _ctx.get("_last_exit_price", 0.0)
+                if not _exit_px and pnl != 0.0 and _ctx.get("entry_price"):
+                    _qty = _ctx.get("quantity", 1) or 1
+                    _pv = 5.0
+                    _ep = _ctx["entry_price"]
+                    if _ctx.get("is_long"):
+                        _exit_px = round(_ep + pnl / (_qty * _pv), 2)
+                    else:
+                        _exit_px = round(_ep - pnl / (_qty * _pv), 2)
+                log_live_trade(
+                    trade_context=_ctx,
+                    exit_price=_exit_px,
+                    realized_pnl=pnl,
+                    exit_reason=close_reason,
+                    dd_tier=_dd_tier,
+                )
+            except Exception as _journal_exc:
+                logger.debug(f"live_trade_journal skipped: {_journal_exc}")
+
         # Fix #14 (MAR 12 2026): Consecutive-loss cooldown.
         # After ft_consecutive_loss_trigger (default 3) SL hits in a row,
         # impose an extended cooldown of cooldown_on_consecutive_losses_minutes (default 30).

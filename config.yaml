@@ -181,10 +181,10 @@ risk_gate:
   max_consecutive_losses: 5   # HARDENED: was 10 — 5 in a row = pause and investigate
   peak_drawdown_enabled: true
   peak_drawdown_pct: 4.0
-  peak_drawdown_action: "tiered"  # MAR 9 2026: Changed "halt" → "tiered" (T4 tiered drawdown)
-                                  # Tier 1 (3%): reduce to 50% size — early warning, still trading
-                                  # Tier 2 (5%): reduce to 25% size — defensive mode
-                                  # Tier 3 (7%): halt all entries — same as old "halt" but higher threshold
+  peak_drawdown_action: "halt"    # APR 10 2026: Reverted "tiered" → "halt" — bt_tiered_dd backtest
+                                  # was WORSE than baseline (PF 0.98 vs 1.12, Sharpe -0.31 vs 0.75,
+                                  # P&L -$26 vs +$103). Tiered mode bleeds in regimes with no edge.
+                                  # Tiered config below preserved for future reference.
   peak_drawdown_tighten_multiplier: 0.5
   peak_drawdown_stop_buffer_points: 0.5
   peak_drawdown_flatten_on_trigger: true
