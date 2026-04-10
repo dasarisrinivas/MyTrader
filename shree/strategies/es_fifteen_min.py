@@ -159,6 +159,17 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._proximity_short_count: int = 0
         self._or_minutes: int = getattr(config, 'ft_or_minutes', 30)
 
+        # APR 10 2026: Medium-ATR regime block.
+        # Backtest evidence: Low ATR +$203, Medium ATR (8-13) -$258, High ATR +$158.
+        # Medium-vol chop has no edge for pullback/ORB signals.
+        self._medium_atr_block_enabled: bool = getattr(config, 'ft_medium_atr_block_enabled', True)
+
+        # APR 10 2026: Day-of-week + time-of-day entry blocks.
+        # Monday: -$270, 20% win rate across baseline backtest.
+        # 20 UTC (3 PM CT / 4 PM ET): -$197, 0% win rate — near-close liquidity drain.
+        self._monday_block_enabled: bool = getattr(config, 'ft_monday_block_enabled', True)
+        self._late_afternoon_block_hour_utc: int = int(getattr(config, 'ft_late_afternoon_block_hour_utc', 20))
+
         # MAR 16 2026 Fix #1: A/D per-session overnight cap.
         # Signal A (EMA21_PB_LONG) and D (EMA21_PB_SHORT) have no daily counter,
         # unlike every other signal (B, E, F, G all have max_per_day guards).
@@ -826,6 +837,63 @@ class EsFifteenMinStrategy(BaseStrategy):
                     f"({self._exhaustion_short_bars_left} bars remaining)"
                 )
             signal_d = signal_dprox = signal_e = signal_f_short = None
+
+        # ── APR 10 2026: Medium-ATR regime block ──────────────────────────
+        # Backtest: Medium ATR (8-13) = -$258, 35% WR. Block A/B/D/E pullback
+        # and ORB signals. Proximity (A'/D') already gated to high-vol only.
+        # Trend continuation (F) and London (G) are exempt — different edge.
+        if self._medium_atr_block_enabled:
+            if self._atr_very_low <= atr < self._atr_high:
+                _blocked_med = []
+                for _name, _sig in [("A", signal_a), ("B", signal_b),
+                                     ("D", signal_d), ("E", signal_e)]:
+                    if _sig is not None:
+                        _blocked_med.append(_name)
+                if _blocked_med:
+                    logger.info(
+                        f"🚫 MEDIUM_ATR_BLOCK: ATR={atr:.1f} in [{self._atr_very_low:.0f}, "
+                        f"{self._atr_high:.0f}) — blocking {_blocked_med}"
+                    )
+                    signal_a = signal_b = signal_d = signal_e = None
+
+        # ── APR 10 2026: Monday entry block ──────────────────────────────
+        # Backtest Mon P&L -$270, 20% WR. Entire day is negative expectancy.
+        if self._monday_block_enabled and bar_time.weekday() == 0:
+            _any_active = any(s is not None for s in [
+                signal_a, signal_aprox, signal_b, signal_c,
+                signal_d, signal_dprox, signal_e,
+                signal_f_long, signal_f_short, signal_g,
+            ])
+            if _any_active:
+                logger.info(
+                    f"🚫 MONDAY_BLOCK: blocking all signals on Monday "
+                    f"({bar_time.strftime('%Y-%m-%d')})"
+                )
+                signal_a = signal_aprox = signal_b = signal_c = None
+                signal_d = signal_dprox = signal_e = None
+                signal_f_long = signal_f_short = signal_g = None
+
+        # ── APR 10 2026: Late-afternoon entry block ──────────────────────
+        # Backtest 20 UTC (3 PM CT / 4 PM ET): -$197, 0% WR.
+        # Block new entries at or after this hour; existing positions can run.
+        if self._late_afternoon_block_hour_utc > 0:
+            _bar_utc_hour = bar_time.astimezone(
+                __import__('zoneinfo').ZoneInfo('UTC')
+            ).hour if bar_time.tzinfo else bar_time.hour
+            if _bar_utc_hour >= self._late_afternoon_block_hour_utc:
+                _any_active = any(s is not None for s in [
+                    signal_a, signal_aprox, signal_b, signal_c,
+                    signal_d, signal_dprox, signal_e,
+                    signal_f_long, signal_f_short, signal_g,
+                ])
+                if _any_active:
+                    logger.info(
+                        f"🚫 LATE_AFTERNOON_BLOCK: bar hour={_bar_utc_hour} UTC "
+                        f">= {self._late_afternoon_block_hour_utc} — blocking all signals"
+                    )
+                    signal_a = signal_aprox = signal_b = signal_c = None
+                    signal_d = signal_dprox = signal_e = None
+                    signal_f_long = signal_f_short = signal_g = None
 
         # Priority: A (EMA21 PB Long) > A-prime (proximity long)
         #         > C (EMA9 PB Long) > B (OR breakout Long) > F_long
