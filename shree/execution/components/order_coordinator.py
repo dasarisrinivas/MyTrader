@@ -129,6 +129,10 @@ class OrderCoordinator:
                         f"exit={exit_price:.2f} → pnl=${realized_pnl:.2f}"
                     )
 
+            # APR 10 2026: Stash exit_price for live_trade_journal
+            if ctx and exit_price:
+                ctx["_last_exit_price"] = exit_price
+
             if hasattr(self.manager, "_notify_position_closed"):
                 _direction = "LONG" if _side == "BUY" else "SHORT"
                 self.manager._notify_position_closed(
