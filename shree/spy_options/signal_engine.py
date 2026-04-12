@@ -134,7 +134,12 @@ class SpySignal:
 
     @property
     def dedup_key(self) -> str:
-        return f"{self.signal_type}:{self.expiry}:{self.strike:.0f}:{self.right}"
+        """Dedup key excludes expiry — same signal across APR/MAY is one signal.
+
+        APR 10 2026: Previously included expiry, causing ORB_BREAKOUT and
+        PC_RATIO signals to emit APR + MAY duplicates (22 dupes in 3 days).
+        """
+        return f"{self.signal_type}:{self.strike:.0f}:{self.right}"
 
 
 def _tier(confidence: float) -> str:
@@ -476,6 +481,27 @@ class SignalEngine:
                     f"📊 Dynamic adj: {adj.delta:+.0%} "
                     f"[{adj.time_bucket} | {adj.dte_rule} | {adj.flow_factor}]"
                 )
+
+        # ── Opening period caution (all directional signals) ──────────────
+        # First 30 min of RTH (9:30-10:00 ET) is dominated by market-maker
+        # positioning and overnight order flow unwinding.  Directional signals
+        # in this window have historically been the most unreliable — e.g.
+        # Apr 9 fired 2 PUT signals at 0.95 at open, then SPY rallied +6pt.
+        # Cap ALL directional signals at 0.82 during the opening period.
+        _ET = ZoneInfo("America/New_York")
+        _now_et = _dt.datetime.now(_ET)
+        _now_mins = _now_et.hour * 60 + _now_et.minute
+        _OPEN_START, _OPEN_END = 570, 600   # 09:30 - 10:00 ET
+        if _OPEN_START <= _now_mins < _OPEN_END:
+            _OPEN_CAP = 0.82
+            for sig in signals:
+                if sig.right in ("C", "P") and sig.confidence > _OPEN_CAP:
+                    sig.reasoning.append(
+                        f"⏰ Opening period cap: {sig.confidence:.2f}→{_OPEN_CAP:.2f} "
+                        f"(first 30 min — MM positioning noise)"
+                    )
+                    sig.confidence = _OPEN_CAP
+                    sig.confidence_tier = _tier(sig.confidence)
 
         filtered = [s for s in signals if s.confidence >= c.min_confidence]
         rejected = [s for s in signals if s.confidence < c.min_confidence]
@@ -967,11 +993,16 @@ class SignalEngine:
             conf = max(0.0, min(0.95, base + stale_decay + intraday_move_adj + rsi_adj + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             # ── Time-of-day confidence ceiling ─────────────────────────────
-            # Only apply when we have live external data; without it the
-            # signal is already weakened by missing multi-factor bonuses.
+            # Always apply during market hours (9:30–16:00 ET).  Outside
+            # market hours the aggressive POST_MARKET cap (0.75) only
+            # applies when we have live external data to confirm the
+            # session context; without ext we can't be sure the signal
+            # is truly post-market vs. a unit test running after 4 PM.
             _tod_note = ""
-            if ext is not None:
-                _tod_cap, _tod_bucket = self._tod_ceiling()
+            _tod_cap, _tod_bucket = self._tod_ceiling()
+            _in_rth = 570 <= (_dt.datetime.now(ZoneInfo("America/New_York")).hour * 60
+                              + _dt.datetime.now(ZoneInfo("America/New_York")).minute) < 960
+            if _in_rth or ext is not None:
                 if conf > _tod_cap:
                     _tod_note = f"TOD ceiling ({_tod_bucket}): {conf:.2f}→{_tod_cap:.2f}"
                     conf = _tod_cap
@@ -1288,11 +1319,16 @@ class SignalEngine:
             conf = max(0.0, min(0.95, base + stale_decay + intraday_move_adj + rsi_adj + dte_adj + vol_gate_adj + macro_vel_adj + tick_adj + price_struct_adj + trap_adj + sent_adj + ext_adj + vwap_adj + regime_adj + multi_adj))
 
             # ── Time-of-day confidence ceiling ─────────────────────────────
-            # Only apply when we have live external data; without it the
-            # signal is already weakened by missing multi-factor bonuses.
+            # Always apply during market hours (9:30–16:00 ET).  Outside
+            # market hours the aggressive POST_MARKET cap (0.75) only
+            # applies when we have live external data to confirm the
+            # session context; without ext we can't be sure the signal
+            # is truly post-market vs. a unit test running after 4 PM.
             _tod_note = ""
-            if ext is not None:
-                _tod_cap, _tod_bucket = self._tod_ceiling()
+            _tod_cap, _tod_bucket = self._tod_ceiling()
+            _in_rth = 570 <= (_dt.datetime.now(ZoneInfo("America/New_York")).hour * 60
+                              + _dt.datetime.now(ZoneInfo("America/New_York")).minute) < 960
+            if _in_rth or ext is not None:
                 if conf > _tod_cap:
                     _tod_note = f"TOD ceiling ({_tod_bucket}): {conf:.2f}→{_tod_cap:.2f}"
                     conf = _tod_cap

@@ -94,6 +94,11 @@ class SpyOptionsSignalConfig:
     # Suppress re-sending same (type, expiry, strike, right) within this window
     dedup_window_minutes: int = 90
 
+    # Maximum number of signals dispatched per trading day.
+    # After this limit, all further signals are suppressed until daily reset.
+    # Prevents signal flooding (e.g. 55 signals in 3 days).
+    max_signals_per_day: int = 10
+
     # Repeat sweep detection window — same strike flagged N× within this boosts score
     sweep_window_minutes: int = 15
 

@@ -312,6 +312,18 @@ one_minute:
   ft_atr_high_threshold: 13.0       # above → ATR-scaled (ft_ema_touch_atr_mult)
   ft_atr_extreme_threshold: 20.0    # above → ATR × 1.0
 
+  # APR 10 2026: Medium-ATR regime block
+  # Backtest: Medium ATR (8-13) = -$258 vs Low ATR +$203, High ATR +$158.
+  # Medium-vol chop has negative expectancy for A/B/D/E pullback and ORB signals.
+  # F (trend cont) and G (London) exempt. Set to false to disable.
+  ft_medium_atr_block_enabled: true
+
+  # APR 10 2026: Day-of-week and time-of-day entry blocks
+  # Monday: -$270 P&L, 20% WR. Entire day is negative expectancy.
+  ft_monday_block_enabled: true
+  # 20 UTC = 3 PM CT / 4 PM ET. Backtest: -$197, 0% WR. Set to 0 to disable.
+  ft_late_afternoon_block_hour_utc: 20
+
   # MAR 9 2026 — T3: Proximity entry (A-prime / D-prime)
   # Fires when price nearly touches the EMA21 band but misses by ≤ gap_mult × ATR.
   # Reduced position size + tighter SL/TP. Max 2 per side per day.
@@ -1265,6 +1277,7 @@ spy_options:
     confidence_tier_high: 0.70
     confidence_tier_extreme: 0.80
     dedup_window_minutes: 90
+    max_signals_per_day: 10  # APR 10 2026: Cap total dispatched signals per day. Prevents signal flooding (55 in 3 days).
     sweep_window_minutes: 15
     pc_ratio_min_denom_volume: 200   # APR 8 2026: Both sides must have ≥200 contracts before computing P/C ratio. Prevents nonsense ratios (e.g. 46:1 from 2407 puts / 52 calls).
     pc_ratio_flip_cooldown_minutes: 30  # APR 8 2026: After sending CALL PC_RATIO, suppress PUT PC_RATIO for 30min (and vice versa). Prevents whipsaw flip-flop alerts.

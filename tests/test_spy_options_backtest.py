@@ -609,7 +609,7 @@ class TestWeightedConfidence:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDedupKeys:
-    """Validate dedup key format: type:expiry:strike:right."""
+    """Validate dedup key format: type:strike:right (expiry excluded to prevent cross-expiry dupes)."""
 
     def test_dedup_key_format(self):
         sig = SpySignal(
@@ -619,10 +619,10 @@ class TestDedupKeys:
             volume=10000, volume_spike_mult=6.0,
             bid_size=400, ask_size=100,
         )
-        assert sig.dedup_key == "CALL_SWEEP:APR26:565:C"
+        assert sig.dedup_key == "CALL_SWEEP:565:C"
 
     def test_dedup_suppresses_same_signal(self):
-        """Same type + strike + expiry + right → same dedup key."""
+        """Same type + strike + right → same dedup key (regardless of expiry)."""
         sig1 = SpySignal(
             signal_type=SignalType.PUT_SWEEP,
             strike=550.0, expiry="APR26", right="P",
@@ -638,6 +638,24 @@ class TestDedupKeys:
             bid_size=300, ask_size=700,
         )
         assert sig1.dedup_key == sig2.dedup_key
+
+    def test_cross_expiry_same_key(self):
+        """Same type + strike + right but different expiry → SAME key (APR 10 fix)."""
+        sig_apr = SpySignal(
+            signal_type=SignalType.ORB_BREAKOUT,
+            strike=679.0, expiry="APR26", right="P",
+            confidence=0.78, spy_price=678.0, vix=18.0,
+            volume=3000, volume_spike_mult=4.0,
+            bid_size=150, ask_size=300,
+        )
+        sig_may = SpySignal(
+            signal_type=SignalType.ORB_BREAKOUT,
+            strike=679.0, expiry="MAY26", right="P",
+            confidence=0.78, spy_price=678.0, vix=18.0,
+            volume=3000, volume_spike_mult=4.0,
+            bid_size=150, ask_size=300,
+        )
+        assert sig_apr.dedup_key == sig_may.dedup_key
 
     def test_different_strikes_different_keys(self):
         sig1 = SpySignal(

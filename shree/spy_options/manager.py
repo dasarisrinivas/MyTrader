@@ -157,6 +157,9 @@ class SpyOptionsManager:
         self._max_same_direction_signals: int = 3   # max signals per direction per window
         self._same_direction_window = timedelta(minutes=90)  # sliding window
 
+        # Daily signal cap: prevent signal flooding (e.g. 55 signals in 3 days)
+        self._daily_signal_count: int = 0
+
         # VIX history for sentiment engine (rolling, newest last)
         self._vix_history: Deque[float] = deque(maxlen=10)
 
@@ -243,6 +246,7 @@ class SpyOptionsManager:
             self._last_pc_ratio_direction = None
             self._last_pc_ratio_sent = None
             self._dir_signal_times = {"C": [], "P": []}
+            self._daily_signal_count = 0
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -601,9 +605,22 @@ class SpyOptionsManager:
     async def _dispatch_signals(self, signals: List[SpySignal]) -> None:
         dedup_td  = timedelta(minutes=self._cfg.signals.dedup_window_minutes)
         flip_td   = timedelta(minutes=self._cfg.signals.pc_ratio_flip_cooldown_minutes)
+        daily_cap = self._cfg.signals.max_signals_per_day
         now = datetime.utcnow()
+        seen_keys: set[str] = set()          # batch-level dedup (cross-expiry)
         for sig in signals:
             key = sig.dedup_key
+            # ── Daily signal cap ──────────────────────────────────────────────
+            if self._daily_signal_count >= daily_cap:
+                logger.info(
+                    "Daily signal cap reached ({}/{}) — suppressing {}",
+                    self._daily_signal_count, daily_cap, key,
+                )
+                break   # no more signals today
+            # ── Batch dedup: same key already dispatched this cycle ───────────
+            if key in seen_keys:
+                logger.debug("Batch dedup suppress (cross-expiry): {}", key)
+                continue
             last_sent = self._sent_times.get(key)
             if last_sent and (now - last_sent) < dedup_td:
                 logger.debug("Dedup suppress: {}", key)
@@ -643,6 +660,8 @@ class SpyOptionsManager:
 
             await self._send_signal(sig)
             self._sent_times[key] = now
+            seen_keys.add(key)
+            self._daily_signal_count += 1
 
             # Record directional send time for throttle
             if sig.right in ("C", "P"):
