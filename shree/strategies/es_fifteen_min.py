@@ -858,7 +858,7 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         # ── APR 10 2026: Monday entry block ──────────────────────────────
         # Backtest Mon P&L -$270, 20% WR. Entire day is negative expectancy.
-        if self._monday_block_enabled and bar_time.weekday() == 0:
+        if self._monday_block_enabled and et_time.weekday() == 0:
             _any_active = any(s is not None for s in [
                 signal_a, signal_aprox, signal_b, signal_c,
                 signal_d, signal_dprox, signal_e,
@@ -867,7 +867,7 @@ class EsFifteenMinStrategy(BaseStrategy):
             if _any_active:
                 logger.info(
                     f"🚫 MONDAY_BLOCK: blocking all signals on Monday "
-                    f"({bar_time.strftime('%Y-%m-%d')})"
+                    f"({et_time.strftime('%Y-%m-%d')})"
                 )
                 signal_a = signal_aprox = signal_b = signal_c = None
                 signal_d = signal_dprox = signal_e = None
@@ -877,9 +877,9 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Backtest 20 UTC (3 PM CT / 4 PM ET): -$197, 0% WR.
         # Block new entries at or after this hour; existing positions can run.
         if self._late_afternoon_block_hour_utc > 0:
-            _bar_utc_hour = bar_time.astimezone(
+            _bar_utc_hour = current_time.astimezone(
                 __import__('zoneinfo').ZoneInfo('UTC')
-            ).hour if bar_time.tzinfo else bar_time.hour
+            ).hour if current_time.tzinfo else current_time.hour
             if _bar_utc_hour >= self._late_afternoon_block_hour_utc:
                 _any_active = any(s is not None for s in [
                     signal_a, signal_aprox, signal_b, signal_c,
