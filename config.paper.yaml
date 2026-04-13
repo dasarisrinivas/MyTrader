@@ -122,3 +122,41 @@ gold:
     notify_on_trade: true  # Send alert when trade is executed
     notify_on_signal: false  # Send alert when signal is generated (can be noisy)
     notify_on_error: true  # Send alert on trading errors/warnings
+
+# ── SPY Options paper-trading overrides ───────────────────────────────────────
+# Minimal overrides — all signal thresholds, external sources, and session
+# gates inherit from config.yaml spy_options: defaults.  Only connectivity and
+# storage paths differ for paper vs live.
+spy_options:
+  enabled: true
+
+  ib:
+    ibkr_host: "127.0.0.1"
+    ibkr_port: 4002           # IB Gateway PAPER socket (4002=paper, 4001=live)
+    ibkr_client_id: 5         # Same client-id as live; paper gateway is isolated
+    snapshot_wait_s: 3.0
+    greeks_wait_s: 4.0
+    max_subscriptions: 60
+
+  signals:
+    # Paper config inherits all signal thresholds from config.yaml.
+    # Override min_confidence here if you want looser paper-mode filtering:
+    # min_confidence: 0.70
+    confidence_tier_high: 0.70
+    confidence_tier_extreme: 0.80
+
+  analytics:
+    enabled: true
+    db_path: "data/paper_spy_options_signals.db"   # Separate DB from live signals
+
+  external:
+    # All external sources remain enabled so paper signals have full context.
+    enabled: true
+    composite_confidence_boost: 0.05
+
+  telegram:
+    enabled: true
+    bot_token: "8252063184:AAHE_uiEcEqRaB1jfWvjGSjMsnbNfWluCfI"  # SPY options bot
+    chat_id: "5524962877"
+
+  log_file: "logs/paper_spy_options.log"

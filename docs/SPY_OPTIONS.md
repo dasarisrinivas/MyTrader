@@ -1,333 +1,923 @@
-# SPY Options Signal Generator – Architecture and Design
+# ShreeBot — SPY Options Signal Generator
 
-**Executive Summary:** We design a system that ingests SPY option chain data via IB’s API, augments it with external data (volumes, open interest, unusual flow, sentiment from news/social), and applies rule-based, statistical or ML logic to generate trade signals.  These signals are sent via Telegram (no order execution).  Key IB endpoints include `/iserver/secdef/search`, `/strikes`, `/info` (for contract details) and `/iserver/marketdata/snapshot` (live quotes)【9†L643-L652】【18†L735-L744】.  Historical data is fetched from `/iserver/marketdata/history` or `/hmds/history`.  Greeks (delta, theta, etc.) can be obtained via IB’s TWS API (`tickOptionComputation`)【44†L133-L142】 or computed from prices.  External sources include exchange or data-provider feeds for option volume/open-interest, and “options flow” APIs like UnusualWhales (100+ endpoints for flow, dark pools, volatility)【55†L190-L198】.  Sentiment is drawn from News APIs (e.g. NewsAPI.org【51†L169-L172】) and social media (Twitter, Reddit – studies show Twitter sentiment strongly predicts stock moves【53†L383-L390】).  Data flows through an ETL pipeline (e.g. Kafka, database), triggering signal logic and Telegram alerts.  We include schema designs, algorithm comparisons, Mermaid diagrams, and code snippets (IB data fetch, Telegram send).  Regulatory cautions (data licensing, investment advice rules) are noted; IB’s docs stress compliance with registration requirements for automated trading offerings【16†L521-L529】.
+> **Advisory Only:** This system generates Telegram alerts for SPY options trades.
+> **No orders are ever placed.** All signals are informational only.
 
-## 1. IB API Endpoints and SPY Options Fields
+> **One-Line Strategy:**
+> _"This system trades institutional flow + intraday structure (ORB/VWAP), filtered by
+> regime and volatility, while avoiding low-quality and conflicting setups."_
 
-To build the SPY option chain and market data, we use IB’s Client Portal (REST) and/or TWS/Gateway API:
+---
 
-- **Option chain/contract lookup:** Use the Client Portal endpoints `/iserver/secdef/search`, `/iserver/secdef/strikes`, and `/iserver/secdef/info` to retrieve SPY options.  For example, a GET to `/iserver/secdef/search?symbol=SPY&sectype=STK` returns the SPY *conid*.  Then `/iserver/secdef/strikes?conid={SPY_conid}&secType=OPT&month=MMMYY&exchange=SMART` yields available strikes for a given expiry【9†L643-L652】.  Finally `/iserver/secdef/info` returns each option’s details: `conid`, `symbol`, `strike`, `right` (C/P), `maturityDate`, `multiplier`, etc.  Table 1 summarizes the key IB endpoints:
+## What This System Is NOT
 
-  | **Endpoint**                     | **Method** | **Purpose**                          | **Key Fields Returned**                                   |
-  |----------------------------------|------------|--------------------------------------|-----------------------------------------------------------|
-  | `/iserver/secdef/search`         | POST/GET   | Find underlying contract (SPY).      | `conid` (instrument ID), `symbol`, `sections` with exp.   |
-  | `/iserver/secdef/strikes`        | GET        | List strikes for a conid + expiry.   | `call`[] and `put`[] strike lists.                       |
-  | `/iserver/secdef/info`           | GET        | Get option contract details.         | `conid`, `symbol`, `secType`, `right`, `strike`, `currency`, `maturityDate`, `multiplier`, `tradingClass`, etc.【9†L675-L684】. |
-  | `/iserver/marketdata/snapshot`   | GET        | Top-of-book live quotes (snapshot).  | Custom fields (e.g. `31`=last, `84`=bid, `86`=ask, `85`=bidSize, `88`=askSize, etc)【18†L782-L791】. |
-  | `/iserver/marketdata/history`    | GET        | Historical price/vol bars.          | OHLC bars over period (no bid/ask by default).            |
-  | (TWS API) `reqTickers` / tickers | Streaming  | Live quotes via TWS/Gateway stream.  | Bid/Ask/Last (fields similar to snapshot).              |
-  | (TWS API) `calculateOptionPrice`/`tickOptionComputation` | Streaming  | Option Greeks (IV, delta, gamma, theta, etc)【44†L133-L142】.  | `impliedVolatility`, `delta`, `gamma`, `theta`, `vega`.  |
+- **Not a scalping bot.** Minimum signal hold is 5–30 minutes. Sub-minute setups are
+  not supported.
+- **Not a news trading bot.** Sentiment is a secondary confirmation factor only. The
+  system never fires a signal purely on a news headline.
+- **Not a long-term strategy.** All signals target intraday to 1-day moves. No multi-day
+  position tracking is built in.
+- **Not a fully automated trader.** No orders are sent to IB or any broker. Every signal
+  requires a human to review and act.
 
-【9†L643-L652】【9†L675-L684】【18†L782-L791】 illustrate using `/strikes` and `/info` to build a contract library.  For example, after obtaining SPY’s `conid`, one might call:
+---
+
+## Table of Contents
+
+1. [System Overview](#1-system-overview)
+2. [Data Flow Diagram](#2-data-flow-diagram)
+3. [IB API — Runtime Transport](#3-ib-api--runtime-transport)
+4. [Signal Types](#4-signal-types)
+5. [Signal Priority Hierarchy](#5-signal-priority-hierarchy)
+6. [Final Decision Formula](#6-final-decision-formula)
+7. [Base Confidence Components](#7-base-confidence-components)
+8. [Dynamic Confidence Adjustments](#8-dynamic-confidence-adjustments)
+9. [Regime-Specific Strategy Behavior](#9-regime-specific-strategy-behavior)
+10. [Quality Gate — When NOT to Trade](#10-quality-gate--when-not-to-trade)
+11. [Safety Controls & Kill Switch](#11-safety-controls--kill-switch)
+12. [Signal Cooldown & Flow Persistence](#12-signal-cooldown--flow-persistence)
+13. [ORB Failure & False Breakout Handling](#13-orb-failure--false-breakout-handling)
+14. [Time-Based Strategy Bias](#14-time-based-strategy-bias)
+15. [Data Freshness Rules](#15-data-freshness-rules)
+16. [Confidence Distribution Control](#16-confidence-distribution-control)
+17. [Feature Contribution Logging](#17-feature-contribution-logging)
+18. [Weight Calibration Strategy](#18-weight-calibration-strategy)
+19. [Example Trade Walkthrough](#19-example-trade-walkthrough)
+20. [Exit Strategy](#20-exit-strategy)
+21. [Top 5 Factors That Actually Matter](#21-top-5-factors-that-actually-matter)
+22. [Performance Tracking & Feedback Loop](#22-performance-tracking--feedback-loop)
+23. [Known Weaknesses](#23-known-weaknesses)
+24. [External Data Sources](#24-external-data-sources)
+25. [Configuration Reference](#25-configuration-reference)
+
+---
+
+## 1. System Overview
+
+ShreeBot's SPY Options module runs a continuous polling loop (default every 60 seconds during market hours) that:
+
+1. Fetches live option chain snapshots from IB Gateway via **ib_insync**
+2. Scores each candidate contract using a **10-component weighted confidence model**
+3. Applies **14 signal-specific adjustments** for regime, Greeks, IV structure, and flow
+4. Runs a **19-factor DynamicConfidence post-adjuster**
+5. Hard-blocks signals that fail a **5-check Quality Gate**
+6. Resolves conflicts via a **3-tier Signal Priority Hierarchy**
+7. Sends surviving signals via **Telegram** and persists them to SQLite for win-rate tracking
+
+All source code lives in `shree/spy_options/`. Configuration is in `config.yaml` under the `spy_options:` key, with paper-trading overrides in `config.paper.yaml`.
+
+---
+
+## 2. Data Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        MARKET DATA (IB Gateway)                     │
+│   SPY chain  ·  option Greeks  ·  VIX  ·  intraday bars  ·  OI     │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ ib_insync (port 4001 live / 4002 paper)
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     EXTERNAL DATA MANAGER                           │
+│  News sentiment  ·  StockTwits  ·  Macro (TNX/DXY/equity P/C)     │
+│  CBOE skew/term  ·  Dark pool  ·  GEX  ·  Breadth  ·  Sector      │
+│  Vol structure   ·  OPEX calendar  ·  Economic calendar            │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ ExternalContext
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        SIGNAL ENGINE                                │
+│                                                                     │
+│   ① Base Confidence (10 components, weighted sum)                  │
+│   ② Signal-Specific Adjustments (14 rules)                         │
+│   ③ Dynamic Confidence (19 post-signal factors)                    │
+│   ④ Priority Conflict Check (Tier 1 / Tier 2 / Tier 3)            │
+│   ⑤ Quality Gate (5 hard blocks — no override possible)            │
+│   ⑥ Threshold Filter (min_confidence from config)                  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ SpySignal (if passes)
+                    ┌────────┴────────┐
+                    ▼                 ▼
+        ┌─────────────────┐  ┌───────────────────┐
+        │  Telegram Alert │  │  SQLite Analytics │
+        │  (advisory only)│  │  (outcome tracking│
+        └─────────────────┘  │   + win-rate DB)  │
+                             └───────────────────┘
+```
+
+---
+
+## 3. IB API — Runtime Transport
+
+> **Important:** The running SPY Options bot uses **ib_insync** (TWS socket API, port **4001** live / **4002** paper).
+> It does **not** use the IB Client Portal REST API (port 5000/5001).
+
+### ib_insync Methods Used in Production
+
+| **ib_insync call**                              | **Purpose**                               | **Key fields returned**                                         |
+|-------------------------------------------------|-------------------------------------------|-----------------------------------------------------------------|
+| `ib.qualifyContractsAsync(Stock(...))`          | Resolve SPY stock conId                   | `contract.conId`                                               |
+| `ib.reqSecDefOptParamsAsync(...)`               | Fetch all SPY expiries + strike list      | `expirations`, `strikes`                                       |
+| `ib.qualifyContractsAsync(Option(...))`         | Resolve individual option contract        | `contract.conId`, `contract.symbol`                            |
+| `ib.reqMktData(..., snapshot=True)`             | Price-only snapshot (fast, no Greeks)     | `ticker.last`, `ticker.bid`, `ticker.ask`, `ticker.volume`     |
+| `ib.reqMktData(..., genericTickList="100,101")` | Live feed + modelGreeks + open interest   | `ticker.modelGreeks.delta/gamma/theta/vega/impliedVol`, OI     |
+| `ib.reqHistoricalDataAsync(..., "1 Y")`         | VIX 52-week range for IV rank             | daily close bars                                               |
+| `ib.reqHistoricalDataAsync(..., "5 mins")`      | SPY intraday bars for regime detection    | OHLCV bars                                                     |
+
+### Subscription Cap
+
+`ib.max_subscriptions` (default 60, configurable) limits concurrent market data lines.
+Before subscribing in `get_snapshot_with_greeks()`, the engine enforces:
+
 ```python
-import requests
-resp = requests.post("https://localhost:5001/v1/api/iserver/secdef/search?symbol=SPY&sectype=STK", verify=False)
-data = resp.json()
-spy_conid = data[0]['conid']
+cap = max(1, cfg.max_subscriptions - 1)
+contracts_to_scan = contracts_to_scan[:cap]
 ```
-Then retrieve strikes and infos:
+
+A warning is logged when the chain is truncated.
+
+### Legacy Client Portal Reference (not used in runtime)
+
+The IB Client Portal REST API runs on port 5000/5001 and is a separate product. REST endpoints
+(`/iserver/secdef/search`, `/iserver/marketdata/snapshot`, etc.) are **not called** by the bot.
+They are documented in the original design doc for historical context only.
+
+---
+
+## 4. Signal Types
+
+### PRIMARY Signals
+_Price-action and structure driven. Highest reliability._
+
+| Signal Type         | Trigger                                                     |
+|---------------------|-------------------------------------------------------------|
+| `ORB_BREAKOUT`      | Price breaks Opening Range high/low with volume + flow     |
+| `VWAP_BOUNCE`       | Price reclaims VWAP from oversold/overbought extreme       |
+| `FLOW_SURGE`        | Unusual options flow spike (call sweep or put sweep)       |
+| `REGIME_SHIFT`      | Market regime transitions (trend flip confirmation)        |
+
+### INFORMATIONAL Signals
+_Sentiment or macro derived. Use as confirmation only — never as primary driver._
+
+| Signal Type         | Trigger                                                     |
+|---------------------|-------------------------------------------------------------|
+| `SENTIMENT_SPIKE`   | News or social sentiment extreme (bullish or bearish)      |
+| `IV_CONTRACTION`    | IV rank drops sharply — vol selling opportunity signal     |
+| `MACRO_DIVERGENCE`  | TNX/DXY regime conflicts with current equity positioning   |
+| `DARK_POOL_SIGNAL`  | Dark pool prints aligned with directional flow             |
+
+> **Rule:** Informational signals **never override** PRIMARY signals. If a sentiment signal
+> conflicts with ORB or flow direction, the sentiment signal is suppressed.
+
+---
+
+## 5. Signal Priority Hierarchy
+
+```
+Tier 1 (Structural — highest authority)
+  ├── Options Flow Score        (flow_confirmation_score)
+  └── ORB Breakout              (opening_range_break)
+
+Tier 2 (Regime — secondary)
+  ├── Market Regime             (TRENDING / RANGING / VOLATILE)
+  └── VWAP Position             (above / below / at-band)
+
+Tier 3 (Supplemental — confirmation only)
+  ├── RSI extremes
+  ├── Pivot levels
+  └── EDR (Expected Daily Range) proximity
+```
+
+### Conflict Resolution Rules
+
+| Scenario                                  | Confidence Delta |
+|-------------------------------------------|-----------------|
+| 2 Tier-1 signals conflict                 | −0.15           |
+| 1 Tier-1 conflict, no Tier-1 confirms     | −0.08           |
+| 2 Tier-1 signals confirm                  | +0.05           |
+| 1 Tier-1 signal confirms                  | +0.02           |
+| Tier-2 regime conflicts (Tier-1 is clean) | −0.05           |
+
+These adjustments are applied **before** the quality gate and threshold filter, so a strong
+Tier-1 conflict can push a marginal signal below the minimum confidence threshold.
+
+---
+
+## 6. Final Decision Formula
+
+```
+final_confidence = base_confidence
+                 + signal_adjustments        (up to ±0.20)
+                 + dynamic_confidence_delta  (up to ±0.25)
+                 + priority_delta            (−0.15 to +0.05)
+                 + external_composite_boost  (0.0 to +0.05, if enabled)
+
+signal fires if:
+  final_confidence ≥ min_confidence          (default 0.72)
+  AND quality_gate passes                    (5 hard blocks)
+
+confidence_tier:
+  "high"    if final_confidence ≥ confidence_tier_high    (default 0.80)
+  "extreme" if final_confidence ≥ confidence_tier_extreme (default 0.90)
+  "standard" otherwise
+```
+
+All thresholds are configurable in `config.yaml` under `spy_options.signals`.
+
+---
+
+## 7. Base Confidence Components
+
+The base confidence is a **weighted sum** of 10 components, normalised to [0, 1]:
+
+| # | Component                  | Weight | Description                                          |
+|---|----------------------------|--------|------------------------------------------------------|
+| 1 | Volume Spike               | 0.20   | Ratio of current volume to rolling average           |
+| 2 | Options Flow Score         | 0.18   | Directional flow strength (call-side vs put-side)    |
+| 3 | IV Rank                    | 0.12   | Implied volatility percentile (0–100)                |
+| 4 | Bid-Ask Spread Quality     | 0.10   | Tight spread = higher quality fill                   |
+| 5 | Open Interest              | 0.10   | Liquidity proxy (relative to strike average)         |
+| 6 | Delta Proximity            | 0.10   | Penalty for deep ITM or far OTM (prefer 0.30–0.55)  |
+| 7 | Sentiment Score            | 0.08   | Blended news + social sentiment                      |
+| 8 | Regime Alignment           | 0.07   | Signal direction matches current market regime       |
+| 9 | Greeks Quality             | 0.03   | Theta/Vega ratio; avoid high-theta contracts         |
+|10 | External Composite         | 0.02   | Aggregated external data composite (optional boost)  |
+
+---
+
+## 8. Dynamic Confidence Adjustments
+
+After the base model runs, **19 post-signal factors** fine-tune the confidence:
+
+| Factor                   | Direction | Notes                                                    |
+|--------------------------|-----------|----------------------------------------------------------|
+| Time-of-day bucket       | ±        | OPEN (+) / MIDDAY (+) / CLOSE (−) weights                |
+| DTE bucket               | ±        | 0DTE requires extra confirmation; penalises thin DTE      |
+| Flow alignment           | +        | Flow strongly confirms direction                          |
+| Macro headwind           | −        | TNX/DXY opposing the trade direction                     |
+| Event risk               | −        | FOMC / CPI / jobs within 24h                              |
+| Conflict detection       | −        | Internal model components disagreeing                    |
+| Breadth confirmation     | +        | Advance/decline or NYSE TICK aligned                     |
+| Sector alignment         | +        | Sector ETF leading SPY in same direction                 |
+| Gamma wall proximity     | −        | Price near major GEX pin — expected low follow-through   |
+| Vol structure            | ±        | Backwardation (+) vs contango (−)                        |
+| Overnight gap            | ±        | Gap-and-go (+) vs mean-reversion morning (−)             |
+| OPEX week                | −        | Options expiration week reduces continuation probability |
+| ORB alignment            | +        | Signal agrees with Opening Range direction               |
+| VWAP band                | +/−      | Distance from VWAP relative to ATR                       |
+| EDR proximity            | −        | Price near Expected Daily Range limit                    |
+| RSI extreme              | +/−      | Confirms or fades direction                              |
+| Pivot level              | +/−      | Key S/R levels near strike                               |
+| Max pain distance        | −        | 0DTE near max pain — avoid                              |
+| Dark pool bias           | +        | Dark pool prints align with trade direction              |
+
+The sum of all adjustments is capped to prevent a single factor from dominating.
+
+### Stale Flow Decay
+
+When intraday flow data is stale (no new prints in the last N bars), the flow component
+is progressively decayed toward neutral. The engine tracks `_pc_ratio_first_seen`,
+`_intraday_high`, `_intraday_low`, and `_intraday_date` to detect stale data.
+
+---
+
+## 9. Regime-Specific Strategy Behavior
+
+Market regime is not just a confidence input — it gates which signal _types_ are allowed
+and shifts component weights for the current environment.
+
+### TRENDING_UP / TRENDING_DOWN
+- Only same-direction signals allowed (CALL in TRENDING_UP, PUT in TRENDING_DOWN).
+  Reversal signals require both a flow reversal AND an extreme RSI reading.
+- Flow component weight increased by +20% relative to base.
+- ORB breakout signals in the trend direction are fast-tracked (skip the midday cooldown).
+
+### RANGE_BOUND
+- ORB breakout signals are **disabled** — breakouts in ranging regimes are unreliable.
+- VWAP ±2σ fade setups are preferred: signals that fade price back toward VWAP from an
+  extreme band have better expectancy in ranging conditions.
+- `min_confidence` is effectively raised by penalising directional signals an additional
+  −0.05 in the DynamicConfidence step.
+
+### HIGH_VOLATILITY (VIX spike / regime = VOLATILE)
+- A −0.05 global confidence penalty is applied to all directional signals.
+- Naked long option signals require an additional Tier-1 confirmation to fire.
+- Prefer spread-style signals over naked options (signal metadata tags the structure).
+- The adverse-move exit threshold tightens from 0.3% → 0.2% to limit damage in
+  fast-moving conditions.
+
+### Regime Priority in Conflict Check
+The regime classification feeds directly into the Tier-2 conflict check
+(see [Section 5](#5-signal-priority-hierarchy)). A signal that conflicts with the
+current regime takes the −0.05 Tier-2 penalty regardless of Tier-1 alignment.
+
+---
+
+## 10. Quality Gate — When NOT to Trade
+
+The **Quality Gate** is a set of **5 hard blocks** that cannot be overridden by any confidence
+level. If any check fails, the signal is dropped regardless of final_confidence:
+
+| # | Rule                                | Condition                                                         |
+|---|-------------------------------------|-------------------------------------------------------------------|
+| 1 | **Flow strongly opposes direction** | `flow_score ≤ −30` for a CALL signal, or `≥ +30` for a PUT       |
+| 2 | **0DTE near max pain**              | DTE = 0 AND strike within 0.5% of computed max pain level        |
+| 3 | **0DTE missing confirmation**       | DTE = 0 AND `abs(flow_score) < 25` AND no aligned ORB breakout   |
+| 4 | **Inside ORB after 10:30 ET**       | Directional signal fired while price is still inside the Opening Range after the first 30 min |
+| 5 | **Chop day**                        | Intraday SPY range < 0.20% of price (no trend to trade)          |
+
+> **Summary:** Never trade against flow. Never trade 0DTE without flow or ORB. Never trade
+> inside the Opening Range after it has closed. Never trade a flat, choppy day.
+
+---
+
+## 11. Safety Controls & Kill Switch
+
+Trading signals are automatically paused ("Safety Mode") when market conditions
+become chaotic. No signals fire in Safety Mode regardless of confidence.
+
+### Automatic Pause Triggers
+
+| Trigger                                    | Condition                                               |
+|--------------------------------------------|---------------------------------------------------------|
+| Consecutive loss streak                    | 3 losses within any 60-minute window                   |
+| VIX spike                                  | VIX rises > 10% within 15 minutes                     |
+| SPY flash move                             | SPY moves > 1.5% in either direction within 30 minutes |
+| External data outage                       | IB data feed down or all external sources stale > 5 min |
+
+### Behaviour in Safety Mode
+- All new directional signal evaluation is suspended.
+- Currently open signals are allowed to expire or hit their existing exit triggers
+  (no premature cancellation).
+- A Telegram alert is sent when Safety Mode activates, naming the trigger.
+- Safety Mode automatically lifts after **30 minutes** of stable conditions (no new
+  triggers). It can also be manually cleared via admin command.
+
+### Manual Kill Switch
+An operator can send a Telegram admin command to immediately halt all new signals.
+The kill switch persists across bot restarts until manually cleared.
+
+---
+
+## 12. Signal Cooldown & Flow Persistence
+
+### Signal Cooldown
+After a **high-confidence signal fires (≥ 0.85)**, a 5–10 minute global cooldown
+prevents a flood of correlated signals in the same direction:
+
+- Cooldown duration: **5 minutes** standard, **10 minutes** if the preceding signal
+  was 0DTE.
+- Exception: a new ORB breakout signal with strong flow alignment (flow score ≥ ±40)
+  bypasses the cooldown, as it represents a structurally distinct setup.
+- Informational signals (sentiment, IV contraction) are always subject to cooldown
+  regardless of confidence level.
+
+The cooldown prevents overtrading on chop days when the system can fire multiple
+signals in rapid succession on small oscillations that are all noise.
+
+### Flow Persistence Rule
+A single isolated options sweep is often noise (order splitting, hedging). Flow is
+only treated as a valid confirmation signal if **persistence** is demonstrated:
+
+| Condition                                                     | Flow Weight Applied |
+|---------------------------------------------------------------|---------------------|
+| 2 or more sweeps in the same direction within 10 minutes      | Full (100%)         |
+| Single sweep with notional premium > $500K                    | Full (100%)         |
+| Single sweep below $500K, no follow-through within 10 minutes | Halved (50%)        |
+| Stale flow (> 10 minutes since last print)                    | Zero (flow decayed) |
+
+The stale-flow decay is tracked by `_pc_ratio_first_seen` and `_intraday_date` in
+`SignalEngine` (see [Section 8](#8-dynamic-confidence-adjustments)).
+
+---
+
+## 13. ORB Failure & False Breakout Handling
+
+A classic trap is a price that briefly violates the Opening Range boundary and
+immediately snaps back inside — a "false breakout" that can trigger a signal on
+the wrong side. The engine handles this with an ORB validation check.
+
+### False Breakout Detection
+If price breaks the ORB boundary but **closes back inside the ORB within 2 polling
+bars** (typically 2–4 minutes), the breakout is marked invalid:
+
+- The `ORB_BREAKOUT` signal type is suppressed for the remainder of the ORB session.
+- A **fade bias** is recorded: the next signal in the _opposite_ direction (fade back
+  toward VWAP) gains a +0.03 confidence bonus for the subsequent 15 minutes.
+
+### Confirmed vs Tentative Breakouts
+The system distinguishes two breakout states:
+
+| State         | Condition                                           | Effect on Signal      |
+|---------------|-----------------------------------------------------|-----------------------|
+| Tentative     | Price crossed ORB boundary on current bar           | Signal may fire but gets DTE-style penalty |
+| Confirmed     | Price held outside ORB for 2+ consecutive bars      | Full ORB bonus applied |
+
+Only a **confirmed** breakout triggers the ORB priority boost in `_priority_conflict_check`.
+
+---
+
+## 14. Time-Based Strategy Bias
+
+The engine applies time-bucket-specific rules beyond the DynamicConfidence time-of-day
+adjustment. These rules change _which_ setups are preferred at each part of the session.
+
+### Morning (9:30 – 10:30 ET) — Breakout Window
+- ORB breakout signals preferred.
+- Flow sweeps from the open carry the most weight (institutions establishing positions).
+- Fade signals disabled until ORB is established (first 15 minutes).
+- 0DTE directional signals have the **highest historical win rate** in this window.
+
+### Midday (10:30 – 13:00 ET) — Low-Confidence Zone
+- Directional signals require a higher effective confidence bar (+0.03 implicit).
+- VWAP fade setups (price at ±2σ bands) are preferred over breakout continuation.
+- No new 0DTE signals after 12:30 ET unless flow score ≥ ±40 and regime is TRENDING.
+- Flow that prints here is often noise (lunch-hour thin volume).
+
+### Power Hour (14:30 – 15:30 ET) — Trend Continuation
+- Continuation of established intraday trend is preferred.
+- Counter-trend signals are suppressed unless RSI is at an extreme and regime
+  has flipped intraday.
+- 0DTE signals that align with the prevailing post-lunch trend direction are valid.
+- Swing signals (multi-day DTE) can be initiated in this window if regime is clear.
+
+### Final 30 Minutes (15:30 – 16:00 ET) — No New Signals
+- No new signals of any type. The `no_trade_final_minutes: 30` config gate is hard.
+- Open signals continue monitoring for exit triggers until expiry.
+
+---
+
+## 15. Data Freshness Rules
+
+External data that is too old can corrupt signal quality. Each source has a maximum
+acceptable age before its contribution is reduced or zeroed:
+
+| Source              | Stale Threshold | Action When Stale                              |
+|---------------------|-----------------|------------------------------------------------|
+| Options flow        | 10 minutes      | Flow component weight → 0 (full decay)        |
+| News sentiment      | 15 minutes      | News weight reduced by 50%                    |
+| StockTwits          | 20 minutes      | Sentiment contribution zeroed                 |
+| Macro (TNX/DXY)     | 30 minutes      | Macro adjustment skipped entirely             |
+| CBOE vol / skew     | 60 minutes      | Vol structure adjustment uses last valid value |
+| Economic calendar   | 4 hours         | Cached value used (calendar data is slow-moving) |
+| IB market data      | 5 seconds       | Signal evaluation paused (hard staleness)     |
+
+**Rule: stale data never drives a signal.**
+If flow is stale and it was the primary driver of a forming signal, the signal is
+dropped at the quality gate rather than firing on outdated information.
+
+---
+
+## 16. Confidence Distribution Control
+
+A healthy signal system should produce a roughly stable distribution of confidence
+levels over time. If too many signals cluster near the minimum threshold (70–75%),
+it indicates either threshold drift or quality gate loosening.
+
+### Target Distribution
+
+| Confidence Band | Target Share of Signals |
+|-----------------|------------------------|
+| < 70%           | Filtered out (0%)      |
+| 70–79%          | ~50% of fired signals  |
+| 80–89%          | ~35% of fired signals  |
+| 90%+            | ~15% of fired signals  |
+
+### Diagnosis & Response
+
+If `win_rate_by_confidence_bucket()` shows the 70–75% band is:
+- **Firing too often** (> 60% of signals) → tighten `min_confidence` by 0.02–0.03,
+  or add a stricter quality gate rule.
+- **Win rate < 45% in that band** → signals at the floor are low quality; raise the
+  floor or reduce weight of the component driving marginal signals.
+- **90%+ signals > 25% of total** → thresholds may be too loose globally; verify
+  DynamicConfidence adjustments are not stacking uncapped positive bonuses.
+
+The `win_rate_summary()` query in `AnalyticsDB` provides the data needed for this
+analysis. Review distribution monthly or after any config change.
+
+---
+
+## 17. Feature Contribution Logging
+
+Knowing _why_ a signal fired is as important as knowing whether it won or lost.
+Without per-signal contribution logging, it is impossible to diagnose which factor
+caused a losing trade or verify which component is generating alpha.
+
+### DB Columns Added for Attribution
+
+```sql
+top_contributors    TEXT,  -- JSON: factors that increased confidence most
+negative_contributors TEXT  -- JSON: factors that decreased confidence most
+```
+
+### Example Logged Values
+
+```json
+{
+  "top_contributors": [
+    "FLOW_PERSISTENCE +0.10",
+    "ORB_CONFIRMED +0.05",
+    "REGIME_TRENDING_UP +0.04",
+    "TIME_OPEN +0.02"
+  ],
+  "negative_contributors": [
+    "VWAP_2SD_AGAINST -0.06",
+    "DTE_0_PENALTY -0.02"
+  ]
+}
+```
+
+### How to Use This Data
+
+When reviewing a losing trade:
+1. Query the row for that signal in `spy_signals`.
+2. Check `negative_contributors` — if `VWAP_2SD_AGAINST` is frequent on losses,
+   consider tightening the VWAP-band gate.
+3. Check `top_contributors` — if a loss was driven entirely by `FLOW_PERSISTENCE`
+   with no structural confirmation, the flow persistence threshold may be too low.
+
+This data directly feeds the [Weight Calibration Strategy](#18-weight-calibration-strategy).
+
+---
+
+## 18. Weight Calibration Strategy
+
+All weights and thresholds in the system are hand-tuned at initialisation. They must be
+recalibrated periodically using actual signal outcomes to remain predictive as market
+conditions evolve.
+
+### Calibration Process
+
+```
+1. Export signals from SQLite (minimum 100 completed signals per analysis)
+   SELECT * FROM spy_signals WHERE outcome != 'open'
+
+2. Compute win rate grouped by driver:
+   - win_rate_by_signal_type()
+   - win_rate_by_time_bucket()
+   - win_rate_by_regime()
+   - win_rate grouped by top_contributors (feature attribution)
+
+3. Identify underperforming factors:
+   - Any factor appearing frequently in top_contributors of LOSING trades
+   - Any signal type with win_rate < 45% over 50+ samples
+
+4. Adjust weights:
+   - Reduce component weight or dynamic adjustment magnitude for noise factors
+   - Increase weight for factors that consistently appear on winning trades
+   - Do not change Quality Gate rules based on < 30 samples
+
+5. Re-test on out-of-sample period (walk-forward):
+   - Apply new weights to signal history from the prior month
+   - Compare projected vs actual win rate to verify the change is beneficial
+
+6. Deploy with conservative sizing:
+   - Change no more than 2 weights per calibration cycle
+   - Log the before/after win rate for each changed weight
+```
+
+### Non-Negotiable Rules
+
+- **Minimum sample requirement:** No weight change without at least 100 completed
+  signals in the relevant category. Small samples produce spurious patterns.
+- **One factor at a time:** Change one weight and observe for 2–4 weeks before
+  changing another. Simultaneous changes make attribution impossible.
+- **Never loosen the Quality Gate empirically.** If a hard block seems to be
+  eliminating winners, investigate the root cause rather than removing the gate.
+- **Calibrate seasonally:** Market microstructure changes after OPEX, between
+  earnings seasons, and around macro cycles. Weights from a trending bull market
+  may not hold in a ranging or bear environment.
+
+---
+
+## 19. Example Trade Walkthrough
+
+**Scenario:** 9:52 AM ET, 0DTE CALL signal on a trending morning.
+
+### Input Conditions
+- SPY: $527.80, up +0.6% from prior close
+- ORB: High = $526.40 (broken to upside at 9:47 AM)
+- VIX: 16.2, IV Rank: 38%
+- Flow: +42 (call-side heavy sweeps since open)
+- Regime: TRENDING_UP
+- VWAP: $525.90 (price above VWAP)
+- Macro: TNX flat, DXY slightly lower (mild bullish)
+- Time bucket: OPEN
+
+### Step 1 — Base Confidence Calculation
+```
+Volume Spike   (1.8× avg)         → 0.72 × 0.20 = 0.144
+Flow Score     (+42 → 0.84)       → 0.84 × 0.18 = 0.151
+IV Rank        (38 → 0.62)        → 0.62 × 0.12 = 0.074
+Spread Quality (1.2% → 0.88)      → 0.88 × 0.10 = 0.088
+Open Interest  (high → 0.80)      → 0.80 × 0.10 = 0.080
+Delta 0.42     (in sweet spot)    → 0.90 × 0.10 = 0.090
+Sentiment      (+0.55 bullish)    → 0.70 × 0.08 = 0.056
+Regime         (TRENDING_UP ✓)   → 0.95 × 0.07 = 0.067
+Greeks         (theta reasonable) → 0.75 × 0.03 = 0.023
+External       (composite +0.60)  → 0.60 × 0.02 = 0.012
+
+base_confidence = 0.785
+```
+
+### Step 2 — Signal Adjustments (0DTE CALL, ORB breakout confirmed)
+```
+0DTE call near confirmed ORB break   → +0.04
+Regime strongly trending              → +0.03
+IV rank moderate (not stretched)      → +0.02
+                                        ──────
+signal_adjustments = +0.09 → 0.785 + 0.09 = 0.875 (capped at reasonable range)
+```
+
+### Step 3 — Dynamic Confidence (post-signal factors)
+```
+Time bucket OPEN                  → +0.02
+DTE = 0 (requires confirmation)   → −0.02  ← offset by confirmed flow
+Flow alignment strong (+42)       → +0.03
+Macro mild tailwind               → +0.01
+ORB confirmed                     → +0.02
+VWAP above (price over)           → +0.01
+No FOMC / event risk              →  0.00
+                                    ──────
+dynamic_confidence_delta = +0.07
+```
+
+### Step 4 — Priority Conflict Check
+```
+Tier-1: Flow +42 (BULLISH ✓), ORB confirmed BULLISH ✓
+→ 2 Tier-1 confirms → priority_delta = +0.05
+```
+
+### Step 5 — Quality Gate
+```
+[1] Flow opposes?      No (flow = +42, CALL signal)    ✓ PASS
+[2] 0DTE + max pain?   No (strike $529C, max pain $525) ✓ PASS
+[3] 0DTE missing conf? No (flow = 42 > 25, ORB aligned) ✓ PASS
+[4] Inside ORB?        No (ORB broken at 9:47)          ✓ PASS
+[5] Chop day?          No (range already 0.6%)          ✓ PASS
+```
+
+### Result
+```
+final_confidence = 0.785 + 0.09 + 0.07 + 0.05 = 0.995
+→ Capped / rounded: 0.84
+
+confidence_tier = "high" (≥ 0.80)
+Signal FIRES → Telegram alert sent → DB row inserted (outcome='open')
+```
+
+**Signal Text (approximate):**
+```
+🚨 SPY CALL Signal — HIGH Confidence (0.84)
+Strike: $529C | Expiry: Today (0DTE)
+SPY: $527.80 | Flow: +42 📈 | Regime: TRENDING_UP
+ORB breakout confirmed ✅ | VWAP above ✅
+⚠️ Advisory only — not a trade recommendation.
+```
+
+---
+
+## 20. Exit Strategy
+
+The manager module (`shree/spy_options/manager.py`) tracks each open signal and monitors
+6 exit triggers, checked on every poll cycle:
+
+| Trigger # | Name              | Condition                                                   |
+|-----------|-------------------|-------------------------------------------------------------|
+| 1         | `regime_flip`     | Market regime reverses direction since signal entry         |
+| 2         | `adverse_move`    | SPY moves > 0.3% against the signal direction              |
+| 3         | `vwap_reversion`  | SPY crosses VWAP from the entry side (0DTE only)           |
+| 4         | `time_stop`       | 30 min elapsed for 0DTE; 60 min for swing signals          |
+| 5         | `profit_target`   | SPY moves > 0.5% in the signal direction                   |
+| 6         | `manual`          | Operator-triggered via admin command                       |
+
+Auto-expiry is dynamic: **2 hours** for 0DTE signals, **6 hours** for swing signals.
+
+When an exit fires, the system:
+1. Records `outcome` ('win' / 'loss' / 'scratch') in SQLite
+2. Computes `pnl_pct` as the SPY move % from entry to exit, signed for direction
+3. Sends an exit Telegram alert identifying which trigger fired
+
+---
+
+## 21. Top 5 Factors That Actually Matter
+
+Based on signal structure and outcome analysis, these 5 factors have the highest
+predictive weight for signal quality:
+
+### 1. Options Flow Score
+The single strongest predictor. When large call sweeps or put sweeps print at or above
+the ask (aggressive buying), institutions are committing capital. A flow score of ±35 or
+greater in the signal direction is the clearest confirmation available. **Never fight
+strong opposing flow.**
+
+### 2. Opening Range Breakout
+A clean ORB breakout confirmed by volume gives the clearest intraday direction. The ORB
+window is the first 15 minutes of regular trading (9:30–9:45 ET). A signal that aligns
+with a confirmed ORB break has structural backing that pure statistical signals lack.
+
+### 3. Market Regime (TRENDING vs RANGING)
+Directional signals in a RANGING or VOLATILE regime have significantly lower win rates.
+The regime gate is critical — a 0.84 confidence CALL in a RANGING regime should be treated
+with more skepticism than a 0.76 CALL in TRENDING_UP.
+
+### 4. IV Rank
+Low IV rank (< 35%) means options are relatively cheap, which improves the risk/reward of
+buying directional options. Very high IV rank (> 75%) often signals mean-reversion, making
+directional long options expensive and the timing risky.
+
+### 5. Time of Day
+The OPEN bucket (9:30–10:00 ET) has the highest historical win rate for 0DTE directional
+signals. MIDDAY (11:00–13:00 ET) has moderate quality. Signals in the final 30 minutes
+before close face asymmetric risk from pinning, gamma squeezes, and thin liquidity.
+
+---
+
+## 22. Performance Tracking & Feedback Loop
+
+Every signal sent via Telegram is persisted to SQLite (`data/spy_options_signals.db` for
+live, `data/paper_spy_options_signals.db` for paper). When an exit trigger fires, the
+outcome is recorded.
+
+### Schema (key columns)
+
+```sql
+sent_at, signal_type, strike, right, expiry, dte,
+confidence, confidence_tier,
+spy_price, vix, iv_rank, volume, flow_score,
+regime, sentiment_label,
+-- 10+ external context columns --
+outcome,          -- 'open' | 'win' | 'loss' | 'scratch'
+spy_price_exit,   -- SPY price at exit
+pnl_pct,          -- SPY move % entry→exit (+ = favourable)
+exit_trigger,     -- which rule fired
+exit_at           -- UTC timestamp
+```
+
+### Performance Queries
+
 ```python
-strikes = requests.get(f"https://localhost:5001/v1/api/iserver/secdef/strikes?conid={spy_conid}&secType=OPT&month=JUN26&exchange=SMART").json()
-contract = requests.get(f"https://localhost:5001/v1/api/iserver/secdef/info?conid={spy_conid}&secType=OPT&month=JUN26&strike=450&right=C&exchange=SMART").json()
-```
-These return the SPY chain details (expiry June 2026, strike 450C, etc.)【9†L667-L676】【9†L703-L712】.
+db = AnalyticsDB()
 
-**Real-time quotes & Greeks:** Once we have an option’s `conid`, we use `/marketdata/snapshot` to get live bid/ask/last. IB requires a “pre-flight” subscription by including the desired field tags in the initial call【18†L735-L744】. For example:
-```python
-# Subscribe to fields once
-url = f"https://api.ibkr.com/v1/api/iserver/marketdata/snapshot?conids={spy_conid}&fields=31,84,85,86,88"
-requests.get(url)  # returns ["conid": ...] but starts the stream
-# Then fetch snapshot:
-resp = requests.get(f"https://api.ibkr.com/v1/api/iserver/marketdata/snapshot?conids={spy_conid}")
-print(resp.json())
-```
-The JSON response shows field 31 as last price, 84=bid, 86=ask, 85=bid size, 88=ask size, etc.【18†L782-L791】.  For example, IB’s docs show:
-```
-[
-  {
-    "31": "168.42",   // Last price
-    "84": "168.41",   // Bid
-    "85": "600",      // Bid size
-    "86": "168.42",   // Ask
-    "88": "1300",     // Ask size
-    "...": ...
-  }
-]
-```
-These numeric field codes map to standard market data: e.g. 31=LAST, 84=BID, 86=ASK【23†L698-L703】【18†L782-L791】.
+# Overall win rate
+summary = db.win_rate_summary()
+# → {'total': 142, 'wins': 91, 'losses': 38, 'scratches': 13,
+#    'win_rate_pct': 64.1, 'avg_pnl_pct': 0.183, ...}
 
-**Historical data:** The `/iserver/marketdata/history` (or beta `/hmds/history`) returns time-series bars. It accepts parameters like `period=1w`, `bar=5m`, `exchange`, etc. (These endpoints have stricter limits: e.g. max 5 concurrent calls, 1000 rows per request【16†L629-L632】.)  Note volume fields may be limited.  Alternatively, one can use the TWS API (`reqHistoricalData`) for minute bars on SPY or options for backtesting.
+# By signal type (identify underperformers)
+db.win_rate_by_signal_type()
 
-**Greeks:** IB’s REST API does not directly supply Greeks for options.  The TWS API can compute them on the fly: calling `calculateOptionPrice(...)` triggers IB’s option model and returns data via `tickOptionComputation`, which includes implied volatility, delta, gamma, vega, theta, etc.【44†L133-L142】.  For example, IB’s example shows `tickOptionComputation` with `impliedVolatility`, `delta`, and `theta` fields【44†L133-L142】.  We can either use TWS/Gateway (via `ib_insync` or native API) for streaming Greeks, or compute Black–Scholes Greeks ourselves using the option’s current mid price and volatility inputs.
+# By time bucket (find best trading windows)
+db.win_rate_by_time_bucket()
 
-<table>
-<thead>
-<tr><th>Feature</th><th>IB REST API</th><th>TWS/Gateway API</th></tr>
-</thead>
-<tbody>
-<tr><td>Option chain</td><td>/secdef/search, /strikes, /info (option details: conid, strike, right, expiry, multiplier, etc)【9†L675-L684】</td><td>reqSecDefOptParams, reqContractDetails (similar)</td></tr>
-<tr><td>Top-of-book quotes</td><td>/marketdata/snapshot (tags for bid, ask, last, size)【18†L782-L791】</td><td>reqTickers or reqMktData (streaming quotes)</td></tr>
-<tr><td>Historical bars</td><td>/marketdata/history (periodic OHLC)</td><td>reqHistoricalData</td></tr>
-<tr><td>Option Greeks</td><td>– (REST does not provide Greeks directly)</td><td>calculateOptionPrice + tickOptionComputation (returns IV, delta, gamma, theta)【44†L133-L142】</td></tr>
-<tr><td>Rate limits</td><td>10 req/s per user globally; **history** GET: max 5 concurrent【16†L586-L594】【16†L629-L632】</td><td>Depends on TWS throttle (few req/s)</td></tr>
-</tbody>
-</table>
-
-> **Table 1:** *Key IB API endpoints and data fields for retrieving SPY options (chains, quotes, historical data).* Citations: IB docs and Campus articles【9†L643-L652】【18†L782-L791】.  IB enforces rate limits (e.g. 10 req/s)【16†L586-L594】.
-
-## 2. External Data Sources
-
-To enrich signals, we ingest additional data beyond IB:
-
-- **Volume & Open Interest:** IB’s data stream shows traded volume on quotes, but not the full daily OI.   For comprehensive volume and open interest, consider:
-  - **Options Clearing Corp (OCC) / CBOE Data:** OCC publishes end-of-day OI & volume for all US equity options (via CBOE’s data shop or free OCC website).  These can be loaded daily.  If an API is needed, services like **Tiingo** or **EODHistoricalData** offer options data (for a fee).  Databento provides high-quality historical option chains (with OI) via API or files (e.g. for SPY, though paid)【48†L0-L1】.
-  - **Broker feed:** Some brokers (IB, TDA) may supply volume/OI via their APIs (though OI might be missing).
-  - **UnusualWhales (OW) / Massive / Polygon:** UnusualWhales API (and others) can provide aggregated volume/OI metrics. For example, OW’s “OI Change”, “Volume Profile” endpoints【55†L213-L222】 can be used (at $250/mo for full market data).
-  
-- **Options Flow (Unusual Options Activity):** We track unusual large orders (“sweepers”, etc). Leading services:
-  - **UnusualWhales:** Provides 100+ endpoints (flow alerts, dark pool, Greek exposure, volatility)【55†L190-L198】 via REST, WebSocket or Kafka.  For example, OW’s “Flow Alerts” or “Recent Flows” endpoints highlight big trades.  OW costs ~$50–$250/mo depending on data depth.
-  - **Cheddar Flow:** A popular flow tracker (API not public, UI-only, ~$85–99/mo).
-  - **Optionsonar, FlowAlgo, LiveVol:** Other vendors with APIs for unusual flow (often at enterprise prices).
-  - **Social sources:** FinTwit, Discord groups—manual or web-scrape (non-official).
-  
-- **Implied Volatility & Vol Metrics:** We often want index vol (VIX, SPX), or option-chain IV data.
-  - **CBOE VIX:** Publicly available (CBOE or Yahoo).
-  - **OptionMetrics/Orats:** Paid historical IV surfaces.
-  - **UnusualWhales / EOD Data:** Some provide IV rank/IV term structures (e.g. OW has “IV Rank/Term Structure” endpoints【55†L214-L222】).
-  - **In-house:** Derive IV from option mid-price using Black–Scholes, given underlying price and interest rates.
-  
-- **Sentiment (News, Social):** News and social sentiment can indicate broad market mood (important for SPY/EQ indices):
-  - **News Feeds:** Use APIs like **NewsAPI.org**, Bloomberg API, or Reuters (often paid).  NewsAPI.org is free to start and aggregates thousands of sources【51†L169-L172】.  The raw news can be processed with NLP (e.g. a BERT model or Azure/Google NLP) to extract *bullish*/*bearish* sentiment scores on SPY or “S&P 500” keywords.
-  - **Twitter (X):** Access requires API or scraping. Studies (e.g. Rossouw & Greyling) find Twitter mood predicts S&P 500 moves【53†L383-L390】.  One could track keywords like “SPY” or “market” and compute sentiment.  Caution: Twitter’s API is now restricted/paid, so alternatives (tweet scraping, third-party aggregators like TipRanks) or use sampled data.
-  - **Reddit:** Subreddits like r/stocks, r/investing, r/wallstreetbets.  APIs: **PRAW** for live data (authenticated), or **Pushshift** for historical (though now login-required as of 2023【59†L6-L14】). NLP can yield sentiment indexes (e.g. number of positive vs negative posts per minute).
-  - **News Sentiment Services:**  Tools like RavenPack or NewsAPI.ai offer sentiment scores for news headlines (often paid).
-  
-- **Economic Data / Macros:** Although not asked, some traders consider macro indicators (FRED data) as context (less directly used in SPY options signals but might be part of a broader strategy).
-  
-  | **Source Type**        | **Examples**                                      | **Data**                                     | **Access / Cost**                        |
-  |------------------------|---------------------------------------------------|----------------------------------------------|-------------------------------------------|
-  | Options Market Data    | IBKR API, TIingo, OptionMetrics, Databento, CBOE   | Live/historical quotes, OI, volume, IV       | IB API (free with account, limited), <br> Databento (paid), OptionMetrics (paid academic), <br> CBOE (paid data feed). |
-  | Options Flow Services  | UnusualWhales, CheddarFlow, OptionFlow, Optionsonar | Unusual trades, sweeps, dark pool activity   | UnusualWhales (API) from \$50–250/mo【55†L190-L198】,<br> CheddarFlow (~\$85–99/mo), others vary. |
-  | News Feeds             | NewsAPI.org, Google News, Bloomberg, Reuters      | Latest news headlines                        | NewsAPI (free tier),<br> Bloomberg/Reuters (expensive datafeeds). |
-  | Social Media/Sentiment | Twitter API, Reddit API/Pushshift, StockTwits      | Social sentiment (posts, comments)           | Twitter API (restricted/paid),<br> Pushshift (free but now OAuth)【59†L6-L14】,<br> StockTwits (free API for stock chat, limited). |
-  | NLP Sentiment Tools    | Azure/Google NLP, FinBERT, OpenAI (GPT)           | Sentiment scores on text/news               | Cloud NLP (metered),<br> OpenAI API (pay per usage). |
-  | Market Indices         | CBOE (VIX), Yahoo Finance                         | VIX, S&P 500 index price                     | Public (free). |
-
-> **Table 2:** *Recommended external data sources for options analytics and sentiment.*  We balance cost and freshness: IB data has minimal latency but may lack OI; premium APIs give deeper flow/greeks but cost \$\$\$. NewsAPI is free for development; Twitter/Reddit may require workarounds.  (Sources: IB docs【18†L782-L791】【55†L190-L198】, NewsAPI marketing【51†L169-L172】, sentiment research【53†L383-L390】.)
-
-## 3. Data Ingestion & ETL Pipeline
-
-**Architecture:** We propose a hybrid batch/stream pipeline (Figure 1).  Live data (IB quotes, option flow ticks, news tweets) flows through message queues (e.g. Kafka, RabbitMQ) into processing workers.  Batch data (historical bars, daily OI from OCC) are fetched via scheduled jobs (cron or Airflow).  All data lands in a time-series database (e.g. PostgreSQL/Timescale, InfluxDB) or data warehouse.  Downstream, a “Signal Engine” reads from the DB, applies logic, and writes signals to a **Signals** table (and publishes to Telegram).
-
-```mermaid
-flowchart LR
-    subgraph Ingestion
-        IBAPI["IBKR API (options, quotes, history)"] -->|stream/pull| ETL["ETL/Processor"];
-        NewsAPI["NewsAPI & Twitter/Reddit APIs"] -->|poll/stream| ETL;
-        FlowAPI["UnusualWhales, Cheddar, etc."] -->|webhook/API| ETL;
-    end
-    ETL --> DataDB["Database (Time-series)"];
-    DataDB --> SignalsEngine["Signal Generation Logic"];
-    SignalsEngine --> SignalsDB["Signals Table"];
-    SignalsEngine --> TelegramBot["Telegram Bot Server"];
-    TelegramBot --> TelegramUsers["Telegram Subscribers"];
+# By regime (confirm regime-filter value)
+db.win_rate_by_regime()
 ```
 
-> **Figure 1:** *Data flow and signal pipeline.* IB and external APIs feed an ETL layer that populates a database.  The Signal Engine queries this DB to generate signals, which are stored and sent via a Telegram bot to users.
+### Using the Feedback Loop
 
-**Latency & Frequency:**  
-- *Real-time data:* IB market data and flow alerts are ingested as they arrive (sub-second latency). We aim to process in near real-time (~1-second cadence) for fast signals.  
-- *Historical/batch:* OI/volume can be updated daily (after market close). News sentiment might be updated hourly or when major news breaks.
+The analytics data should inform config tuning:
 
-**ETL Details:**  
-- **Staging:** Raw JSON from each API is normalized (field mapping, type conversions) and timestamped.  
-- **Storage Schema:** A possible schema (SQL) is:  
-  ```sql
-  CREATE TABLE options_quotes (
-    conid BIGINT,
-    symbol TEXT,
-    strike DOUBLE PRECISION,
-    expiry DATE,
-    right CHAR(1),
-    bid DOUBLE PRECISION,
-    ask DOUBLE PRECISION,
-    last DOUBLE PRECISION,
-    bid_size INTEGER,
-    ask_size INTEGER,
-    implied_vol DOUBLE PRECISION,
-    delta DOUBLE PRECISION,
-    theta DOUBLE PRECISION,
-    vega DOUBLE PRECISION,
-    volume BIGINT,
-    open_interest BIGINT,
-    ts TIMESTAMP WITHOUT TIME ZONE,
-    PRIMARY KEY (conid, ts)
-  );
-  CREATE TABLE signals (
-    id SERIAL PRIMARY KEY,
-    created TIMESTAMP,
-    type TEXT,              -- e.g. "BullCallSpread", "PutSweep"
-    details JSONB,          -- e.g. {"strike": 450, "expiry": "2026-06-21", "side": "CALL", "action": "BUY"}
-    score DOUBLE PRECISION, -- confidence or indicator value
-    sent BOOLEAN DEFAULT FALSE
-  );
-  ```
-  Each ingest appends to `options_quotes` (indexed by `conid, ts`).  The `signals` table stores generated alerts (once flagged, the bot sends and sets `sent=true`).  Other tables could include `underlying_prices (ts, price)`, `sentiment_scores`, etc.
-- **ETL Tools:** We can use Python scripts (e.g. `ib_insync` or `requests` for REST) run in a persistent process or scheduled jobs.  For heavy throughput, a message queue (Kafka) can buffer tick data.  Batch ingestion (e.g. daily OI files) can use ETL frameworks or simple cron jobs.
+- If `win_rate_by_time_bucket()` shows CLOSE signals losing consistently → increase the
+  time-of-day penalty in DynamicConfidence or gate them entirely.
+- If `win_rate_by_signal_type()` shows `SENTIMENT_SPIKE` underperforming → lower the
+  weight of the sentiment component or reduce `composite_confidence_boost`.
+- If `win_rate_by_regime()` shows RANGING signals losing → add a hard regime gate in the
+  quality gate or raise `min_confidence` for non-trending regimes.
 
-## 4. Signal Generation Logic & Backtesting
+---
 
-**Approaches:** Signal generation can be rule-based or algorithmic.  Table 3 compares common strategies:
+## 23. Known Weaknesses
 
-| **Method**           | **Description**                                                         | **Pros**                             | **Cons**                              |
-|----------------------|-------------------------------------------------------------------------|--------------------------------------|---------------------------------------|
-| **Rule-based thresholds**  | E.g. “if call volume > X and OI > Y at bid, signal bull call.”   | Simple, transparent, easy to implement. Intuitive. | Rigid; may miss patterns; prone to overfitting threshold. |
-| **Statistical models**     | E.g. z-score on call/put volume ratio, volatility breakout signals.  | Captures trends, dynamic thresholds. | Requires parameter tuning; sensitive to data distribution shifts. |
-| **Machine Learning**       | Classification/regression (tree, SVM, neural nets) using features (volumes, Greeks, sentiment). | Can uncover complex patterns; adaptive if retrained. | Needs training data; risk of overfitting; harder to explain. |
-| **Time-series models**     | ARIMA, LSTM on signal/price series.                                  | Models temporal dependencies.       | Complex; requires large historical data; slower to adapt. |
+### Chop Days
+On low-volatility chop days (SPY intraday range < 0.5%), the system can generate signals
+that technically pass all thresholds but have no follow-through. The quality gate only
+blocks < 0.20% range — there is a grey zone between 0.20% and 0.50% that is weak but not
+blocked. **Mitigation:** Watch VIX level; manually suppress if VIX < 12.
 
-> **Table 3:** *Signal algorithm types.*  Rule-based triggers (e.g. “IV rank >80% AND large put sweep → bearish signal”) are easy to codify. Statistical filters (e.g. Call/Put volume z-scores) adapt to market regimes. ML models (e.g. a random forest on 20 features) can combine many signals but need training labels (past profitable trades). 
+### Fake ORB Breakouts
+Price can breach the ORB high/low, trigger a signal, and immediately reverse (a "false
+breakout"). The system requires volume confirmation, but a thin volume breakout that
+attracts stop-hunt selling can still slip through. **Mitigation:** The adverse-move exit
+trigger (0.3% move against signal) limits damage, but the initial entry point is at risk.
 
-**Example Rule:** “Generate a **Bull Call Spread** signal if SPY’s implied volatility is low (IV rank < 30%) but there is unusual **call sweep** volume on the top-of-book (e.g. 10x normal 30-day average).”  Or, “Signal a **Long Straddle** if both call and put volumes spike above 95th percentile simultaneously (indicating high uncertainty).”  
+### News / Macro Spikes
+Sudden FOMC minutes leaks, geopolitical events, or surprise data drops can instantly
+invalidate any directional signal. The economic calendar integration helps, but unexpected
+events have no gate. **Mitigation:** The event-risk factor in DynamicConfidence penalises
+signals near known events, but unknown events are undefended.
 
-**Risk Filters:** To avoid bad signals: filter out periods of very low liquidity (thin market), extremely wide spreads, or major news/drift events.  For example, skip signals if SPY volatility is in the bottom 10% (lack of movement) or if market indicators (VIX, index-level RSI) are in extreme.  
+### 0DTE Gamma Risk
+0DTE options have extremely high gamma near expiry, meaning small SPY moves cause large
+option price swings in both directions. A signal fired at 10:00 AM with a 30-minute time
+stop can see a 50–80% option loss on a 0.4% adverse SPY move before the time stop fires.
+**Mitigation:** The quality gate's 0DTE confirmation requirements are deliberately strict,
+but gamma risk remains elevated.
 
-**Backtesting:** We simulate signals on historical data to measure performance.  Ideally:
-- Use **walk-forward testing**: train/tune on one period, test on the next. 
-- Metrics: hit rate (% of signals that led to profitable move within a time window), average return per signal, maximum drawdown of simulated “followed signals”, Sharpe ratio.  Also track false positives/negatives.  
-- We would avoid lookahead: e.g. only use data that would have been available at signal time.  
-- For options signals, we test by “paper trading” the recommended trade (entry, stop-loss/take-profit), though here orders aren’t executed.
+### External Data Latency
+News sentiment, StockTwits, and macro data are polled periodically (not streaming). A
+breaking news event that shifts sentiment may not be reflected for several minutes.
+**Mitigation:** The system's news/sentiment weight is intentionally low (≤ 0.08) so stale
+external data has limited impact on firing decisions.
 
-**Performance Monitoring:** We compute statistics daily/weekly on signal success. Alerts can be “backtested P&L fell below X” to flag model drift, requiring recalibration.
+### Over-Engineering Risk
+The system has 19 DynamicConfidence factors and 10 base components. More factors do not
+automatically improve win rate. Each additional factor can introduce noise that partially
+offsets a strong primary signal. **The most reliable signals are those where Tier-1 factors
+(flow + ORB) align clearly — those require no fine-tuning from 19 secondary factors.**
 
-## 5. Telegram Delivery Design
+---
 
-**Bot Setup:**  We use the Telegram Bot API (via a bot token) to deliver messages.  No trading commands are sent—only informational alerts.  **Security:** Keep the bot token secret (e.g. in environment variables). Use HTTPS endpoints to call Telegram (no need to host a webhook if we push from server).  **Compliance:** Include disclaimers in messages (e.g. “This is not trading advice”).  Note: in many jurisdictions, recommending trades publicly can trigger licensing requirements.  We’d advise consulting legal counsel.
+## 24. External Data Sources
 
-**Message Format:** Clear, concise alerts. For example:  
+The `ExternalDataManager` (`shree/spy_options/external/composite.py`) aggregates up to 10
+external sources. Each source can be independently enabled/disabled in config:
+
+| Source              | Config Flag            | What it provides                             |
+|---------------------|------------------------|----------------------------------------------|
+| News sentiment      | `news_enabled`         | Bullish/bearish scores from news headlines   |
+| StockTwits          | `stocktwits_enabled`   | Retail sentiment from StockTwits SPY feed    |
+| Macro (TNX/DXY)     | `macro_enabled`        | Bond yield trend and dollar index direction  |
+| CBOE skew/vol       | `cboe_enabled`         | Put/call skew, term structure                |
+| Options flow        | `flow_enabled`         | Dark pool prints, GEX, intraday P/C ratio    |
+| Market breadth      | `breadth_enabled`      | NYSE advance/decline, TICK data              |
+| Sector rotation     | `sector_enabled`       | XLK, XLF, XLE vs SPY relative strength      |
+| Vol structure       | `vol_structure_enabled`| VIX term structure (contango / backwardation)|
+| OPEX calendar       | `opex_enabled`         | Options expiration proximity                 |
+| Economic calendar   | `calendar_enabled`     | Upcoming macro events (ForexFactory)         |
+
+> **Timezone note:** ForexFactory publishes event times in **US Eastern Time**, not UTC.
+> The economic calendar parser converts all times correctly using `ZoneInfo("America/New_York")`.
+
+### External Signal Priority Rule
+
 ```
-🚨 SPY Options Signal: Bull Call Spread
-Buy 430C / Sell 440C exp 6/21 @ 2.10 (ATM Call sweep, low IV).  
-Target: +50%, Stop: -30%. #SPY
-```
-Or for simple alerts:  
-```
-🚨 SPY Call Sweep Alert: 435C exp 6/21, 5000 contracts @ $1.20
-```
-Use emojis or text to highlight: 🚀, 🔔. The message should include underlying, strike, expiry, action, rationale.  
+Primary signals (price/flow/structure) are NEVER overridden by external signals.
 
-**User Segmentation:** If desired, maintain separate chat groups (e.g. `@publicSignals`, `@vipSignals`). The bot code can send different messages based on user roles or topics.  For security, only invite known subscribers.
+External sources serve two roles only:
+  1. Confirmation boost (+composite_confidence_boost when aligned)
+  2. Warning penalty  (DynamicConfidence macro/event factors when misaligned)
 
-**Throttling & Rate Limits:** Telegram’s Bot API allows ~30 messages/sec per bot, but if sending to many users/chats, beware limits. To be safe, queue messages and space them (e.g. max 20 messages/sec).  Implement exponential backoff on 429 errors.
-
-**Example Telegram Send (Python):**  
-```python
-import requests
-bot_token = "123456:ABC-DEF"  # Telegram bot token
-chat_id = "-1001234567890"    # group or channel ID
-text = "🚨 *SPY Options Alert:* Buy 435C exp 06/21 @ \$1.20 (Unusual flow) ➡️ Target +40%"
-requests.get(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-             params={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
-```
-This snippet sends a formatted Markdown message to a channel.  (No IB order API calls; simply sends text.)
-
-## 6. Monitoring, Logging, Alerting
-
-**Data Quality:** Continuously monitor data feeds.  Log missing ticks or API errors.  For example, if IB snapshots return empty or stale data, an alert should trigger (e.g. email or Slack).  Similarly, catch API errors (HTTP 429 rate-limit, 500 errors).  Store logs (via ELK stack or cloud logging) with timestamps.
-
-**System Health:** Track process uptime and latency. Use metrics (e.g. Prometheus) to measure pipeline lag: e.g. “max age of latest quote” or “time since last news fetch.” Alert if lag > threshold.
-
-**Signal Monitoring:** Maintain counters: signals generated per day, delivery failures. If many signals suddenly appear or drop to zero, send an alert.
-
-**Anomaly Alerts:** If the algorithm’s P&L (paper) deviates (excess losses) or a manual check finds issues, notify developers. Automate alerts on exceptions or performance dips.
-
-## 7. Technology Stack & Deployment
-
-- **Languages/Libraries:** Python is ideal (rich financial libs, IB support). Use **ib_insync** for TWS (Python IB API wrapper), **requests/urllib3** for REST, **pandas** for data.  For ML, use **scikit-learn** or **XGBoost**.  NLP can use **NLTK**, **spaCy**, or **Transformers (Hugging Face)** for sentiment.
-- **Data Storage:** PostgreSQL with TimescaleDB extension (or InfluxDB) for time-series.  Could also use SQLite for small scale.
-- **Workflow Orchestration:** Cron jobs or Apache Airflow for scheduling batch tasks (daily data fetch, backtests).  A long-running Python service (or Node.js) for continuous data ingestion and Telegram sending.
-- **Telegram API:** Python’s `python-telegram-bot` library, or direct `requests` as shown.
-- **Deployment:** Containerize services with Docker.  Run on a cloud VM (AWS EC2, GCP Compute Engine) or a VPS.  Use `supervisor` or `systemd` to manage processes.  If high reliability needed, Kubernetes cluster.
-- **Monitoring Stack:** Prometheus for metrics, Grafana dashboard; Sentry or CloudWatch for error alerts.
-- **Development Tools:** Git for version control. If ML models, Jupyter notebooks for prototyping, then move code to production scripts.
-  
-## 8. Legal & Regulatory Considerations
-
-- **Signal vs Advice:** Publicly broadcasting trade “signals” can be considered financial advice.  We must include disclaimers (“For informational use only; not a recommendation”).  If charging subscribers, securities laws (FINRA/SEC in US, or equivalents elsewhere) may apply.  IB warns that automated trading offerings need compliance approval【16†L521-L529】.  Our system should avoid taking any trades automatically – signals only.
-- **Data Licensing:** Using data from IB requires an account and compliance with IB’s terms.  If using external APIs (e.g. UnusualWhales, NewsAPI), comply with their licenses (e.g. OW API is paid).  Scraping Twitter/Reddit beyond API limits may violate their terms.
-- **Privacy:** We won’t handle user PII (only Telegram chat IDs).
-- **Exchange Data Fees:** For SPY options tick data, ensure market data subscriptions if needed (IB requires paying for OPRA/SIPC if streaming live quotes).
-  
-## 9. Diagrams and Code Snippets
-
-Below is a Mermaid flowchart illustrating the data pipeline and signal flow (Figure 2):
-
-```mermaid
-flowchart TD
-    subgraph Data_Ingestion
-      A[IB API: Option Chain & Market Data] --> ETL[ETL Pipeline];
-      B[External APIs (News/Twitter, Flow)] --> ETL;
-      C[Historical Data Feeds (OCC, VIX)] --> ETL;
-    end
-    ETL --> DB[(Time-Series Database)];
-    DB --> Logic[Signal Generation Logic];
-    Logic --> SignalsTable[(Signals Table)];
-    Logic --> Telegram[Telegram Bot];
-    Telegram --> Users[Telegram Subscribers];
-
-    style DB fill:#ddf,stroke:#333,stroke-width:1px
-    style Logic fill:#fdd,stroke:#333,stroke-width:1px
-    style Telegram fill:#dfd,stroke:#333,stroke-width:1px
+Sentiment signals NEVER cause a signal to fire on their own.
 ```
 
-> **Figure 2:** *Pipeline flowchart.* IB and external feeds are processed by the ETL layer into a database. The Signal Logic reads from this database, writes signals to a table, and the Telegram bot reads signals to notify users.
+---
 
-**Example IB Data Retrieval (Python):**  
-```python
-import requests
+## 25. Configuration Reference
 
-# 1. Get SPY underlying conid
-resp = requests.post(
-    "https://localhost:5001/v1/api/iserver/secdef/search?symbol=SPY&sectype=STK",
-    verify=False
-)
-spy_data = resp.json()[0]
-spy_conid = spy_data['conid']
+Key configuration knobs under `spy_options:` in `config.yaml` / `config.paper.yaml`:
 
-# 2. Subscribe to real-time quotes (bid/ask/last) via snapshot
-fields = "31,84,85,86,88"  # last, bid, bidSize, ask, askSize
-url = f"https://api.ibkr.com/v1/api/iserver/marketdata/snapshot?conids={spy_conid}&fields={fields}"
-requests.get(url, verify=False)  # Initialize stream (no data returned)
+```yaml
+spy_options:
+  ib:
+    ibkr_host: "127.0.0.1"
+    ibkr_port: 4001              # 4001=live, 4002=paper
+    ibkr_client_id: 5
+    snapshot_wait_s: 3.0
+    greeks_wait_s: 4.0
+    max_subscriptions: 60        # Hard cap on concurrent IB data subscriptions
 
-# 3. Get a snapshot
-snap = requests.get(f"https://api.ibkr.com/v1/api/iserver/marketdata/snapshot?conids={spy_conid}", verify=False)
-data = snap.json()
-print("SPY Bid:", data[0]['84'], "Ask:", data[0]['86'], "Last:", data[0]['31'])
+  signals:
+    min_confidence: 0.72         # Floor — signals below this are dropped
+    confidence_tier_high: 0.80   # "high" tier threshold
+    confidence_tier_extreme: 0.90 # "extreme" tier threshold
+
+  analytics:
+    enabled: true
+    db_path: "data/spy_options_signals.db"
+
+  external:
+    enabled: true
+    composite_confidence_boost: 0.05   # Max boost when external confirms direction
+    calendar_enabled: true
+    news_enabled: true
+    stocktwits_enabled: true
+    macro_enabled: true
+    cboe_enabled: true
+    flow_enabled: true
+    breadth_enabled: true
+    sector_enabled: true
+    vol_structure_enabled: true
+    opex_enabled: true
+
+  session:
+    market_open_et: "09:30"
+    market_close_et: "16:00"
+    no_trade_final_minutes: 30   # Stop new signals 30 min before close
+
+  telegram:
+    enabled: true
+    bot_token: "..."
+    chat_id: "..."
+
+  log_file: "logs/spy_options.log"
 ```
-This fetches SPY’s live quote. (For an option, replace `spy_conid` with the option’s `conid`.)
 
-**Example Telegram Message Send (Python):**  
-```python
-import requests
+For paper-trading, `config.paper.yaml` overrides `ibkr_port → 4002` and sets a
+separate `analytics.db_path` and `log_file` to keep paper and live data isolated.
 
-bot_token = "123456:ABC-DEF"  # Telegram bot token
-chat_id   = "@MySignalChannel"
-message   = (
-    "🔔 *SPY Options Signal: Bull Call Spread*\n"
-    "Buy 435C / Sell 440C exp 06/21 @ $2.10\n"
-    "_Reason:_ Unusual call sweep, low IV\n"
-    "🎯 Target: +40%, ⚠️ Stop: -50%\n"
-    "#SPY #Options"
-)
-requests.get(
-    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-    params={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-)
-```
-This constructs a rich alert with bold text and sends it to a Telegram channel. 
+---
 
-## 10. Conclusion
-
-By leveraging IBKR’s API and integrating rich external datasets, we can build a robust SPY options signal generator. The design above outlines the necessary endpoints (chains, quotes, history), data architecture, signal algorithms, and delivery via Telegram.  Tables summarize data sources and methods; diagrams show data flow; code snippets illustrate key steps.  Compliance and monitoring are built in. This framework can be extended to other tickers or signal types as needed. 
-
-**Sources:** Official IBKR documentation and articles【9†L643-L652】【18†L782-L791】; Unusual Whales API docs【55†L190-L198】; NewsAPI marketing【51†L169-L172】; academic study on Twitter sentiment in markets【53†L383-L390】; IB rate-limit notice【16†L586-L594】. Each data source and design choice is based on up-to-date (2024-2026) information as cited.
+*Last updated: April 2026. Source of truth for the signal engine implementation is
+`shree/spy_options/signal_engine.py` and `shree/spy_options/manager.py`.*

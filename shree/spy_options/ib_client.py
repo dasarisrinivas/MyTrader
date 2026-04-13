@@ -1,10 +1,12 @@
 """IB Gateway (ib_insync) client for SPY options market data.
 
-Connects to IB Gateway via the TWS socket API (same port as MES/Gold bots,
-port 4001 live / 4002 paper). Uses ib_insync for async market data,
-option chain lookup, Greeks, and VIX — no IB Client Portal REST API required.
+Transport: ib_insync socket connection to IB Gateway on port 4001 (live) or
+4002 (paper).  This is the same TWS API socket used by the MES and Gold bots —
+NOT the IB Client Portal REST API (which runs on port 5000 and is a separate
+product).  All network I/O goes through ib_insync's asyncio event loop.
 
-No orders are ever placed — this is a read-only feed for signal generation.
+No orders are ever placed — this is a read-only advisory feed for signal
+generation.
 """
 from __future__ import annotations
 
@@ -372,6 +374,21 @@ class IBOptionsClient:
         contracts = [self._contract_cache[c] for c in conids if c in self._contract_cache]
         if not contracts:
             return {}
+
+        # Enforce ib.max_subscriptions — IB allows ~100 concurrent data lines.
+        # Reserve 1 line for the persistent SPY streaming subscription and
+        # cap the option batch so we never exceed the configured limit.
+        # Any contracts beyond the cap are silently skipped this poll cycle;
+        # they will be included in a future cycle once subscriptions free up.
+        cap = max(1, self._cfg.max_subscriptions - 1)  # -1 for SPY ticker
+        if len(contracts) > cap:
+            logger.warning(
+                "get_snapshot_with_greeks: {} contracts requested but "
+                "max_subscriptions cap is {} (reserving 1 for SPY). "
+                "Truncating to {} contracts this cycle.",
+                len(contracts), self._cfg.max_subscriptions, cap,
+            )
+            contracts = contracts[:cap]
 
         # Subscribe to live feed (snapshot=False) with Greek tick types
         tickers: Dict[int, Any] = {}

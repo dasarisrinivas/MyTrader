@@ -78,7 +78,11 @@ class SpyOptionsManager:
 
         self._ib = IBOptionsClient(cfg.ib)
         self._tracker = VolumeTracker()
-        self._engine = SignalEngine(cfg.signals, self._tracker)
+        self._engine = SignalEngine(
+            cfg.signals,
+            self._tracker,
+            composite_confidence_boost=cfg.external.composite_confidence_boost,
+        )
 
         self._regime_detector = RegimeDetector()
         self._sentiment_engine = SentimentEngine()
@@ -89,7 +93,9 @@ class SpyOptionsManager:
         else:
             self._analytics = None
 
-        # External signals (news, social, macro, flow, economic calendar)
+        # External signals (news, social, macro, flow, economic calendar).
+        # Each sub-source can be individually disabled via its config flag so
+        # ExternalDataManager never fetches data for disabled sources.
         ext_cfg = cfg.external
         if ext_cfg.enabled:
             self._external: Optional[ExternalDataManager] = ExternalDataManager(
@@ -103,6 +109,17 @@ class SpyOptionsManager:
                 flow_ttl_minutes=ext_cfg.flow_ttl_minutes,
                 flow_barchart_enabled=ext_cfg.flow_barchart_enabled,
                 flow_dark_pool_enabled=ext_cfg.flow_dark_pool_enabled,
+                # Per-source enable flags — wired from SpyOptionsExternalConfig
+                calendar_enabled=ext_cfg.calendar_enabled,
+                news_enabled=ext_cfg.news_enabled,
+                stocktwits_enabled=ext_cfg.stocktwits_enabled,
+                macro_enabled=ext_cfg.macro_enabled,
+                cboe_enabled=ext_cfg.cboe_enabled,
+                flow_enabled=ext_cfg.flow_enabled,
+                breadth_enabled=ext_cfg.breadth_enabled,
+                sector_enabled=ext_cfg.sector_enabled,
+                vol_structure_enabled=ext_cfg.vol_structure_enabled,
+                opex_enabled=ext_cfg.opex_enabled,
             )
         else:
             self._external = None
@@ -673,16 +690,24 @@ class SpyOptionsManager:
             if self._analytics:
                 self._analytics.insert(sig)
 
-            # Track directional signals for exit monitoring
+            # Track directional signals for exit monitoring.
+            # Store entry-time context so exit triggers can compare against
+            # current conditions (VWAP reversion, time elapsed, etc).
             if sig.signal_type in {
                 SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
                 SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
                 SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT,
             }:
+                ext_ctx_now = self._external.context if self._external else None
                 self._active_signals[key] = {
                     "signal": sig,
                     "entry_price": sig.spy_price,
                     "entry_regime": sig.regime,
+                    "entry_vwap_band": (
+                        getattr(ext_ctx_now, "vwap_band_position", "INSIDE_1SD")
+                        if ext_ctx_now else "INSIDE_1SD"
+                    ),
+                    "entry_dte": getattr(sig, "dte", 1),
                     "sent_at": now,
                 }
 
@@ -716,20 +741,25 @@ class SpyOptionsManager:
     ) -> None:
         """Check active signals and send EXIT alerts when conditions reverse.
 
-        Three independent triggers (any one fires the exit):
-        1. **Price adverse ≥ 0.5%** — SPY moved against the signal direction
-        2. **Regime flip** — TREND_UP → TREND_DOWN (for bullish) or vice-versa
-        3. **Significant adverse move ≥ 1.0%** — urgent exit regardless of regime
+        Six independent triggers (any one fires the exit alert):
+          1. Price adverse ≥ 0.5%       — SPY moved against signal direction
+          2. Regime flip                 — TREND_UP ↔ TREND_DOWN
+          3. Large adverse move ≥ 1.0%  — urgent stop regardless of regime
+          4. Time stop                   — 0DTE: 30 min | swing: 60 min
+          5. Profit target hit           — +0.5% favorable SPY move (take profits)
+          6. VWAP reversion              — SPY crossed back through VWAP vs entry side
         """
         if not self._active_signals:
             return
 
+        ext_ctx = self._external.context if self._external else None
         expired_keys: List[str] = []
         now = datetime.utcnow()
-        max_age = timedelta(hours=6)  # auto-expire stale signals
 
         for key, entry in list(self._active_signals.items()):
-            # Auto-expire old signals
+            # Auto-expire: 0DTE signals expire after 2h; swing after 6h.
+            entry_dte: int = entry.get("entry_dte", 1)
+            max_age = timedelta(hours=2 if entry_dte == 0 else 6)
             if (now - entry["sent_at"]) > max_age:
                 expired_keys.append(key)
                 continue
@@ -741,6 +771,7 @@ class SpyOptionsManager:
             sig: SpySignal = entry["signal"]
             entry_price: float = entry["entry_price"]
             entry_regime: str = entry["entry_regime"]
+            entry_vwap_band: str = entry.get("entry_vwap_band", "INSIDE_1SD")
             direction = self._signal_direction(sig)
 
             if direction == "NEUTRAL":
@@ -749,7 +780,7 @@ class SpyOptionsManager:
             price_chg_pct = (spy_price - entry_price) / entry_price * 100.0
             reasons: List[str] = []
 
-            # ── Trigger 1: price adverse ≥ 0.5% ──
+            # ── Trigger 1: price adverse ≥ 0.5% ──────────────────────────
             if direction == "BULLISH" and price_chg_pct <= -0.5:
                 reasons.append(
                     f"SPY dropped {abs(price_chg_pct):.2f}% since entry "
@@ -761,14 +792,14 @@ class SpyOptionsManager:
                     f"(${entry_price:.2f} → ${spy_price:.2f})"
                 )
 
-            # ── Trigger 2: regime flip ──
+            # ── Trigger 2: regime flip ────────────────────────────────────
             cur_regime = regime_ctx.regime
             if direction == "BULLISH" and entry_regime == "TREND_UP" and cur_regime == "TREND_DOWN":
                 reasons.append(f"Regime flipped: {entry_regime} → {cur_regime}")
             elif direction == "BEARISH" and entry_regime == "TREND_DOWN" and cur_regime == "TREND_UP":
                 reasons.append(f"Regime flipped: {entry_regime} → {cur_regime}")
 
-            # ── Trigger 3: large adverse move ≥ 1.0% (urgent) ──
+            # ── Trigger 3: large adverse move ≥ 1.0% (urgent) ────────────
             if direction == "BULLISH" and price_chg_pct <= -1.0:
                 if not any("dropped" in r for r in reasons):
                     reasons.append(
@@ -782,12 +813,102 @@ class SpyOptionsManager:
                         f"(${entry_price:.2f} → ${spy_price:.2f})"
                     )
 
+            # ── Trigger 4: time stop ──────────────────────────────────────
+            # 0DTE options lose value exponentially — hard cap at 30 min.
+            # Swing setups (1+ DTE) allow 60 min before staleness forces exit.
+            minutes_held = (now - entry["sent_at"]).total_seconds() / 60.0
+            time_stop_min = 30 if entry_dte == 0 else 60
+            if minutes_held >= time_stop_min:
+                reasons.append(
+                    f"⏱ Time stop: held {minutes_held:.0f} min "
+                    f"(limit {time_stop_min} min for {'0DTE' if entry_dte == 0 else 'swing'})"
+                )
+
+            # ── Trigger 5: profit target hit (+0.5% favorable move) ───────
+            # Advisory exit — "take profits here" rather than "stop loss".
+            _PROFIT_TARGET_PCT = 0.5
+            if direction == "BULLISH" and price_chg_pct >= _PROFIT_TARGET_PCT:
+                reasons.append(
+                    f"✅ Profit target: SPY +{price_chg_pct:.2f}% since entry "
+                    f"(${entry_price:.2f} → ${spy_price:.2f}) — consider taking profits"
+                )
+            elif direction == "BEARISH" and price_chg_pct <= -_PROFIT_TARGET_PCT:
+                reasons.append(
+                    f"✅ Profit target: SPY {price_chg_pct:.2f}% since entry "
+                    f"(${entry_price:.2f} → ${spy_price:.2f}) — consider taking profits"
+                )
+
+            # ── Trigger 6: VWAP reversion ─────────────────────────────────
+            # If the signal was entered with SPY on one side of VWAP and SPY
+            # has since crossed back through, the directional thesis is
+            # weakened — the mean-reversion has already begun.
+            if ext_ctx is not None:
+                cur_vwap_band = getattr(ext_ctx, "vwap_band_position", "INSIDE_1SD")
+                _bullish_side = {"ABOVE_1SD", "ABOVE_2SD"}
+                _bearish_side = {"BELOW_1SD", "BELOW_2SD"}
+                if direction == "BULLISH" and entry_vwap_band in _bullish_side:
+                    if cur_vwap_band not in _bullish_side:
+                        reasons.append(
+                            f"🔄 VWAP reversion: SPY was {entry_vwap_band} at entry, "
+                            f"now {cur_vwap_band} — bullish thesis weakened"
+                        )
+                elif direction == "BEARISH" and entry_vwap_band in _bearish_side:
+                    if cur_vwap_band not in _bearish_side:
+                        reasons.append(
+                            f"🔄 VWAP reversion: SPY was {entry_vwap_band} at entry, "
+                            f"now {cur_vwap_band} — bearish thesis weakened"
+                        )
+
             if reasons:
                 logger.info(
                     "EXIT trigger for {}: {}", key, " | ".join(reasons),
                 )
                 await self._send_exit_alert(sig, spy_price, entry_price, reasons, regime_ctx.regime)
                 self._exit_sent.add(key)
+
+                # ── Record outcome in analytics DB ─────────────────────────
+                if self._analytics:
+                    # Determine which trigger type fired (first reason wins)
+                    first = reasons[0] if reasons else ""
+                    if "Time stop" in first:
+                        trigger_label = "time_stop"
+                    elif "Profit target" in first:
+                        trigger_label = "profit_target"
+                    elif "URGENT" in first or "dropped" in first or "rallied" in first:
+                        trigger_label = "adverse_move"
+                    elif "Regime" in first:
+                        trigger_label = "regime_flip"
+                    elif "VWAP reversion" in first:
+                        trigger_label = "vwap_reversion"
+                    else:
+                        trigger_label = "manual"
+
+                    # Classify win/loss/scratch from SPY move
+                    raw_pct = (spy_price - entry_price) / entry_price * 100.0
+                    if direction == "BULLISH":
+                        fav_pct = raw_pct
+                    elif direction == "BEARISH":
+                        fav_pct = -raw_pct
+                    else:
+                        fav_pct = 0.0
+                    if fav_pct > 0.1:
+                        outcome_label = "win"
+                    elif fav_pct < -0.1:
+                        outcome_label = "loss"
+                    else:
+                        outcome_label = "scratch"
+
+                    # Look up the analytics row id from sent_at + dedup_key
+                    db_id = self._analytics.find_signal_id(sig)
+                    if db_id is not None:
+                        self._analytics.record_outcome(
+                            signal_id=db_id,
+                            outcome=outcome_label,
+                            spy_price_exit=spy_price,
+                            exit_trigger=trigger_label,
+                            direction=direction,
+                            entry_price=entry_price,
+                        )
 
         # Clean up expired signals
         for k in expired_keys:

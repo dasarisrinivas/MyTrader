@@ -1,6 +1,12 @@
 """
 Economic calendar via Forex Factory public JSON feed.
 Caches results for the full trading day; refreshes once per day.
+
+Timezone note: Forex Factory event times are published in **US Eastern Time**
+(ET, America/New_York).  The raw JSON has no timezone indicator, so we parse
+them as naive datetimes and then attach the Eastern timezone before converting
+to UTC.  This corrects a prior bug where all times were treated as UTC, which
+shifted true event proximity by 4–5 hours depending on DST.
 """
 from __future__ import annotations
 
@@ -8,8 +14,11 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 import aiohttp
 from loguru import logger
+
+_ET = ZoneInfo("America/New_York")
 
 _FF_URL = "https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json"
 _HIGH_IMPACT = {"High"}
@@ -79,11 +88,12 @@ class EconomicCalendar:
             for item in data:
                 dt_str = item.get("date", "")
                 try:
-                    # FF uses "MMM DD, YYYY HH:MMam/pm" format
-                    event_dt = datetime.strptime(dt_str, "%b %d, %Y %I:%M%p")
-                    event_dt = event_dt.replace(
-                        tzinfo=timezone.utc
-                    )  # FF times are Eastern; treat as UTC for simplicity
+                    # FF uses "MMM DD, YYYY HH:MMam/pm" format and publishes in
+                    # US Eastern Time (ET).  Attach the ET timezone then convert
+                    # to UTC so proximity comparisons against datetime.utcnow()
+                    # are accurate regardless of DST offset (−4 EDT / −5 EST).
+                    event_dt_naive = datetime.strptime(dt_str, "%b %d, %Y %I:%M%p")
+                    event_dt = event_dt_naive.replace(tzinfo=_ET).astimezone(timezone.utc)
                 except ValueError:
                     continue
                 events.append(EconomicEvent(

@@ -1,28 +1,130 @@
 """Enhanced SPY options signal engine with weighted confidence scoring.
 
-Signal types:
+═══════════════════════════════════════════════════════════════════════════════
+ADVISORY-ONLY — NO ORDERS ARE EVER PLACED.
+═══════════════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SIGNAL TYPES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRIMARY (directional, actionable):
     CALL_SWEEP       — Large call volume spike with bullish bid pressure
     PUT_SWEEP        — Large put volume spike with bearish pressure
-    BULL_CALL_SPREAD — Low IV rank + call sweep → debit spread recommended
-    BEAR_PUT_SPREAD  — Low IV rank + put sweep  → debit spread recommended
-    LONG_STRADDLE    — Both call AND put volume spike simultaneously
-    HIGH_IV_ALERT    — Elevated VIX / high IV rank → premium selling opportunity
-    PC_RATIO_EXTREME — Chain-level put/call ratio at bullish/bearish extreme
+    BULL_CALL_SPREAD — Low IV rank + call sweep → debit spread preferred
+    BEAR_PUT_SPREAD  — Low IV rank + put sweep  → debit spread preferred
+    ORB_BREAKOUT     — Confirmed 30-min Opening Range Breakout (strongest filter)
+    LONG_STRADDLE    — Both call AND put volume spike → volatility play
 
-Confidence model (replaces simple spike scoring):
-    25% volume spike strength
-    15% bid/ask imbalance
-    10% delta quality      (ideal range: calls 0.30-0.60, puts -0.60 to -0.30)
-    10% gamma quality      (ideal: 0.005-0.08 for ATM SPY options)
-    10% theta penalty      (penalise rapid decay for short-dated longs)
-    10% IV regime alignment (low IV rank → good for debit, high → good for credit)
-    10% sentiment alignment
-     5% open interest strength
-     5% flow score         (repeat sweeps within 15 min)
+INFORMATIONAL (environment alerts, use as modifiers):
+    HIGH_IV_ALERT    — Elevated VIX / high IV rank → premium-selling environment
+                       Note: Not a directional trade — signals credit structure preference.
+    PC_RATIO_EXTREME — Chain-level P/C at extreme → secondary confirmer only.
+                       Never override primary price/flow signals with this alone.
 
-Threshold: 0.70 (was 0.55). Tiers: MEDIUM 70-79, HIGH 80-89, EXTREME 90+.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SIGNAL PRIORITY HIERARCHY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Tier 1 (highest authority — can block a signal outright):
+  • Options flow score  (aggregate_score ≥ ±30 = strong directional conviction)
+  • ORB breakout        (confirmed above/below 30-min range = momentum structure)
 
-All signals are informational only — no orders are placed.
+Tier 2 (strong modifier — can heavily adjust confidence):
+  • Market regime       (TREND_UP / TREND_DOWN / RANGE_BOUND)
+  • VWAP band position  (above/below +2σ = stretched; inside = ambiguous)
+
+Tier 3 (secondary filter — fine-tunes but cannot override Tier 1):
+  • RSI divergence
+  • Pivot proximity
+  • EDR exhaustion
+
+Rule: If 2 Tier-1 factors oppose a signal direction → confidence reduced by −15%.
+      Sentiment (StockTwits, Reddit, News) is NEVER Tier 1 — it only adjusts
+      within ±5% and cannot override price action or flow.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FINAL CONFIDENCE FORMULA (single authoritative equation)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  final_confidence = min(0.95, max(0.0,
+      base_confidence                  # 10-component weighted model (0.0–1.0)
+      + signal_specific_adjustments    # stale-decay, move-exhaustion, RSI-div,
+                                       # DTE-adj, vol-gate, macro-vel, TICK,
+                                       # price-structure, trap-detect, sentiment,
+                                       # external-composite, VWAP, regime,
+                                       # multi-factor (flow/breadth/GEX/DP/QQQ/IWM)
+      + dynamic_confidence_delta       # 19-factor DynamicConfidence adjuster
+      + priority_conflict_adjustment   # Tier-1 priority hierarchy (±0.0–0.15)
+  ))
+
+  Then quality gate (hard blocks — no confidence override):
+    • Flow opposes direction strongly (score ≤ −30 for calls, ≥ +30 for puts)
+    • 0DTE AND near max pain
+    • Directional AND inside ORB after 10:30 ET
+    • SPY intraday range < 0.20% (chop day)
+
+  Then TOD ceiling (time-of-day hard cap):
+    OPEN    0.82 | PRIME  0.95 | LUNCH 0.80 | AFTERNOON 0.88 | CLOSE 0.93
+
+  Confidence tiers (from SpyOptionsSignalConfig):
+    MEDIUM  ≥ confidence_tier_high    (default 0.70)
+    HIGH    ≥ confidence_tier_high    (default 0.70)
+    EXTREME ≥ confidence_tier_extreme (default 0.80)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BASE CONFIDENCE COMPONENTS (10 weighted factors)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    25% volume spike strength  (spike_mult vs rolling avg)
+    15% bid/ask imbalance      (directional order pressure)
+    10% delta quality          (ideal: calls 0.30–0.60, puts −0.60 to −0.30)
+    10% gamma quality          (ideal ATM range: 0.005–0.08)
+    10% theta penalty          (rapid decay hurts short-dated longs)
+    10% IV regime alignment    (low IV → debit spreads; high IV → credit spreads)
+    10% sentiment alignment    (IB order-flow sentiment score)
+     5% open interest strength (≥10k OI = full score)
+     5% flow score             (repeat sweep bonus within 15-min window)
+    ±N% external composite     (composite_confidence_boost from config, default ±5%)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHEN NOT TO TRADE (hard blocks applied before dispatch)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    • First 5 min after open (09:30–09:35 ET) — MM positioning noise
+    • High-impact economic event within ±30 min — event_risk flag active
+    • SPY in tight intraday range (< 0.20% high-to-low) — chop, no edge
+    • 0DTE near max pain — strong gamma pin risk
+    • Directional signal inside ORB after 10:30 ET — range-bound, no trend
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE TRADE WALKTHROUGH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  9:52 AM ET (OPEN bucket):
+    Volume spike: 7× rolling avg on 545C  →  vol_score = 0.30
+    Bid/ask imbalance: 4.2× threshold     →  imb_score = 0.15
+    Delta = 0.44 (ideal call range)       →  delta_score = 0.10
+    Gamma = 0.025 (in range)              →  gamma_score = 0.10
+    Theta = −0.05 (mild)                  →  theta_score = 0.10
+    IV rank = 38% (neutral)               →  iv_score = 0.062
+    Sentiment = +45 (bullish)             →  sent_score = 0.072
+    OI = 8,500                            →  oi_score = 0.043
+    Flow score = 0.62 (repeat sweeps)     →  flow_score = 0.031
+    External composite = +0.35 (bullish)  →  ext_adj   = +0.018
+    ────────────────────────────────────────
+    base_confidence                       =   0.726
+
+    Signal-specific adjustments:
+      ORB confirmed ABOVE_ORB             →  +0.03
+      VWAP: ABOVE_1SD (slight caution)    →  −0.02
+      Regime: TREND_UP                    →  +0.05
+    ────────────────────────────────────────
+    after signal adjustments              =   0.786
+
+    DynamicConfidence (OPEN bucket):
+      time_of_day (pre-10:15, confirmed)  →  +0.037
+      flow_alignment (STRONG +63)         →  +0.10
+      macro (mild tailwind)               →  +0.05
+      ORB confirmed above                 →  +0.05
+    ────────────────────────────────────────
+    final_confidence                      =   0.84 → HIGH tier → DISPATCHED ✓
+    Signal: CALL_SWEEP 545C exp APR26 confidence=84%
 """
 from __future__ import annotations
 
@@ -142,10 +244,17 @@ class SpySignal:
         return f"{self.signal_type}:{self.strike:.0f}:{self.right}"
 
 
-def _tier(confidence: float) -> str:
-    if confidence >= 0.90:
+def _tier(confidence: float, high: float = 0.80, extreme: float = 0.90) -> str:
+    """Return the confidence tier label for a given confidence score.
+
+    Thresholds default to the dataclass values (0.80 HIGH / 0.90 EXTREME) so
+    the function can still be called without a config reference.  The
+    ``SignalEngine`` instance method ``_tier_cfg`` calls this with the actual
+    config thresholds so runtime signals respect user-configured values.
+    """
+    if confidence >= extreme:
         return "EXTREME"
-    if confidence >= 0.80:
+    if confidence >= high:
         return "HIGH"
     return "MEDIUM"
 
@@ -153,10 +262,18 @@ def _tier(confidence: float) -> str:
 class SignalEngine:
     """Evaluates ChainSnapshot and emits SpySignal objects."""
 
-    def __init__(self, cfg: SpyOptionsSignalConfig, tracker: VolumeTracker) -> None:
+    def __init__(
+        self,
+        cfg: SpyOptionsSignalConfig,
+        tracker: VolumeTracker,
+        composite_confidence_boost: float = 0.05,
+    ) -> None:
         self._cfg = cfg
         self._tracker = tracker
         self._dyn = DynamicConfidence()
+        # Maximum ±adjustment from external composite score (read from config,
+        # default 0.05 matches prior hardcoded value).
+        self._composite_boost = composite_confidence_boost
         # Stale-flow decay tracking for PC_RATIO_EXTREME signals.
         # Key: direction ("BEARISH" | "BULLISH"), Value: (first_seen_mono, spy_price_at_trigger)
         self._pc_ratio_first_seen: Dict[str, Tuple[float, float]] = {}
@@ -165,6 +282,195 @@ class SignalEngine:
         self._intraday_high: Optional[float] = None
         self._intraday_low: Optional[float] = None
         self._intraday_date: Optional[str] = None
+
+    def _tier_cfg(self, confidence: float) -> str:
+        """Confidence tier using thresholds from SpyOptionsSignalConfig.
+
+        Uses ``cfg.confidence_tier_high`` and ``cfg.confidence_tier_extreme``
+        so the tier boundaries are driven by config rather than hardcoded
+        constants.  This replaces module-level ``_tier()`` for all internal
+        signal construction.
+        """
+        return _tier(
+            confidence,
+            high=self._cfg.confidence_tier_high,
+            extreme=self._cfg.confidence_tier_extreme,
+        )
+
+    # ── Quality gate (hard blocks — confidence cannot override) ───────────────
+
+    def _quality_gate(
+        self,
+        sig: "SpySignal",
+        ext: Optional["ExternalContext"],
+    ) -> Tuple[bool, List[str]]:
+        """Hard trade-quality filter applied after confidence scoring.
+
+        Returns (passes, [rejection_reasons]).  A signal that fails ANY
+        check is dropped regardless of how high its confidence is.
+
+        Checks (in priority order):
+          1. Flow strongly opposes direction (Tier-1 block)
+          2. 0DTE AND near max pain (gamma-pin risk)
+          3. 0DTE missing required ORB/flow confirmation
+          4. Directional inside ORB after 10:30 ET (range-bound)
+          5. SPY tight intraday range < 0.20% (chop day — no edge)
+        """
+        fails: List[str] = []
+        is_directional = sig.signal_type in {
+            SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
+            SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
+            SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT,
+        }
+
+        # ── 1. Flow strongly opposes direction (Tier-1 hard block) ────────
+        if ext is not None and is_directional:
+            fs = ext.flow_score  # -100..+100
+            if sig.right == "C" and fs <= -30:
+                fails.append(
+                    f"Quality gate: flow strongly BEARISH ({fs:.0f}) opposes CALL — blocked"
+                )
+            elif sig.right == "P" and fs >= 30:
+                fails.append(
+                    f"Quality gate: flow strongly BULLISH ({fs:.0f}) opposes PUT — blocked"
+                )
+
+        # ── 2. 0DTE near max pain (hard pin-risk block) ────────────────────
+        if sig.dte == 0 and ext is not None and getattr(ext, "near_max_pain", False):
+            mp = getattr(ext, "max_pain_strike", None)
+            mp_str = f"${mp:.0f}" if mp else "strike"
+            fails.append(
+                f"Quality gate: 0DTE near max pain ({mp_str}) — gamma pin risk, blocked"
+            )
+
+        # ── 3. 0DTE missing required confirmation ──────────────────────────
+        if sig.dte == 0 and is_directional and ext is not None:
+            flow_ok = abs(ext.flow_score) >= 25
+            orb_confirmed = getattr(ext, "orb_breakout_confirmed", False)
+            orb_aligned = False
+            if orb_confirmed:
+                orb_status = getattr(ext, "orb_status", "INSIDE")
+                orb_aligned = (
+                    (sig.right == "C" and orb_status == "ABOVE_ORB") or
+                    (sig.right == "P" and orb_status == "BELOW_ORB")
+                )
+            if not flow_ok and not orb_aligned:
+                fails.append(
+                    f"Quality gate: 0DTE requires flow ≥ ±25 OR confirmed aligned ORB "
+                    f"(flow={ext.flow_score:.0f}, orb={'aligned' if orb_aligned else 'not aligned'}) — blocked"
+                )
+
+        # ── 4. Directional inside ORB after 10:30 ET ──────────────────────
+        if is_directional and ext is not None:
+            _ET = ZoneInfo("America/New_York")
+            now_et = _dt.datetime.now(_ET)
+            after_orb_lock = now_et.time() >= _dt.time(10, 30)
+            orb_established = getattr(ext, "orb_established", False)
+            orb_status = getattr(ext, "orb_status", "BUILDING")
+            if after_orb_lock and orb_established and orb_status == "INSIDE":
+                fails.append(
+                    "Quality gate: price inside ORB after 10:30 ET — range-bound, directional blocked"
+                )
+
+        # ── 5. Tight intraday range < 0.20% (chop day — no directional edge) ─
+        if is_directional and self._intraday_high and self._intraday_low and self._intraday_low > 0:
+            range_pct = (self._intraday_high - self._intraday_low) / self._intraday_low * 100
+            if range_pct < 0.20:
+                fails.append(
+                    f"Quality gate: SPY intraday range only {range_pct:.2f}% "
+                    f"(${self._intraday_low:.2f}–${self._intraday_high:.2f}) — chop day, blocked"
+                )
+
+        return len(fails) == 0, fails
+
+    # ── Priority conflict check (Tier-1 / 2 / 3 hierarchy) ───────────────────
+
+    def _priority_conflict_check(
+        self,
+        sig: "SpySignal",
+        ext: Optional["ExternalContext"],
+        regime: str,
+    ) -> Tuple[float, List[str]]:
+        """Apply Tier-1/2/3 priority hierarchy and return a confidence delta.
+
+        Tier 1 (flow + ORB) has authority over all other factors.  If 2 Tier-1
+        signals oppose a trade direction the confidence is reduced heavily — the
+        signal can still survive but it must already be extremely high.
+
+        Returns (delta, [notes_for_reasoning]).
+        """
+        if ext is None:
+            return 0.0, []
+
+        direction: str
+        if sig.right == "C":
+            direction = "BULLISH"
+        elif sig.right == "P":
+            direction = "BEARISH"
+        else:
+            return 0.0, []  # straddle — no directional priority
+
+        notes: List[str] = []
+        tier1_confirms = 0
+        tier1_conflicts = 0
+
+        # ── Tier 1a: Options flow ─────────────────────────────────────────
+        fs = ext.flow_score
+        if direction == "BULLISH":
+            if fs >= 30:
+                tier1_confirms += 1
+            elif fs <= -30:
+                tier1_conflicts += 1
+                notes.append(f"Tier-1 conflict: flow BEARISH ({fs:.0f}) vs CALL")
+        else:  # BEARISH
+            if fs <= -30:
+                tier1_confirms += 1
+            elif fs >= 30:
+                tier1_conflicts += 1
+                notes.append(f"Tier-1 conflict: flow BULLISH ({fs:.0f}) vs PUT")
+
+        # ── Tier 1b: ORB breakout ─────────────────────────────────────────
+        orb_confirmed = getattr(ext, "orb_breakout_confirmed", False)
+        if orb_confirmed:
+            orb_status = getattr(ext, "orb_status", "INSIDE")
+            if direction == "BULLISH":
+                if orb_status == "ABOVE_ORB":
+                    tier1_confirms += 1
+                elif orb_status == "BELOW_ORB":
+                    tier1_conflicts += 1
+                    notes.append("Tier-1 conflict: ORB breakdown vs CALL")
+            else:
+                if orb_status == "BELOW_ORB":
+                    tier1_confirms += 1
+                elif orb_status == "ABOVE_ORB":
+                    tier1_conflicts += 1
+                    notes.append("Tier-1 conflict: ORB breakout vs PUT")
+
+        # ── Apply Tier-1 priority ruling ─────────────────────────────────
+        delta = 0.0
+        if tier1_conflicts >= 2:
+            delta = -0.15
+            notes.append("Priority ruling: 2 Tier-1 factors oppose direction → −15%")
+        elif tier1_conflicts == 1 and tier1_confirms == 0:
+            delta = -0.08
+            notes.append("Priority ruling: 1 Tier-1 factor opposes with no Tier-1 support → −8%")
+        elif tier1_confirms >= 2:
+            delta = 0.05
+            notes.append("Priority ruling: 2 Tier-1 factors confirm direction → +5%")
+        elif tier1_confirms == 1 and tier1_conflicts == 0:
+            delta = 0.02
+            notes.append("Priority ruling: 1 Tier-1 factor confirms direction → +2%")
+
+        # ── Tier 2: Regime conflict (caps, not full blocks) ───────────────
+        if tier1_conflicts == 0:  # only apply if Tier-1 already didn't penalise
+            if direction == "BULLISH" and regime == "TREND_DOWN":
+                delta -= 0.05
+                notes.append("Tier-2: regime TREND_DOWN conflicts with CALL → −5%")
+            elif direction == "BEARISH" and regime == "TREND_UP":
+                delta -= 0.05
+                notes.append("Tier-2: regime TREND_UP conflicts with PUT → −5%")
+
+        return round(delta, 4), notes
 
     def _stale_flow_decay(self, direction: str, spy_price: float) -> float:
         """Return a negative confidence adjustment if extreme P/C flow has been
@@ -430,14 +736,14 @@ class SignalEngine:
                 if directional:
                     # 30% confidence penalty within event window
                     sig.confidence = max(0.0, sig.confidence * 0.70)
-                    sig.confidence_tier = _tier(sig.confidence)
+                    sig.confidence_tier = self._tier_cfg(sig.confidence)
                     sig.reasoning.append(
                         f"⚠ Event risk: {ext.next_event_title} in {ext.event_minutes:.0f} min — confidence penalised"
                     )
                 elif sig.signal_type == SignalType.LONG_STRADDLE:
                     # Boost straddle during event window (big move expected)
                     sig.confidence = min(1.0, sig.confidence * 1.10)
-                    sig.confidence_tier = _tier(sig.confidence)
+                    sig.confidence_tier = self._tier_cfg(sig.confidence)
                     sig.reasoning.append(
                         f"📅 Event catalyst: {ext.next_event_title} in {ext.event_minutes:.0f} min — straddle boosted"
                     )
@@ -466,7 +772,7 @@ class SignalEngine:
                 regime=context.regime.regime,
             )
             sig.confidence = adj.final
-            sig.confidence_tier = _tier(adj.final)
+            sig.confidence_tier = self._tier_cfg(adj.final)
             sig.dynamic_confidence_delta = adj.delta
             sig.confidence_time_bucket = adj.time_bucket
             sig.confidence_dte_rule = adj.dte_rule
@@ -501,7 +807,45 @@ class SignalEngine:
                         f"(first 30 min — MM positioning noise)"
                     )
                     sig.confidence = _OPEN_CAP
-                    sig.confidence_tier = _tier(sig.confidence)
+                    sig.confidence_tier = self._tier_cfg(sig.confidence)
+
+        # ── Priority conflict check (Tier-1/2/3 hierarchy) ────────────────
+        # Applied AFTER dynamic confidence; this adjusts for Tier-1 conflicts
+        # (flow + ORB) that the additive-adjustment model can under-penalise.
+        ext = context.external
+        for sig in signals:
+            delta, priority_notes = self._priority_conflict_check(
+                sig, ext, context.regime.regime,
+            )
+            if delta != 0.0:
+                sig.confidence = min(0.95, max(0.0, sig.confidence + delta))
+                sig.confidence_tier = self._tier_cfg(sig.confidence)
+                for note in priority_notes:
+                    sig.reasoning.append(f"🔺 {note}")
+
+        # ── Quality gate (hard blocks — confidence cannot override) ──────
+        # Any signal that fails the quality gate is dropped here and counted
+        # separately from confidence-threshold rejections.
+        quality_passed: List[SpySignal] = []
+        quality_blocked: List[SpySignal] = []
+        for sig in signals:
+            passes, fail_reasons = self._quality_gate(sig, context.external)
+            if passes:
+                quality_passed.append(sig)
+            else:
+                quality_blocked.append(sig)
+                for reason in fail_reasons:
+                    logger.info(
+                        "Quality gate BLOCKED: {} {} {}{} conf={:.0f}% — {}",
+                        sig.signal_type.value, sig.expiry, sig.strike, sig.right,
+                        sig.confidence * 100, reason,
+                    )
+        if quality_blocked:
+            logger.info(
+                "SignalEngine {}: {} signals quality-blocked (hard rules)",
+                chain.expiry_month, len(quality_blocked),
+            )
+        signals = quality_passed
 
         filtered = [s for s in signals if s.confidence >= c.min_confidence]
         rejected = [s for s in signals if s.confidence < c.min_confidence]
@@ -633,10 +977,10 @@ class SignalEngine:
 
         base = w_vol + w_imb + w_delta + w_gamma + w_theta + w_iv + w_sent + w_oi + w_flow
 
-        # External composite adjustment (±composite_confidence_boost)
+        # External composite adjustment (±composite_confidence_boost from config)
         ext = context.external
         if ext is not None:
-            boost_cap = 0.05   # max ±5% from external
+            boost_cap = self._composite_boost   # max ±N% from external (config-driven)
             # Directional alignment: composite positive boosts calls, negative boosts puts
             if right == "C":
                 ext_adj = ext.composite_score * boost_cap
@@ -663,7 +1007,7 @@ class SignalEngine:
         sig.regime = context.regime.regime
         sig.sentiment_score = context.sentiment.score
         sig.sentiment_label = context.sentiment.label
-        sig.confidence_tier = _tier(sig.confidence)
+        sig.confidence_tier = self._tier_cfg(sig.confidence)
         # External fields
         if context.external is not None:
             ext = context.external
@@ -1050,7 +1394,7 @@ class SignalEngine:
             if atm_put:
                 self._enrich(sig, atm_put, context)
             else:
-                sig.confidence_tier = _tier(conf)
+                sig.confidence_tier = self._tier_cfg(conf)
                 sig.iv_rank = context.iv_rank
                 sig.regime = context.regime.regime
                 sig.sentiment_score = context.sentiment.score
@@ -1372,7 +1716,7 @@ class SignalEngine:
                     "Watch for short-covering vs genuine breakout."
                 ),
             )
-            sig.confidence_tier = _tier(conf)
+            sig.confidence_tier = self._tier_cfg(conf)
             sig.iv_rank = context.iv_rank
             sig.regime = context.regime.regime
             sig.sentiment_score = context.sentiment.score
@@ -1563,7 +1907,7 @@ class SignalEngine:
                     f"VWAP: ${context.regime.vwap:.2f}"
                 ),
             )
-            sig.confidence_tier = _tier(conf)
+            sig.confidence_tier = self._tier_cfg(conf)
             sig.iv_rank = context.iv_rank
             sig.regime = context.regime.regime
             sig.sentiment_score = context.sentiment.score
@@ -1732,7 +2076,7 @@ class SignalEngine:
         if atm_quote:
             self._enrich(sig, atm_quote, context)
         else:
-            sig.confidence_tier = _tier(conf)
+            sig.confidence_tier = self._tier_cfg(conf)
             sig.iv_rank = context.iv_rank
             sig.regime = context.regime.regime
             sig.sentiment_score = context.sentiment.score
@@ -1769,7 +2113,7 @@ class SignalEngine:
                 f"VWAP anchor: ${context.regime.vwap:.2f}"
             ),
         )
-        sig.confidence_tier = _tier(conf)
+        sig.confidence_tier = self._tier_cfg(conf)
         sig.iv_rank = context.iv_rank
         sig.regime = context.regime.regime
         sig.sentiment_score = context.sentiment.score

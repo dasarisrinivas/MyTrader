@@ -176,6 +176,10 @@ class ExternalDataManager:
     """
     Manages all external data sources. Call `refresh_if_stale()` once per
     poll cycle; then read `.context` for the latest ExternalContext.
+
+    Each data source can be individually disabled via the enable-flag
+    parameters. Disabled sources are never fetched and are omitted from the
+    composite score normalisation so the remaining sources share 100% weight.
     """
 
     def __init__(
@@ -190,7 +194,30 @@ class ExternalDataManager:
         flow_ttl_minutes: float = 10.0,
         flow_barchart_enabled: bool = True,
         flow_dark_pool_enabled: bool = True,
+        # Per-source enable flags (all default True to preserve prior behaviour)
+        calendar_enabled: bool = True,
+        news_enabled: bool = True,
+        stocktwits_enabled: bool = True,
+        macro_enabled: bool = True,
+        cboe_enabled: bool = True,
+        flow_enabled: bool = True,
+        breadth_enabled: bool = True,
+        sector_enabled: bool = True,
+        vol_structure_enabled: bool = True,
+        opex_enabled: bool = True,
     ):
+        # Store enable flags so refresh_if_stale can skip disabled sources
+        self._calendar_enabled = calendar_enabled
+        self._news_enabled = news_enabled
+        self._stocktwits_enabled = stocktwits_enabled
+        self._macro_enabled = macro_enabled
+        self._cboe_enabled = cboe_enabled
+        self._flow_enabled = flow_enabled
+        self._breadth_enabled = breadth_enabled
+        self._sector_enabled = sector_enabled
+        self._vol_structure_enabled = vol_structure_enabled
+        self._opex_enabled = opex_enabled
+
         self._calendar = EconomicCalendar()
         self._news = NewsFetcher(ttl_minutes=news_ttl_minutes)
         self._reddit = RedditEnhanced(
@@ -215,19 +242,32 @@ class ExternalDataManager:
         self._context = ExternalContext()
 
     async def refresh_if_stale(self) -> None:
-        await asyncio.gather(
-            self._calendar.refresh_if_stale(),
-            self._news.refresh_if_stale(),
-            self._reddit.refresh_if_stale(),
-            self._stocktwits.refresh_if_stale(),
-            self._macro.refresh_if_stale(),
-            self._cboe.refresh_if_stale(),
-            self._flow.refresh_if_stale(),
-            self._breadth.refresh_if_stale(),
-            self._sector.refresh_if_stale(),
-            self._vol_structure.refresh_if_stale(),
-            return_exceptions=True,
-        )
+        """Refresh only the enabled data sources concurrently."""
+        tasks = []
+        if self._calendar_enabled:
+            tasks.append(self._calendar.refresh_if_stale())
+        if self._news_enabled:
+            tasks.append(self._news.refresh_if_stale())
+        # Reddit uses its own enabled flag internally; still call so it can
+        # handle its own TTL/disabled state correctly.
+        tasks.append(self._reddit.refresh_if_stale())
+        if self._stocktwits_enabled:
+            tasks.append(self._stocktwits.refresh_if_stale())
+        if self._macro_enabled:
+            tasks.append(self._macro.refresh_if_stale())
+        if self._cboe_enabled:
+            tasks.append(self._cboe.refresh_if_stale())
+        if self._flow_enabled:
+            tasks.append(self._flow.refresh_if_stale())
+        if self._breadth_enabled:
+            tasks.append(self._breadth.refresh_if_stale())
+        if self._sector_enabled:
+            tasks.append(self._sector.refresh_if_stale())
+        if self._vol_structure_enabled:
+            tasks.append(self._vol_structure.refresh_if_stale())
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._context = self._build_context()
 
     def _build_context(self) -> ExternalContext:
@@ -261,25 +301,30 @@ class ExternalDataManager:
                 next_event_title = nxt.title
 
         # ── Component scores ─────────────────────────────────────────────
+        # Only include sources that are both enabled in config AND returned data.
+        # Weights are re-normalised dynamically over the available sources so
+        # that disabling a source redistributes its weight to the remaining ones.
         components: dict[str, tuple[float, float]] = {}
 
-        if news.article_count > 0:
+        if self._news_enabled and news.article_count > 0:
             components["news"] = (news.score, 0.20)
 
-        if st.available and st.message_count > 0:
+        if self._stocktwits_enabled and st.available and st.message_count > 0:
             components["stocktwits"] = (st.score, 0.15)
 
-        if macro.available:
+        if self._macro_enabled and macro.available:
             components["macro"] = (macro.spy_headwind, 0.20)
 
-        if cboe.available:
+        if self._cboe_enabled and cboe.available:
             components["cboe"] = (cboe.sentiment_bias, 0.15)
 
-        if flow.available:
+        if self._flow_enabled and flow.available:
             # flow.aggregate_score is -100..+100; normalise to -1..+1
             components["flow"] = (flow.aggregate_score / 100.0, 0.20)
 
         if reddit.available and reddit.post_count > 0:
+            # reddit_enabled is managed internally by RedditEnhanced; include
+            # only when it reports itself available.
             components["reddit"] = (reddit.score / 100.0, 0.10)
 
         # Normalise weights
@@ -290,7 +335,9 @@ class ExternalDataManager:
             composite = 0.0
 
         # ── OPEX (no refresh needed — pure date math) ─────────────────────
-        opex_state = self._opex.compute(today=date.today(), net_gex=flow.net_gex)
+        # Use live flow.net_gex when flow is enabled; fall back to 0 otherwise.
+        _net_gex = flow.net_gex if self._flow_enabled else 0.0
+        opex_state = self._opex.compute(today=date.today(), net_gex=_net_gex) if self._opex_enabled else self._opex.compute(today=date.today(), net_gex=0.0)
 
         return ExternalContext(
             composite_score=round(composite, 4),
