@@ -724,6 +724,34 @@ class SignalEngine:
             if orb_confirmed and orb_status in ("ABOVE_ORB", "BELOW_ORB"):
                 signals.extend(self._orb_breakout_signal(chain, context, c))
 
+        # ── Intraday move exhaustion — sweep signals ───────────────────────────
+        # CALL_SWEEP / PUT_SWEEP signals skip the PC_RATIO confidence pipeline,
+        # so _intraday_move_penalty was never applied to them.  Root cause of
+        # Signal 124 (Apr 15): 700C CALL_SWEEP entered at SPY 700.03 (the intraday
+        # high) after a +0.72% rally — no exhaustion check blocked it.  Apply the
+        # same penalty here, before DynamicConfidence, so exhausted moves reduce
+        # confidence below the dispatch threshold.
+        for sig in signals:
+            if sig.signal_type in {
+                SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
+                SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
+            }:
+                _ex_direction = "BULLISH" if sig.right == "C" else "BEARISH"
+                _ex_adj, _ex_note = self._intraday_move_penalty(
+                    _ex_direction, context.spy_price
+                )
+                if _ex_adj < 0:
+                    _pre_conf = sig.confidence
+                    sig.confidence = max(0.0, sig.confidence + _ex_adj)
+                    sig.confidence_tier = self._tier_cfg(sig.confidence)
+                    if _ex_note:
+                        sig.reasoning.append(f"⚠ {_ex_note}")
+                        logger.info(
+                            "Move-exhaustion penalty on {}: {} conf {:.0f}%→{:.0f}%",
+                            sig.signal_type.value, _ex_note,
+                            _pre_conf * 100, sig.confidence * 100,
+                        )
+
         # ── Event risk modifier ────────────────────────────────────────────────
         ext = context.external
         if ext is not None and ext.event_risk:
@@ -822,6 +850,69 @@ class SignalEngine:
                 sig.confidence_tier = self._tier_cfg(sig.confidence)
                 for note in priority_notes:
                     sig.reasoning.append(f"🔺 {note}")
+
+        # ── PC_RATIO_EXTREME PUT: hard block in confirmed bullish environment ───
+        # Signal 115 (Apr 15): PC_RATIO fired a PUT at 09:58 ET when SPY regime was
+        # TREND_UP and price was well above VWAP.  The priority-conflict penalty
+        # (−5% regime conflict) was insufficient to block it — SPY then rallied
+        # +4.8 pts and crushed the put.
+        #
+        # Block PC_RATIO_EXTREME PUT outright when ≥2 of these structural bullish
+        # flags are simultaneously true:
+        #   • Regime = TREND_UP
+        #   • SPY above VWAP +1SD or +2SD
+        #   • SPY above prior-day high (overnight high broken = trend up)
+        #   • Confirmed ORB breakout to the upside
+        #
+        # Requiring ≥2 flags avoids over-blocking (a single TREND_UP tag in a
+        # choppy pre-ORB environment should still allow PC_RATIO to fire).
+        ext = context.external
+        if ext is not None:
+            _vwap_pos  = getattr(ext, "vwap_band_position", "INSIDE")
+            _above_pdh = getattr(ext, "above_overnight_high", False)
+            _orb_bull  = (
+                getattr(ext, "orb_breakout_confirmed", False)
+                and getattr(ext, "orb_status", "INSIDE") == "ABOVE_ORB"
+            )
+            _regime_up = context.regime.regime == "TREND_UP"
+            _vwap_bull = _vwap_pos in ("ABOVE_1SD", "ABOVE_2SD")
+            _bull_flags = sum([_regime_up, _vwap_bull, _above_pdh, _orb_bull])
+            if _bull_flags >= 2:
+                _pc_put_blocked = [
+                    s for s in signals
+                    if s.signal_type == SignalType.PC_RATIO_EXTREME and s.right == "P"
+                ]
+                for _blk in _pc_put_blocked:
+                    signals.remove(_blk)
+                    logger.info(
+                        "PC_RATIO PUT hard-blocked: {} bullish structural flags "
+                        "(regime={}, vwap={}, above_pdh={}, orb_bull={})",
+                        _bull_flags, context.regime.regime,
+                        _vwap_pos, _above_pdh, _orb_bull,
+                    )
+
+            # ── Symmetric: block PC_RATIO CALL in confirmed bearish environment ──
+            _regime_dn = context.regime.regime == "TREND_DOWN"
+            _vwap_bear = _vwap_pos in ("BELOW_1SD", "BELOW_2SD")
+            _below_pdl = getattr(ext, "below_overnight_low", False)
+            _orb_bear  = (
+                getattr(ext, "orb_breakout_confirmed", False)
+                and getattr(ext, "orb_status", "INSIDE") == "BELOW_ORB"
+            )
+            _bear_flags = sum([_regime_dn, _vwap_bear, _below_pdl, _orb_bear])
+            if _bear_flags >= 2:
+                _pc_call_blocked = [
+                    s for s in signals
+                    if s.signal_type == SignalType.PC_RATIO_EXTREME and s.right == "C"
+                ]
+                for _blk in _pc_call_blocked:
+                    signals.remove(_blk)
+                    logger.info(
+                        "PC_RATIO CALL hard-blocked: {} bearish structural flags "
+                        "(regime={}, vwap={}, below_pdl={}, orb_bear={})",
+                        _bear_flags, context.regime.regime,
+                        _vwap_pos, _below_pdl, _orb_bear,
+                    )
 
         # ── Quality gate (hard blocks — confidence cannot override) ──────
         # Any signal that fails the quality gate is dropped here and counted

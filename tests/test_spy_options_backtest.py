@@ -687,6 +687,14 @@ class TestSignalEngineE2E:
         self.tracker = VolumeTracker()
         self.engine = SignalEngine(self.cfg, self.tracker)
         self.sweep = SweepTracker(window_minutes=15)
+        # Pre-seed intraday hi/lo so quality gate chop-day check
+        # (range < 0.20%) doesn't block all signals in tests.
+        # Centre around spy_price (562) with enough range to pass the
+        # 0.20% minimum but small enough to avoid move-exhaustion penalties.
+        import datetime as _dt
+        self.engine._intraday_date = _dt.date.today().isoformat()
+        self.engine._intraday_high = 563.2  # +0.21% from low — just above chop threshold
+        self.engine._intraday_low = 561.0   # spy_price (562) is only +0.18% from low — no penalty
 
     def _build_chain(self, calls=None, puts=None) -> ChainSnapshot:
         chain = ChainSnapshot("APR26")
