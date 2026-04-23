@@ -30,6 +30,7 @@ from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker, passes_liq
 from .external import ExternalDataManager
 from .ib_client import IBOptionsClient
 from .regime_detector import RegimeContext, RegimeDetector
+from .rules_v2.engine import EngineInputs, RulesV2Engine
 from .sentiment_engine import SentimentContext, SentimentEngine
 from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal
 from .sweep_tracker import SweepTracker
@@ -184,6 +185,20 @@ class SpyOptionsManager:
         self._vix_52w_low: Optional[float] = None
         self._vix_52w_high: Optional[float] = None
 
+        # Rules-v2 engine (regime-first, structure-based rules layer).
+        # Only instantiated when the feature flag is on; otherwise the legacy
+        # pipeline is entirely untouched. Added Apr 22 2026 after Apr 21
+        # post-mortem.
+        if cfg.rules_v2.enabled:
+            self._rules_v2: Optional[RulesV2Engine] = RulesV2Engine(cfg.rules_v2)
+            self._rules_v2.begin_session()
+            logger.info(
+                "rules_v2 ENABLED — regime classifier + continuation "
+                "+ structure throttle active"
+            )
+        else:
+            self._rules_v2 = None
+
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def stop(self) -> None:
@@ -264,6 +279,8 @@ class SpyOptionsManager:
             self._last_pc_ratio_sent = None
             self._dir_signal_times = {"C": [], "P": []}
             self._daily_signal_count = 0
+            if self._rules_v2 is not None:
+                self._rules_v2.begin_session()
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -614,10 +631,144 @@ class SpyOptionsManager:
                     )
                     all_signals = ce_puts + ce_both
 
+        # ── rules_v2 layer: regime-first filter + continuation generator ─────
+        # Feature-flagged. When disabled, all_signals flows straight through to
+        # dispatch unchanged.
+        if self._rules_v2 is not None:
+            all_signals = self._apply_rules_v2(
+                signals=all_signals,
+                bars_5m=bars_5m,
+                spy_price=spy_price,
+                vix=vix,
+                iv_rank=iv_rank,
+                orb_high=tech_levels.orb_high,
+                orb_low=tech_levels.orb_low,
+                rsi_5m=tech_levels.rsi_5m,
+                expiry=expiry_months[0] if expiry_months else "",
+            )
+
         await self._dispatch_signals(all_signals)
 
         # Check whether any previously-sent signals now warrant an EXIT alert
         await self._check_exit_conditions(spy_price, regime_ctx)
+
+    # ── rules_v2 layer ─────────────────────────────────────────────────────────
+    def _apply_rules_v2(
+        self,
+        signals: List[SpySignal],
+        bars_5m: List[Dict],
+        spy_price: float,
+        vix: Optional[float],
+        iv_rank: Optional[float],
+        orb_high: Optional[float],
+        orb_low: Optional[float],
+        rsi_5m: Optional[float],
+        expiry: str,
+    ) -> List[SpySignal]:
+        """Apply the rules_v2 filter + continuation generator.
+
+        Responsibilities:
+          1. Classify the v2 regime from bars seen so far.
+          2. Route every legacy signal through ``RulesV2Engine.filter`` —
+             drop any that get blocked by a v2 gate.
+          3. Generate any NEW TREND_CONTINUATION candidates that the legacy
+             engine does not produce, convert them to ``SpySignal`` and
+             append.
+          4. Commit each allowed entry to the v2 structure throttle so
+             subsequent signals see the updated leg state.
+
+        Called only when ``self._rules_v2`` is not None (feature flag on).
+        """
+        engine = self._rules_v2
+        assert engine is not None
+        now = datetime.now(ET)
+
+        regime = engine.classify_regime(bars_5m, spy_price)
+
+        inputs = EngineInputs(
+            bars=bars_5m,
+            spy_price=spy_price,
+            vix=vix,
+            iv_rank=iv_rank,
+            orb_high=orb_high,
+            orb_low=orb_low,
+            rsi_5m=rsi_5m,
+            vwap=regime.vwap,
+            option_quotes=None,
+            now=now,
+        )
+
+        # ── Filter legacy signals ──────────────────────────────────────────
+        kept: List[SpySignal] = []
+        for sig in signals:
+            # Skip BOTH-direction signals (straddles) — v2 is directional
+            if sig.right not in ("C", "P"):
+                kept.append(sig)
+                continue
+            decision = engine.filter(
+                signal_type=sig.signal_type.value,
+                direction=sig.right,
+                price=spy_price,
+                confidence=sig.confidence,
+                regime=regime,
+                inputs=inputs,
+            )
+            if decision.allowed:
+                kept.append(sig)
+                engine.commit(sig.right, spy_price, now=now)
+            else:
+                logger.info(
+                    "rules_v2 BLOCK {} {} @{:.2f}  rule={}  reason={}",
+                    sig.signal_type.value, sig.right, spy_price,
+                    decision.rule, decision.reason,
+                )
+
+        # ── Generate TREND_CONTINUATION candidates (not emitted by legacy) ─
+        for cand in engine.generate_additional(bars_5m, regime, spy_price, now=now):
+            decision = engine.filter(
+                signal_type="TREND_CONTINUATION",
+                direction=cand.direction,
+                price=spy_price,
+                confidence=cand.confidence,
+                regime=regime,
+                inputs=inputs,
+            )
+            if not decision.allowed:
+                logger.info(
+                    "rules_v2 CONTINUATION BLOCK {} @{:.2f}  rule={}  reason={}",
+                    cand.direction, spy_price, decision.rule, decision.reason,
+                )
+                continue
+            engine.commit(cand.direction, spy_price, now=now)
+            kept.append(
+                SpySignal(
+                    signal_type=SignalType.TREND_CONTINUATION,
+                    strike=round(cand.trigger_price),   # nearest whole $ — manager will delta-pick later
+                    expiry=expiry,
+                    right=cand.direction,
+                    confidence=cand.confidence,
+                    spy_price=spy_price,
+                    vix=vix,
+                    volume=0,
+                    volume_spike_mult=0.0,
+                    bid_size=0,
+                    ask_size=0,
+                    reasoning=list(cand.reasons) + [
+                        f"trigger={cand.trigger_price:.2f} stop={cand.stop_price:.2f}",
+                        f"regime={regime.regime} vwap={regime.vwap:.2f}",
+                    ],
+                    suggested_trade=(
+                        f"BUY {'CALL' if cand.direction == 'C' else 'PUT'} on break of "
+                        f"{cand.trigger_price:.2f} — stop {cand.stop_price:.2f}"
+                    ),
+                )
+            )
+            logger.info(
+                "rules_v2 CONTINUATION ALLOW {} @{:.2f}  trigger={:.2f} stop={:.2f}",
+                cand.direction, spy_price, cand.trigger_price, cand.stop_price,
+            )
+
+        return kept
 
     async def _dispatch_signals(self, signals: List[SpySignal]) -> None:
         dedup_td  = timedelta(minutes=self._cfg.signals.dedup_window_minutes)
@@ -662,7 +813,11 @@ class SpyOptionsManager:
             # After N signals in the same direction within a sliding window,
             # suppress further same-direction alerts to prevent signal flooding.
             # Root cause #3: 9 PUT signals in 3.5h → user overexposed.
-            if sig.right in ("C", "P"):
+            #
+            # When rules_v2 is enabled, the structure-based throttle
+            # (zone-lock + leg cap + regime flip reset) has already ruled
+            # and this cap is redundant. Skip it to avoid double-gating.
+            if self._rules_v2 is None and sig.right in ("C", "P"):
                 dir_times = self._dir_signal_times[sig.right]
                 # Prune stale entries outside the window
                 dir_times[:] = [t for t in dir_times if (now - t) < self._same_direction_window]

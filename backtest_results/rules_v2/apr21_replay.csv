@@ -1,0 +1,9 @@
+ts,kind,signal_type,direction,price,confidence,allowed,rule,reason,leg_id,regime
+2026-04-21 11:10:00-04:00,LEGACY,ORB_BREAKOUT,P,710.25,0.78,False,orb_gate,"ORB time-gate: 11:10 ET outside [09:45, 11:00) — breakout is stale; regime has moved on",-1,TRANSITION
+2026-04-21 12:35:00-04:00,CONTINUATION,TREND_CONTINUATION,P,706.75,0.82,True,pass,"pass: new zone (leg#0, 0 entries prior)",0,TREND_DOWN
+2026-04-21 14:10:00-04:00,LEGACY,PC_RATIO_EXTREME,P,704.9,0.879,False,pc_ratio,PC_RATIO suppressed in TRANSITION regime,-1,TRANSITION
+2026-04-21 14:10:00-04:00,LEGACY,ORB_BREAKOUT,P,704.9,0.82,False,orb_gate,"ORB time-gate: 14:10 ET outside [09:45, 11:00) — breakout is stale; regime has moved on",-1,TRANSITION
+2026-04-21 14:25:00-04:00,LEGACY,ORB_BREAKOUT,P,704.4,0.82,False,orb_gate,"ORB time-gate: 14:25 ET outside [09:45, 11:00) — breakout is stale; regime has moved on",-1,TRANSITION
+2026-04-21 14:35:00-04:00,LEGACY,PC_RATIO_EXTREME,P,704.1,0.87,False,pc_ratio,PC_RATIO suppressed in RANGE_BOUND regime,-1,RANGE_BOUND
+2026-04-21 14:35:00-04:00,LEGACY,ORB_BREAKOUT,P,704.1,0.78,False,orb_gate,"ORB time-gate: 14:35 ET outside [09:45, 11:00) — breakout is stale; regime has moved on",-1,RANGE_BOUND
+2026-04-21 14:35:00-04:00,LEGACY,ORB_BREAKOUT,P,704.1,0.8,False,orb_gate,"ORB time-gate: 14:35 ET outside [09:45, 11:00) — breakout is stale; regime has moved on",-1,RANGE_BOUND

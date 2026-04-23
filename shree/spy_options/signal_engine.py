@@ -148,14 +148,15 @@ from .sweep_tracker import SweepTracker
 
 
 class SignalType(str, Enum):
-    CALL_SWEEP       = "CALL_SWEEP"
-    PUT_SWEEP        = "PUT_SWEEP"
-    BULL_CALL_SPREAD = "BULL_CALL_SPREAD"
-    BEAR_PUT_SPREAD  = "BEAR_PUT_SPREAD"
-    LONG_STRADDLE    = "LONG_STRADDLE"
-    HIGH_IV_ALERT    = "HIGH_IV_ALERT"
-    PC_RATIO_EXTREME = "PC_RATIO_EXTREME"
-    ORB_BREAKOUT     = "ORB_BREAKOUT"   # Opening Range Breakout — confirmed directional move
+    CALL_SWEEP         = "CALL_SWEEP"
+    PUT_SWEEP          = "PUT_SWEEP"
+    BULL_CALL_SPREAD   = "BULL_CALL_SPREAD"
+    BEAR_PUT_SPREAD    = "BEAR_PUT_SPREAD"
+    LONG_STRADDLE      = "LONG_STRADDLE"
+    HIGH_IV_ALERT      = "HIGH_IV_ALERT"
+    PC_RATIO_EXTREME   = "PC_RATIO_EXTREME"
+    ORB_BREAKOUT       = "ORB_BREAKOUT"   # Opening Range Breakout — confirmed directional move
+    TREND_CONTINUATION = "TREND_CONTINUATION"  # Pullback-to-anchor rejection in TREND_UP/DOWN (rules_v2)
 
 
 @dataclass

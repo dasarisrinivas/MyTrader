@@ -197,4 +197,26 @@ class SpyOptionsConfig:
     analytics: SpyOptionsAnalyticsConfig = field(default_factory=SpyOptionsAnalyticsConfig)
     external: SpyOptionsExternalConfig = field(default_factory=SpyOptionsExternalConfig)
 
+    # Regime-first, structure-based rules layer (added Apr 22 2026 after Apr 21 postmortem).
+    # Defaults to enabled=False — turning this on replaces the legacy directional
+    # throttle and ORB/PC_RATIO gating with the v2 pipeline in
+    # shree/spy_options/rules_v2/.
+    rules_v2: "SpyOptionsRulesV2Config" = field(
+        default_factory=lambda: SpyOptionsRulesV2Config()
+    )
+
     log_file: str = "logs/spy_options.log"
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Rules-v2 config is defined in shree/spy_options/rules_v2/config.py.
+# This thin wrapper re-exports it under the settings tree so existing
+# YAML-loading machinery can populate it without importing from the strategy
+# module at config-load time.
+# ───────────────────────────────────────────────────────────────────────────
+try:
+    from ..spy_options.rules_v2.config import RulesV2Config as SpyOptionsRulesV2Config
+except Exception:  # pragma: no cover — config module must load even if rules_v2 missing
+    @dataclass
+    class SpyOptionsRulesV2Config:  # type: ignore[no-redef]
+        enabled: bool = False
