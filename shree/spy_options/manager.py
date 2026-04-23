@@ -852,6 +852,7 @@ class SpyOptionsManager:
                 SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
                 SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
                 SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT,
+                SignalType.TREND_CONTINUATION,
             }:
                 ext_ctx_now = self._external.context if self._external else None
                 self._active_signals[key] = {
@@ -884,8 +885,12 @@ class SpyOptionsManager:
             return "BULLISH"
         if sig.signal_type in SpyOptionsManager._BEARISH_SIGNALS:
             return "BEARISH"
-        # PC_RATIO_EXTREME and ORB_BREAKOUT: direction determined by .right field
-        if sig.signal_type in (SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT):
+        # PC_RATIO_EXTREME, ORB_BREAKOUT, and TREND_CONTINUATION: direction from .right field
+        if sig.signal_type in (
+            SignalType.PC_RATIO_EXTREME,
+            SignalType.ORB_BREAKOUT,
+            SignalType.TREND_CONTINUATION,
+        ):
             return "BEARISH" if sig.right == "P" else "BULLISH"
         return "NEUTRAL"
 

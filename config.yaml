@@ -312,17 +312,39 @@ one_minute:
   ft_atr_high_threshold: 13.0       # above → ATR-scaled (ft_ema_touch_atr_mult)
   ft_atr_extreme_threshold: 20.0    # above → ATR × 1.0
 
-  # APR 10 2026: Medium-ATR regime block
+  # APR 10 2026: Medium-ATR regime filter (3-mode APR 22 2026)
   # Backtest: Medium ATR (8-13) = -$258 vs Low ATR +$203, High ATR +$158.
   # Medium-vol chop has negative expectancy for A/B/D/E pullback and ORB signals.
-  # F (trend cont) and G (London) exempt. Set to false to disable.
+  # F (trend cont) and G (London) exempt.
+  #   ft_medium_atr_block_mode:
+  #     "block"    — null A/B/D/E in medium regime (original, preserves old behavior)
+  #     "adx_gate" — allow A/B/D/E only when ADX ≥ ft_adx_min + ft_medium_atr_adx_bump
+  #                  (stronger trends can override chop-regime edge loss — recommended
+  #                  if hard block is removing too many candidate trades)
+  #     "off"      — no medium-ATR filter (experimentation only)
+  # ft_medium_atr_block_enabled (legacy) still honored when _mode is absent:
+  #   true  ⇒ "block", false ⇒ "off".
   ft_medium_atr_block_enabled: true
+  ft_medium_atr_block_mode: "adx_gate"     # APR 22 2026: was "block" (implicit via _enabled)
+  ft_medium_atr_adx_bump: 7.0               # ADX must exceed ft_adx_min by this much in medium regime (18+7=25)
 
   # APR 10 2026: Day-of-week and time-of-day entry blocks
   # Monday: -$270 P&L, 20% WR. Entire day is negative expectancy.
   ft_monday_block_enabled: true
   # 20 UTC = 3 PM CT / 4 PM ET. Backtest: -$197, 0% WR. Set to 0 to disable.
   ft_late_afternoon_block_hour_utc: 20
+
+  # APR 22 2026: PDH proximity block — configurable.
+  # Previously hardcoded 0.25% (~18pt on ES) which vetoed every long pullback
+  # on range-bound days where price consolidated below PDH.
+  #   tight zone (block_pct):       ALWAYS blocks when close ≤ PDH and within gap%
+  #   wide  zone (rsi_block_pct):   blocks only if RSI ≥ rsi_max (overbought at resistance)
+  # Defaults lowered to 0.10% tight / 0.50% wide+RSI≥70.
+  # Set ft_pdh_proximity_block_enabled: false to disable entirely.
+  ft_pdh_proximity_block_enabled: true
+  ft_pdh_proximity_block_pct: 0.0010       # 0.10% (~7pt on ES 7000, ~1.7pt on MES 7000)
+  ft_pdh_proximity_rsi_block_pct: 0.0050   # 0.50% wider zone
+  ft_pdh_proximity_rsi_max: 70.0           # only block in wide zone when RSI ≥ this
 
   # MAR 9 2026 — T3: Proximity entry (A-prime / D-prime)
   # Fires when price nearly touches the EMA21 band but misses by ≤ gap_mult × ATR.
@@ -1342,6 +1364,12 @@ spy_options:
 
     # Max confidence adjustment from external composite (±5%)
     composite_confidence_boost: 0.05
+
+  # Rules-v2: regime-first filter + continuation signal layer.
+  # Enabled Apr 23 2026 after Apr 21 postmortem (stale ORBs + bad-regime PC_RATIOs).
+  # All sub-rules default to true once master flag is on.
+  rules_v2:
+    enabled: true
 
   # SPY Options uses its own Telegram bot (@shree_options_bot)
   # so signals go to a separate chat from MES/Gold trade alerts.

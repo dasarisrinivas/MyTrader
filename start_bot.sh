@@ -72,6 +72,11 @@ fi
 
 export SHREE_CONFIG_FILE="$CONFIG_FILE"
 
+# APR 22 2026 Fix #6: Make deploy mode explicit for the port-guardrail in run_bot.py.
+# start_bot.sh launches against LIVE IB Gateway (port 4001). If you ever need to
+# run paper mode, use start_paper_bot.sh instead (which exports DEPLOY_ENV=paper).
+export DEPLOY_ENV=${DEPLOY_ENV:-prod}
+
 # ── Economic calendar check ──────────────────────────────────────────
 # Warn if today is a high-impact release day and HIGH_IMPACT_DATES is unset.
 # Covered events (8:30 AM ET releases that whipsaw OR signals at the open):

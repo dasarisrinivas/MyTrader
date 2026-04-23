@@ -131,3 +131,9 @@ docs/_build/
 
 # Obsolete/duplicate documentation (cleaned up)
 docs/README_OLD.md
+
+# Auto-generated runtime data files
+data/or_*.json
+data/.fuse_hidden*
+rag_data/docs_dynamic/market_context_*.txt
+logs/decisions.jsonl

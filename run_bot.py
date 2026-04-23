@@ -55,7 +55,42 @@ async def main():
     
     # Load settings
     settings = load_settings(args.config)
-    
+
+    # APR 22 2026 Fix #6: Paper-vs-live startup guardrail.
+    # Prevent the "I thought I was on paper" disaster: if DEPLOY_ENV=paper, the
+    # resolved IB port MUST be 4002 (paper gateway). If DEPLOY_ENV=prod, MUST be 4001.
+    # Env var IBKR_PORT is what the runtime actually uses; fall back to config.
+    _deploy_env = (os.environ.get("DEPLOY_ENV") or "").strip().lower()
+    _env_port = os.environ.get("IBKR_PORT")
+    try:
+        _cfg_port = getattr(settings.data, "ibkr_port", None)
+    except Exception:
+        _cfg_port = None
+    try:
+        _effective_port = int(_env_port) if _env_port else (int(_cfg_port) if _cfg_port else None)
+    except (TypeError, ValueError):
+        _effective_port = None
+
+    _expected = {"paper": 4002, "prod": 4001, "live": 4001}.get(_deploy_env)
+    if _deploy_env and _expected and _effective_port and _effective_port != _expected:
+        msg = (
+            f"❌ MODE MISMATCH: DEPLOY_ENV={_deploy_env!r} expects IB port {_expected}, "
+            f"but resolved port is {_effective_port} "
+            f"(env IBKR_PORT={_env_port!r}, config {_cfg_port!r}). "
+            f"Refusing to start to prevent live-trading the wrong account."
+        )
+        logger.critical(msg)
+        raise SystemExit(msg)
+    if not _deploy_env:
+        logger.warning(
+            "⚠️  DEPLOY_ENV not set — skipping paper/live port guardrail. "
+            "Set DEPLOY_ENV=paper or DEPLOY_ENV=prod before starting."
+        )
+    else:
+        logger.info(
+            f"✅ Deploy guardrail OK: DEPLOY_ENV={_deploy_env} → IB port {_effective_port}"
+        )
+
     # Initialize manager with simulation mode
     manager = LiveTradingManager(
         settings,

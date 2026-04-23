@@ -162,7 +162,22 @@ class EsFifteenMinStrategy(BaseStrategy):
         # APR 10 2026: Medium-ATR regime block.
         # Backtest evidence: Low ATR +$203, Medium ATR (8-13) -$258, High ATR +$158.
         # Medium-vol chop has no edge for pullback/ORB signals.
-        self._medium_atr_block_enabled: bool = getattr(config, 'ft_medium_atr_block_enabled', True)
+        # APR 22 2026: Converted from binary toggle to 3-mode control.
+        #   ft_medium_atr_block_mode:
+        #     "block"    — null all A/B/D/E signals in medium-ATR (original behavior)
+        #     "adx_gate" — allow signal only if ADX ≥ (ft_adx_min + ft_medium_atr_adx_bump)
+        #                  requires a stronger trend to overcome chop-regime edge loss.
+        #     "off"      — no medium-ATR filter (pure experimentation)
+        # ft_medium_atr_block_enabled (legacy) still honored: true ⇒ block, false ⇒ off.
+        _legacy_enabled = getattr(config, 'ft_medium_atr_block_enabled', True)
+        self._medium_atr_block_enabled: bool = bool(_legacy_enabled)
+        self._medium_atr_block_mode: str = str(
+            getattr(config, 'ft_medium_atr_block_mode',
+                    "block" if _legacy_enabled else "off")
+        ).lower()
+        self._medium_atr_adx_bump: float = float(
+            getattr(config, 'ft_medium_atr_adx_bump', 7.0) or 0.0
+        )
 
         # APR 10 2026: Day-of-week + time-of-day entry blocks.
         # Monday: -$270, 20% win rate across baseline backtest.
@@ -453,6 +468,26 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._rth_end: time = time(
             getattr(config, 'rth_end_hour', 16),
             getattr(config, 'rth_end_minute', 0)
+        )
+
+        # APR 22 2026 Fix #1: PDH proximity block — configurable.
+        # Previously hardcoded 0.25% (~18pt on ES). On range-bound days where price
+        # consolidates below PDH, that filter vetoes every long pullback.
+        # Now two-stage:
+        #   - Tight zone (< ft_pdh_proximity_block_pct): always block when close ≤ PDH
+        #   - Wide  zone (< ft_pdh_proximity_rsi_block_pct): block only when RSI ≥ rsi_max
+        # Set ft_pdh_proximity_block_enabled: false to disable entirely.
+        self._pdh_proximity_block_enabled: bool = bool(
+            getattr(config, 'ft_pdh_proximity_block_enabled', True)
+        )
+        self._pdh_proximity_block_pct: float = float(
+            getattr(config, 'ft_pdh_proximity_block_pct', 0.0010) or 0.0
+        )
+        self._pdh_proximity_rsi_block_pct: float = float(
+            getattr(config, 'ft_pdh_proximity_rsi_block_pct', 0.0050) or 0.0
+        )
+        self._pdh_proximity_rsi_max: float = float(
+            getattr(config, 'ft_pdh_proximity_rsi_max', 70.0) or 70.0
         )
 
         # MAR 10 2026: Load persisted counters from previous run (same CME session)
@@ -838,23 +873,44 @@ class EsFifteenMinStrategy(BaseStrategy):
                 )
             signal_d = signal_dprox = signal_e = signal_f_short = None
 
-        # ── APR 10 2026: Medium-ATR regime block ──────────────────────────
-        # Backtest: Medium ATR (8-13) = -$258, 35% WR. Block A/B/D/E pullback
-        # and ORB signals. Proximity (A'/D') already gated to high-vol only.
-        # Trend continuation (F) and London (G) are exempt — different edge.
-        if self._medium_atr_block_enabled:
-            if self._atr_very_low <= atr < self._atr_high:
-                _blocked_med = []
-                for _name, _sig in [("A", signal_a), ("B", signal_b),
-                                     ("D", signal_d), ("E", signal_e)]:
-                    if _sig is not None:
-                        _blocked_med.append(_name)
+        # ── APR 10 2026: Medium-ATR regime filter (3-mode APR 22 2026) ────
+        # Backtest: Medium ATR (8-13) = -$258, 35% WR. Proximity (A'/D')
+        # already gated to high-vol only. Trend continuation (F) and London (G)
+        # are exempt — different edge.
+        #   mode "block"    — null A/B/D/E in medium regime (original)
+        #   mode "adx_gate" — allow only if ADX ≥ (ft_adx_min + bump). Strong trends
+        #                     can override chop-regime edge loss.
+        #   mode "off"      — no filter
+        if self._medium_atr_block_mode != "off" and self._atr_very_low <= atr < self._atr_high:
+            if self._medium_atr_block_mode == "block":
+                _blocked_med = [n for n, s in [("A", signal_a), ("B", signal_b),
+                                                ("D", signal_d), ("E", signal_e)]
+                                if s is not None]
                 if _blocked_med:
                     logger.info(
                         f"🚫 MEDIUM_ATR_BLOCK: ATR={atr:.1f} in [{self._atr_very_low:.0f}, "
                         f"{self._atr_high:.0f}) — blocking {_blocked_med}"
                     )
                     signal_a = signal_b = signal_d = signal_e = None
+            elif self._medium_atr_block_mode == "adx_gate":
+                _adx_req = self._adx_min + self._medium_atr_adx_bump
+                if adx < _adx_req:
+                    _gated = [n for n, s in [("A", signal_a), ("B", signal_b),
+                                              ("D", signal_d), ("E", signal_e)]
+                              if s is not None]
+                    if _gated:
+                        logger.info(
+                            f"🚫 MEDIUM_ATR_ADX_GATE: ATR={atr:.1f} in medium regime, "
+                            f"ADX={adx:.0f}<{_adx_req:.0f} (min+{self._medium_atr_adx_bump:.0f}) "
+                            f"— blocking {_gated}"
+                        )
+                        signal_a = signal_b = signal_d = signal_e = None
+                else:
+                    # Passed the ADX gate — allow but annotate for downstream logging
+                    logger.info(
+                        f"⚠️ MEDIUM_ATR_ADX_PASS: ATR={atr:.1f} in medium regime but "
+                        f"ADX={adx:.0f}≥{_adx_req:.0f} — allowing A/B/D/E"
+                    )
 
         # ── APR 10 2026: Monday entry block ──────────────────────────────
         # Backtest Mon P&L -$270, 20% WR. Entire day is negative expectancy.
@@ -1065,6 +1121,22 @@ class EsFifteenMinStrategy(BaseStrategy):
                     _diag_parts.append(f"G:outside_london({ct_t_diag})")
             _diag = " | ".join(_diag_parts) if _diag_parts else "unknown"
             logger.info(f"🔍 NO_SIGNAL diag: {_diag}")
+            # APR 22 2026 Fix #2: Structured shadow log for post-hoc analysis
+            self._log_shadow_decision(
+                ts=current_time, outcome="HOLD",
+                close=close, ema9=ema9, ema21=ema21, ema50=ema50,
+                atr=atr, adx=adx, rsi=rsi, macd_hist=macd_hist,
+                pdh=pdh, or_high=self._or_high, or_low=self._or_low,
+                action=None, stop_loss=None, take_profit=None,
+                reason="NO_SIGNAL", gate_diag=_diag,
+                counters={
+                    "A": self._ema21_pb_long_count, "D": self._ema21_pb_short_count,
+                    "B": self._or_break_long_count, "E": self._or_break_short_count,
+                    "F_L": self._trend_cont_long_count, "F_S": self._trend_cont_short_count,
+                    "A'": self._proximity_long_count, "D'": self._proximity_short_count,
+                    "G": self._london_fired_count,
+                },
+            )
             self._prev_close = close
             return Signal("HOLD", 0.0, {"reason": "NO_SIGNAL"})
 
@@ -1171,6 +1243,23 @@ class EsFifteenMinStrategy(BaseStrategy):
             f"macd_h={macd_hist:.2f} SL={stop_loss:.2f} TP={take_profit:.2f} "
             f"[{_session_type}] | {reason}"
         )
+        # APR 22 2026 Fix #2: Structured shadow log for post-hoc analysis
+        self._log_shadow_decision(
+            ts=current_time, outcome="SIGNAL",
+            close=close, ema9=ema9, ema21=ema21, ema50=ema50,
+            atr=atr, adx=adx, rsi=rsi, macd_hist=macd_hist,
+            pdh=(pdh if pdh is not None else 0.0),
+            or_high=self._or_high, or_low=self._or_low,
+            action=action, stop_loss=stop_loss, take_profit=take_profit,
+            reason=reason, gate_diag=_session_type,
+            counters={
+                "A": self._ema21_pb_long_count, "D": self._ema21_pb_short_count,
+                "B": self._or_break_long_count, "E": self._or_break_short_count,
+                "F_L": self._trend_cont_long_count, "F_S": self._trend_cont_short_count,
+                "A'": self._proximity_long_count, "D'": self._proximity_short_count,
+                "G": self._london_fired_count,
+            },
+        )
 
         self._prev_close = close
         return Signal(action=action, confidence=0.7, metadata=metadata)
@@ -1271,24 +1360,30 @@ class EsFifteenMinStrategy(BaseStrategy):
         if self._ema21_macd_divergence_block > 0 and macd_hist < -self._ema21_macd_divergence_block:
             return None
 
-        # 7. PDH proximity filter (MAR 17 2026)
-        # Block BUY when trading into previous day high from below and within 0.25%
-        # of that resistance ceiling. Trade 7180 (2026-03-17) entered at 6783
-        # with PDH=6784.75 (0.04% below PDH) and stopped out in 6 minutes.
+        # 7. PDH proximity filter (MAR 17 2026, refactored APR 22 2026)
+        # Block BUY when trading into previous day high from below.
+        # Tight zone (ft_pdh_proximity_block_pct, default 0.10%): always blocks.
+        # Wide  zone (ft_pdh_proximity_rsi_block_pct, default 0.50%): blocks only
+        #   if RSI ≥ ft_pdh_proximity_rsi_max (default 70) — overbought + at resistance.
         _pdh_gap_pct = (pdh - close) / close if pdh > 0 else 0.0
-        if pdh > 0 and close <= pdh and _pdh_gap_pct <= 0.0025:
-            logger.info(
-                f"🚫 PDH_PROXIMITY_BLOCK: close={close:.2f} within 0.25% of PDH={pdh:.2f} "
-                f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
-            )
-            return None
-        # APR 6 2026: Wider 0.5% zone when RSI overbought (>65) near PDH
-        if pdh > 0 and close <= pdh and _pdh_gap_pct <= 0.005 and rsi > 65:
-            logger.info(
-                f"🚫 PDH_RSI_BLOCK: close={close:.2f} within 0.5% of PDH={pdh:.2f} "
-                f"({_pdh_gap_pct * 100:.2f}% below) + RSI={rsi:.0f}>65 — blocking BUY"
-            )
-            return None
+        if self._pdh_proximity_block_enabled and pdh > 0 and close <= pdh:
+            if self._pdh_proximity_block_pct > 0 and _pdh_gap_pct <= self._pdh_proximity_block_pct:
+                logger.info(
+                    f"🚫 PDH_PROXIMITY_BLOCK: close={close:.2f} within "
+                    f"{self._pdh_proximity_block_pct * 100:.2f}% of PDH={pdh:.2f} "
+                    f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
+                )
+                return None
+            if (self._pdh_proximity_rsi_block_pct > 0
+                    and _pdh_gap_pct <= self._pdh_proximity_rsi_block_pct
+                    and rsi >= self._pdh_proximity_rsi_max):
+                logger.info(
+                    f"🚫 PDH_RSI_BLOCK: close={close:.2f} within "
+                    f"{self._pdh_proximity_rsi_block_pct * 100:.2f}% of PDH={pdh:.2f} "
+                    f"({_pdh_gap_pct * 100:.2f}% below) + RSI={rsi:.0f}"
+                    f"≥{self._pdh_proximity_rsi_max:.0f} — blocking BUY"
+                )
+                return None
 
         # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
         # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio, ticked to 0.25pt
@@ -1450,25 +1545,30 @@ class EsFifteenMinStrategy(BaseStrategy):
         if macd_hist < self._ema9_pb_macd_min:
             return None
 
-        # 9. PDH proximity filter (APR 6 2026)
-        # Block BUY when price is at or near PDH resistance. Trade on 2026-04-06
-        # entered EMA9_PB_LONG at 6652 with PDH=6654.75 (0.04% away), stopped
-        # out in 7 minutes. Mirrors the same guard in Signal A (_check_ema21_pullback).
-        if pdh > 0:
-            _pdh_gap_pct = (pdh - close) / close if close > 0 else 0.0
-            if close <= pdh and _pdh_gap_pct <= 0.0025:
-                logger.info(
-                    f"🚫 EMA9_PDH_PROXIMITY_BLOCK: close={close:.2f} within 0.25% of PDH={pdh:.2f} "
-                    f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
-                )
-                return None
-            # Wider 0.5% zone when RSI is overbought (>65) — elevated reversal risk
-            if close <= pdh and _pdh_gap_pct <= 0.005 and rsi > 65:
-                logger.info(
-                    f"🚫 EMA9_PDH_RSI_BLOCK: close={close:.2f} within 0.5% of PDH={pdh:.2f} "
-                    f"({_pdh_gap_pct * 100:.2f}% below) + RSI={rsi:.0f}>65 — blocking BUY"
-                )
-                return None
+        # 9. PDH proximity filter (APR 6 2026, refactored APR 22 2026)
+        # Uses the same configurable thresholds as Signal A. Tight zone always
+        # blocks; wide zone only blocks when RSI ≥ rsi_max.
+        if self._pdh_proximity_block_enabled and pdh > 0 and close > 0:
+            _pdh_gap_pct = (pdh - close) / close
+            if close <= pdh:
+                if (self._pdh_proximity_block_pct > 0
+                        and _pdh_gap_pct <= self._pdh_proximity_block_pct):
+                    logger.info(
+                        f"🚫 EMA9_PDH_PROXIMITY_BLOCK: close={close:.2f} within "
+                        f"{self._pdh_proximity_block_pct * 100:.2f}% of PDH={pdh:.2f} "
+                        f"({_pdh_gap_pct * 100:.2f}% below) — blocking BUY"
+                    )
+                    return None
+                if (self._pdh_proximity_rsi_block_pct > 0
+                        and _pdh_gap_pct <= self._pdh_proximity_rsi_block_pct
+                        and rsi >= self._pdh_proximity_rsi_max):
+                    logger.info(
+                        f"🚫 EMA9_PDH_RSI_BLOCK: close={close:.2f} within "
+                        f"{self._pdh_proximity_rsi_block_pct * 100:.2f}% of PDH={pdh:.2f} "
+                        f"({_pdh_gap_pct * 100:.2f}% below) + RSI={rsi:.0f}"
+                        f"≥{self._pdh_proximity_rsi_max:.0f} — blocking BUY"
+                    )
+                    return None
 
         # ---- Compute ATR-adaptive stops/targets (FEB 20 2026) ----
         # SL = min(ceiling, max(floor, ATR × mult))  — adapts to volatility
@@ -2190,6 +2290,39 @@ class EsFifteenMinStrategy(BaseStrategy):
     #  Session management
     # ------------------------------------------------------------------
     _COUNTER_FILE = Path("data/signal_counters.json")
+
+    # APR 22 2026 Fix #2: Structured shadow-decision log.
+    # Writes one JSON line per bar to logs/decisions.jsonl so every gate firing
+    # and signal intent is auditable offline. Safe to parse with jq or pandas.
+    _SHADOW_LOG_PATH: Optional[Path] = None
+
+    def _log_shadow_decision(self, **kv) -> None:
+        try:
+            if self._SHADOW_LOG_PATH is None:
+                # Lazy init — repo_root/logs/decisions.jsonl
+                repo_root = Path(__file__).resolve().parents[2]
+                path = repo_root / "logs" / "decisions.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # Bind class-level attribute so all instances share the path
+                type(self)._SHADOW_LOG_PATH = path
+            ts = kv.get("ts")
+            if hasattr(ts, "isoformat"):
+                kv["ts"] = ts.isoformat()
+            else:
+                kv["ts"] = str(ts) if ts is not None else ""
+            # Round floats to 3 decimals for compactness
+            for k, v in list(kv.items()):
+                if isinstance(v, float):
+                    kv[k] = round(v, 4)
+            kv["strategy"] = self.name
+            kv["session_date"] = (
+                self._session_date.isoformat() if self._session_date else ""
+            )
+            with self._SHADOW_LOG_PATH.open("a") as fh:
+                fh.write(json.dumps(kv, default=str) + "\n")
+        except Exception as exc:
+            # Never let logging kill the strategy
+            logger.debug(f"shadow_log write failed: {exc}")
 
     def _reset_session(self, date) -> None:
         """Reset all session state for a new trading day."""
