@@ -22,6 +22,7 @@ from datetime import datetime, time
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+from ...utils.timezone_utils import now_cst
 from . import structure as _s
 from .config import OrbGateConfig
 
@@ -42,11 +43,11 @@ def _parse_et(hhmm: str) -> time:
 def _now_et(now: Optional[datetime] = None) -> datetime:
     """Return the current time in America/New_York.
 
-    ``now`` defaults to ``datetime.now(ET)``. If a naive datetime is supplied,
+    ``now`` defaults to current CST converted to ET. If a naive datetime is supplied,
     it is interpreted as UTC and converted to ET.
     """
     if now is None:
-        return datetime.now(ET)
+        return now_cst().astimezone(ET)
     if now.tzinfo is None:
         from datetime import timezone
 

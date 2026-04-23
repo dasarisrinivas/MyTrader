@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ...utils.timezone_utils import now_cst
 
 Bar = Dict  # typed alias for clarity
 
@@ -152,13 +153,13 @@ def detect_pivots(bars: Sequence[Bar], lookback: int = 3) -> List[Pivot]:
             hi > bars[j]["high"] for j in window if j != i
         ):
             pivots.append(
-                Pivot(idx=i, ts=bars[i].get("date", datetime.utcnow()), price=hi, kind="HIGH")
+                Pivot(idx=i, ts=bars[i].get("date", now_cst()), price=hi, kind="HIGH")
             )
         if all(lo <= bars[j]["low"] for j in window if j != i) and any(
             lo < bars[j]["low"] for j in window if j != i
         ):
             pivots.append(
-                Pivot(idx=i, ts=bars[i].get("date", datetime.utcnow()), price=lo, kind="LOW")
+                Pivot(idx=i, ts=bars[i].get("date", now_cst()), price=lo, kind="LOW")
             )
     return pivots
 

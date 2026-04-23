@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
+from ...utils.timezone_utils import now_cst
 from . import structure as _s
 from .config import RegimeV2Config
 
@@ -66,7 +67,7 @@ class RegimeV2Detector:
 
     def classify(self, bars: List[dict], spy_price: float) -> RegimeV2Context:
         cfg = self._cfg
-        now = datetime.utcnow()
+        now = now_cst()
 
         if len(bars) < cfg.min_bars:
             return RegimeV2Context(

@@ -30,24 +30,25 @@ All three are intentionally small, easy to wrap with a config feature flag
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
 
 try:                                               # pragma: no cover
-    from ..utils.logger import logger
+    from ...utils.logger import logger
 except Exception:                                  # pragma: no cover
     import logging
     logger = logging.getLogger(__name__)
+from ...utils.timezone_utils import now_cst
 
 from .config import RulesV2Config
 from .continuation import ContinuationCandidate, ContinuationDetector
-from .entry_gate import EntryGate, EntryGateResult
-from .orb_gate import OrbGate, OrbGateResult
-from .pc_ratio_alignment import PcRatioAlignmentGate, PcRatioGateResult
+from .entry_gate import EntryGate
+from .orb_gate import OrbGate
+from .pc_ratio_alignment import PcRatioAlignmentGate
 from .regime import RegimeV2Context, RegimeV2Detector, TRANSITION
 from .strike_selector import StrikePick, select_strike
-from .throttle import StructureThrottle, ThrottleResult
+from .throttle import StructureThrottle
 
 
 # ─── Public result types ───────────────────────────────────────────────────
@@ -116,7 +117,7 @@ class RulesV2Engine:
                 has_lhll=False,
                 vwap_crosses_30m=0,
                 spy_vs_vwap=0.0,
-                timestamp=datetime.utcnow(),
+                timestamp=now_cst(),
                 reasons=["regime_v2 disabled"],
             )
         ctx = self._regime_det.classify(bars, spy_price)

@@ -22,14 +22,16 @@ State per session:
     anchor_pivot_price: Optional[float]
     last_regime: str
 
-All times are UTC; the caller stamps `now` (typically `datetime.utcnow()`).
+All times are timezone-aware; the caller may pass `now`, otherwise current
+Central time is used via ``now_cst()``.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 
+from ...utils.timezone_utils import now_cst
 from .config import ThrottleConfig
 from .regime import RegimeV2Context, TRANSITION, TREND_DOWN, TREND_UP
 
@@ -179,6 +181,6 @@ class StructureThrottle:
                 leg_id=self._leg_id,
                 direction=direction,
                 price=price,
-                ts=now or datetime.utcnow(),
+                ts=now or now_cst(),
             )
         )

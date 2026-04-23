@@ -25,6 +25,7 @@ from ..config.integrations import TelegramConfig
 from ..config.spy_options import SpyOptionsConfig
 from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
+from ..utils.timezone_utils import now_cst
 from .analytics_db import AnalyticsDB
 from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker, passes_liquidity
 from .external import ExternalDataManager
@@ -251,7 +252,7 @@ class SpyOptionsManager:
     # ── Session gate ──────────────────────────────────────────────────────────
 
     def _market_open(self) -> bool:
-        now = datetime.now(ET)
+        now = now_cst().astimezone(ET)
         if now.weekday() >= 5:
             return False
         if self._cfg.session.rth_only:
@@ -681,7 +682,7 @@ class SpyOptionsManager:
         """
         engine = self._rules_v2
         assert engine is not None
-        now = datetime.now(ET)
+        now = now_cst().astimezone(ET)
 
         regime = engine.classify_regime(bars_5m, spy_price)
 

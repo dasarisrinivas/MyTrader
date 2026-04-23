@@ -21,6 +21,7 @@ from datetime import datetime, time
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+from ...utils.timezone_utils import now_cst
 from . import structure as _s
 from .config import ContinuationConfig
 from .regime import RegimeV2Context, TREND_DOWN, TREND_UP
@@ -53,7 +54,7 @@ def _parse_et(hhmm: str) -> time:
 
 def _now_et(now: Optional[datetime] = None) -> datetime:
     if now is None:
-        return datetime.now(ET)
+        return now_cst().astimezone(ET)
     if now.tzinfo is None:
         from datetime import timezone
 
@@ -168,7 +169,7 @@ class ContinuationDetector:
                             f"TREND_UP pullback to {anchor_name}={anchor:.2f}, "
                             + ("rejection" if is_rej else "engulfing")
                         ],
-                        rejection_bar_ts=bar.get("date", datetime.utcnow()),
+                        rejection_bar_ts=bar.get("date", now_cst()),
                         vwap=vwap,
                         spy_price=spy_price,
                     )
@@ -191,7 +192,7 @@ class ContinuationDetector:
                             f"TREND_DOWN pullback to {anchor_name}={anchor:.2f}, "
                             + ("rejection" if is_rej else "engulfing")
                         ],
-                        rejection_bar_ts=bar.get("date", datetime.utcnow()),
+                        rejection_bar_ts=bar.get("date", now_cst()),
                         vwap=vwap,
                         spy_price=spy_price,
                     )
