@@ -92,11 +92,15 @@ CREATE TABLE IF NOT EXISTS spy_signals (
     conflict_detected        INTEGER DEFAULT 0,
     reasoning                TEXT,
     suggested_trade          TEXT,
+    -- v4: entry cost tracking (populated at insert time)
+    entry_mid                REAL,   -- (bid+ask)/2 at signal time; NULL if no quotes
+    entry_cost_1ct           REAL,   -- entry_mid * 100 (1 contract = 100 shares)
     -- v3: outcome tracking (populated via record_outcome())
     outcome                  TEXT DEFAULT 'open',   -- open | win | loss | scratch
     spy_price_exit           REAL,
     exit_at                  TEXT,
     pnl_pct                  REAL,                  -- SPY move % entry→exit (+= favourable)
+    dollar_pnl_1ct           REAL,                  -- entry_cost_1ct * pnl_pct (actual $ per contract)
     exit_trigger             TEXT,                  -- which exit rule fired
     created_at               TEXT DEFAULT (datetime('now'))
 );
@@ -138,6 +142,10 @@ _MIGRATIONS = [
     "ALTER TABLE spy_signals ADD COLUMN exit_at TEXT",
     "ALTER TABLE spy_signals ADD COLUMN pnl_pct REAL",
     "ALTER TABLE spy_signals ADD COLUMN exit_trigger TEXT",
+    # v4 entry cost tracking
+    "ALTER TABLE spy_signals ADD COLUMN entry_mid REAL",
+    "ALTER TABLE spy_signals ADD COLUMN entry_cost_1ct REAL",
+    "ALTER TABLE spy_signals ADD COLUMN dollar_pnl_1ct REAL",
 ]
 
 
@@ -169,6 +177,22 @@ class AnalyticsDB:
 
     def insert(self, sig: "SpySignal") -> None:
         """Persist a sent signal. Called synchronously after Telegram delivery."""
+        # Compute entry mid price for cost tracking
+        _bid = sig.bid or 0.0
+        _ask = sig.ask or 0.0
+        if _bid > 0 and _ask > 0:
+            _entry_mid = round((_bid + _ask) / 2, 4)
+        elif _ask > 0:
+            _entry_mid = round(_ask, 4)
+        else:
+            _entry_mid = None  # No quotes available (rules_v2 continuation signals etc.)
+        # Straddle = 1 call + 1 put → 2 legs × 100 shares each
+        if _entry_mid:
+            _legs = 2 if getattr(sig, "right", "") == "BOTH" else 1
+            _entry_cost_1ct = round(_entry_mid * _legs * 100, 2)
+        else:
+            _entry_cost_1ct = None
+
         try:
             self._conn.execute(
                 """
@@ -188,12 +212,14 @@ class AnalyticsDB:
                     flow_confirmation_score, dark_pool_bias, gex_bias, intraday_pc_ratio,
                     dynamic_confidence_delta, confidence_time_bucket,
                     confidence_dte_rule, conflict_detected,
-                    reasoning, suggested_trade
+                    reasoning, suggested_trade,
+                    entry_mid, entry_cost_1ct
                 ) VALUES (
                     ?,?,?,?,?, ?,?, ?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,
                     ?,?,?,?,?, ?,?,?, ?,
                     ?,?,?, ?,?,?,?,?, ?,?,?,?,
                     ?,?,?, ?,
+                    ?,?,
                     ?,?
                 )
                 """,
@@ -229,6 +255,7 @@ class AnalyticsDB:
                     int(getattr(sig, "conflict_detected", False)),
                     json.dumps(sig.reasoning),
                     sig.suggested_trade,
+                    _entry_mid, _entry_cost_1ct,
                 ),
             )
             self._conn.commit()
@@ -280,10 +307,22 @@ class AnalyticsDB:
                 pnl_pct = round(-raw_pct, 4)
 
         try:
+            # Fetch entry_cost_1ct so we can compute dollar P&L
+            row = self._conn.execute(
+                "SELECT entry_cost_1ct FROM spy_signals WHERE id=?", (signal_id,)
+            ).fetchone()
+            entry_cost_1ct = row[0] if row and row[0] else None
+            dollar_pnl_1ct = (
+                round(entry_cost_1ct * pnl_pct / 100.0, 2)
+                if entry_cost_1ct and pnl_pct is not None
+                else None
+            )
+
             self._conn.execute(
                 """
                 UPDATE spy_signals
-                SET outcome=?, spy_price_exit=?, exit_at=?, pnl_pct=?, exit_trigger=?
+                SET outcome=?, spy_price_exit=?, exit_at=?, pnl_pct=?,
+                    dollar_pnl_1ct=?, exit_trigger=?
                 WHERE id=?
                 """,
                 (
@@ -291,6 +330,7 @@ class AnalyticsDB:
                     spy_price_exit,
                     datetime.utcnow().isoformat(),
                     pnl_pct,
+                    dollar_pnl_1ct,
                     exit_trigger,
                     signal_id,
                 ),

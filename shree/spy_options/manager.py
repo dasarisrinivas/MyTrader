@@ -1234,6 +1234,25 @@ class SpyOptionsManager:
         if sig.spread_pct > 0:
             lines.append(f"↔ Spread: {sig.spread_pct:.1f}%")
 
+        # Contract cost estimate
+        _ask_px = sig.ask if sig.ask > 0 else 0.0
+        _bid_px = sig.bid if sig.bid > 0 else 0.0
+        if _ask_px > 0:
+            _mid = (_bid_px + _ask_px) / 2 if _bid_px > 0 else _ask_px
+            if sig.right == "BOTH":
+                # Straddle = 1 call + 1 put, each 100 shares → total 2× mid
+                _total = _mid * 2 * 100
+                lines.append(
+                    f"💲 Straddle cost (1C + 1P): <b>≈${_total:,.0f}</b>"
+                    f"<i> (mid ${_mid:.2f} × 2 legs × 100)</i>"
+                )
+            else:
+                _cost1 = _mid * 100
+                lines.append(
+                    f"💲 1 contract costs <b>≈${_cost1:,.0f}</b>"
+                    f"<i> (mid ${_mid:.2f} × 100)</i>"
+                )
+
         # Sentiment (IB-based)
         lines.append(
             f"🧭 Sentiment: <b>{sig.sentiment_score:+.0f}</b> ({sig.sentiment_label})"

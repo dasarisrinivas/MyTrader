@@ -89,6 +89,12 @@ from ..config import OneMinuteStrategyConfig
 from ..features.feature_engineer import _adx, _atr, _ema, _rsi
 from .base import BaseStrategy, Signal
 
+try:
+    from ..data.sentiment_aggregator import update_price_momentum
+    _PRICE_MOMENTUM_AVAILABLE = True
+except ImportError:
+    _PRICE_MOMENTUM_AVAILABLE = False
+
 
 @dataclass
 class FifteenMinLevels:
@@ -680,6 +686,15 @@ class EsFifteenMinStrategy(BaseStrategy):
                         f"move={_exh_move:+.1f}pts ({_exh_atr_ratio:.1f}×ATR) "
                         f"— blocking SELL signals for {self._exhaustion_cooldown_bars} bars"
                     )
+
+        # ── Price momentum sentiment (APR 27 2026) ──────────────────────────
+        # Update market-structure sentiment each bar so combined sentiment
+        # reflects actual price structure, not just social media noise.
+        if _PRICE_MOMENTUM_AVAILABLE:
+            try:
+                update_price_momentum(close, ema9, ema21, ema50, adx)
+            except Exception:
+                pass
 
         # ---- Signal A: EMA21 Pullback Long ----
         signal_a = self._check_ema21_pullback(

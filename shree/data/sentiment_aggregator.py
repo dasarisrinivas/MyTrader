@@ -845,6 +845,80 @@ def get_twitter_sentiment() -> SourceSentiment:
 _vix_cache: Dict[str, Any] = {"value": None, "timestamp": None}
 _VIX_CACHE_TTL_SECONDS = 300  # 5 minutes
 
+# ============================================================
+# PRICE MOMENTUM SENTIMENT CACHE
+# Updated every 15m bar by es_fifteen_min.generate()
+# Provides a market-structure-based vote alongside social sources
+# ============================================================
+_price_momentum_cache: Dict[str, Any] = {
+    "score": 0.0,        # -0.30 bearish / 0.0 neutral / +0.30 bullish
+    "timestamp": None,
+    "reason": "not_set",
+}
+_PRICE_MOMENTUM_TTL_SECONDS = 1200  # 2 bars — stale after missing 2 15m bars
+
+
+def update_price_momentum(
+    close: float,
+    ema9: float,
+    ema21: float,
+    ema50: float,
+    adx: float,
+) -> None:
+    """Called by es_fifteen_min.generate() each bar to update market-structure sentiment.
+
+    Rules (deliberately simple — price action speaks for itself):
+      BULLISH  (+0.30): ema21 > ema50 AND close > ema21 AND adx >= 18
+      BEARISH  (-0.30): ema21 < ema50 AND close < ema21 AND adx >= 18
+      NEUTRAL  (0.00):  Mixed/flat structure or weak ADX — no vote
+    """
+    global _price_momentum_cache
+    if ema21 > ema50 and close > ema21 and adx >= 18:
+        score = 0.30
+        reason = f"bullish_structure(c={close:.1f}>e21={ema21:.1f}>e50={ema50:.1f},ADX={adx:.0f})"
+    elif ema21 < ema50 and close < ema21 and adx >= 18:
+        score = -0.30
+        reason = f"bearish_structure(c={close:.1f}<e21={ema21:.1f}<e50={ema50:.1f},ADX={adx:.0f})"
+    else:
+        score = 0.0
+        reason = f"neutral_structure(c={close:.1f},e21={ema21:.1f},e50={ema50:.1f},ADX={adx:.0f})"
+    _price_momentum_cache["score"] = score
+    _price_momentum_cache["timestamp"] = datetime.now(timezone.utc)
+    _price_momentum_cache["reason"] = reason
+    logger.debug(f"📐 Price momentum sentiment updated: {score:+.2f} [{reason}]")
+
+
+def get_price_momentum_sentiment() -> "SourceSentiment":
+    """Return the most recent price-structure sentiment score.
+
+    Returns SourceSentiment with score=0.0 (neutral) if cache is stale or not set.
+    """
+    cached = _price_momentum_cache
+    if cached["timestamp"] is None:
+        return SourceSentiment(
+            source=SentimentSource.COMBINED,  # reuse COMBINED as placeholder
+            score=0.0,
+            confidence=0.0,
+            sample_count=0,
+            error="price_momentum_not_set",
+        )
+    age = (datetime.now(timezone.utc) - cached["timestamp"]).total_seconds()
+    if age > _PRICE_MOMENTUM_TTL_SECONDS:
+        return SourceSentiment(
+            source=SentimentSource.COMBINED,
+            score=0.0,
+            confidence=0.0,
+            sample_count=0,
+            error=f"price_momentum_stale({age:.0f}s)",
+        )
+    return SourceSentiment(
+        source=SentimentSource.COMBINED,
+        score=cached["score"],
+        confidence=0.9,   # high confidence — deterministic from price
+        sample_count=1,
+        metadata={"reason": cached["reason"]},
+    )
+
 # VX Futures Feed integration (real-time IBKR data)
 try:
     from .vx_futures_feed import get_vx_feed
@@ -1250,10 +1324,21 @@ def get_combined_mes_sentiment(force_refresh: bool = False) -> CombinedSentiment
     social_score = _compute_weighted_sentiment(stocktwits, reddit, twitter)
     
     # Blend with VIX sentiment if available (VIX is more reliable than social)
-    # Weight: 60% social, 40% VIX (if VIX is valid)
-    if vix_sentiment.is_valid():
-        combined_score = (social_score * 0.6) + (vix_sentiment.score * 0.4)
+    # Weight: social 50%, VIX 25%, price momentum 25%
+    # Price momentum is deterministic (EMA stack + ADX) — votes with market structure
+    momentum_sentiment = get_price_momentum_sentiment()
+    has_vix = vix_sentiment.is_valid()
+    has_momentum = momentum_sentiment.is_valid()
+
+    if has_vix and has_momentum:
+        combined_score = (social_score * 0.50) + (vix_sentiment.score * 0.25) + (momentum_sentiment.score * 0.25)
+        logger.info(f"   Blended: social={social_score:+.2f}×50% + vix={vix_sentiment.score:+.2f}×25% + momentum={momentum_sentiment.score:+.2f}×25% → {combined_score:+.2f}")
+    elif has_vix:
+        combined_score = (social_score * 0.60) + (vix_sentiment.score * 0.40)
         logger.info(f"   Blended with VIX: social={social_score:+.2f}, vix={vix_sentiment.score:+.2f} -> {combined_score:+.2f}")
+    elif has_momentum:
+        combined_score = (social_score * 0.65) + (momentum_sentiment.score * 0.35)
+        logger.info(f"   Blended with momentum: social={social_score:+.2f}, momentum={momentum_sentiment.score:+.2f} -> {combined_score:+.2f}")
     else:
         combined_score = social_score
     
@@ -1275,6 +1360,7 @@ def get_combined_mes_sentiment(force_refresh: bool = False) -> CombinedSentiment
     logger.info(f"   Reddit:     {reddit.score:+.2f} ({reddit.sample_count} samples)")
     logger.info(f"   Twitter:    {twitter.score:+.2f} ({twitter.sample_count} samples)")
     logger.info(f"   VIX:        {vix_sentiment.score:+.2f} (market-based)")
+    logger.info(f"   Momentum:   {momentum_sentiment.score:+.2f} ({_price_momentum_cache.get('reason','not_set')})")
     logger.info(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"   COMBINED:   {combined_score:+.2f}")
     logger.info("=" * 50)
@@ -1753,6 +1839,8 @@ __all__ = [
     "get_reddit_sentiment",
     "get_twitter_sentiment",
     "get_vix_sentiment",  # JAN 9 2026 - Market-based sentiment
+    "update_price_momentum",   # APR 27 2026 - Price structure sentiment source
+    "get_price_momentum_sentiment",
     "get_fear_greed_sentiment",  # JAN 9 2026 - CNN Fear & Greed
     "set_vix_value",  # JAN 9 2026 - Set VIX from IBKR
     # Combined sentiment
