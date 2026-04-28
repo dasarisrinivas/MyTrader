@@ -43,6 +43,7 @@ except Exception:                                  # pragma: no cover
 from .config import RulesV2Config
 from .continuation import ContinuationCandidate, ContinuationDetector
 from .entry_gate import EntryGate, EntryGateResult
+from .expected_move_gate import ExpectedMoveGate, ExpectedMoveGateResult
 from .orb_gate import OrbGate, OrbGateResult
 from .pc_ratio_alignment import PcRatioAlignmentGate, PcRatioGateResult
 from .regime import RegimeV2Context, RegimeV2Detector, TRANSITION
@@ -59,7 +60,7 @@ class FilterDecision:
 
     allowed: bool
     reason: str
-    rule: str                  # "orb_gate" | "pc_ratio" | "entry_gate" | "throttle" | "time_of_day" | "pass"
+    rule: str                  # "orb_gate" | "pc_ratio" | "entry_gate" | "expected_move_gate" | "throttle" | "time_of_day" | "pass"
     leg_id: int = -1
     augmented_strike: Optional[StrikePick] = None
 
@@ -90,6 +91,7 @@ class RulesV2Engine:
         self._orb_gate = OrbGate(self._cfg.orb_gate)
         self._pc_gate = PcRatioAlignmentGate(self._cfg.pc_ratio_alignment)
         self._entry_gate = EntryGate(self._cfg.entry_gate)
+        self._em_gate = ExpectedMoveGate(self._cfg.expected_move_gate)
         self._continuation = ContinuationDetector(self._cfg.continuation)
         self._throttle = StructureThrottle(self._cfg.throttle)
         self._last_regime: Optional[RegimeV2Context] = None
@@ -147,11 +149,19 @@ class RulesV2Engine:
         confidence: float,
         regime: RegimeV2Context,
         inputs: EngineInputs,
+        leg_mid: Optional[float] = None,
+        leg_iv: Optional[float] = None,
+        dte: Optional[int] = None,
     ) -> FilterDecision:
         """Decide whether this candidate may be dispatched.
 
         Order matters: cheap checks first (time-of-day, ORB window),
-        then alignment, entry quality, throttle.
+        then alignment, entry quality, expected-move, throttle.
+
+        ``leg_mid``, ``leg_iv``, ``dte`` are optional and only used by the
+        expected-move gate. Callers without per-leg pricing (e.g. the
+        TREND_CONTINUATION path) may omit them — the EM gate skips when
+        any of these is missing.
         """
         cfg = self._cfg
 
@@ -198,6 +208,23 @@ class RulesV2Engine:
             if not eg.allowed:
                 return FilterDecision(
                     allowed=False, reason=eg.reason, rule="entry_gate"
+                )
+
+        # ── Expected-move gate ─────────────────────────────────────────
+        # Reject when IV-implied EM does not justify the leg's debit.
+        # Skips when leg_iv/leg_mid/dte are missing (continuation path,
+        # legacy callers) so it is safely additive.
+        if cfg.expected_move_gate_enabled and direction in ("C", "P"):
+            em = self._em_gate.check(
+                spy_price=price,
+                leg_iv=leg_iv,
+                leg_mid=leg_mid,
+                dte=dte if dte is not None else 0,
+                direction=direction,
+            )
+            if not em.allowed:
+                return FilterDecision(
+                    allowed=False, reason=em.reason, rule="expected_move_gate"
                 )
 
         # ── Structure-based throttle (last, stateful) ───────────────────

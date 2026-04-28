@@ -1370,6 +1370,7 @@ spy_options:
   # All sub-rules default to true once master flag is on.
   rules_v2:
     enabled: true
+    expected_move_gate_enabled: true   # APR 28 2026: soak on live — skip-on-missing-data safe
 
   # SPY Options uses its own Telegram bot (@shree_options_bot)
   # so signals go to a separate chat from MES/Gold trade alerts.

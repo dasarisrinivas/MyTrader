@@ -218,6 +218,21 @@ class StrikeSelectorConfig:
 
 
 @dataclass
+class ExpectedMoveGateConfig:
+    """Reject debit signals where IV-implied expected move does not
+    justify the leg's own debit.
+
+    EM = spy_price * leg_iv * sqrt(max(dte,1) / 365)
+    Reject if EM < leg_mid * em_multiplier.
+
+    Default multiplier 1.2 = 20% cushion above breakeven. Conservative;
+    tune downward if block rate is too aggressive.
+    """
+
+    em_multiplier: float = 1.2
+
+
+@dataclass
 class TimeOfDayConfig:
     """Session-phase behaviour toggles (all ET)."""
 
@@ -250,6 +265,9 @@ class RulesV2Config:
     exit_rules_enabled: bool = True
     strike_selector_enabled: bool = True
     time_of_day_enabled: bool = True
+    # NEW: expected-move gate. Off by default — flip on in config.yaml after
+    # paper-soak validates block rate is in the expected 5–15% band.
+    expected_move_gate_enabled: bool = False
 
     regime: RegimeV2Config = field(default_factory=RegimeV2Config)
     orb_gate: OrbGateConfig = field(default_factory=OrbGateConfig)
@@ -260,3 +278,6 @@ class RulesV2Config:
     exit_rules: ExitRulesConfig = field(default_factory=ExitRulesConfig)
     strike_selector: StrikeSelectorConfig = field(default_factory=StrikeSelectorConfig)
     time_of_day: TimeOfDayConfig = field(default_factory=TimeOfDayConfig)
+    expected_move_gate: ExpectedMoveGateConfig = field(
+        default_factory=ExpectedMoveGateConfig
+    )

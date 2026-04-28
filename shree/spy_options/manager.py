@@ -705,6 +705,16 @@ class SpyOptionsManager:
             if sig.right not in ("C", "P"):
                 kept.append(sig)
                 continue
+            # Per-leg pricing for the expected-move gate.
+            # bid/ask are populated by signal_engine when greeks resolve;
+            # impl_vol comes from IB greeks. Either may be 0/None when the
+            # quote was missing — pass None and let the EM gate skip cleanly.
+            _leg_mid = (
+                ((sig.bid + sig.ask) / 2.0)
+                if (sig.bid and sig.ask and sig.bid > 0 and sig.ask > 0)
+                else None
+            )
+            _leg_iv = sig.impl_vol if (sig.impl_vol and sig.impl_vol > 0) else None
             decision = engine.filter(
                 signal_type=sig.signal_type.value,
                 direction=sig.right,
@@ -712,6 +722,9 @@ class SpyOptionsManager:
                 confidence=sig.confidence,
                 regime=regime,
                 inputs=inputs,
+                leg_mid=_leg_mid,
+                leg_iv=_leg_iv,
+                dte=sig.dte,
             )
             if decision.allowed:
                 kept.append(sig)
