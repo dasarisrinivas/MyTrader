@@ -1240,11 +1240,11 @@ class SpyOptionsManager:
         if _ask_px > 0:
             _mid = (_bid_px + _ask_px) / 2 if _bid_px > 0 else _ask_px
             if sig.right == "BOTH":
-                # Straddle = 1 call + 1 put, each 100 shares → total 2× mid
-                _total = _mid * 2 * 100
+                # bid/ask already = call+put combined premium; × 100 shares = total cost
+                _total = _mid * 100
                 lines.append(
                     f"💲 Straddle cost (1C + 1P): <b>≈${_total:,.0f}</b>"
-                    f"<i> (mid ${_mid:.2f} × 2 legs × 100)</i>"
+                    f"<i> (combined mid ${_mid:.2f} × 100 shares)</i>"
                 )
             else:
                 _cost1 = _mid * 100
