@@ -1980,12 +1980,26 @@ class SignalEngine:
             # Straddle confidence: sentiment neutral is good (direction-agnostic)
             neutrality = 1.0 - abs(context.sentiment.score) / 100.0
             conf = min(0.78 + neutrality * 0.10, 0.90)
+            # Look up ATM call + put quotes to compute combined straddle mid/bid/ask
+            _atm_call = next((q for q in chain.calls if q.strike == atm), None)
+            _atm_put  = next((q for q in chain.puts  if q.strike == atm), None)
+            _straddle_bid = (
+                (_atm_call.bid + _atm_put.bid)
+                if _atm_call and _atm_put and _atm_call.bid > 0 and _atm_put.bid > 0
+                else 0.0
+            )
+            _straddle_ask = (
+                (_atm_call.ask + _atm_put.ask)
+                if _atm_call and _atm_put and _atm_call.ask > 0 and _atm_put.ask > 0
+                else 0.0
+            )
             sig = SpySignal(
                 signal_type=SignalType.LONG_STRADDLE,
                 strike=strike, expiry=chain.expiry_month, right="BOTH",
                 confidence=conf, spy_price=context.spy_price, vix=context.vix,
                 volume=chain.total_call_volume + chain.total_put_volume,
                 volume_spike_mult=c.straddle_spike_mult,
+                bid=_straddle_bid, ask=_straddle_ask,
                 bid_size=0, ask_size=0,
                 reasoning=[
                     "Both call AND put volume spiking simultaneously",
