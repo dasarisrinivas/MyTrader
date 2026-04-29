@@ -551,10 +551,34 @@ class ExitManager:
                     if stop_loss is not None and total_pnl > 50:
                         # Get current ATR for adaptive trailing
                         _trail_atr = 0.0
+                        _trail_pdc = 0.0
                         if self.price_history:
                             _trail_atr = float(self.price_history[-1].get("ATR_14", 0.0) or 0.0)
+                            # APR 29 2026: Prev day close (settlement proxy) — magnet level.
+                            _trail_pdc = float(self.price_history[-1].get("PDC", 0.0) or 0.0)
                         # Trail at 1.5x ATR, minimum 6 points, maximum 12 points
                         trailing_distance = max(6.0, min(12.0, _trail_atr * 1.5)) if _trail_atr > 0 else 8.0
+
+                        # APR 29 2026: Prev settlement magnet — tighten trail when price
+                        # is within N points of PDC (CME settlement proxy). Settlement
+                        # acts as a magnet/reversion level for ES; profit can evaporate
+                        # quickly as price reverts. Default: within 2 pts → trail × 0.6.
+                        # Configurable via:
+                        #   ft_pdc_magnet_distance_pts (default 2.0; 0 disables)
+                        #   ft_pdc_magnet_trail_factor (default 0.6)
+                        _pdc_magnet_dist = float(getattr(_trading_cfg, "ft_pdc_magnet_distance_pts", 2.0) or 0.0)
+                        _pdc_magnet_factor = float(getattr(_trading_cfg, "ft_pdc_magnet_trail_factor", 0.6) or 1.0)
+                        if _pdc_magnet_dist > 0 and _trail_pdc > 0:
+                            _dist_to_pdc = abs(current_price - _trail_pdc)
+                            if _dist_to_pdc <= _pdc_magnet_dist:
+                                _orig_trail = trailing_distance
+                                trailing_distance = max(3.0, trailing_distance * _pdc_magnet_factor)
+                                logger.info(
+                                    f"🧲 PDC_MAGNET_TIGHTEN: price={current_price:.2f} within "
+                                    f"{_dist_to_pdc:.2f}pt of PDC={_trail_pdc:.2f} "
+                                    f"(<= {_pdc_magnet_dist:.1f}pt threshold) — "
+                                    f"trail {_orig_trail:.1f}→{trailing_distance:.1f}pts"
+                                )
 
                         if qty > 0:  # Long position
                             # Calculate new trailing stop

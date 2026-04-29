@@ -140,6 +140,10 @@ def _make_config(**overrides) -> MagicMock:
         # Fix #2 field — disabled by default so Fix #1 tests are not contaminated;
         # Fix #2 tests override this explicitly.
         "ft_entry_slippage_pts": 0.0,
+        # Monday block disabled — test dates use 2026-03-16 which is a Monday
+        "ft_monday_block_enabled": False,
+        # Late afternoon block disabled — overnight tests use 22:00 ET (02:00 UTC)
+        "ft_late_afternoon_block_hour_utc": 0,
         # Wide entry/RTH windows so all hours qualify
         "ft_entry_start_hour": 0,
         "ft_entry_start_minute": 0,

@@ -333,6 +333,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Default 1.0×ATR max chase distance keeps entries near the breakout level.
         self._or_break_max_chase_atr: float = getattr(config, 'ft_or_break_max_chase_atr', 1.0)
 
+        # APR 29 2026: Volume + VWAP confirmation for OR breakout/breakdown (B/E).
+        # Volume_ratio is volume / 20-bar SMA (computed in feature_engineer).
+        # Low-volume breakouts are common false-breakout patterns; require >= threshold
+        # to confirm institutional participation. Default 0.7 (well below average — this
+        # is a low bar; tune up after backtest validation against signal log).
+        # Set to 0 to disable. Already-computed feature, just being read now.
+        self._or_break_min_vol_ratio: float = getattr(config, 'ft_or_break_min_vol_ratio', 0.7)
+        # VWAP confirmation: require close on the correct side of session VWAP.
+        # For B (long break), close must be > VWAP_daily; for E (short break), close < VWAP.
+        # Applied to breakouts ONLY — reversion signals (DynamicSupportFloor, A/D pullbacks)
+        # are intentionally counter-VWAP and must not be filtered this way.
+        self._or_break_vwap_filter_enabled: bool = bool(getattr(config, 'ft_or_break_vwap_filter', True))
+
         # MAR 16 2026 Fix: ATR-adaptive stops for EMA21 pullback signals (A/D)
         # Root cause: Mar 16 Trade #3 had fixed SL=6pt at ATR=10 → sub-ATR noise
         # stopped out in 2 min.  SL = clamp(ATR × 1.0, 6pt floor, 15pt ceiling).
@@ -573,6 +586,15 @@ class EsFifteenMinStrategy(BaseStrategy):
         rsi = float(latest.get("RSI_14", 50))
         macd_hist = float(latest.get("MACDhist_12_26_9", 0))
         pdh = float(latest.get("PDH", 0))
+        # APR 29 2026: Volume + VWAP for OR breakout confirmation (Signals B/E).
+        # Defaults are NEUTRAL (1.0 ratio = at-average, vwap=close = no preference)
+        # so missing-data bars don't get auto-blocked.
+        volume_ratio = float(latest.get("volume_ratio", 1.0))
+        if np.isnan(volume_ratio):
+            volume_ratio = 1.0
+        vwap_daily = float(latest.get("VWAP_daily", close))
+        if np.isnan(vwap_daily) or vwap_daily <= 0:
+            vwap_daily = close
 
         # FEB 20 2026: Seed prev_close from prior bar on first evaluation
         # after startup.  Without this, OR cross-detection (Signals B, E)
@@ -712,6 +734,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         # ---- Signal B: OR Breakout Long ----
         signal_b = self._check_or_breakout(
             close, high, ema9, ema21, atr, adx, macd_hist, rsi,
+            volume_ratio=volume_ratio, vwap_daily=vwap_daily,
         )
 
         # ---- Signal C: EMA9 Pullback Long (faster trend) ----
@@ -740,6 +763,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         if self._shorts_enabled:
             signal_e = self._check_or_breakdown(
                 close, low, ema9, ema21, atr, adx, macd_hist, rsi,
+                volume_ratio=volume_ratio, vwap_daily=vwap_daily,
             )
 
         # ---- Signal F: Trend Continuation (strong momentum days) ----
@@ -1424,6 +1448,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         ema9: float, ema21: float, atr: float, adx: float,
         macd_hist: float = 0.0,
         rsi: float = 50.0,
+        volume_ratio: float = 1.0,
+        vwap_daily: float = 0.0,
     ) -> Optional[tuple]:
         """
         Opening Range breakout long (up to N per day, default 2).
@@ -1479,6 +1505,24 @@ class EsFifteenMinStrategy(BaseStrategy):
             logger.info(
                 f"OR_BREAK_LONG blocked: chase={_chase_dist:.1f}pts > {_max_chase:.1f}pts "
                 f"({self._or_break_max_chase_atr:.1f}×ATR) past OR_H={self._or_high:.2f}"
+            )
+            return None
+
+        # APR 29 2026: Volume confirmation — low-volume breakouts have weak follow-through.
+        # Threshold default 0.7 (vol must be >= 70% of 20-bar avg). Set 0 to disable.
+        if self._or_break_min_vol_ratio > 0 and volume_ratio < self._or_break_min_vol_ratio:
+            logger.info(
+                f"OR_BREAK_LONG blocked: vol_ratio={volume_ratio:.2f} < "
+                f"{self._or_break_min_vol_ratio:.2f} (low-volume breakout)"
+            )
+            return None
+
+        # APR 29 2026: VWAP confirmation — long breakout requires close above session VWAP.
+        # Below-VWAP breakouts often fail (institutional reference rejects them).
+        if self._or_break_vwap_filter_enabled and vwap_daily > 0 and close <= vwap_daily:
+            logger.info(
+                f"OR_BREAK_LONG blocked: close={close:.2f} <= VWAP={vwap_daily:.2f} "
+                f"(below-VWAP breakout — weak institutional support)"
             )
             return None
 
@@ -1894,6 +1938,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         ema9: float, ema21: float, atr: float, adx: float,
         macd_hist: float = 0.0,
         rsi: float = 50.0,
+        volume_ratio: float = 1.0,
+        vwap_daily: float = 0.0,
     ) -> Optional[tuple]:
         """
         Opening Range breakdown short (up to N per day, default 2).
@@ -1948,6 +1994,23 @@ class EsFifteenMinStrategy(BaseStrategy):
             logger.info(
                 f"OR_BREAK_SHORT blocked: chase={_chase_dist:.1f}pts > {_max_chase:.1f}pts "
                 f"({self._or_break_max_chase_atr:.1f}×ATR) past OR_L={self._or_low:.2f}"
+            )
+            return None
+
+        # APR 29 2026: Volume confirmation — low-volume breakdowns have weak follow-through.
+        if self._or_break_min_vol_ratio > 0 and volume_ratio < self._or_break_min_vol_ratio:
+            logger.info(
+                f"OR_BREAK_SHORT blocked: vol_ratio={volume_ratio:.2f} < "
+                f"{self._or_break_min_vol_ratio:.2f} (low-volume breakdown)"
+            )
+            return None
+
+        # APR 29 2026: VWAP confirmation — short breakdown requires close below session VWAP.
+        # Above-VWAP breakdowns often fail (institutional reference supports them).
+        if self._or_break_vwap_filter_enabled and vwap_daily > 0 and close >= vwap_daily:
+            logger.info(
+                f"OR_BREAK_SHORT blocked: close={close:.2f} >= VWAP={vwap_daily:.2f} "
+                f"(above-VWAP breakdown — weak institutional rejection)"
             )
             return None
 

@@ -63,6 +63,11 @@ def _make_strategy(or_break_max=2, adx_min=20.0, adx_max=999.0,
     # APR 2 2026: Anti-chase guard
     strat._or_break_max_chase_atr = 1.0
 
+    # APR 29 2026: Volume + VWAP confirmation gates (default off here so existing
+    # tests aren't accidentally gated by volume/VWAP they don't pass in).
+    strat._or_break_min_vol_ratio = 0.0
+    strat._or_break_vwap_filter_enabled = False
+
     strat._save_counters = lambda: None
 
     return strat

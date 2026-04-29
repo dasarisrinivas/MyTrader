@@ -165,28 +165,38 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     enriched["price_to_sma_20"] = (close / rolling_mean).fillna(1.0)
     enriched["price_to_ema_50"] = (close / enriched["EMA_50"]).fillna(1.0)
     
-    # Previous Day High/Low (PDH/PDL) - critical for level-based trading
+    # Previous Day High/Low/Close (PDH/PDL/PDC) - critical for level-based trading.
+    # PDC is our proxy for previous-session settlement: the daily session close,
+    # which acts as a magnet/reference for ES intraday price action.
     try:
         if hasattr(enriched.index, 'date'):
-            # Group by date to get daily high/low
+            # Group by date to get daily high/low/close
             daily_high = enriched.groupby(enriched.index.date)['high'].transform('max')
             daily_low = enriched.groupby(enriched.index.date)['low'].transform('min')
-            
-            # Shift by 1 day to get PREVIOUS day's high/low
+            # 'close' transformed via 'last' gives each row that day's session close;
+            # shift(1) then aligns with the prior day's close.
+            daily_close = enriched.groupby(enriched.index.date)['close'].transform('last')
+
+            # Shift by 1 day to get PREVIOUS day's high/low/close
             enriched['PDH'] = daily_high.shift(1)
             enriched['PDL'] = daily_low.shift(1)
-            
+            enriched['PDC'] = daily_close.shift(1)
+
             # Forward fill for intraday use
             enriched['PDH'] = enriched['PDH'].ffill()
             enriched['PDL'] = enriched['PDL'].ffill()
+            enriched['PDC'] = enriched['PDC'].ffill()
         else:
             # Fallback: use rolling 24-hour (assuming minute bars)
             enriched['PDH'] = high.rolling(window=1440, min_periods=60).max().shift(1)
             enriched['PDL'] = low.rolling(window=1440, min_periods=60).min().shift(1)
+            # PDC fallback: close shifted by 1 day's worth of bars
+            enriched['PDC'] = close.shift(1440)
     except Exception:
         # If all else fails, set to 0 (will be ignored by scoring)
         enriched['PDH'] = 0
         enriched['PDL'] = 0
+        enriched['PDC'] = 0
     
     # Use pandas_ta if available for additional indicators
     if HAS_PANDAS_TA:
