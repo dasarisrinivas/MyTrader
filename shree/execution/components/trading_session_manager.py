@@ -183,6 +183,9 @@ class TradingSessionManager:
                         m._use_hybrid_pipeline = True
                         m.status.hybrid_pipeline_enabled = True
                         m.signal_processor.hybrid_pipeline = m.hybrid_pipeline
+                        # APR 29 2026: Wire pipeline to executor so TP/SL fills log exits to RAG
+                        if m.executor:
+                            m.executor.hybrid_pipeline = m.hybrid_pipeline
                         logger.info("✅ Hybrid RAG+LLM Pipeline initialized (3-layer decision system)")
                     else:
                         logger.info("ℹ️  Hybrid pipeline disabled in config")

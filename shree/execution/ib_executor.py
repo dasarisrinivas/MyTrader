@@ -173,6 +173,10 @@ class TradeExecutor:
         from .position_manager import PositionManager
         self.position_manager = PositionManager(ib, config, symbol)
 
+        # APR 29 2026: Hook for hybrid pipeline — set externally after pipeline init
+        # Allows _on_execution to call log_trade_exit() when TP/SL bracket fills
+        self.hybrid_pipeline = None  # type: Optional[Any]
+
     def check_ib_health(self) -> str:
         """Verify IB connection quality before trading."""
         if not self.ib:
@@ -1137,7 +1141,33 @@ class TradeExecutor:
         if self._local_position_qty == 0 and closed_qty > 0:
             is_exit_order = True
             logger.debug(f"Order {order_id} identified as exit: position now flat after closing {closed_qty}")
-        
+
+        # APR 29 2026: Log trade exit to RAG when a bracket TP/SL fills and closes the position
+        # This ensures every completed trade is written back to S3 for future RAG lookups
+        if is_exit_order and close_result and closed_qty > 0 and self.hybrid_pipeline:
+            try:
+                # Determine exit reason from order type / metadata
+                order_action = getattr(trade.order, "action", "")
+                order_type = getattr(trade.order, "orderType", "").upper()
+                is_tp = order_type == "LMT" and parent_id and parent_id > 0
+                is_sl = order_type in ("STP", "TRAIL", "TRAIL LIMIT") and parent_id and parent_id > 0
+                if is_tp:
+                    exit_reason = "TP_HIT"
+                elif is_sl:
+                    exit_reason = "SL_HIT"
+                else:
+                    exit_reason = "BRACKET_EXIT"
+                self.hybrid_pipeline.log_trade_exit(
+                    exit_price=price,
+                    exit_reason=exit_reason,
+                )
+                logger.info(
+                    f"📝 RAG exit logged: order={order_id} reason={exit_reason} "
+                    f"price={price:.2f} pnl_gross={gross_pnl:.2f}"
+                )
+            except Exception as _rag_err:
+                logger.warning(f"⚠️  RAG exit log failed (non-fatal): {_rag_err}")
+
         expected_stop_loss, expected_take_profit, protection_note = self._resolve_protection_metadata(
             order_id,
             parent_id,
