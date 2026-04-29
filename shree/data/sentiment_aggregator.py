@@ -916,7 +916,7 @@ def get_price_momentum_sentiment() -> "SourceSentiment":
         score=cached["score"],
         confidence=0.9,   # high confidence — deterministic from price
         sample_count=1,
-        metadata={"reason": cached["reason"]},
+        error=None,  # APR 28 2026 FIX: SourceSentiment has no metadata field; was crashing __init__
     )
 
 # VX Futures Feed integration (real-time IBKR data)
