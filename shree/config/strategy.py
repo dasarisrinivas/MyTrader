@@ -260,10 +260,21 @@ class OneMinuteStrategyConfig:
     ft_ema21_pb_max_rth: int = 3          # RTH allows multiple valid pullbacks in a trending session
     ft_entry_slippage_pts: float = 0.5   # Expected market-order slippage (pts); applied to R:R gate to prevent overstating R:R from close price
     # MAR 16 2026: ATR-adaptive SL for Signal A/D (Fix — replaces fixed 6pt SL)
-    ft_ema21_sl_atr_mult: float = 1.0     # SL = ATR × this multiplier
+    # APR 29 2026: Bumped 1.0→1.25 — see config.yaml for evidence (3 RTH stop-hunts).
+    ft_ema21_sl_atr_mult: float = 1.25    # SL = ATR × this multiplier (APR 29: 1.0→1.25)
     ft_ema21_sl_floor_pts: float = 6.0    # Minimum SL (pts) — protects against ultra-low ATR
     ft_ema21_sl_ceiling_pts: float = 15.0 # Maximum SL (pts) — caps risk in high-vol
     ft_ema21_rr_ratio: float = 1.33       # TP = SL × this — R:R 1.33:1
+    # APR 29 2026: ATR-adaptive SL for Signal F (TREND_CONT) — formerly implicit getattr defaults.
+    ft_trend_sl_atr_mult: float = 1.25    # SL = ATR × this multiplier (APR 29: 1.0→1.25)
+    ft_trend_sl_floor_pts: float = 6.0    # Minimum SL (pts)
+    ft_trend_sl_ceiling_pts: float = 20.0 # Maximum SL (pts) — within RiskGate 25pt cap
+
+    # APR 29 2026: Local KB hard floor — block signals where the KB has a
+    # statistically meaningful negative win-rate context. Sits before the soft overlay.
+    # See signal_processor.py:766+ for gate logic.
+    ft_kb_hard_floor_win_rate: float = 0.20   # Block when KB historical_win_rate < this
+    ft_kb_hard_floor_min_n: int = 10          # Require >= this many similar patterns (matches _calc_adjustment floor)
     # MAR 16 2026: MACD divergence filter for Signal A/D (Fix #5)
     # Block A when MACD_H < -threshold (bearish opposes long pullback)
     # Block D when MACD_H > +threshold (bullish opposes short pullback)

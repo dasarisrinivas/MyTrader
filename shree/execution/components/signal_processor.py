@@ -772,6 +772,75 @@ class SignalProcessor:
                     "confidence": signal.confidence,
                 }
                 kb_result = m._query_local_knowledge_base(kb_context)
+
+                # APR 29 2026: Hard floor — block signals where the KB shows a
+                # statistically meaningful negative win rate. The existing soft
+                # overlay (below) only adjusts confidence; on Apr 29 a 14% WR /
+                # 14-similar-trade context produced only a -0.075 conf bump,
+                # not enough to drop the signal below the firing threshold.
+                # Trade still fired and lost.
+                #
+                # Hard-floor gate fires when ALL of:
+                #   1. similar_patterns >= min_n (default 10) — sample large enough
+                #   2. historical_win_rate < threshold (default 0.20)
+                # min_n matches the existing _calc_adjustment "actionable" floor
+                # in local_knowledge_base.py (count < 10 returns 0.0 adjustment).
+                #
+                # NOTE on similarity: the underlying KB filters matches by
+                # side+regime via metadata_filter, so all returned patterns
+                # are at least same-side and same-regime. There is no per-match
+                # similarity score plumbed through; min_similarity_score gating
+                # would require extending LocalKnowledgeBase.query() to expose
+                # match scores. Skipped for now — flag for follow-up.
+                _settings = getattr(self, "settings", None)
+                _one_min_cfg = getattr(_settings, "one_minute", None) if _settings else None
+                _kb_floor_wr = float(getattr(_one_min_cfg, "ft_kb_hard_floor_win_rate", 0.20) or 0.0)
+                _kb_floor_min_n = int(getattr(_one_min_cfg, "ft_kb_hard_floor_min_n", 10) or 0)
+
+                _kb_n = int(kb_result.get("similar_patterns", 0) or 0)
+                _kb_wr = float(kb_result.get("historical_win_rate", 1.0) or 1.0)
+
+                if (_kb_floor_wr > 0
+                        and _kb_floor_min_n > 0
+                        and _kb_n >= _kb_floor_min_n
+                        and _kb_wr < _kb_floor_wr):
+                    # signal_reason isn't bound until later in this method (line ~890),
+                    # so derive it inline here from the signal's own metadata.
+                    _orig_reason = (
+                        signal.metadata.get("reason", "")
+                        if isinstance(signal.metadata, dict) else ""
+                    )
+                    confidence_adjustments["kb_hard_floor"] = -signal.confidence
+                    logger.warning(
+                        f"🚫 KB hard floor: blocking {signal.action} ({_orig_reason}) — "
+                        f"KB win_rate={_kb_wr:.0%} < {_kb_floor_wr:.0%} "
+                        f"on n={_kb_n} similar trades (>= {_kb_floor_min_n}). "
+                        f"Was conf={signal.confidence:.3f}. {kb_result.get('reasoning', '')}"
+                    )
+                    signal.action = "HOLD"
+                    signal.confidence = 0.0
+                    if isinstance(signal.metadata, dict):
+                        signal.metadata["reason"] = (
+                            f"KB_HARD_FLOOR_BLOCK | wr={_kb_wr:.0%} n={_kb_n} | "
+                            f"original: {_orig_reason}"
+                        )
+                        signal.metadata["kb_hard_floor"] = {
+                            "original_action": original_action,
+                            "original_confidence": base_confidence,
+                            "kb_win_rate": _kb_wr,
+                            "kb_similar_patterns": _kb_n,
+                            "threshold_win_rate": _kb_floor_wr,
+                            "threshold_min_n": _kb_floor_min_n,
+                        }
+                    return SignalGenerationResult(
+                        signal=signal,
+                        pipeline_result=pipeline_result,
+                        filters_passed=False,
+                        filters_applied=list(confidence_adjustments.keys()),
+                        run_legacy_after_hybrid=False,
+                        sentiment_modifier=sentiment_modifier,
+                    )
+
                 kb_adj = kb_result.get("confidence_adjustment", 0.0)
                 if kb_adj != 0.0:
                     original_conf = signal.confidence

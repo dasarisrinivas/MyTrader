@@ -420,10 +420,33 @@ one_minute:
   # Dynamic: SL = clamp(ATR × mult, floor, ceiling), TP = SL × rr_ratio
   # At ATR=10: SL=10pt ($50), TP=13.25pt ($66.25) → R:R 1.33 (same ratio, wider absolute)
   # At ATR≤6:  SL=6pt (floor), TP=8pt → same as old fixed behaviour
-  ft_ema21_sl_atr_mult: 1.0           # ATR multiplier — 1× ATR = 1 standard deviation of bar noise
+  # APR 29 2026: Bumped 1.0→1.25× after 3 RTH losses (3, 4, 6) all stopped exactly at
+  # 1.0× ATR then resumed in our direction — classic stop-hunt at the noise band.
+  # 1.25× pushes the SL just past the cluster. At ATR=6.7 → SL=8.4 instead of 6.7.
+  # Ceiling note: at ATR>12, 1.25× hits the 15pt ceiling (was ATR>15 prior). Today's
+  # max ATR was 7.3 so no collision; still worth re-checking on high-vol days.
+  ft_ema21_sl_atr_mult: 1.25          # APR 29 2026: 1.0→1.25 (stop-hunt mitigation)
   ft_ema21_sl_floor_pts: 6.0          # Minimum SL — keep old floor when vol is low
   ft_ema21_sl_ceiling_pts: 15.0       # Maximum SL — cap at 15pt ($75) to control max risk
   ft_ema21_rr_ratio: 1.33             # TP = SL × 1.33 — same as original 8/6 ratio
+
+  # APR 29 2026: ATR-adaptive stops for Signal F (TREND_CONT long/short).
+  # Previously implicit defaults via getattr (mult=1.0, floor=6, ceiling=20).
+  # Trade 4 today (TREND_CONT_SHORT, ATR=7.3) stopped exactly at 1.0× ATR then dropped.
+  # Same stop-hunt pattern as A/D — 1.0×ATR is the noise band.
+  ft_trend_sl_atr_mult: 1.25          # APR 29 2026: 1.0→1.25 (stop-hunt mitigation)
+  ft_trend_sl_floor_pts: 6.0          # Minimum SL — guards against ultra-low ATR
+  ft_trend_sl_ceiling_pts: 20.0       # Maximum SL — within RiskGate 25pt cap
+
+  # APR 29 2026: Local KB hard floor — block signals when historical win rate
+  # is meaningfully bad on a statistically valid sample.
+  # Trade 6 today (EMA21_PB_SHORT at 12:30 CT) had a KB lookup of 14% WR on 14
+  # similar trades — that produced only a -0.075 confidence bump (soft overlay),
+  # leaving the signal above firing threshold. It fired and lost -$35.42.
+  # Hard floor blocks before the soft overlay runs.
+  # Set ft_kb_hard_floor_win_rate=0 OR ft_kb_hard_floor_min_n=0 to disable.
+  ft_kb_hard_floor_win_rate: 0.20     # block if KB win_rate < 20%
+  ft_kb_hard_floor_min_n: 10          # require >= 10 similar patterns (matches _calc_adjustment floor)
   ft_ema21_macd_divergence_block: 0.5  # Block A when MACD < -0.5, block D when MACD > +0.5. Set to 0 to disable.
   # MAR 19 2026: Lowered from 1.0 → 0.5. At 1.0, the 11:00 RTH short (MACD_H=+0.95) slipped
   # under the threshold and hit SL while the 09:00 short (MACD_H=-1.47) won. Any positive
