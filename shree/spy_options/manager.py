@@ -27,6 +27,16 @@ from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
 from .analytics_db import AnalyticsDB
 from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker, passes_liquidity
+from .edge_reality import (
+    compute_edge_reality,
+    default_target_pct,
+    gamma_accel_mult,
+    gamma_warning_active,
+    hourly_theta_dollars,
+    iv_adjusted_stop_pct,
+    round_trip_cost_pct_from_quote,
+    skew_warning,
+)
 from .external import ExternalDataManager
 from .ib_client import IBOptionsClient
 from .regime_detector import RegimeContext, RegimeDetector
@@ -843,6 +853,12 @@ class SpyOptionsManager:
                     )
                     continue
 
+            # Edge Reality: populate regime-adjusted WR / breakeven / margin
+            # / hourly theta / gamma multiplier / put-skew warning before
+            # both Telegram dispatch and analytics persist. Strict no-op
+            # when the feature flag is off — sig.* fields remain at defaults.
+            self._apply_edge_reality(sig)
+
             await self._send_signal(sig)
             self._sent_times[key] = now
             seen_keys.add(key)
@@ -880,6 +896,88 @@ class SpyOptionsManager:
                     "sent_at": now,
                 }
 
+    # ── Edge Reality population ───────────────────────────────────────────────
+
+    def _apply_edge_reality(self, sig: SpySignal) -> None:
+        """Populate the Edge Reality fields on the signal in place.
+
+        Strict no-op when ``cfg.signals.edge_reality_enabled`` is False — all
+        SpySignal Edge Reality fields stay at their dataclass defaults so
+        downstream Telegram + analytics code paths render nothing.
+
+        Computes:
+          - historical_wr / regime_wr (per-pattern × regime)
+          - round_trip_cost_pct (from live bid/ask, falling back to SPY default)
+          - target_pct_assumed + breakeven_wr + edge_margin + edge_color
+          - iv_adjusted_stop_pct (15/20/25 by IVR band)
+          - hourly_theta_dollars (scales daily theta by current session phase)
+          - gamma_accel_mult + effective_gamma + gamma_warning_active (0DTE only)
+          - skew_warning (SPY put-skew advisory on bearish signals)
+        """
+        if not getattr(self._cfg.signals, "edge_reality_enabled", True):
+            return
+
+        now_et = datetime.now(ET)
+        signal_type_str = sig.signal_type.value
+        regime = sig.regime or "RANGE_BOUND"
+        right = sig.right or ""
+
+        # Pull config-conditional bits up-front
+        ivr = float(sig.iv_rank) if sig.iv_rank is not None else 50.0
+        sig.iv_adjusted_stop_pct = iv_adjusted_stop_pct(ivr)
+
+        # Round-trip cost: prefer live bid/ask, log+tag when we fall back to
+        # the SPY default constant (4.8%). Without this debug line a wide-
+        # spread strike with no live quote would silently look like a tight
+        # 4.8% liquidity profile.
+        sig.round_trip_cost_pct, sig.rt_source = round_trip_cost_pct_from_quote(
+            sig.bid, sig.ask
+        )
+        if sig.rt_source != "live_quote":
+            logger.debug(
+                "Edge Reality: round-trip cost fell back to SPY default "
+                "{:.1f}% for {} {}{} (bid={} ask={}) — figure shown to "
+                "trader is an estimate",
+                sig.round_trip_cost_pct,
+                sig.signal_type.value, sig.strike, sig.right,
+                sig.bid, sig.ask,
+            )
+
+        # Edge Reality bundle: regime-adjusted WR + breakeven + margin.
+        # WR source stays at the doc-prior default until analytics_db has
+        # ≥ 30 closed trades per signal type — at which point a future
+        # _wr_source_for(signal_type) helper can override it to "empirical".
+        target = default_target_pct(regime)
+        sig.target_pct_assumed = target
+        edge = compute_edge_reality(
+            signal_type=signal_type_str,
+            regime=regime,
+            direction=right,
+            target_pct=target,
+            stop_pct=sig.iv_adjusted_stop_pct,
+            round_trip_pct=sig.round_trip_cost_pct,
+            rt_source=sig.rt_source,
+        )
+        sig.historical_wr = edge.historical_wr
+        sig.regime_wr = edge.regime_wr
+        sig.breakeven_wr = edge.breakeven_wr
+        sig.edge_margin = edge.edge_margin
+        sig.edge_color = edge.edge_color
+        sig.wr_source = edge.wr_source
+
+        # Hourly theta + gamma convexity acceleration (Power-Hour-relevant)
+        if sig.theta:
+            sig.hourly_theta_dollars = round(
+                hourly_theta_dollars(sig.theta, now_et=now_et), 2
+            )
+        gam_mult = gamma_accel_mult(int(sig.dte or 0), now_et=now_et)
+        sig.gamma_accel_mult = gam_mult
+        sig.effective_gamma = round((sig.gamma or 0.0) * gam_mult, 5)
+        sig.gamma_warning_active = gamma_warning_active(int(sig.dte or 0), now_et=now_et)
+
+        # SPY put-skew warning on bearish-direction signals
+        sig.skew_warning = skew_warning(signal_type_str, right)
+
     # ── Exit monitoring ──────────────────────────────────────────────────────
 
     # Bullish signals expect SPY to go up; bearish signals expect SPY to go down
@@ -914,13 +1012,19 @@ class SpyOptionsManager:
     ) -> None:
         """Check active signals and send EXIT alerts when conditions reverse.
 
-        Six independent triggers (any one fires the exit alert):
+        Seven independent triggers (any one fires the exit alert):
           1. Price adverse ≥ 0.5%       — SPY moved against signal direction
           2. Regime flip                 — TREND_UP ↔ TREND_DOWN
           3. Large adverse move ≥ 1.0%  — urgent stop regardless of regime
           4. Time stop                   — 0DTE: 30 min | swing: 60 min
           5. Profit target hit           — +0.5% favorable SPY move (take profits)
           6. VWAP reversion              — SPY crossed back through VWAP vs entry side
+          7. IV-adjusted premium stop    — estimated option drawdown ≥ IVR-cap
+                                           (15/20/25% by IVR band, doc § 8.4).
+                                           Uses delta × SPY_move / entry_premium
+                                           as proxy because we don't re-snap
+                                           Greeks per poll. Layered ON TOP of
+                                           structural triggers — never replaces.
         """
         if not self._active_signals:
             return
@@ -1032,6 +1136,59 @@ class SpyOptionsManager:
                             f"now {cur_vwap_band} — bearish thesis weakened"
                         )
 
+            # ── Trigger 7: IV-adjusted premium stop ───────────────────────
+            # Doc § 8.4 — high-IV options move violently per point of
+            # underlying. A fixed -0.5% SPY adverse trigger is too loose at
+            # high IVR (option may already be down 30%+) and too tight at
+            # low IVR (cheap premium can absorb the move). Cap *estimated*
+            # option drawdown using the IVR-conditional table:
+            #     IVR > 65 → 15% | IVR 41–65 → 20% | IVR ≤ 40 → 25%.
+            # Estimate uses delta × adverse_SPY / entry_premium. This is an
+            # approximation (gamma + IV crush ignored) — for high-precision
+            # stops, re-snapshot the option premium.
+            if (
+                getattr(self._cfg.signals, "iv_adjusted_premium_stop_enabled", True)
+                and sig.iv_adjusted_stop_pct > 0
+                and sig.delta
+                and entry_price > 0
+            ):
+                # Adverse SPY $-move (always positive when against the signal)
+                if direction == "BULLISH":
+                    adverse_dollar = max(0.0, entry_price - spy_price)
+                elif direction == "BEARISH":
+                    adverse_dollar = max(0.0, spy_price - entry_price)
+                else:
+                    adverse_dollar = 0.0
+
+                # Estimated premium drawdown %  (delta is signed; use abs)
+                entry_mid = (
+                    (sig.bid + sig.ask) / 2.0
+                    if sig.bid and sig.ask else (sig.ask or sig.bid or 0.0)
+                )
+                if entry_mid > 0 and adverse_dollar > 0:
+                    # Linear delta approximation breaks down near 0DTE expiry
+                    # because gamma dominates — a delta-only estimate can be
+                    # 2–3× too low in the last 30 minutes. Multiply by the
+                    # gamma_accel_mult that _apply_edge_reality already
+                    # computed (×1.0 / 1.5 / 2.5 / 4.0 by minutes-to-close)
+                    # so the IV-stop tightens automatically when it matters
+                    # most.
+                    gam_mult = max(1.0, float(sig.gamma_accel_mult or 1.0))
+                    est_premium_loss_pct = (
+                        abs(sig.delta) * adverse_dollar / entry_mid * 100.0
+                    ) * gam_mult
+                    if est_premium_loss_pct >= sig.iv_adjusted_stop_pct:
+                        gam_tag = (
+                            f" ×{gam_mult:.1f}γ" if gam_mult > 1.0 else ""
+                        )
+                        reasons.append(
+                            f"💸 IV-adjusted premium stop: est. option drawdown "
+                            f"{est_premium_loss_pct:.0f}% ≥ {sig.iv_adjusted_stop_pct:.0f}% "
+                            f"cap (IVR {sig.iv_rank:.0f}) — "
+                            f"|Δ|={abs(sig.delta):.2f} × ${adverse_dollar:.2f} "
+                            f"adverse / ${entry_mid:.2f} mid{gam_tag}"
+                        )
+
             if reasons:
                 logger.info(
                     "EXIT trigger for {}: {}", key, " | ".join(reasons),
@@ -1053,6 +1210,8 @@ class SpyOptionsManager:
                         trigger_label = "regime_flip"
                     elif "VWAP reversion" in first:
                         trigger_label = "vwap_reversion"
+                    elif "IV-adjusted premium stop" in first:
+                        trigger_label = "iv_premium_stop"
                     else:
                         trigger_label = "manual"
 
@@ -1230,6 +1389,75 @@ class SpyOptionsManager:
             if sig.impl_vol != 0.0:
                 greek_parts.append(f"IV {sig.impl_vol:.1%}")
             lines.append(f"📐 Greeks: {' | '.join(greek_parts)}")
+
+        # ── Edge Reality block (May 2026 — institutional-audit additions) ──
+        # Only rendered when _apply_edge_reality has populated the fields
+        # (regime_wr > 0). Off when the feature flag is disabled.
+        #
+        # Source attribution rules:
+        #   - WR figures get a "[doc-prior]" tag until analytics_db has
+        #     enough closed trades to switch to empirical WRs. Prevents the
+        #     trader from over-trusting a green margin built on assumed WRs.
+        #   - Round-trip cost gets a "~" prefix when the function fell back
+        #     to the SPY 4.8% default (no live bid/ask available). On a wide-
+        #     spread strike that fallback can flip a real-red signal to
+        #     apparent-green, so the marker is loud.
+        if sig.regime_wr > 0:
+            color_icon = (
+                "🟢" if sig.edge_color == "green"
+                else "🟠" if sig.edge_color == "amber"
+                else "🔴"
+            )
+            margin_sign = "+" if sig.edge_margin >= 0 else ""
+            wr_tag = (
+                "  <i>[doc-prior]</i>" if sig.wr_source == "doc_prior" else ""
+            )
+            rt_prefix = "~" if sig.rt_source != "live_quote" else ""
+            lines += [
+                "",
+                "<b>🎯 Edge Reality:</b>",
+                f"  📈 Regime WR: <b>{sig.regime_wr}%</b>"
+                f"  <i>(historical {sig.historical_wr}%)</i>{wr_tag}",
+                f"  ⚖️ Break-even WR: <b>{sig.breakeven_wr:.1f}%</b>"
+                f"  <i>(target {sig.target_pct_assumed:.0f}%, "
+                f"stop {sig.iv_adjusted_stop_pct:.0f}%, "
+                f"round-trip {rt_prefix}{sig.round_trip_cost_pct:.1f}%)</i>",
+                f"  {color_icon} Net edge: <b>{margin_sign}{sig.edge_margin:.1f}%</b>",
+            ]
+            if sig.rt_source != "live_quote":
+                lines.append(
+                    "  <i>ℹ️ Round-trip cost is a SPY default — no live bid/ask "
+                    "for this strike; a wider real spread would compress the edge.</i>"
+                )
+            if sig.edge_color == "red":
+                lines.append(
+                    "  <i>⚠️ No edge after costs — limit orders critical "
+                    "or skip this trade.</i>"
+                )
+            elif sig.edge_color == "amber":
+                lines.append(
+                    "  <i>⚠️ Thin edge — one bad fill eliminates profitability.</i>"
+                )
+
+        # ── Power Hour gamma + theta warning ──────────────────────────────
+        # Only fires when gamma_accel_mult > 1.0 (i.e. 0DTE inside last 2 hrs)
+        # OR when hourly theta is consequential (>$5/hr per contract).
+        if sig.gamma_warning_active or sig.hourly_theta_dollars > 5.0:
+            lines += ["", "<b>⏳ Power Hour Risk:</b>"]
+            if sig.gamma_warning_active:
+                lines.append(
+                    f"  💥 Effective Γ: <b>{sig.effective_gamma:.4f}</b> "
+                    f"(×{sig.gamma_accel_mult:.1f} static) — gamma-bomb territory"
+                )
+            if sig.hourly_theta_dollars > 0:
+                lines.append(
+                    f"  ⏱ Hourly theta cost: <b>≈${sig.hourly_theta_dollars:.2f}/hr</b> "
+                    f"per contract"
+                )
+
+        # ── SPY put-skew warning (bearish signals only) ───────────────────
+        if sig.skew_warning:
+            lines.append(f"⚠️ <b>Skew:</b> <i>{_html.escape(sig.skew_warning)}</i>")
 
         # Volume and flow
         if sig.volume > 0:

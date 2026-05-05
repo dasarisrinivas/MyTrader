@@ -235,6 +235,27 @@ class SpySignal:
     confidence_dte_rule: str = "STANDARD"
     conflict_detected: bool = False
 
+    # ── Edge Reality fields (populated by manager._apply_edge_reality) ────
+    # All zero/empty by default → safe for code paths that bypass the manager
+    # (tests, backtests). Telegram formatter and analytics_db both treat
+    # zero/empty as "not computed" and skip rendering / persisting.
+    historical_wr: int = 0           # base (regime-neutral) pattern WR
+    regime_wr: int = 0               # regime-adjusted WR for the current regime
+    breakeven_wr: float = 0.0        # min WR after transaction costs
+    edge_margin: float = 0.0         # regime_wr − breakeven_wr (signed)
+    edge_color: str = ""             # "green" | "amber" | "red"
+    round_trip_cost_pct: float = 0.0
+    iv_adjusted_stop_pct: float = 0.0
+    hourly_theta_dollars: float = 0.0
+    gamma_accel_mult: float = 1.0
+    effective_gamma: float = 0.0
+    gamma_warning_active: bool = False
+    skew_warning: str = ""
+    target_pct_assumed: float = 0.0  # target used in breakeven calc
+    # Source attribution — see edge_reality.WR_SOURCE_* / RT_SOURCE_* constants
+    wr_source: str = ""              # "doc_prior" | "empirical"
+    rt_source: str = ""              # "live_quote" | "default"
+
     @property
     def dedup_key(self) -> str:
         """Dedup key excludes expiry — same signal across APR/MAY is one signal.

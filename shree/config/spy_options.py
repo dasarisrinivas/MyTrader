@@ -102,6 +102,27 @@ class SpyOptionsSignalConfig:
     # Repeat sweep detection window — same strike flagged N× within this boosts score
     sweep_window_minutes: int = 15
 
+    # ── Edge Reality additions (May 2026 — institutional-audit features) ──
+    # When enabled, every dispatched signal is augmented with:
+    #   - regime-adjusted historical win rate
+    #   - break-even win rate (transaction-cost-aware)
+    #   - net edge margin (green / amber / red)
+    #   - hourly theta $/hr by session phase
+    #   - effective gamma multiplier near close (×1.5 / 2.5 / 4.0)
+    #   - IV-adjusted premium-stop %
+    #   - SPY index put-skew warning on bearish signals
+    # Additive only — never blocks a signal. Default ON because all changes
+    # are pure display + an additional advisory exit trigger; existing
+    # confidence + tier logic is unchanged.
+    edge_reality_enabled: bool = True
+
+    # IV-adjusted premium stop: when enabled, an additional exit alert fires
+    # when the *estimated option premium drawdown* exceeds the IVR-conditional
+    # cap from edge_reality.iv_adjusted_stop_pct (15/20/25 by IVR band).
+    # The estimate uses delta × SPY_dollar_move / entry_premium as a proxy
+    # because the manager does not re-snapshot Greeks per poll.
+    iv_adjusted_premium_stop_enabled: bool = True
+
 
 @dataclass
 class SpyOptionsSessionConfig:

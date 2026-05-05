@@ -20,10 +20,21 @@ Schema v3 additions (outcome tracking / feedback loop):
   exit_at          — UTC timestamp of exit
   pnl_pct          — estimated SPY move % from entry to exit (+ = favourable)
   exit_trigger     — which trigger fired: 'time_stop' | 'profit_target' |
-                     'adverse_move' | 'regime_flip' | 'vwap_reversion' | 'manual'
+                     'adverse_move' | 'regime_flip' | 'vwap_reversion' |
+                     'iv_premium_stop' | 'manual'
+
+Schema v5 additions (Edge Reality + net P&L — May 2026):
+  historical_wr        — base regime-neutral pattern WR
+  regime_wr            — regime-adjusted WR at signal time
+  breakeven_wr         — break-even WR after transaction costs
+  edge_margin          — regime_wr − breakeven_wr (signed)
+  iv_adjusted_stop_pct — premium-stop % cap by IVR band
+  round_trip_cost_pct  — bid/ask round-trip cost as % of premium
+  gross_pl_pct         — alias for pnl_pct (kept for clarity in queries)
+  net_pl_pct           — gross_pl_pct − round_trip_cost_pct (the survival number)
 
 Performance queries: see win_rate_summary(), win_rate_by_signal_type(),
-  win_rate_by_time_bucket(), win_rate_by_regime().
+  win_rate_by_time_bucket(), win_rate_by_regime(), edge_reality_summary().
 """
 from __future__ import annotations
 
@@ -95,12 +106,22 @@ CREATE TABLE IF NOT EXISTS spy_signals (
     -- v4: entry cost tracking (populated at insert time)
     entry_mid                REAL,   -- (bid+ask)/2 at signal time; NULL if no quotes
     entry_cost_1ct           REAL,   -- entry_mid * 100 (1 contract = 100 shares)
+    -- v5: Edge Reality (populated by manager._apply_edge_reality before insert)
+    historical_wr            INTEGER,
+    regime_wr                INTEGER,
+    breakeven_wr             REAL,
+    edge_margin              REAL,
+    iv_adjusted_stop_pct     REAL,
+    round_trip_cost_pct      REAL,
     -- v3: outcome tracking (populated via record_outcome())
     outcome                  TEXT DEFAULT 'open',   -- open | win | loss | scratch
     spy_price_exit           REAL,
     exit_at                  TEXT,
-    pnl_pct                  REAL,                  -- SPY move % entry→exit (+= favourable)
+    pnl_pct                  REAL,                  -- SPY move % entry→exit (+= favourable) — gross
     dollar_pnl_1ct           REAL,                  -- entry_cost_1ct * pnl_pct (actual $ per contract)
+    -- v5: net P&L after round-trip cost (computed by record_outcome)
+    net_pl_pct               REAL,                  -- pnl_pct − round_trip_cost_pct
+    dollar_net_pnl_1ct       REAL,                  -- entry_cost_1ct * net_pl_pct / 100
     exit_trigger             TEXT,                  -- which exit rule fired
     created_at               TEXT DEFAULT (datetime('now'))
 );
@@ -146,6 +167,15 @@ _MIGRATIONS = [
     "ALTER TABLE spy_signals ADD COLUMN entry_mid REAL",
     "ALTER TABLE spy_signals ADD COLUMN entry_cost_1ct REAL",
     "ALTER TABLE spy_signals ADD COLUMN dollar_pnl_1ct REAL",
+    # v5 Edge Reality + net P&L
+    "ALTER TABLE spy_signals ADD COLUMN historical_wr INTEGER",
+    "ALTER TABLE spy_signals ADD COLUMN regime_wr INTEGER",
+    "ALTER TABLE spy_signals ADD COLUMN breakeven_wr REAL",
+    "ALTER TABLE spy_signals ADD COLUMN edge_margin REAL",
+    "ALTER TABLE spy_signals ADD COLUMN iv_adjusted_stop_pct REAL",
+    "ALTER TABLE spy_signals ADD COLUMN round_trip_cost_pct REAL",
+    "ALTER TABLE spy_signals ADD COLUMN net_pl_pct REAL",
+    "ALTER TABLE spy_signals ADD COLUMN dollar_net_pnl_1ct REAL",
 ]
 
 
@@ -213,14 +243,17 @@ class AnalyticsDB:
                     dynamic_confidence_delta, confidence_time_bucket,
                     confidence_dte_rule, conflict_detected,
                     reasoning, suggested_trade,
-                    entry_mid, entry_cost_1ct
+                    entry_mid, entry_cost_1ct,
+                    historical_wr, regime_wr, breakeven_wr, edge_margin,
+                    iv_adjusted_stop_pct, round_trip_cost_pct
                 ) VALUES (
                     ?,?,?,?,?, ?,?, ?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,
                     ?,?,?,?,?, ?,?,?, ?,
                     ?,?,?, ?,?,?,?,?, ?,?,?,?,
                     ?,?,?, ?,
                     ?,?,
-                    ?,?
+                    ?,?,
+                    ?,?,?,?, ?,?
                 )
                 """,
                 (
@@ -256,6 +289,13 @@ class AnalyticsDB:
                     json.dumps(sig.reasoning),
                     sig.suggested_trade,
                     _entry_mid, _entry_cost_1ct,
+                    # v5 Edge Reality fields — None if not populated (flag off)
+                    getattr(sig, "historical_wr", None) or None,
+                    getattr(sig, "regime_wr", None) or None,
+                    getattr(sig, "breakeven_wr", None) or None,
+                    getattr(sig, "edge_margin", None) if sig.regime_wr else None,
+                    getattr(sig, "iv_adjusted_stop_pct", None) or None,
+                    getattr(sig, "round_trip_cost_pct", None) or None,
                 ),
             )
             self._conn.commit()
@@ -307,22 +347,39 @@ class AnalyticsDB:
                 pnl_pct = round(-raw_pct, 4)
 
         try:
-            # Fetch entry_cost_1ct so we can compute dollar P&L
+            # Fetch entry_cost_1ct + round_trip_cost_pct so we can compute
+            # dollar P&L and the v5 net P&L (gross minus transaction costs).
             row = self._conn.execute(
-                "SELECT entry_cost_1ct FROM spy_signals WHERE id=?", (signal_id,)
+                "SELECT entry_cost_1ct, round_trip_cost_pct "
+                "FROM spy_signals WHERE id=?",
+                (signal_id,),
             ).fetchone()
             entry_cost_1ct = row[0] if row and row[0] else None
+            round_trip_pct = row[1] if row and row[1] else None
             dollar_pnl_1ct = (
                 round(entry_cost_1ct * pnl_pct / 100.0, 2)
                 if entry_cost_1ct and pnl_pct is not None
                 else None
             )
 
+            # ── v5: net P&L after round-trip transaction cost ────────────
+            # Doc § 14.1 — every trade pays the bid/ask twice. net_pl_pct is
+            # what the strategy actually keeps; gross alone overstates edge.
+            net_pl_pct: Optional[float] = None
+            dollar_net_pnl_1ct: Optional[float] = None
+            if pnl_pct is not None and round_trip_pct is not None:
+                net_pl_pct = round(pnl_pct - round_trip_pct, 4)
+                if entry_cost_1ct:
+                    dollar_net_pnl_1ct = round(
+                        entry_cost_1ct * net_pl_pct / 100.0, 2
+                    )
+
             self._conn.execute(
                 """
                 UPDATE spy_signals
                 SET outcome=?, spy_price_exit=?, exit_at=?, pnl_pct=?,
-                    dollar_pnl_1ct=?, exit_trigger=?
+                    dollar_pnl_1ct=?, net_pl_pct=?, dollar_net_pnl_1ct=?,
+                    exit_trigger=?
                 WHERE id=?
                 """,
                 (
@@ -331,6 +388,8 @@ class AnalyticsDB:
                     datetime.utcnow().isoformat(),
                     pnl_pct,
                     dollar_pnl_1ct,
+                    net_pl_pct,
+                    dollar_net_pnl_1ct,
                     exit_trigger,
                     signal_id,
                 ),
@@ -379,6 +438,62 @@ class AnalyticsDB:
             }
         except Exception as exc:
             logger.warning("win_rate_summary failed: {}", exc)
+            return {}
+
+    def edge_reality_summary(self) -> Dict:
+        """v5: gross vs net P&L summary across all closed signals.
+
+        Doc § 14.2 — the gap between gross and net is the "strategy tax."
+        Use the *net* numbers for any survival decision; gross overstates
+        edge because it ignores the spread paid twice.
+        """
+        try:
+            row = self._conn.execute(
+                """
+                SELECT
+                    COUNT(*)                                                  AS total,
+                    SUM(CASE WHEN pnl_pct     > 0 THEN 1 ELSE 0 END)          AS gross_wins,
+                    SUM(CASE WHEN net_pl_pct  > 0 THEN 1 ELSE 0 END)          AS net_wins,
+                    AVG(pnl_pct)                                              AS avg_gross,
+                    AVG(net_pl_pct)                                           AS avg_net,
+                    SUM(dollar_pnl_1ct)                                       AS sum_dollar_gross,
+                    SUM(dollar_net_pnl_1ct)                                   AS sum_dollar_net,
+                    AVG(round_trip_cost_pct)                                  AS avg_round_trip,
+                    AVG(edge_margin)                                          AS avg_edge_margin
+                FROM spy_signals
+                WHERE outcome != 'open'
+                """
+            ).fetchone()
+            if not row or row[0] == 0:
+                return {
+                    "total": 0,
+                    "gross_win_rate_pct": 0.0, "net_win_rate_pct": 0.0,
+                    "avg_gross_pl_pct": 0.0, "avg_net_pl_pct": 0.0,
+                    "sum_dollar_gross_1ct": 0.0, "sum_dollar_net_1ct": 0.0,
+                    "avg_round_trip_pct": 0.0, "avg_edge_margin": 0.0,
+                    "strategy_tax_pct": 0.0,
+                }
+            (total, gross_wins, net_wins,
+             avg_gross, avg_net,
+             sum_dollar_gross, sum_dollar_net,
+             avg_round_trip, avg_edge_margin) = row
+            return {
+                "total": total,
+                "gross_win_rate_pct": round((gross_wins or 0) / total * 100.0, 1),
+                "net_win_rate_pct":   round((net_wins or 0)   / total * 100.0, 1),
+                "avg_gross_pl_pct":   round(avg_gross or 0.0, 3),
+                "avg_net_pl_pct":     round(avg_net   or 0.0, 3),
+                "sum_dollar_gross_1ct": round(sum_dollar_gross or 0.0, 2),
+                "sum_dollar_net_1ct":   round(sum_dollar_net   or 0.0, 2),
+                "avg_round_trip_pct": round(avg_round_trip or 0.0, 2),
+                "avg_edge_margin":    round(avg_edge_margin  or 0.0, 2),
+                # The "strategy tax" — the cumulative gap between gross and net
+                "strategy_tax_pct":   round(
+                    (avg_gross or 0.0) - (avg_net or 0.0), 3
+                ),
+            }
+        except Exception as exc:
+            logger.warning("edge_reality_summary failed: {}", exc)
             return {}
 
     def win_rate_by_signal_type(self) -> List[Dict]:
