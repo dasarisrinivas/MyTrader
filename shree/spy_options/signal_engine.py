@@ -1996,6 +1996,36 @@ class SignalEngine:
                     if abs(cs - ps) <= 5:
                         both.add(round((cs + ps) / 2 / 5) * 5)
 
+        # ── Regime / IV gate (May 2026 review fix) ────────────────────────
+        # Long straddles need realised-vol expansion: that means a catalyst
+        # OR a regime that produces large directional moves. RANGE_BOUND /
+        # TRANSITION / LOW_VOL with IVR < 30 is exactly the wrong setup —
+        # premium is cheap because the market is *not* expecting a move,
+        # and selling vol (not buying it) is the profitable side. Skip
+        # generation entirely unless a high-impact catalyst is imminent.
+        block_flag = getattr(c, "block_long_straddle_in_range_low_iv", True)
+        if block_flag and both:
+            quiet_regimes = {"RANGE_BOUND", "TRANSITION", "LOW_VOL"}
+            ext = context.external
+            event_imminent = bool(
+                ext is not None
+                and getattr(ext, "event_risk", False)
+                and getattr(ext, "event_minutes", 999.0) <= 60.0
+            )
+            if (
+                context.regime.regime in quiet_regimes
+                and context.iv_rank < 30
+                and not event_imminent
+            ):
+                logger.info(
+                    "Long-straddle gate: skipping {} candidate strike(s) — "
+                    "regime={}, IVR={:.0f}, no imminent catalyst → "
+                    "compressed-vol environment is unfavourable for long vol",
+                    len(both),
+                    context.regime.regime, context.iv_rank,
+                )
+                return []
+
         for strike in both:
             atm = chain.atm_strike(context.spy_price)
             # Straddle confidence: sentiment neutral is good (direction-agnostic)
@@ -2024,7 +2054,13 @@ class SignalEngine:
                 bid_size=0, ask_size=0,
                 reasoning=[
                     "Both call AND put volume spiking simultaneously",
-                    "Smart money buying both sides → large move expected",
+                    # Honest disclosure (May 2026 review fix): without
+                    # bid/ask aggressor data we cannot tell directional
+                    # conviction from MM hedging or short-straddle opening.
+                    "Direction ambiguous — could be MM hedging or short-straddle "
+                    "opening rather than long-vol conviction",
+                    "Profits require realised-vol expansion (catalyst or breakout); "
+                    "not sufficient on flow alone",
                     f"Total flow: {chain.total_call_volume + chain.total_put_volume:,} contracts",
                     f"Regime: {context.regime.regime}  IV rank: {context.iv_rank:.0f}",
                 ],

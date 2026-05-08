@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Reverse-DNS label that uniquely identifies this agent. -->
+    <key>Label</key>
+    <string>com.shree.trading-manager</string>
+
+    <!-- Run from the bot's repo directory so relative log/db paths resolve. -->
+    <key>WorkingDirectory</key>
+    <string>/Users/svss/Documents/code/ShreeBot</string>
+
+    <!-- Use the venv interpreter; falls back to system python3 if missing. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/svss/Documents/code/ShreeBot/.venv/bin/python3</string>
+        <string>/Users/svss/Documents/code/ShreeBot/run_trading_manager.py</string>
+    </array>
+
+    <!-- Start at user login and stay alive forever. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- If the process crashes, wait 30s before restarting (avoids tight crash
+         loops and gives any transient FS/network problem time to recover). -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- Background priority: never inflate CPU/IO above normal user work. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Logs go to the same logs/ dir the rest of the bot uses, but with a
+         _launchd_ suffix so they don't collide with the daemon's own log. -->
+    <key>StandardOutPath</key>
+    <string>/Users/svss/Documents/code/ShreeBot/logs/trading_manager_launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/svss/Documents/code/ShreeBot/logs/trading_manager_launchd.err.log</string>
+
+    <!-- Runtime configuration. Override here rather than re-editing the
+         daemon's config.py. The TM_ vars are read by ManagerConfig. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- Account equity: keep this in sync when the balance changes
+             materially. The TM uses it to compute risk caps. -->
+        <key>TM_ACCOUNT_EQUITY</key>
+        <string>4499.77</string>
+        <!-- Hard daily-loss percentage (0.03 = 3%). Mandate-driven. -->
+        <key>TM_DAILY_LOSS_PCT</key>
+        <string>0.03</string>
+        <!-- Set TM_DRY_RUN=1 to disable the SIGTERM kill-switch (logs only). -->
+        <key>TM_DRY_RUN</key>
+        <string>0</string>
+    </dict>
+</dict>
+</plist>

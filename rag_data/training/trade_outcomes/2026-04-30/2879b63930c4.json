@@ -1,0 +1,31 @@
+{
+  "trade_cycle_id": "2879b63930c4",
+  "symbol": "MES",
+  "contract": "MES",
+  "quantity": 1,
+  "side": "BUY",
+  "entry_time": "2026-04-30T04:00:41.897435-05:00",
+  "entry_price": 7166.25,
+  "exit_time": "2026-04-30T09:20:34.603815+00:00",
+  "exit_price": 7159.75,
+  "stop_loss": 7160.0,
+  "take_profit": 7175.0,
+  "signal_type": "BUY",
+  "signal_confidence": 0.7118139293147229,
+  "regime": "CHOP",
+  "volatility": "MEDIUM",
+  "advisory": null,
+  "risk_parameters": {
+    "distance_points": 6.25,
+    "target_points": 8.75
+  },
+  "features": {},
+  "execution_metrics": {
+    "slippage": 0.0,
+    "latency_ms": null,
+    "immediate_fill": false
+  },
+  "reason_codes": [],
+  "outcome": "LOSS",
+  "pnl": -33.74
+}

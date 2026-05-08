@@ -154,6 +154,10 @@ spy_options:
     enabled: true
     composite_confidence_boost: 0.05
 
+  rules_v2:
+    enabled: true
+    expected_move_gate_enabled: true
+
   telegram:
     enabled: true
     bot_token: "8252063184:AAHE_uiEcEqRaB1jfWvjGSjMsnbNfWluCfI"  # SPY options bot

@@ -40,8 +40,8 @@ trading:
   max_position_size: 1  # MAX 1 contract for automated MES trading
   max_contracts_limit: 1  # Hard safety cap - must match max_position_size
   contracts_per_order: 1  # Single contract per order only
-  max_daily_loss: 1000.0  # FEB 7 2026: Increased for 15m — backtest uses 1000; 15m has fewer, larger trades
-  max_daily_trades: 10    # FEB 7 2026: Reduced from 100 — 15m strategy makes ~3-4 trades/day, max 10
+  max_daily_loss: 135.0   # MAY 4 2026: Mandate 3% of $4499.77 equity. Was 1000 (22% of equity — way out of mandate). Trading Manager also enforces this externally.
+  max_daily_trades: 4     # MAY 4 2026: Tightened from 10. Mandate flags overtrading as a mistake pattern; 4 trades/day at 1-2% risk = 4-8% theoretical max swing.
   # max_consecutive_losses moved to risk_gate section below
   initial_capital: 5000.0     # FEB 7 2026: Actual MES account size
   

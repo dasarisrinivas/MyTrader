@@ -2369,7 +2369,41 @@ TRADING GUIDANCE:
             f"📍 Placing AWS AGENT order: {action} {quantity} @ ~{current_price:.2f} "
             f"(SL={stop_loss}, TP={take_profit})"
         )
-        
+
+        # MAY 8 2026: Trading Manager veto hook for the AWS_AGENT path.
+        # AWS Agents are currently disabled (OpenSearch backend not permitted)
+        # but if they're re-enabled this path must not bypass the TM gate.
+        # Only the latest_decision freshness fallback applies here — AWS path
+        # doesn't carry a per-signal ts on the decision dict.
+        try:
+            from ..trading_manager.decision_log import latest_decision
+            tm_path = "logs/manager_decisions.jsonl"
+            latest = latest_decision(tm_path)
+            if latest:
+                import time as _time
+                import datetime as _dt
+                tm_rec = None
+                try:
+                    latest_ts = _dt.datetime.fromisoformat(
+                        latest.get("ts", "")
+                    ).timestamp()
+                    if _time.time() - latest_ts <= 60:
+                        tm_rec = latest
+                except Exception:
+                    pass
+                if tm_rec and tm_rec.get("decision") == "REJECT":
+                    logger.warning(
+                        "🛡️  TRADING MANAGER VETO (AWS_AGENT): {} | reason: {}",
+                        tm_rec.get("decision"),
+                        str(tm_rec.get("reasoning", ""))[:200],
+                    )
+                    return
+        except Exception as _tm_err:
+            logger.error(
+                "Trading Manager veto hook error in _place_aws_agent_order "
+                "(fail-open): {}", _tm_err,
+            )
+
         try:
             metadata = self._prepare_order_metadata(
                 {"strategy_name": "aws_agents", "signal_source": "aws_agents"},
@@ -2514,12 +2548,75 @@ TRADING GUIDANCE:
     
     async def _place_hybrid_order(self, signal, pipeline_result, current_price: float, features):
         """Place an order using hybrid pipeline's risk parameters.
-        
+
         Uses stop loss and take profit from the pipeline result,
         which incorporates LLM suggestions and ATR-based calculations.
         """
         try:
             logger.info(f"🤖 HYBRID: Placing {signal.action} order")
+
+            # MAY 8 2026: Trading Manager veto hook for the HYBRID order path.
+            # Mirrors the hook in signal_processor.py:1660 — required because the
+            # hybrid path was previously bypassing the TM gate, allowing a 5/7
+            # trade ($-42.92) to execute despite the TM's REJECT verdict.
+            # Read the latest matching decision from logs/manager_decisions.jsonl
+            # and abort placement on REJECT. Fail-open if the file is unavailable
+            # or the daemon hasn't written a verdict yet (logged loudly so the
+            # operator notices).
+            try:
+                from ..trading_manager.decision_log import (
+                    latest_decision_for_signal_ts,
+                    latest_decision,
+                )
+                tm_path = "logs/manager_decisions.jsonl"
+                sig_meta_for_ts = signal.metadata if isinstance(
+                    getattr(signal, "metadata", None), dict
+                ) else {}
+                sig_ts = str(
+                    sig_meta_for_ts.get("ts")
+                    or sig_meta_for_ts.get("timestamp")
+                    or ""
+                )
+                tm_rec = None
+                if sig_ts:
+                    tm_rec = latest_decision_for_signal_ts(tm_path, sig_ts)
+                if tm_rec is None:
+                    # Fall back to most-recent decision if it's fresh (<60s old).
+                    latest = latest_decision(tm_path)
+                    if latest:
+                        import time as _time
+                        import datetime as _dt
+                        try:
+                            latest_ts = _dt.datetime.fromisoformat(
+                                latest.get("ts", "")
+                            ).timestamp()
+                            if _time.time() - latest_ts <= 60:
+                                tm_rec = latest
+                        except Exception:
+                            pass
+                if tm_rec and tm_rec.get("decision") == "REJECT":
+                    logger.warning(
+                        "🛡️  TRADING MANAGER VETO (HYBRID): {} | reason: {}",
+                        tm_rec.get("decision"),
+                        str(tm_rec.get("reasoning", ""))[:200],
+                    )
+                    return
+                if tm_rec and tm_rec.get("decision") == "MODIFY":
+                    logger.warning(
+                        "🛡️  TRADING MANAGER MODIFY (HYBRID, size-down TBD): {}",
+                        str(tm_rec.get("reasoning", ""))[:200],
+                    )
+                if tm_rec is None:
+                    logger.warning(
+                        "⚠️  Trading Manager decision not found for HYBRID signal — "
+                        "proceeding fail-open. Verify the TM daemon is running."
+                    )
+            except Exception as _tm_err:
+                # Never let the veto hook block trading on its own bug.
+                logger.error(
+                    "Trading Manager veto hook error in _place_hybrid_order "
+                    "(fail-open): {}", _tm_err,
+                )
 
             # Strict scalp intent mapping (Option B): allow upstream signals to remain BUY/SELL
             # and opt-in to SCALP_* execution behavior through metadata.is_scalp.

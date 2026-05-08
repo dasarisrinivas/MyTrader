@@ -1657,6 +1657,57 @@ class SignalProcessor:
             logger.info("Skipping trade ({})", decision.reason or "blocked")
             return
 
+        # MAY 4 2026: Trading Manager veto hook.
+        # The TM daemon (run_trading_manager.py) writes APPROVE/REJECT/MODIFY
+        # decisions to logs/manager_decisions.jsonl on each new SIGNAL row.
+        # We block the order if the latest manager decision matching this
+        # signal's timestamp is REJECT. Fail-open: if the TM is not running
+        # or no decision is found within a short window, we proceed but log
+        # loudly so the operator sees it.
+        try:
+            from ...trading_manager.decision_log import (
+                latest_decision_for_signal_ts,
+                latest_decision,
+            )
+            tm_path = "logs/manager_decisions.jsonl"
+            sig_meta_for_ts = signal.metadata if isinstance(signal.metadata, dict) else {}
+            sig_ts = str(sig_meta_for_ts.get("ts") or sig_meta_for_ts.get("timestamp") or "")
+            tm_rec = None
+            if sig_ts:
+                tm_rec = latest_decision_for_signal_ts(tm_path, sig_ts)
+            if tm_rec is None:
+                # Fall back to most-recent decision and check it's fresh (<60s old).
+                latest = latest_decision(tm_path)
+                if latest:
+                    import time as _time, datetime as _dt
+                    try:
+                        latest_ts = _dt.datetime.fromisoformat(latest.get("ts", "")).timestamp()
+                        if _time.time() - latest_ts <= 60:
+                            tm_rec = latest
+                    except Exception:
+                        pass
+            if tm_rec and tm_rec.get("decision") == "REJECT":
+                logger.warning(
+                    "🛡️  TRADING MANAGER VETO: %s | reason: %s",
+                    tm_rec.get("decision"),
+                    str(tm_rec.get("reasoning", ""))[:200],
+                )
+                return
+            if tm_rec and tm_rec.get("decision") == "MODIFY":
+                logger.warning(
+                    "🛡️  TRADING MANAGER MODIFY (downsizing handled by TM in future) | reason: %s",
+                    str(tm_rec.get("reasoning", ""))[:200],
+                )
+                # MVP: pass through; size-down logic to be wired in a follow-up.
+            if tm_rec is None:
+                logger.warning(
+                    "⚠️  Trading Manager decision not found for signal — proceeding fail-open. "
+                    "Verify the TM daemon is running."
+                )
+        except Exception as _tm_err:
+            # Never let the veto hook block trading on its own bug.
+            logger.error("Trading Manager veto hook error (fail-open): %s", _tm_err)
+
         logger.info("  ↳ Attempting to place order: {}", signal.action)
         await m._place_order(signal, current_price, features)
 

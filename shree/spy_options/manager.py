@@ -859,6 +859,40 @@ class SpyOptionsManager:
             # when the feature flag is off — sig.* fields remain at defaults.
             self._apply_edge_reality(sig)
 
+            # Red-edge suppression (May 2026 review fix). When net edge after
+            # costs is negative the signal is informational at best —
+            # emitting it at any confidence tier creates pressure to trade
+            # an edge-negative setup. The doc's Grade D rule says "do not
+            # trade" and we honor that. Toggle via cfg.signals.suppress_red_edge.
+            if (
+                sig.edge_color == "red"
+                and getattr(self._cfg.signals, "suppress_red_edge", True)
+            ):
+                logger.info(
+                    "Red-edge suppression: skipping {} {}{} "
+                    "(regime_wr={}, breakeven_wr={:.1f}, margin={:+.1f}%)",
+                    sig.signal_type.value, sig.strike, sig.right,
+                    sig.regime_wr, sig.breakeven_wr, sig.edge_margin,
+                )
+                continue
+
+            # MAY 4 2026: Trading Manager veto for SPY options.
+            # We write the candidate signal to logs/spy_signals.jsonl, wait up
+            # to ~2 seconds for the TM daemon to evaluate and write a verdict
+            # to logs/manager_decisions.jsonl, then proceed unless the verdict
+            # is REJECT. Fail-open: if the TM is not running, we log a
+            # warning and proceed.
+            try:
+                if not await self._tm_check_and_publish(sig):
+                    logger.warning(
+                        "🛡️  TRADING MANAGER VETO (SPY): {} {}{} {} — skipping dispatch",
+                        sig.signal_type.value, sig.right, sig.strike, sig.expiry,
+                    )
+                    continue
+            except Exception as _tm_err:
+                # Never let the veto hook block trading on its own bug.
+                logger.error("Trading Manager SPY veto hook error (fail-open): {}", _tm_err)
+
             await self._send_signal(sig)
             self._sent_times[key] = now
             seen_keys.add(key)
@@ -977,6 +1011,26 @@ class SpyOptionsManager:
 
         # SPY put-skew warning on bearish-direction signals
         sig.skew_warning = skew_warning(signal_type_str, right)
+
+        # ── Edge-aware tier cap ───────────────────────────────────────────
+        # The reviewer caught a real flaw: 83% EXTREME on a -3.2% red-edge
+        # signal. Confidence-tier label and edge-margin must agree. We never
+        # change ``sig.confidence`` — the numeric value preserves the model
+        # audit trail — only the displayed tier label is downgraded.
+        if getattr(self._cfg.signals, "cap_tier_on_amber_edge", True):
+            prior_tier = sig.confidence_tier
+            if sig.edge_color == "red" and sig.confidence_tier in ("HIGH", "EXTREME"):
+                sig.confidence_tier = "MEDIUM"
+            elif sig.edge_color == "amber" and sig.confidence_tier == "EXTREME":
+                sig.confidence_tier = "HIGH"
+            if sig.confidence_tier != prior_tier:
+                logger.info(
+                    "Edge-aware tier cap: {} {}{} downgraded {} → {} "
+                    "(edge_color={}, margin={:+.1f}%)",
+                    sig.signal_type.value, sig.strike, sig.right,
+                    prior_tier, sig.confidence_tier,
+                    sig.edge_color, sig.edge_margin,
+                )
 
     # ── Exit monitoring ──────────────────────────────────────────────────────
 
@@ -1327,8 +1381,176 @@ class SpyOptionsManager:
         SignalType.LONG_STRADDLE:    "⚡",
         SignalType.HIGH_IV_ALERT:    "📈",
         SignalType.PC_RATIO_EXTREME: "⚖️",
-        SignalType.ORB_BREAKOUT:     "📐",
+        SignalType.ORB_BREAKOUT:          "📐",
+        SignalType.TREND_CONTINUATION:    "🔄",
     }
+
+    # ── OptionsEdge-inspired named pattern classifier ──────────────────────────
+    @staticmethod
+    def _classify_named_pattern(
+        signal_type: SignalType,
+        right: str,
+        orb_status: str,
+        vwap_band: str,
+        regime: str,
+    ) -> str:
+        """Map live signal context to one of the 13 named price patterns.
+
+        Pattern names match OptionsEdge taxonomy (PDH Reclaim, ORB Long, etc.)
+        so Telegram readers have an immediately recognisable setup label.
+        Pure price-structure inference from already-computed state — no extra
+        data fetches required.
+        """
+        # ORB / TREND_CONTINUATION — always ORB-family
+        if signal_type in (SignalType.ORB_BREAKOUT, SignalType.TREND_CONTINUATION):
+            return "ORB Long" if right == "C" else "ORB Short"
+
+        is_bullish = right == "C" or signal_type in (
+            SignalType.CALL_SWEEP, SignalType.BULL_CALL_SPREAD
+        )
+        is_bearish = right == "P" or signal_type in (
+            SignalType.PUT_SWEEP, SignalType.BEAR_PUT_SPREAD
+        )
+
+        if is_bullish:
+            # Price is already above the opening range → ORB continuation
+            if orb_status == "ABOVE_ORB":
+                return "ORB Long"
+            # Price was below VWAP and is now recovering → VWAP Reclaim
+            if vwap_band in ("BELOW_1SD", "BELOW_2SD"):
+                return "VWAP Reclaim"
+            # Price is extended above VWAP in trend regime → PDH Reclaim
+            if vwap_band in ("ABOVE_1SD", "ABOVE_2SD") and "TREND" in regime:
+                return "PDH Reclaim"
+            # Default bullish sweep at/near VWAP
+            return "VWAP Reclaim"
+
+        if is_bearish:
+            # Price broke below the opening range → ORB Short
+            if orb_status == "BELOW_ORB":
+                return "ORB Short"
+            # Price was above VWAP and is now failing → VWAP Rejection
+            if vwap_band in ("ABOVE_1SD", "ABOVE_2SD"):
+                return "VWAP Rejection"
+            # Price below VWAP in downtrend → PDL Breakdown
+            if vwap_band in ("BELOW_1SD", "BELOW_2SD") and "TREND" in regime:
+                return "PDL Breakdown"
+            # Default bearish sweep at/near VWAP
+            return "VWAP Rejection"
+
+        return ""
+
+    # ── DTE recommendation match helper ───────────────────────────────────────
+    @staticmethod
+    def _dte_rec_matches_actual(dte_rec_label: str, actual_dte: int) -> bool:
+        """True when the actual contract DTE falls inside the recommended band.
+
+        Parses labels like "0 DTE", "0-1 DTE", "1-2 DTE", "0-1 DTE" and
+        returns True iff ``actual_dte`` is within the parsed inclusive range.
+        Empty / unparseable labels return True (don't false-alarm).
+        """
+        import re
+        if not dte_rec_label or actual_dte < 0:
+            return True
+        nums = [int(n) for n in re.findall(r"\d+", dte_rec_label)]
+        if not nums:
+            return True
+        lo, hi = min(nums), max(nums)
+        return lo <= actual_dte <= hi
+
+    # ── DTE recommendation (mirrors OptionsEdge computeDTERec) ────────────────
+    @staticmethod
+    def _dte_recommendation(
+        iv_rank: float,
+        now_et: Optional[datetime] = None,
+    ) -> "tuple[str, str]":
+        """Return (recommended_dte_label, reason_str) for the current environment.
+
+        Factors: session phase (time of day) and IV Rank.
+        Matches OptionsEdge Layer 5 DTE optimisation logic.
+        """
+        if now_et is None:
+            now_et = datetime.now(ET)
+        t = now_et.time()
+
+        # Power hour: 0DTE decays exponentially after 3 PM — step up to 1 DTE
+        if time(15, 0) <= t < time(16, 0):
+            return (
+                "1-2 DTE",
+                "After 3 PM — 0DTE exponential theta kill. 1 DTE preserves value overnight.",
+            )
+        # Very high IV: premium is severely overpriced → shorter DTE to cut vega
+        if iv_rank > 65:
+            return (
+                "1-2 DTE",
+                f"IV Rank {iv_rank:.0f} — premium overpriced. 1-2 DTE cuts vega exposure ~40%.",
+            )
+        # Elevated IV in afternoon: 1 DTE if target is far
+        if iv_rank > 40 and time(13, 0) <= t < time(15, 0):
+            return (
+                "0-1 DTE",
+                f"Mid-session + elevated IV Rank {iv_rank:.0f}. Use 1 DTE if target > 1 ATR away.",
+            )
+        # Prime-time with normal IV: 0DTE is ideal for directional leverage
+        if time(9, 45) <= t < time(11, 30):
+            return (
+                "0 DTE",
+                "Prime-time + normal IV — 0DTE maximises directional leverage.",
+            )
+        return (
+            "0-1 DTE",
+            "Standard session window — 0DTE if within 2 hrs of entry, else 1 DTE.",
+        )
+
+    # ── Event-specific action guidance ───────────────────────────────────────
+    @staticmethod
+    def _event_action_guidance(
+        event_title: str,
+        event_minutes: float,
+        right: str,
+    ) -> str:
+        """Return specific, actionable text for a known high-impact event type.
+
+        Replaces the generic 'EVENT RISK in X min' with the same kind of
+        explicit pre-trade instruction a professional desk would issue —
+        matching the OptionsEdge TODAY_EVENTS guidance approach.
+        """
+        title_up = event_title.upper()
+        direction_word = "CALL" if right == "C" else "PUT" if right == "P" else "option"
+        close_min = max(0, int(event_minutes - 30))
+
+        if "FOMC" in title_up or "INTEREST RATE" in title_up or "FED DECISION" in title_up:
+            return (
+                f"IV will CRUSH immediately post-announcement — direction irrelevant. "
+                f"Close ALL option longs within {close_min} min (30 min before event). "
+                "Long vega into FOMC = donating premium."
+            )
+        if any(k in title_up for k in ("CPI", "INFLATION", "PPI", "PCE")):
+            return (
+                "Expect IV spike into release then immediate crush post-print. "
+                "Spread structures preferred over naked options today."
+            )
+        if any(k in title_up for k in ("NFP", "NON-FARM", "PAYROLL", "JOBS REPORT")):
+            return (
+                "Gap risk is highest on NFP days. "
+                "Reduce size 50% or use debit spread to cap IV-crush exposure."
+            )
+        if any(k in title_up for k in ("EARNINGS", "EPS", "RESULTS")):
+            return (
+                f"Earnings IV will crush 40-60%% post-release. "
+                f"Buying {direction_word}s today = owning IV that evaporates at the close. "
+                "This event may OVERRIDE the signal — reconsider before entering."
+            )
+        if any(k in title_up for k in ("OPEX", "EXPIR", "TRIPLE WITCH", "QUAD WITCH")):
+            return (
+                "Options expiration day — max pain pinning is strongest. "
+                "Gamma risk is extreme on 0DTE near the max pain strike."
+            )
+        # Generic high-impact fallback
+        return (
+            f"High-impact event in {event_minutes:.0f} min — "
+            "consider reducing size by 50% or waiting for post-event price clarity."
+        )
 
     _TIER_LABEL = {
         "MEDIUM":  "MEDIUM",
@@ -1340,7 +1562,24 @@ class SpyOptionsManager:
         emoji = self._TYPE_EMOJI.get(sig.signal_type, "📊")
         conf_pct = int(sig.confidence * 100)
         tier_label = self._TIER_LABEL.get(sig.confidence_tier, sig.confidence_tier)
-        now_et = datetime.now(ET).strftime("%H:%M ET")
+        now_et_dt = datetime.now(ET)
+        now_et = now_et_dt.strftime("%H:%M ET")
+
+        # ── OptionsEdge-inspired context helpers ───────────────────────────
+        named_pattern = self._classify_named_pattern(
+            sig.signal_type,
+            sig.right,
+            getattr(self, "_last_orb_status", "BUILDING"),
+            getattr(self, "_last_vwap_band", "INSIDE_1SD"),
+            sig.regime,
+        )
+        dte_rec, dte_reason = self._dte_recommendation(sig.iv_rank, now_et_dt)
+
+        # Power Hour 0DTE size warning flag
+        _is_power_hour_0dte = (
+            sig.dte == 0
+            and time(15, 0) <= now_et_dt.time() < time(16, 0)
+        )
 
         # Format expiry: "Apr 17, 2026 (16 DTE)" if date available, else "APR26"
         if sig.expiry_date:
@@ -1362,6 +1601,36 @@ class SpyOptionsManager:
             contract_line,
             f"💰 SPY: <b>${sig.spy_price:.2f}</b>",
         ]
+
+        # Named pattern (OptionsEdge taxonomy) + DTE recommendation
+        if named_pattern:
+            lines.append(f"📋 Pattern: <b>{named_pattern}</b>")
+
+        # ── DTE recommendation vs actual contract DTE ──────────────────────
+        # Reviewer caught a real bug: signal showed "Rec DTE: 0 DTE" while
+        # the actual contract was 23 DTE. They are different trades — 0DTE
+        # is a high-gamma intraday breakout play, 23DTE is a vol-expansion
+        # play with much slower theta. Flag the mismatch loudly so the
+        # trader knows the pricing model assumed in the recommendation does
+        # not match the contract that triggered.
+        dte_rec_match = self._dte_rec_matches_actual(dte_rec, sig.dte)
+        if dte_rec_match or sig.dte == 0:
+            # Match (or 0DTE-on-0DTE) — show as before.
+            lines.append(
+                f"📅 Rec DTE: <b>{dte_rec}</b>  "
+                f"<i>({_html.escape(dte_reason)})</i>"
+            )
+        else:
+            lines.append(
+                f"⚠️ <b>DTE mismatch</b>: contract is "
+                f"<b>{sig.dte} DTE</b> but optimal is <b>{dte_rec}</b>  "
+                f"<i>({_html.escape(dte_reason)})</i>"
+            )
+            lines.append(
+                "  <i>This is a different trade type than the model assumes — "
+                "longer-dated = lower gamma but slower theta and bigger move "
+                "needed; size accordingly.</i>"
+            )
 
         if sig.vix is not None:
             iv_tag = (
@@ -1442,8 +1711,13 @@ class SpyOptionsManager:
         # ── Power Hour gamma + theta warning ──────────────────────────────
         # Only fires when gamma_accel_mult > 1.0 (i.e. 0DTE inside last 2 hrs)
         # OR when hourly theta is consequential (>$5/hr per contract).
-        if sig.gamma_warning_active or sig.hourly_theta_dollars > 5.0:
+        if sig.gamma_warning_active or sig.hourly_theta_dollars > 5.0 or _is_power_hour_0dte:
             lines += ["", "<b>⏳ Power Hour Risk:</b>"]
+            if _is_power_hour_0dte:
+                lines.append(
+                    "  🚨 <b>0DTE POWER HOUR — REDUCE SIZE 50%.</b> "
+                    "Gamma convexity is extreme: small SPY moves cause outsized premium swings."
+                )
             if sig.gamma_warning_active:
                 lines.append(
                     f"  💥 Effective Γ: <b>{sig.effective_gamma:.4f}</b> "
@@ -1589,12 +1863,17 @@ class SpyOptionsManager:
         if sig.conflict_detected:
             lines.append("⚡ <b>Conflicting signals detected</b> — reduced conviction")
 
-        # Event risk warning
+        # Event risk — specific actionable guidance per event type
         if sig.event_risk:
-            lines.append(
-                f"⚠️ <b>EVENT RISK</b>: {_html.escape(sig.next_event_title)} "
-                f"in <b>{sig.event_minutes:.0f} min</b>"
+            event_guidance = self._event_action_guidance(
+                sig.next_event_title, sig.event_minutes, sig.right
             )
+            lines += [
+                "",
+                f"🚨 <b>EVENT RISK: {_html.escape(sig.next_event_title)}</b> "
+                f"in <b>{sig.event_minutes:.0f} min</b>",
+                f"  ⚡ {_html.escape(event_guidance)}",
+            ]
         elif sig.next_event_title and sig.event_minutes < 120:
             lines.append(
                 f"📅 Next event: {_html.escape(sig.next_event_title)} "
@@ -1658,3 +1937,105 @@ class SpyOptionsManager:
             sig.confidence_tier, sig.regime,
         )
         await self._telegram.send_message(msg)
+
+    async def _tm_check_and_publish(self, sig: SpySignal) -> bool:
+        """Publish candidate to logs/spy_signals.jsonl and check the Trading
+        Manager's verdict from logs/manager_decisions.jsonl.
+
+        Returns:
+            True if the manager APPROVED, MODIFIED, or could not be reached
+                (fail-open).
+            False if the manager explicitly REJECTED.
+        """
+        import asyncio
+        import json
+        import os
+        from datetime import datetime, timezone
+
+        # Build a stable signal_id that the manager uses to write its verdict.
+        ts_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        signal_id = f"{sig.dedup_key}:{sig.expiry}:{ts_iso}"
+
+        spy_jsonl = os.environ.get("TM_SPY_SIGNALS_FILE", "logs/spy_signals.jsonl")
+        decisions_jsonl = os.environ.get("TM_MANAGER_FILE", "logs/manager_decisions.jsonl")
+
+        rec = {
+            "ts": ts_iso,
+            "kind": "spy_signal",
+            "signal_id": signal_id,
+            "signal_type": sig.signal_type.value,
+            "strike": float(sig.strike),
+            "right": sig.right,
+            "expiry": sig.expiry,
+            "expiry_date": sig.expiry_date,
+            "dte": int(sig.dte or 0),
+            "confidence": float(sig.confidence or 0.0),
+            "confidence_tier": sig.confidence_tier,
+            "spy_price": float(sig.spy_price or 0.0),
+            "vix": float(sig.vix or 0.0) if sig.vix is not None else 0.0,
+            "iv_rank": float(sig.iv_rank or 0.0),
+            "regime": sig.regime,
+            "delta": float(sig.delta or 0.0),
+            "gamma": float(sig.gamma or 0.0),
+            "theta": float(sig.theta or 0.0),
+            "vega": float(sig.vega or 0.0),
+            "impl_vol": float(sig.impl_vol or 0.0),
+            "bid": float(sig.bid or 0.0),
+            "ask": float(sig.ask or 0.0),
+            "spread_pct": float(sig.spread_pct or 0.0),
+            "volume": int(sig.volume or 0),
+            "open_interest": int(sig.open_interest or 0),
+            "sentiment_label": sig.sentiment_label,
+            "sentiment_score": float(sig.sentiment_score or 0.0),
+            "reasoning": list(sig.reasoning or []),
+            "suggested_trade": sig.suggested_trade,
+        }
+
+        try:
+            os.makedirs(os.path.dirname(spy_jsonl) or ".", exist_ok=True)
+            with open(spy_jsonl, "a") as f:
+                f.write(json.dumps(rec) + "\n")
+        except Exception as exc:
+            logger.warning("TM publish failed (fail-open): {}", exc)
+            return True
+
+        # Poll for the manager verdict for up to 2.5s (TM polls every 1s).
+        try:
+            from ..trading_manager.decision_log import latest_decision_by_signal_id
+        except ImportError as exc:
+            logger.warning("TM module not importable (fail-open): {}", exc)
+            return True
+
+        deadline = asyncio.get_event_loop().time() + 2.5
+        verdict = None
+        while asyncio.get_event_loop().time() < deadline:
+            verdict = latest_decision_by_signal_id(decisions_jsonl, signal_id)
+            if verdict is not None:
+                break
+            await asyncio.sleep(0.2)
+
+        if verdict is None:
+            logger.warning(
+                "⚠️  Trading Manager decision not found for {} — proceeding fail-open. "
+                "Verify the TM daemon is running.",
+                signal_id,
+            )
+            return True
+
+        decision = (verdict.get("decision") or "").upper()
+        reasoning = str(verdict.get("reasoning", ""))[:200]
+        if decision == "REJECT":
+            logger.warning(
+                "🛡️  TM REJECT: {} | {}",
+                signal_id, reasoning,
+            )
+            return False
+        if decision == "MODIFY":
+            logger.warning(
+                "🛡️  TM MODIFY (size-down handled by TM in future): {} | {}",
+                signal_id, reasoning,
+            )
+            return True
+        # APPROVE or unknown → proceed
+        logger.info("🛡️  TM {}: {}", decision or "APPROVE", reasoning)
+        return True

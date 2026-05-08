@@ -123,6 +123,28 @@ class SpyOptionsSignalConfig:
     # because the manager does not re-snapshot Greeks per poll.
     iv_adjusted_premium_stop_enabled: bool = True
 
+    # ── Edge-aware dispatch gates (May 2026 — feedback fix) ──────────────
+    # The Edge Reality system was honest enough to compute a -3.2% net edge
+    # but the dispatch path still emitted the signal at EXTREME tier. These
+    # flags align the *action* with the *math*:
+    #
+    #   suppress_red_edge: drop the signal entirely when edge_color == "red"
+    #     (i.e. regime-adjusted WR < break-even WR). Equivalent to the doc's
+    #     "Grade D = do not trade" rule. Default ON.
+    #
+    #   cap_tier_on_amber_edge: prevent EXTREME tier when edge_color is
+    #     "amber" (thin edge, 0–5%) and HIGH/EXTREME when red. The numeric
+    #     confidence is left untouched so the audit trail is preserved —
+    #     only the displayed *tier* is capped.  Default ON.
+    suppress_red_edge: bool = True
+    cap_tier_on_amber_edge: bool = True
+
+    # Long-straddle gate: block LONG_STRADDLE generation in RANGE_BOUND /
+    # TRANSITION / LOW_VOL regimes with IVR < 30 unless a high-impact
+    # catalyst is within 60 min. Long straddles need realised-vol expansion
+    # — exactly the wrong setup in compressed-vol regimes.  Default ON.
+    block_long_straddle_in_range_low_iv: bool = True
+
 
 @dataclass
 class SpyOptionsSessionConfig:
