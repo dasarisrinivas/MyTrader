@@ -528,7 +528,18 @@ one_minute:
   # TP=8pts — hits in ~55-60% of sessions (above median 8.2)
   #   R:R = 8/5 = 1.6:1
   #   Max 1 per day (first impulse only)
-  ft_london_enabled: true             # ✅ ENABLE London momentum signal
+  # MAY 12 2026 FIX #2: Disable Signal G (LONDON_MOMENTUM).
+  # Reason: live data Feb 18 - May 7 2026 showed the London session as the
+  # worst session by per-trade expectancy:
+  #   * LONDON: n=10, 10% WR, -$246.26 (-$24.63/trade)
+  # Signal G itself specifically: n=3, 33% WR, -$27.71 across 3 trades.
+  # The bigger issue is that Signal G bypasses the entry-window gate set
+  # in Fix #1 — it is checked at es_fifteen_min.py:621 BEFORE the gate.
+  # So even with Fix #1 restricting entries to 9:30-16:00 ET, Signal G
+  # would still fire during 02:00-05:00 CT (= 03:00-06:00 ET overnight).
+  # Disabling here closes that bypass.  Re-enable only with a documented
+  # London-specific backtest showing positive expectancy.
+  ft_london_enabled: false            # ❌ DISABLED (Fix #2, May 12 2026)
   ft_london_start_hour: 2             # London window start (CT) — 8 AM GMT
   ft_london_start_minute: 0
   ft_london_end_hour: 5               # London window end (CT) — 11 AM GMT
@@ -539,20 +550,49 @@ one_minute:
   ft_london_tp_points: 8.0            # TP ($40) — ~55-60% hit rate (above median 8.2pt move); R:R 1.6:1
   ft_london_max_per_day: 1            # First impulse only — don't chase
 
-  # FEB 18 2026: 24-HOUR TRADING — entry window and RTH gate DISABLED
-  # CME ES/MES trades Sun 5PM CT - Fri 4PM CT (24h except 4-5 PM CT maintenance)
-  # Maintenance window is enforced separately by RiskGate + is_market_hours_cst()
-  # Setting both windows to 0:00-23:59 ET so strategy never blocks on time alone.
-  ft_entry_start_hour: 0              # 24h: midnight ET
-  ft_entry_start_minute: 0
-  ft_entry_end_hour: 23               # 24h: 11 PM ET (exclusive → covers through 22:59)
-  ft_entry_end_minute: 59
+  # MAY 12 2026 FIX #1: Restore entry window to RTH only (9:30-16:00 ET).
+  # Reason: live data Feb 18 - May 7 2026 (n=56) showed:
+  #   * 21 non-RTH trades (LONDON + OVERNIGHT): 9.5% WR, -$776
+  #   * 12 early/late RTH trades (9:30-10:59, 15:xx): 42% WR, +$28
+  #   * 23 midday RTH trades (11:00-14:59): 22% WR, -$601
+  # The early-RTH bucket (9:30-10:59) was the strongest pocket — 45% WR,
+  # +$68 over 11 trades, including BOTH TREND_CONT_LONG winners (+$238).
+  # The Feb 18 2026 "24-hour trading" change opened the bot to sessions
+  # the backtest never validated; this restores RTH-only operation.
+  # NOTE: the es_fifteen_min.py inline comment cites 11:00-14:59 as the
+  # sweet spot based on an old backtest — live data contradicts this,
+  # so we use full RTH instead.
+  # NOTE: Signal G (LONDON_MOMENTUM) bypasses this gate; addressed in Fix #2.
+  # NOTE: rth_start/end_hour below still wrong (midnight) — Fix #3 will
+  # restore them so OR computes from 9:30-10:00 ET as designed.
+  ft_entry_start_hour: 9              # 9:30 ET — RTH open
+  ft_entry_start_minute: 30
+  ft_entry_end_hour: 16               # 16:00 ET (exclusive → covers through 15:59)
+  ft_entry_end_minute: 0
   
-  # RTH gate — widened to full 24h (maintenance blocked by RiskGate separately)
-  rth_start_hour: 0                   # 24h: midnight ET
-  rth_start_minute: 0
-  rth_end_hour: 23                    # 24h: 11 PM ET
-  rth_end_minute: 59
+  # MAY 12 2026 FIX #3: Restore RTH window to 9:30-16:00 ET (the strategy's
+  # original design).  These values control TWO things in es_fifteen_min.py:
+  #   1. The Opening Range collection window — first ft_or_minutes (30) of
+  #      "RTH".  With rth_start_hour=0, the OR was being computed from
+  #      00:00-00:30 ET every day (= 23:00-23:30 CT), so the OR_HIGH/OR_LOW
+  #      used by Signals B/E (OR_BREAK_LONG/SHORT) and by the TREND_CONT
+  #      exhaustion guard was meaningless overnight noise.  Live data shows
+  #      OR_BREAK_LONG  n=5, 0% WR, -$197 ;  OR_BREAK_SHORT n=8, 12.5%, -$248.
+  #      Hypothesis: a properly-placed OR will fix these signals or at least
+  #      stop them being random.
+  #   2. The "Must be within RTH" gate at line 658 of es_fifteen_min.py.
+  #      Currently 00:00-23:59 (no-op).  Restoring to 9:30-16:00 makes this
+  #      gate enforce RTH — redundant with Fix #1 (entry-window 9:30-16:00 ET)
+  #      but the architecturally-correct behavior.  No behavioral regression.
+  # NOTE: _core_rth_start/_core_rth_end (hardcoded time(9,30)/time(16,0) at
+  # es_fifteen_min.py:318-319) was already correct, so overnight detection
+  # for SL/TP scaling, ATR floors, and EMA21_PB per-session counters has
+  # been quietly working from those.  Fix #3 affects ONLY the OR window
+  # and the redundant RTH gate.
+  rth_start_hour: 9                   # RTH open (ET) — restored from 0
+  rth_start_minute: 30
+  rth_end_hour: 16                    # RTH close (ET) — restored from 23
+  rth_end_minute: 0
   # MES lunch hour is the lowest-quality window for trend entries.
   # Require higher scores to enter during this period.
   scoring_lunch_full_threshold: 72.0     # Lunch: Require strong conviction for full size

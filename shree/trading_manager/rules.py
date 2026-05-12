@@ -463,11 +463,14 @@ def evaluate(
             posture_after=POSTURE_DEFENSIVE if in_soft_pause else posture_after,
         )
 
-    # Clean signal — but if we're in soft pause, force small size + DEFENSIVE
+    # Clean signal — but if we're in soft pause OR probation, force small size
     size = _position_size_label(sig, state, cfg)
     if in_soft_pause:
         size = "small"
         posture_after = POSTURE_DEFENSIVE
+    if state.posture == POSTURE_PROBATION:
+        size = "small"
+        posture_after = POSTURE_PROBATION  # preserved, awaiting outcome
     return Decision(
         decision="APPROVE",
         confidence=85,
@@ -567,6 +570,57 @@ def evaluate_spy(
             checks=[("kill_switch_active", False, "POSTURE=KILLED")],
             posture_after=POSTURE_KILLED,
         )
+
+    # Layer 1.5: LOCKED — multi-day strategy failure (health module verdict).
+    if state.posture == POSTURE_LOCKED:
+        return Decision(
+            decision="REJECT",
+            confidence=100,
+            position_size="small",
+            reasoning=(
+                "🔒 LOCKED — multi-day strategy/regime failure detected. "
+                f"Reason: {state.lock_reason or '(see health log)'}. "
+                "Run `python -m shree.trading_manager.unlock` to enter probation."
+            ),
+            risk_notes=f"Locked since {state.lock_since}. Triggers: {state.health_triggers}",
+            override=True,
+            checks=[("posture_locked", False, str(state.health_triggers))],
+            posture_after=POSTURE_LOCKED,
+        )
+
+    # Layer 1.5: PROBATION — 1 small probe trade allowed, requires >= 0.85 conf.
+    if state.posture == POSTURE_PROBATION:
+        if state.probation_trade_count >= 1:
+            return Decision(
+                decision="REJECT",
+                confidence=95,
+                position_size="small",
+                reasoning=(
+                    "Probation already used (1 probe trade pending evaluation). "
+                    "Wait for outcome before next SPY entry."
+                ),
+                risk_notes="Probation: only 1 probe allowed at a time.",
+                override=True,
+                checks=[("probation_already_used", False,
+                         f"count={state.probation_trade_count}")],
+                posture_after=POSTURE_PROBATION,
+            )
+        if sig.confidence < 0.85:
+            return Decision(
+                decision="REJECT",
+                confidence=85,
+                position_size="small",
+                reasoning=(
+                    f"PROBATION: SPY probe trade requires >= 0.85 confidence "
+                    f"(have {sig.confidence:.2f}). Wait for an A++ setup."
+                ),
+                risk_notes="Probation: a single losing probe sends us back to LOCKED.",
+                override=True,
+                checks=[("probation_high_conf_only", False, f"conf={sig.confidence:.2f}")],
+                posture_after=POSTURE_PROBATION,
+            )
+        # Fall through — signal continues through normal evaluation but the
+        # outcome will be evaluated by manager._check_probation_outcome.
 
     if state.realized_pnl_today <= -cfg.daily_loss_hard_dollars:
         return Decision(
@@ -839,6 +893,9 @@ def evaluate_spy(
     if in_soft_pause:
         size = "small"
         posture_after = POSTURE_DEFENSIVE
+    if state.posture == POSTURE_PROBATION:
+        size = "small"
+        posture_after = POSTURE_PROBATION  # preserved, awaiting outcome
     return Decision(
         decision="APPROVE",
         confidence=int(round(min(95.0, 60.0 + 35.0 * sig.confidence))),
