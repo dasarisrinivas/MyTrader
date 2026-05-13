@@ -214,6 +214,15 @@ class TradingSessionManager:
             
             await m._bootstrap_price_history(m.status.min_bars_needed)
 
+            # MAY 13 2026: Prime HTF 30m trend at startup so the filter is
+            # active immediately — avoids UNKNOWN blind window until first
+            # bar close (~15 min after restart).
+            try:
+                await m._refresh_htf_30m_trend()
+                logger.info(f"✅ HTF 30m trend primed at startup: {m._htf_30m_trend}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"⚠️  HTF 30m startup prime failed (non-fatal): {exc}")
+
             if m.executor and m.executor.ib:
                 m.executor.ib.execDetailsEvent += m._on_execution_details
 
