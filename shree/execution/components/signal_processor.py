@@ -1469,6 +1469,19 @@ class SignalProcessor:
             await m._broadcast_status()
             return
 
+        # MAY 12 2026 FIX #5: Inject HTF (30m) trend into features.attrs so
+        # the strategy can apply a counter-trend block.  Pandas .attrs is
+        # preserved through copy/iloc/index ops, so this survives the trip
+        # into engine.generate(features) → strategy.generate(features).
+        try:
+            features.attrs["htf_30m_trend"] = getattr(m, "_htf_30m_trend", "UNKNOWN")
+            features.attrs["htf_30m_close"] = (
+                m._htf_30m_closes[-1] if getattr(m, "_htf_30m_closes", []) else None
+            )
+            features.attrs["htf_30m_ema"] = getattr(m, "_htf_30m_ema_value", None)
+        except Exception:
+            pass
+
         # === INJECT VX FUTURES PRICE INTO FEATURES ===
         # This allows the hybrid pipeline to use real-time VX for regime detection
         # NOTE: This is ADDITIVE - it doesn't replace existing sentiment/indicator logic

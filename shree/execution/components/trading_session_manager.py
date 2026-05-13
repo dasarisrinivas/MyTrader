@@ -280,6 +280,14 @@ class TradingSessionManager:
                     current_price = float(new_bar["close"])
                     m.status.current_price = current_price
 
+                    # MAY 12 2026 FIX #5: Refresh HTF (30m) trend from IB.
+                    # Internally rate-limited (default 60s), so calling on
+                    # every bar is cheap and keeps the trend fresh.
+                    try:
+                        await m._refresh_htf_30m_trend()
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"HTF 30m refresh skipped (non-fatal): {exc}")
+
                     if len(m.price_history) < m.status.min_bars_needed:
                         m.status.message = f"Collecting {tf_label} data: {len(m.price_history)}/{m.status.min_bars_needed} bars"
                         logger.info(m.status.message)

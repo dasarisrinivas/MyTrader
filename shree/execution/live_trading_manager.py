@@ -396,6 +396,16 @@ class LiveTradingManager:
         self.price_history: List[Dict] = []
         self.running = False
         self._last_price_bar_ts: Optional[datetime] = None
+        # MAY 12 2026 FIX #5: Higher-timeframe (30m) trend filter state.
+        # Populated by _refresh_htf_30m_trend() polling IB for native 30m bars.
+        # Read by signal_processor and injected into features.attrs for the
+        # strategy to apply a counter-trend block.
+        self._htf_30m_closes: List[float] = []          # rolling close history
+        self._htf_30m_last_bar_ts: Optional[datetime] = None
+        self._htf_30m_last_fetch_ts: Optional[datetime] = None
+        self._htf_30m_trend: str = "UNKNOWN"            # "UP" / "DOWN" / "NEUTRAL" / "UNKNOWN"
+        self._htf_30m_ema_value: Optional[float] = None
+        self._htf_30m_ema_prev: Optional[float] = None  # for slope detection
         self._trade_timestamps: List[datetime] = []
         self.stop_requested = False
         self._trade_time_lock = threading.Lock()
@@ -1160,6 +1170,131 @@ TRADING GUIDANCE:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Latest 15m bar fetch FAILED: {exc}")
             return None
+
+    # ------------------------------------------------------------------
+    #  MAY 12 2026 FIX #5: Higher-timeframe (30m) trend filter
+    # ------------------------------------------------------------------
+    async def _fetch_latest_30m_bars(self, limit: int = 50) -> Optional[List[Any]]:
+        """Fetch the most recent 30-minute bars from IBKR (native 30m).
+
+        Used by Fix #5 to compute a higher-timeframe trend that gates
+        counter-trend signals from the 15m strategy.  IBKR provides
+        native 30m bars — we don't resample 15m to 30m because IB's
+        native aggregation aligns to the exchange's session boundaries
+        and is the source of truth for 30m closes.
+        """
+        if not self.executor or not self.executor.ib:
+            return None
+        try:
+            contract = await self.executor.get_qualified_contract()
+            # Request enough history to compute a stable EMA(20).
+            # 50 bars * 30m = 25 hours; safer to request '3 D' to absorb
+            # weekends / holidays / partial-fill bootstrapping.
+            bars = await self.executor.ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime="",
+                durationStr="3 D",
+                barSizeSetting="30 mins",
+                whatToShow="TRADES",
+                useRTH=False,                # match 15m strategy convention
+                formatDate=2,
+            )
+            if not bars:
+                return None
+            return list(bars)[-limit:]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"30m bar fetch failed (non-fatal): {exc}")
+            return None
+
+    async def _refresh_htf_30m_trend(self) -> None:
+        """Fetch latest 30m bars and recompute the HTF trend.
+
+        Rate-limited: only fetches if last successful fetch was > 60s ago.
+        Maintains a rolling buffer of closes and computes EMA(20).
+        Trend = UP   if close > EMA AND EMA slope positive
+                DOWN if close < EMA AND EMA slope negative
+                NEUTRAL otherwise
+        """
+        # Skip if HTF filter is disabled in config
+        cfg = self.one_minute_cfg
+        if cfg is None:
+            return
+        if not bool(getattr(cfg, "ft_htf_filter_enabled", True)):
+            return
+
+        # Rate limit
+        now = now_cst()
+        interval_s = int(getattr(cfg, "ft_htf_refresh_interval_s", 60) or 60)
+        if (self._htf_30m_last_fetch_ts is not None
+                and (now - self._htf_30m_last_fetch_ts).total_seconds() < interval_s):
+            return
+
+        bars = await self._fetch_latest_30m_bars(limit=60)
+        if not bars or len(bars) < 5:
+            return
+
+        # Extract closes.  Use the LATEST COMPLETED bar — drop the in-progress
+        # last bar by checking timestamp continuity (IB returns only completed
+        # bars when endDateTime="" in most cases, but be defensive).
+        closes: List[float] = []
+        for b in bars:
+            c = getattr(b, "close", None)
+            if c is not None:
+                try:
+                    closes.append(float(c))
+                except (TypeError, ValueError):
+                    pass
+        if len(closes) < 5:
+            return
+
+        # Track the latest bar timestamp — used for staleness reporting
+        last_b = bars[-1]
+        ts = getattr(last_b, "date", None)
+        try:
+            if isinstance(ts, datetime):
+                bar_ts = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+            elif isinstance(ts, str):
+                bar_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            else:
+                bar_ts = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            self._htf_30m_last_bar_ts = utc_to_cst(bar_ts) if bar_ts.tzinfo else bar_ts
+        except Exception:
+            pass
+
+        # Compute EMA(N)
+        ema_period = int(getattr(cfg, "ft_htf_ema_period", 20) or 20)
+        k = 2.0 / (ema_period + 1.0)
+        ema_vals: List[float] = []
+        ema = closes[0]
+        for c in closes:
+            ema = (c * k) + (ema * (1 - k))
+            ema_vals.append(ema)
+
+        # Persist closes (truncate to a reasonable window)
+        self._htf_30m_closes = closes[-100:]
+        self._htf_30m_ema_prev = self._htf_30m_ema_value
+        self._htf_30m_ema_value = ema_vals[-1]
+        self._htf_30m_last_fetch_ts = now
+
+        # Trend classification
+        close_now = closes[-1]
+        ema_now = ema_vals[-1]
+        # Slope: compare against ema 3 bars ago (1.5 hours of 30m history)
+        ema_slope = ema_vals[-1] - ema_vals[-3] if len(ema_vals) >= 3 else 0.0
+
+        prev_trend = self._htf_30m_trend
+        if close_now > ema_now and ema_slope > 0:
+            self._htf_30m_trend = "UP"
+        elif close_now < ema_now and ema_slope < 0:
+            self._htf_30m_trend = "DOWN"
+        else:
+            self._htf_30m_trend = "NEUTRAL"
+
+        if prev_trend != self._htf_30m_trend:
+            logger.info(
+                f"📈 HTF 30m trend: {prev_trend} → {self._htf_30m_trend} "
+                f"(close={close_now:.2f}, ema={ema_now:.2f}, slope={ema_slope:+.2f})"
+            )
 
     async def _fetch_latest_bar(self) -> Optional[Dict[str, Any]]:
         """Fetch latest bar using the active timeframe (1m or 15m).

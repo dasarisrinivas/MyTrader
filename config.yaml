@@ -273,7 +273,25 @@ one_minute:
   window_bars: 200            # FEB 2026: Reduced for 15m (was 500 for 1m)
   # NEW: Multi-timeframe confirmation (Jan 2026)
   require_5m_trend_alignment: false  # Check 5-min trend before 1-min entry
-  mtf_gate_enabled: false            # Disable 15m/30m MTF gate temporarily
+  mtf_gate_enabled: false            # Disable existing 1m-bot MTF gate (incompatible with 15m runtime feed)
+  # MAY 12 2026 FIX #5: Higher-timeframe (30m) trend filter, native to the
+  # 15m strategy.  IB provides native 30m bars — we don't resample.
+  # The live_trading_manager polls IB for the latest 30m bar (rate-limited,
+  # default every 60s), maintains a rolling close history, computes EMA(N),
+  # and classifies the trend as UP / DOWN / NEUTRAL.  The signal_processor
+  # injects this trend into features.attrs, and the strategy's
+  # _htf_blocks_signal() vetoes counter-trend entries.
+  # Why this is separate from the existing mtf_gate_enabled above:
+  # the existing MTFTrendGate was built around 1-minute bars and requires
+  # all four timeframes (1/5/15/30) fresh.  When running the 15m strategy
+  # there is no 1m feed, so it stales out and blocks every trade.
+  # This new filter is purpose-built for the 15m strategy: just one HTF
+  # (30m), one rule (no counter-trend entries), gracefully degrades when
+  # IB data is unavailable.
+  ft_htf_filter_enabled: true              # ✅ enable HTF (30m) trend filter
+  ft_htf_filter_mode: "block_counter"      # block_counter | require_aligned | off
+  ft_htf_ema_period: 20                    # EMA period for 30m trend
+  ft_htf_refresh_interval_s: 60            # min seconds between IB 30m polls
   mtf_ema_period: 20                 # 5-min EMA period for trend
   
   # FEB 2026: 15m strategy (LIVE TRADING) — replaces 1m scoring system
@@ -429,6 +447,22 @@ one_minute:
   ft_ema21_sl_floor_pts: 6.0          # Minimum SL — keep old floor when vol is low
   ft_ema21_sl_ceiling_pts: 15.0       # Maximum SL — cap at 15pt ($75) to control max risk
   ft_ema21_rr_ratio: 1.33             # TP = SL × 1.33 — same as original 8/6 ratio
+  # MAY 12 2026 FIX #4: STRUCTURAL SL placement for Signals A & D.
+  # Root cause analysis: avg-loss ≈ avg-win across 56 live trades, but WR
+  # was 21% — a structural mismatch between SL location and the rejection
+  # pivot.  Mechanical SL (close + ATR×1.25) often falls INSIDE the bar
+  # high/low that just made the signal valid, so the very next bar's
+  # retest of that wick stops the trade out before it can work.
+  # Fix: place SL beyond the rejection pivot.
+  #   For Signal A (LONG):  SL = bar_low  - buffer (below the touch low)
+  #   For Signal D (SHORT): SL = bar_high + buffer (above the touch high)
+  # If the resulting SL distance exceeds the existing ceiling (15pt), the
+  # trade is SKIPPED rather than truncated — a setup whose structural stop
+  # is wider than the account can absorb is not a trade we want to take.
+  # TP keeps the same R:R ratio (1.33) so SL/TP still stay proportionate.
+  # Set ft_ema21_sl_use_structural: false to revert to ATR-adaptive SL.
+  ft_ema21_sl_use_structural: true    # ✅ enable structural SL
+  ft_ema21_sl_buffer_pts: 0.5         # 2 ticks beyond the wick (slippage/noise buffer)
 
   # APR 29 2026: ATR-adaptive stops for Signal F (TREND_CONT long/short).
   # Previously implicit defaults via getattr (mult=1.0, floor=6, ceiling=20).

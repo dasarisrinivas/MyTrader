@@ -155,6 +155,13 @@ def _make_config(**overrides) -> MagicMock:
         "ft_entry_slippage_pts": 0.0,
         # Fix 2: Exhaustion cooldown (disabled by default for non-cooldown tests)
         "ft_exhaustion_cooldown_bars": 0,
+        # MAY 12 2026: new fields — disable in existing tests to preserve behaviour
+        "ft_monday_block_enabled": False,        # test session_date is 2026-03-16 (Monday)
+        "ft_late_afternoon_block_hour_utc": 20,  # 8 PM UTC default — don't block 11 AM ET tests
+        "ft_ema21_sl_use_structural": False,     # ATR SL tests validate ATR behaviour
+        "ft_ema21_sl_buffer_pts": 0.5,
+        "ft_htf_filter_enabled": False,          # HTF filter not under test here
+        "ft_htf_filter_mode": "block_counter",
         # Wide entry/RTH windows
         "ft_entry_start_hour": 0,
         "ft_entry_start_minute": 0,

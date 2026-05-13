@@ -355,6 +355,18 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema21_sl_floor: float = getattr(config, 'ft_ema21_sl_floor_pts', 6.0)
         self._ema21_sl_ceiling: float = getattr(config, 'ft_ema21_sl_ceiling_pts', 15.0)
         self._ema21_rr_ratio: float = getattr(config, 'ft_ema21_rr_ratio', 1.33)
+        # MAY 12 2026 FIX #4: structural SL placement for Signals A & D.
+        # When True, SL is placed beyond the rejection pivot (bar low for
+        # longs / bar high for shorts) plus a small buffer.  When the
+        # structural stop is wider than _ema21_sl_ceiling, the trade is
+        # SKIPPED (returns None) rather than truncated.  See config.yaml
+        # for the full rationale.
+        self._ema21_sl_use_structural: bool = bool(
+            getattr(config, 'ft_ema21_sl_use_structural', True)
+        )
+        self._ema21_sl_buffer_pts: float = float(
+            getattr(config, 'ft_ema21_sl_buffer_pts', 0.5) or 0.5
+        )
 
         # MAR 16 2026 Fix #5: MACD divergence filter for Signal A/D.
         # Root cause: Mar 16 12:30 trade — Signal A fired BUY with MACD_H=-1.40
@@ -509,8 +521,60 @@ class EsFifteenMinStrategy(BaseStrategy):
             getattr(config, 'ft_pdh_proximity_rsi_max', 70.0) or 70.0
         )
 
+        # MAY 12 2026 FIX #5: Higher-timeframe (30m) trend filter.
+        # The 30m trend is computed and refreshed in the live_trading_manager
+        # via direct IB 30m bar requests, then injected into features.attrs
+        # by the signal_processor.  This strategy only consumes the result.
+        # Modes:
+        #   "block_counter"   — block signals against the HTF trend (default)
+        #   "require_aligned" — additionally block when HTF is NEUTRAL
+        #   "off"             — disabled
+        self._htf_filter_enabled: bool = bool(
+            getattr(config, 'ft_htf_filter_enabled', True)
+        )
+        self._htf_filter_mode: str = str(
+            getattr(config, 'ft_htf_filter_mode', 'block_counter') or 'block_counter'
+        ).lower()
+
         # MAR 10 2026: Load persisted counters from previous run (same CME session)
         self._load_counters()
+
+    # ------------------------------------------------------------------
+    #  Higher-TF trend filter (MAY 12 2026 FIX #5)
+    # ------------------------------------------------------------------
+    def _htf_blocks_signal(self, action: str, features: pd.DataFrame) -> Optional[str]:
+        """Return a reason string if HTF filter blocks this signal, else None.
+
+        Reads htf_30m_trend from features.attrs (populated by signal_processor
+        from the live_trading_manager's IB-fetched 30m trend).  Counter-trend
+        blocking only — does not fire if HTF data is unknown (graceful
+        degradation when the bot is freshly started or IB is unreachable).
+        """
+        if not self._htf_filter_enabled or self._htf_filter_mode == "off":
+            return None
+        try:
+            trend = str(features.attrs.get("htf_30m_trend", "UNKNOWN")).upper()
+        except Exception:
+            return None
+        if trend == "UNKNOWN":
+            # No HTF data yet — fail open (don't block).  Once IB poll
+            # populates the trend, subsequent signals will be filtered.
+            return None
+
+        is_buy = action.upper() == "BUY"
+        is_sell = action.upper() == "SELL"
+
+        if is_buy:
+            if trend == "DOWN":
+                return f"HTF_30m_DOWN — counter-trend long blocked"
+            if trend == "NEUTRAL" and self._htf_filter_mode == "require_aligned":
+                return f"HTF_30m_NEUTRAL — strict-align mode blocks long"
+        elif is_sell:
+            if trend == "UP":
+                return f"HTF_30m_UP — counter-trend short blocked"
+            if trend == "NEUTRAL" and self._htf_filter_mode == "require_aligned":
+                return f"HTF_30m_NEUTRAL — strict-align mode blocks short"
+        return None
 
     # ------------------------------------------------------------------
     #  BaseStrategy interface
@@ -651,6 +715,20 @@ class EsFifteenMinStrategy(BaseStrategy):
                 f"ema9={ema9:.2f} ema21={ema21:.2f} atr={atr:.1f} adx={adx:.0f} "
                 f"SL={stop_loss:.2f} TP={take_profit:.2f} | {reason}"
             )
+            # MAY 12 2026 FIX #5: HTF filter applies to Signal G too (defensive
+            # — Signal G is disabled by Fix #2 today but if re-enabled it
+            # should also respect higher-TF discipline).
+            _htf_block_g = self._htf_blocks_signal(action, features)
+            if _htf_block_g is not None:
+                logger.info(
+                    f"🚫 HTF_BLOCK (Signal G): {action} blocked — {_htf_block_g}"
+                )
+                self._prev_close = close
+                return Signal(
+                    "HOLD",
+                    0.0,
+                    {"reason": f"HTF_BLOCK | G | {_htf_block_g}"},
+                )
             self._prev_close = close
             return Signal(action=action, confidence=0.7, metadata=metadata)
 
@@ -1181,6 +1259,24 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         action, stop_loss, take_profit, reason = chosen
 
+        # MAY 12 2026 FIX #5: Higher-timeframe (30m) trend filter.
+        # Block counter-trend signals — won't take a 15m long when the 30m
+        # is trending down (or vice versa).  Reads htf_30m_trend from
+        # features.attrs (populated by signal_processor from live IB 30m
+        # bars).  Fails open if trend is UNKNOWN (no data yet).
+        _htf_block_reason = self._htf_blocks_signal(action, features)
+        if _htf_block_reason is not None:
+            logger.info(
+                f"🚫 HTF_BLOCK: {action} blocked — {_htf_block_reason} "
+                f"| original signal: {reason}"
+            )
+            self._prev_close = close
+            return Signal(
+                "HOLD",
+                0.0,
+                {"reason": f"HTF_BLOCK | {_htf_block_reason} | was: {reason}"},
+            )
+
         # ── Overnight SL/TP scaling ──────────────────────────────────────────
         # Signals A/B/C/D/E/F are calibrated for RTH liquidity.  Outside core
         # RTH (9:30-16:00 ET) the noise band is wider and moves extend less:
@@ -1424,11 +1520,28 @@ class EsFifteenMinStrategy(BaseStrategy):
                 )
                 return None
 
-        # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
-        # SL = clamp(ATR × mult, floor, ceiling), TP = SL × R:R ratio, ticked to 0.25pt
-        # At ATR=10: SL=10pt($50), TP=13.25pt($66.25). Eliminates sub-ATR noise stops.
-        sl_pts = min(self._ema21_sl_ceiling,
-                     max(self._ema21_sl_floor, atr * self._ema21_sl_atr_mult))
+        # ---- Compute SL: structural (FIX #4, MAY 12 2026) or ATR-adaptive ----
+        # The bar's LOW is the EMA21 touch point (price was rejected from below
+        # EMA21 and bounced back above).  Mechanical SL = close+ATR*mult often
+        # falls INSIDE this wick, so the very next bar's retest stops us out.
+        # Structural placement: SL = bar_low - buffer.  If wider than ceiling,
+        # SKIP the trade — a setup whose structural stop exceeds the account
+        # risk cap is not a setup we want to take.
+        if self._ema21_sl_use_structural:
+            sl_pts_structural = (close - low) + self._ema21_sl_buffer_pts
+            sl_pts = max(self._ema21_sl_floor, sl_pts_structural)
+            if sl_pts > self._ema21_sl_ceiling:
+                logger.info(
+                    f"🚫 EMA21_PB_LONG SKIPPED: structural SL {sl_pts:.1f}pt "
+                    f"> ceiling {self._ema21_sl_ceiling:.1f}pt "
+                    f"(close={close:.2f} low={low:.2f} buf={self._ema21_sl_buffer_pts:.2f})"
+                )
+                return None
+            sl_method = "STRUCT"
+        else:
+            sl_pts = min(self._ema21_sl_ceiling,
+                         max(self._ema21_sl_floor, atr * self._ema21_sl_atr_mult))
+            sl_method = "ATR"
         tp_pts = round(sl_pts * self._ema21_rr_ratio * 4) / 4  # tick to 0.25pt
 
         stop_loss = close - sl_pts
@@ -1437,7 +1550,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema21_pb_long_count += 1
         self._save_counters()
 
-        reason = f"EMA21_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f} | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts"
+        reason = (f"EMA21_PB_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} "
+                  f"| ATR={atr:.1f} | SL={sl_pts:.1f}pts[{sl_method}] | TP={tp_pts:.1f}pts")
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -1698,10 +1812,24 @@ class EsFifteenMinStrategy(BaseStrategy):
         if self._ema21_macd_divergence_block > 0 and macd_hist > self._ema21_macd_divergence_block:
             return None
 
-        # ---- Compute ATR-adaptive stops/targets (MAR 16 2026) ----
-        # Mirror of Signal A: SL = clamp(ATR × mult, floor, ceiling), ticked to 0.25pt
-        sl_pts = min(self._ema21_sl_ceiling,
-                     max(self._ema21_sl_floor, atr * self._ema21_sl_atr_mult))
+        # ---- Compute SL: structural (FIX #4, MAY 12 2026) or ATR-adaptive ----
+        # Mirror of Signal A: bar HIGH is the EMA21 rejection point.
+        # Structural placement: SL = bar_high + buffer.  Skip if wider than ceiling.
+        if self._ema21_sl_use_structural:
+            sl_pts_structural = (high - close) + self._ema21_sl_buffer_pts
+            sl_pts = max(self._ema21_sl_floor, sl_pts_structural)
+            if sl_pts > self._ema21_sl_ceiling:
+                logger.info(
+                    f"🚫 EMA21_PB_SHORT SKIPPED: structural SL {sl_pts:.1f}pt "
+                    f"> ceiling {self._ema21_sl_ceiling:.1f}pt "
+                    f"(close={close:.2f} high={high:.2f} buf={self._ema21_sl_buffer_pts:.2f})"
+                )
+                return None
+            sl_method = "STRUCT"
+        else:
+            sl_pts = min(self._ema21_sl_ceiling,
+                         max(self._ema21_sl_floor, atr * self._ema21_sl_atr_mult))
+            sl_method = "ATR"
         tp_pts = round(sl_pts * self._ema21_rr_ratio * 4) / 4  # tick to 0.25pt
 
         stop_loss = close + sl_pts
@@ -1710,7 +1838,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._ema21_pb_short_count += 1
         self._save_counters()
 
-        reason = f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} | ATR={atr:.1f} | SL={sl_pts:.1f}pts | TP={tp_pts:.1f}pts"
+        reason = (f"EMA21_PB_SHORT | ADX={adx:.0f} | RSI={rsi:.0f} | MACD_H={macd_hist:.2f} "
+                  f"| ATR={atr:.1f} | SL={sl_pts:.1f}pts[{sl_method}] | TP={tp_pts:.1f}pts")
         return ("SELL", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
