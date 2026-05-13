@@ -20,7 +20,7 @@ from loguru import logger
 
 _ET = ZoneInfo("America/New_York")
 
-_FF_URL = "https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json"
+_FF_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 _HIGH_IMPACT = {"High"}
 _MEDIUM_IMPACT = {"Medium", "High"}
 
@@ -88,12 +88,13 @@ class EconomicCalendar:
             for item in data:
                 dt_str = item.get("date", "")
                 try:
-                    # FF uses "MMM DD, YYYY HH:MMam/pm" format and publishes in
-                    # US Eastern Time (ET).  Attach the ET timezone then convert
-                    # to UTC so proximity comparisons against datetime.utcnow()
-                    # are accurate regardless of DST offset (−4 EDT / −5 EST).
-                    event_dt_naive = datetime.strptime(dt_str, "%b %d, %Y %I:%M%p")
-                    event_dt = event_dt_naive.replace(tzinfo=_ET).astimezone(timezone.utc)
+                    # New FF format: ISO 8601 with UTC offset e.g. "2026-05-10T21:30:00-04:00"
+                    # Legacy format (kept as fallback): "May 10, 2026 09:30pm" (naive ET)
+                    try:
+                        event_dt = datetime.fromisoformat(dt_str).astimezone(timezone.utc)
+                    except ValueError:
+                        event_dt_naive = datetime.strptime(dt_str, "%b %d, %Y %I:%M%p")
+                        event_dt = event_dt_naive.replace(tzinfo=_ET).astimezone(timezone.utc)
                 except ValueError:
                     continue
                 events.append(EconomicEvent(

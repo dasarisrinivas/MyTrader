@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import html as _html
+import math
 from collections import deque
 from datetime import datetime, time, timedelta
 from typing import Dict, Deque, List, Optional, Set
@@ -446,9 +447,10 @@ class SpyOptionsManager:
 
         vix = await self._ib.get_vix()
 
-        # Fallback: IB Gateway doesn't serve VIX index via reqMktData snapshot.
+        # Fallback: IB Gateway doesn't serve VIX index via reqMktData snapshot —
+        # get_vix() returns nan (a float) rather than None in that case.
         # Pull from yfinance via the MacroSignals module if available.
-        if vix is None and self._external is not None:
+        if (vix is None or (isinstance(vix, float) and math.isnan(vix))) and self._external is not None:
             try:
                 macro_vix = self._external._macro.state.vix
                 if macro_vix is not None and macro_vix > 0:
@@ -457,8 +459,10 @@ class SpyOptionsManager:
             except Exception:
                 pass
 
-        if vix is not None:
+        if vix is not None and not (isinstance(vix, float) and math.isnan(vix)):
             self._vix_history.append(vix)
+        else:
+            vix = None  # normalise nan → None for all downstream consumers
 
         iv_rank = self._compute_iv_rank(vix)
 
