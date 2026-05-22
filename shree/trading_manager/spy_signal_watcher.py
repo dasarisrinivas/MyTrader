@@ -76,6 +76,13 @@ class SpySignal:
     sentiment_score: float
     reasoning: List[str]
     suggested_trade: str
+    # MAY 19 2026 — strategy-structure tagging from the signal engine.
+    # Defaults preserve back-compat: an unknown/old signal with structure=""
+    # is treated as "LONG" and uses the legacy 50%-of-premium heuristic.
+    structure: str = ""              # "LONG" | "BULL_CALL_SPREAD" | "BEAR_PUT_SPREAD" | "LONG_STRADDLE"
+    short_strike: float = 0.0
+    short_bid: float = 0.0
+    short_ask: float = 0.0
 
     @property
     def mid(self) -> float:
@@ -86,13 +93,75 @@ class SpySignal:
         return 0.0
 
     @property
-    def estimated_risk_per_contract_usd(self) -> float:
-        """Heuristic: a 50% premium loss is the typical stop-out for a long
-        option swing trade. SPY contracts are 100 shares.
+    def short_mid(self) -> float:
+        if self.short_bid > 0 and self.short_ask > 0:
+            return (self.short_bid + self.short_ask) / 2.0
+        if self.short_ask > 0:
+            return self.short_ask
+        return 0.0
 
-        For straddles (right == 'BOTH'), assume both legs are at risk.
+    @property
+    def estimated_risk_per_contract_usd(self) -> float:
+        """Per-contract dollar risk used by the Trading Manager risk gate.
+
+        Branches on ``structure`` (set by the signal engine on May 19 2026):
+
+        * ``"BULL_CALL_SPREAD"`` / ``"BEAR_PUT_SPREAD"`` — defined-risk debit
+          spread. Max-loss is bounded by the *executable* net debit × 100,
+          where executable = ``long_ask − short_bid`` (pay the ask on the
+          long leg, receive the bid on the short leg). Mid-vs-mid math
+          underestimates risk ~20% on typical SPY chains because real fills
+          cross more than half the spread on each leg. Fallbacks:
+            1. Both legs fully quoted → ``(long_ask − short_bid) × 100``
+            2. Long ask + short mid only → ``(long_ask − short_mid) × 100``
+            3. Mid-vs-mid (optimistic) → ``(long_mid − short_mid) × 100``
+            4. Strike width only → ``width × 60 × 100`` (was 50; bumped to
+               60 because ATM 5-wide debit spreads typically print near 0.6×
+               width, not 0.5× — empirical from SPY chains 2025–2026).
+        * ``"LONG_STRADDLE"`` — ``bid``/``ask`` already carry the *combined*
+          premium of both legs, so a 50% stop on the package is
+          ``mid × 0.5 × 100`` (no separate ``legs=2`` factor).
+        * ``"LONG"`` or ``""`` (legacy / unspecified) — naked long option,
+          50% premium-loss heuristic. Identical to pre-May-19 behaviour.
+
+        Returns 0.0 when there's no usable pricing info — the caller treats
+        that as "size unknown, don't hard-reject on risk alone".
         """
+        s = (self.structure or "").upper()
         m = self.mid
+
+        # Debit spread: max-loss is bounded by net debit. Use executable
+        # pricing (long_ask − short_bid) rather than mid-vs-mid; mid math
+        # is what backtests overfit on, not what the broker fills at.
+        if s in ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"):
+            short_m = self.short_mid
+            width = abs(self.strike - self.short_strike) if self.short_strike else 0.0
+
+            # Tier 1 — both legs fully quoted: use worst executable side
+            if self.ask > 0 and self.short_bid > 0:
+                net_debit = max(self.ask - self.short_bid, 0.0)
+                return net_debit * 100.0
+            # Tier 2 — only one side of short quoted: blend
+            if self.ask > 0 and short_m > 0:
+                net_debit = max(self.ask - short_m, 0.0)
+                return net_debit * 100.0
+            # Tier 3 — only mids: optimistic but better than nothing
+            if m > 0 and short_m > 0:
+                net_debit = max(m - short_m, 0.0)
+                return net_debit * 100.0
+            # Tier 4 — no quotes, strike width only. 0.6× width matches
+            # empirical SPY debit-spread mids better than 0.5×.
+            if width > 0:
+                return width * 0.60 * 100.0
+            # No width either — fall through to legacy heuristic below.
+
+        # Straddle: bid/ask already carry the *combined* premium of both legs.
+        if s == "LONG_STRADDLE":
+            if m <= 0:
+                return 0.0
+            return m * 0.50 * 100.0
+
+        # LONG single (or legacy / unknown) — naked option, 50% stop heuristic.
         if m <= 0:
             return 0.0
         legs = 2 if self.right == "BOTH" else 1
@@ -143,6 +212,10 @@ def _parse_spy_signal(d: dict) -> Optional[SpySignal]:
             sentiment_score=float(d.get("sentiment_score") or 0.0),
             reasoning=list(d.get("reasoning") or []),
             suggested_trade=str(d.get("suggested_trade", "")),
+            structure=str(d.get("structure", "") or ""),
+            short_strike=float(d.get("short_strike") or 0.0),
+            short_bid=float(d.get("short_bid") or 0.0),
+            short_ask=float(d.get("short_ask") or 0.0),
         )
     except (TypeError, ValueError):
         return None

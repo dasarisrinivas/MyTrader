@@ -256,6 +256,22 @@ class SpySignal:
     wr_source: str = ""              # "doc_prior" | "empirical"
     rt_source: str = ""              # "live_quote" | "default"
 
+    # ── Structure tagging (MAY 19 2026) ───────────────────────────────────
+    # Tells the Trading Manager how to size *actual* per-trade risk.
+    # Without these the TM falls back to the legacy naked-option heuristic
+    # (50% × long_mid × 100), which over-estimates risk for defined-risk
+    # spreads and triggers spurious REJECTs in SUSPECT mode.
+    #
+    #   "LONG"             — naked long call/put (current behaviour)
+    #   "BULL_CALL_SPREAD" — long lower call + short higher call (debit)
+    #   "BEAR_PUT_SPREAD"  — long higher put + short lower put (debit)
+    #   "LONG_STRADDLE"    — long ATM call + long ATM put
+    #   ""                 — unspecified → TM treats as "LONG" for back-compat
+    structure: str = ""
+    short_strike: float = 0.0        # second leg of a spread; 0.0 for naked
+    short_bid: float = 0.0
+    short_ask: float = 0.0
+
     @property
     def dedup_key(self) -> str:
         """Dedup key excludes expiry — same signal across APR/MAY is one signal.
@@ -1503,6 +1519,10 @@ class SignalEngine:
                     f"Bear Put Spread preferred (not naked puts) exp {chain.expiry_month}. "
                     f"Exit if SPY reclaims VWAP."
                 ),
+                # Suggestion text explicitly recommends a defined-risk spread —
+                # tag it so the TM sizes the bear put spread, not the naked put.
+                structure="BEAR_PUT_SPREAD",
+                short_strike=float(atm - 5),
             )
             if atm_put:
                 self._enrich(sig, atm_put, context)
@@ -1823,6 +1843,9 @@ class SignalEngine:
                         _confirm_note,
                     ] if r
                 ],
+                # Suggestion text explicitly recommends a defined-risk spread.
+                structure="BULL_CALL_SPREAD",
+                short_strike=float(atm + 5),
                 suggested_trade=(
                     f"Broad call interest near {atm:.0f} exp {chain.expiry_month}. "
                     "Bull Call Spread preferred if VWAP holds. "
@@ -1879,6 +1902,7 @@ class SignalEngine:
             bid_size=quote.bid_size, ask_size=quote.ask_size,
             reasoning=reasoning, suggested_trade=suggested,
             flow_score=flow_score,
+            structure="LONG",
         )
         self._enrich(sig, quote, context)
         signals.append(sig)
@@ -1902,6 +1926,8 @@ class SignalEngine:
                     f"Max profit if SPY closes above {wing:.0f} at expiry"
                 ),
                 flow_score=flow_score,
+                structure="BULL_CALL_SPREAD",
+                short_strike=float(wing),
             )
             self._enrich(sig2, quote, context)
             signals.append(sig2)
@@ -1949,6 +1975,7 @@ class SignalEngine:
             bid_size=quote.bid_size, ask_size=quote.ask_size,
             reasoning=reasoning, suggested_trade=suggested,
             flow_score=flow_score,
+            structure="LONG",
         )
         self._enrich(sig, quote, context)
         signals.append(sig)
@@ -1972,6 +1999,8 @@ class SignalEngine:
                     f"Max profit if SPY closes below {wing:.0f} at expiry"
                 ),
                 flow_score=flow_score,
+                structure="BEAR_PUT_SPREAD",
+                short_strike=float(wing),
             )
             self._enrich(sig2, quote, context)
             signals.append(sig2)
@@ -2004,14 +2033,14 @@ class SignalEngine:
         # and selling vol (not buying it) is the profitable side. Skip
         # generation entirely unless a high-impact catalyst is imminent.
         block_flag = getattr(c, "block_long_straddle_in_range_low_iv", True)
+        ext = context.external
+        event_imminent = bool(
+            ext is not None
+            and getattr(ext, "event_risk", False)
+            and getattr(ext, "event_minutes", 999.0) <= 60.0
+        )
         if block_flag and both:
             quiet_regimes = {"RANGE_BOUND", "TRANSITION", "LOW_VOL"}
-            ext = context.external
-            event_imminent = bool(
-                ext is not None
-                and getattr(ext, "event_risk", False)
-                and getattr(ext, "event_minutes", 999.0) <= 60.0
-            )
             if (
                 context.regime.regime in quiet_regimes
                 and context.iv_rank < 30
@@ -2026,11 +2055,49 @@ class SignalEngine:
                 )
                 return []
 
+        # ── Directional-regime gate (May 14 2026 review fix) ──────────────
+        # A LONG_STRADDLE is a *vol-expansion* play, not a directional play.
+        # If sentiment is strongly directional (|score| > 50) AND the regime
+        # is itself directional (TREND_UP / TREND_DOWN), a two-sided volume
+        # spike is much more likely to be directional flow + MM hedging than
+        # genuine long-vol conviction. The signal would already be served
+        # better as a directional sweep. Skip generation unless an imminent
+        # catalyst justifies a vol play despite the directional tape.
+        directional_regimes = {"TREND_UP", "TREND_DOWN"}
+        sentiment_score = float(getattr(context.sentiment, "score", 0.0) or 0.0)
+        if (
+            both
+            and context.regime.regime in directional_regimes
+            and abs(sentiment_score) > 50.0
+            and not event_imminent
+        ):
+            logger.info(
+                "Long-straddle gate: skipping {} candidate strike(s) — "
+                "regime={} with directional sentiment={:+.0f} → two-sided "
+                "flow is likely directional, not long-vol conviction",
+                len(both),
+                context.regime.regime,
+                sentiment_score,
+            )
+            return []
+
         for strike in both:
             atm = chain.atm_strike(context.spy_price)
-            # Straddle confidence: sentiment neutral is good (direction-agnostic)
-            neutrality = 1.0 - abs(context.sentiment.score) / 100.0
-            conf = min(0.78 + neutrality * 0.10, 0.90)
+            # Straddle confidence (May 14 2026 review fix):
+            # A LONG_STRADDLE is direction-agnostic — strongly directional
+            # sentiment is *evidence against* the long-vol thesis, so it must
+            # actually drag confidence DOWN (the old formula had a 0.78 floor
+            # that cleared the manager's 0.50 gate even at score=±100). The
+            # new formula: base 0.65, +0.20 for full neutrality, +0.05 if an
+            # event catalyst is imminent (justifying a vol play), capped at
+            # 0.90. With score=±100 and no catalyst, conf=0.65 — still above
+            # the floor but no longer EXTREME-tier, and the gating layer can
+            # then react to the self-flagged ambiguity.
+            neutrality = 1.0 - abs(sentiment_score) / 100.0
+            conf = 0.65 + neutrality * 0.20
+            if event_imminent:
+                conf += 0.05
+            conf = min(conf, 0.90)
             # Look up ATM call + put quotes to compute combined straddle mid/bid/ask
             _atm_call = next((q for q in chain.calls if q.strike == atm), None)
             _atm_put  = next((q for q in chain.puts  if q.strike == atm), None)
@@ -2052,17 +2119,25 @@ class SignalEngine:
                 volume_spike_mult=c.straddle_spike_mult,
                 bid=_straddle_bid, ask=_straddle_ask,
                 bid_size=0, ask_size=0,
+                # bid/ask already carry the *combined* premium of both legs;
+                # short_strike==strike marks "second leg is the put at same strike"
+                structure="LONG_STRADDLE",
+                short_strike=float(strike),
                 reasoning=[
                     "Both call AND put volume spiking simultaneously",
                     # Honest disclosure (May 2026 review fix): without
                     # bid/ask aggressor data we cannot tell directional
                     # conviction from MM hedging or short-straddle opening.
-                    "Direction ambiguous — could be MM hedging or short-straddle "
-                    "opening rather than long-vol conviction",
-                    "Profits require realised-vol expansion (catalyst or breakout); "
-                    "not sufficient on flow alone",
+                    # The "[AMBIGUOUS]" prefix is machine-readable — the
+                    # trading manager downgrades these in rules.evaluate_spy.
+                    "[AMBIGUOUS] Direction ambiguous — could be MM hedging "
+                    "or short-straddle opening rather than long-vol conviction",
+                    "[AMBIGUOUS] Profits require realised-vol expansion "
+                    "(catalyst or breakout); not sufficient on flow alone",
                     f"Total flow: {chain.total_call_volume + chain.total_put_volume:,} contracts",
                     f"Regime: {context.regime.regime}  IV rank: {context.iv_rank:.0f}",
+                    f"Sentiment: {context.sentiment.label} ({sentiment_score:+.0f}) — "
+                    f"high |score| weakens the long-vol thesis",
                 ],
                 suggested_trade=(
                     f"Long Straddle: Buy {atm:.0f}C + Buy {atm:.0f}P exp {chain.expiry_month}\n"
@@ -2234,6 +2309,7 @@ class SignalEngine:
             ask_size=atm_quote.ask_size if atm_quote else 0,
             reasoning=reasoning,
             suggested_trade=suggested,
+            structure="LONG",
         )
 
         if atm_quote:
@@ -2264,6 +2340,8 @@ class SignalEngine:
             confidence=conf, spy_price=context.spy_price, vix=context.vix,
             volume=chain.total_call_volume + chain.total_put_volume,
             volume_spike_mult=0.0, bid_size=0, ask_size=0,
+            # HIGH_IV_ALERT is informational — no concrete long/short legs;
+            # leave structure="" so the TM doesn't try to size risk on it.
             reasoning=[
                 f"VIX={context.vix:.1f}" if context.vix else "VIX elevated",
                 f"IV rank: {context.iv_rank:.0f}/100 — options are expensive",

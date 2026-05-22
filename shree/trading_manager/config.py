@@ -37,6 +37,23 @@ class ManagerConfig:
     daily_loss_hard_pct: float = _envf("TM_DAILY_LOSS_PCT", 0.03)           # 3%
     daily_loss_warn_pct: float = _envf("TM_DAILY_LOSS_WARN_PCT", 0.015)     # 1.5% → cut size
 
+    # === Defined-risk spread cap (MAY 20 2026) ===========================
+    # Opt-in, structure-aware override for SPY *debit spreads* only
+    # (BULL_CALL_SPREAD / BEAR_PUT_SPREAD). These are defined-risk: their
+    # true max-loss is the net debit, which is far below the naked-premium
+    # number the flat 2% cap was designed for. When this knob is > 0, a
+    # tagged debit spread may risk up to this many dollars instead of the
+    # flat risk_per_trade_max_dollars. When 0 (the default) the feature is
+    # DISABLED and every structure uses the standard 2% cap — i.e. behaviour
+    # is byte-for-byte unchanged until an operator explicitly sets it.
+    #
+    # Naked longs and straddles (undefined / larger risk) are NEVER affected
+    # by this knob — they always use the flat 2% cap.
+    #
+    # Suggested starting value: ~1 contract of a 5-wide SPY debit spread,
+    # e.g. TM_DEFINED_RISK_MAX_DOLLARS=300.
+    defined_risk_max_dollars: float = _envf("TM_DEFINED_RISK_MAX_DOLLARS", 0.0)
+
     # === Trade frequency ===
     max_concurrent_positions: int = _envi("TM_MAX_CONCURRENT", 2)
     max_trades_per_day: int = _envi("TM_MAX_TRADES_DAY", 4)
@@ -106,6 +123,25 @@ class ManagerConfig:
     @property
     def daily_loss_warn_dollars(self) -> float:
         return round(self.account_equity * self.daily_loss_warn_pct, 2)
+
+    # Defined-risk debit spreads (DESCRIBED ABOVE). Naked longs and straddles
+    # always get the flat 2% cap. A tagged debit spread gets the larger of the
+    # flat cap and the opt-in spread cap — so enabling the knob can only ever
+    # *loosen* the limit for spreads, never tighten it below the 2% baseline,
+    # and a value of 0.0 leaves the flat cap fully in force.
+    _DEFINED_RISK_STRUCTURES = ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD")
+
+    def cap_for_structure(self, structure: str) -> float:
+        """Return the per-trade $ risk cap that applies to ``structure``.
+
+        Defaults to the flat 2% cap. Only tagged debit spreads, and only when
+        ``defined_risk_max_dollars`` is set > 0, are allowed a higher ceiling.
+        """
+        flat = self.risk_per_trade_max_dollars
+        s = (structure or "").upper()
+        if s in self._DEFINED_RISK_STRUCTURES and self.defined_risk_max_dollars > 0:
+            return max(flat, self.defined_risk_max_dollars)
+        return flat
 
 
 CONFIG = ManagerConfig()

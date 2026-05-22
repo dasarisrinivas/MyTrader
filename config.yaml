@@ -306,6 +306,15 @@ one_minute:
   ft_max_hold_bars: 8               # Max hold = 8 bars × 15min = 120 minutes (tested 10→worse)
   ft_or_minutes: 30                 # Opening range window = 30 minutes
   ft_or_break_max_per_day: 2         # Max OR breaks per side per day (FEB 26 2026: was 1)
+  # MAY 12 2026 FIX #6: Per-direction enable for OR_BREAK.
+  # Live data Feb 18 - May 7 2026:
+  #   OR_BREAK_LONG  : 0/5 wins, -$197.32  (no winners — disabled)
+  #   OR_BREAK_SHORT : 1/8 wins, -$247.96  (still bad but kept for now;
+  #                                          Fix #3's correct OR window may
+  #                                          improve this — re-evaluate.)
+  # Re-enable LONG only after a backtest validates the corrected OR window.
+  ft_or_break_long_enabled: false    # ❌ DISABLED (Fix #6, May 12 2026): 0/5 WR, -$197
+  ft_or_break_short_enabled: true    # kept active — re-evaluate after Fix #3 takes effect
   ft_or_break_short_rsi_min: 40.0   # MAR 12 2026 Fix A: Block OR_BREAK_SHORT when RSI < 40 (oversold — high snap-back risk)
   ft_or_break_long_rsi_max: 60.0    # MAR 12 2026 Fix A: Block OR_BREAK_LONG when RSI > 60 (overbought — high reversal risk)
   ft_or_break_sl_atr_mult: 0.75     # MAR 12 2026 Fix B: SL = clamp(ATR × mult, floor, ceiling) — replaces fixed 6pt
@@ -537,7 +546,15 @@ one_minute:
   # FEB 13 2026: Signal F — Trend Continuation for strong rally/selloff days
   # Fires when price runs away from EMA21 without pulling back.
   # Uses EMA9 as dynamic support, requires full EMA stack alignment + 3 ascending closes.
-  ft_trend_cont_enabled: true         # ✅ ENABLE trend continuation signal
+  ft_trend_cont_enabled: true         # ✅ ENABLE trend continuation signal (umbrella)
+  # MAY 12 2026 FIX #6: Per-direction enable for TREND_CONT.
+  # Live data Feb 18 - May 7 2026 (n=7):
+  #   TREND_CONT_LONG  : 2/2 wins, +$237.91 ★ (only profitable signal in dataset)
+  #   TREND_CONT_SHORT : 0/5 wins,  -$303.56  (worst per-trade expectancy)
+  # Long side stays enabled (validated edge), short side disabled.
+  # Re-enable only with a documented backtest finding positive expectancy.
+  ft_trend_cont_long_enabled: true    # ✅ keep — only signal with positive live edge
+  ft_trend_cont_short_enabled: false  # ❌ DISABLED (Fix #6, May 12 2026): 0/5 WR, -$304
   ft_trend_cont_stop_mult: 1.0        # Tighter stop (1.0 × ATR) — trend has momentum
   ft_trend_cont_target_mult: 2.0      # (LEGACY — superseded by fixed-point TP)
   ft_trend_cont_adx_min: 25.0         # Minimum ADX (FEB 24: raised from 18→25; 224-trade backtest: ADX<25 = −$1,582)

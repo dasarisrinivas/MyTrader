@@ -70,11 +70,40 @@ def load_state(path: str) -> ManagerState:
 
 
 def save_state(state: ManagerState, path: str) -> None:
+    """Atomic write of the trading-manager state file.
+
+    MAY 19 2026 — hardened against the launchd/nohup race seen in production:
+
+      ``FileNotFoundError: '.../trading_manager_state.json.tmp' ->
+                          '.../trading_manager_state.json'``
+
+    Two TM processes (one launchd-managed, one nohup'd) were both calling
+    save_state with the same relative path. With a fixed ``path + ".tmp"``
+    suffix they'd collide on the tmp file: writer A finishes, renames
+    tmp→final; writer B's subsequent rename fails because the tmp is gone.
+
+    Fixes applied here:
+      1. Absolute-path resolution so launchd-vs-nohup cwd differences don't
+         silently target different files.
+      2. PID-suffixed tmp filename so concurrent writers don't share a tmp.
+      3. Swallow FileNotFoundError on rename — if a concurrent writer
+         already moved its tmp into place, our state is functionally
+         equivalent (same in-memory ManagerState was serialized).
+    """
+    path = os.path.abspath(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    tmp = path + ".tmp"
+    tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w") as f:
         f.write(state.to_json())
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except FileNotFoundError:
+        # Another writer raced us and won — the on-disk state is theirs,
+        # which is acceptable. Clean up our orphaned tmp if it still exists.
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def roll_session_if_needed(state: ManagerState, today: str) -> bool:

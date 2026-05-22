@@ -227,6 +227,16 @@ class EsFifteenMinStrategy(BaseStrategy):
         # requires price to retest the OR level before re-triggering — a high-
         # probability pattern when the initial OR break confirms the trend.
         self._or_break_max_per_day: int = getattr(config, 'ft_or_break_max_per_day', 2)
+        # MAY 12 2026 FIX #6: Per-direction enable for OR_BREAK signals.
+        # Live data Feb 18 - May 7 2026 showed OR_BREAK_LONG with 0/5 wins,
+        # -$197.32.  Disabled by default until a backtest finds a regime
+        # where it has positive expectancy.
+        self._or_break_long_enabled: bool = bool(
+            getattr(config, 'ft_or_break_long_enabled', True)
+        )
+        self._or_break_short_enabled: bool = bool(
+            getattr(config, 'ft_or_break_short_enabled', True)
+        )
         # MAR 12 2026 Fix A: RSI guards on OR signals
         # OR_BREAK_SHORT: block if RSI < threshold (already oversold → high bounce risk)
         # OR_BREAK_LONG:  block if RSI > threshold (already overbought → high reversal risk)
@@ -431,6 +441,18 @@ class EsFifteenMinStrategy(BaseStrategy):
         #   MES-specific: ADX=18 means a directional burst just EXHAUSTED,
         #   not that a trend is continuing.  Require real trend strength.
         self._trend_cont_enabled: bool = getattr(config, 'ft_trend_cont_enabled', True)
+        # MAY 12 2026 FIX #6: Per-direction enable for TREND_CONT.
+        # Live data Feb 18 - May 7 2026:
+        #   TREND_CONT_LONG  : 2/2 wins, +$237.91 ★ (only profitable signal)
+        #   TREND_CONT_SHORT : 0/5 wins,  -$303.56
+        # Disable the short side; keep the long side (the strategy's only
+        # confirmed positive-expectancy signal in the live sample).
+        self._trend_cont_long_enabled: bool = bool(
+            getattr(config, 'ft_trend_cont_long_enabled', True)
+        )
+        self._trend_cont_short_enabled: bool = bool(
+            getattr(config, 'ft_trend_cont_short_enabled', True)
+        )
         self._trend_cont_stop_mult: float = getattr(config, 'ft_trend_cont_stop_mult', 1.0)
         self._trend_cont_target_mult: float = getattr(config, 'ft_trend_cont_target_mult', 2.0)
         self._trend_cont_adx_min: float = getattr(config, 'ft_trend_cont_adx_min', 25.0)
@@ -810,10 +832,13 @@ class EsFifteenMinStrategy(BaseStrategy):
             )
 
         # ---- Signal B: OR Breakout Long ----
-        signal_b = self._check_or_breakout(
-            close, high, ema9, ema21, atr, adx, macd_hist, rsi,
-            volume_ratio=volume_ratio, vwap_daily=vwap_daily,
-        )
+        # MAY 12 2026 FIX #6: per-direction enable.
+        signal_b = None
+        if self._or_break_long_enabled:
+            signal_b = self._check_or_breakout(
+                close, high, ema9, ema21, atr, adx, macd_hist, rsi,
+                volume_ratio=volume_ratio, vwap_daily=vwap_daily,
+            )
 
         # ---- Signal C: EMA9 Pullback Long (faster trend) ----
         signal_c = None
@@ -837,8 +862,9 @@ class EsFifteenMinStrategy(BaseStrategy):
                 )
 
         # ---- Signal E: OR Breakdown Short (downtrend mirror of B) ----
+        # MAY 12 2026 FIX #6: also gated by per-direction enable for symmetry.
         signal_e = None
-        if self._shorts_enabled:
+        if self._shorts_enabled and self._or_break_short_enabled:
             signal_e = self._check_or_breakdown(
                 close, low, ema9, ema21, atr, adx, macd_hist, rsi,
                 volume_ratio=volume_ratio, vwap_daily=vwap_daily,
@@ -850,11 +876,15 @@ class EsFifteenMinStrategy(BaseStrategy):
         signal_f_long = None
         signal_f_short = None
         if self._trend_cont_enabled:
-            signal_f_long = self._check_trend_continuation_long(
-                enriched, close, open_price, low, high,
-                ema9, ema21, ema50, atr, adx, rsi, macd_hist,
-            )
-            if self._shorts_enabled and signal_f_long is None:
+            # MAY 12 2026 FIX #6: per-direction enable.
+            if self._trend_cont_long_enabled:
+                signal_f_long = self._check_trend_continuation_long(
+                    enriched, close, open_price, low, high,
+                    ema9, ema21, ema50, atr, adx, rsi, macd_hist,
+                )
+            if (self._shorts_enabled
+                    and self._trend_cont_short_enabled
+                    and signal_f_long is None):
                 signal_f_short = self._check_trend_continuation_short(
                     enriched, close, open_price, low, high,
                     ema9, ema21, ema50, atr, adx, rsi, macd_hist,

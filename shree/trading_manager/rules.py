@@ -723,6 +723,26 @@ def evaluate_spy(
     if in_soft_pause:
         effective_min_confidence = max(effective_min_confidence, cfg.soft_pause_min_confidence)
 
+    # ── Self-flagged ambiguity gate (May 14 2026 review fix) ──────────────
+    # The signal engine prefixes ambiguity disclosures with "[AMBIGUOUS]" so
+    # that this layer can react. When present, we (a) demote the effective
+    # confidence by 0.10 — if it still clears the floor it can pass as a
+    # MODIFY, not an EXTREME APPROVE — and (b) require a stricter floor of
+    # 0.85 because the bot itself isn't sure the thesis holds.
+    ambiguous_reasons = [
+        r for r in (sig.reasoning or [])
+        if isinstance(r, str) and "[AMBIGUOUS]" in r
+    ]
+    self_flagged_ambiguous = bool(ambiguous_reasons)
+    if self_flagged_ambiguous:
+        effective_min_confidence = max(effective_min_confidence, 0.85)
+        checks.append((
+            "self_flagged_ambiguity",
+            False,
+            f"signal carries {len(ambiguous_reasons)} [AMBIGUOUS] reason(s) — "
+            f"floor raised to {effective_min_confidence:.2f}",
+        ))
+
     # ── Options-specific quality gates ────────────────────────────────────
 
     # G1: Confidence floor (adaptive, soft-pause, or static — whichever is highest)
@@ -758,21 +778,67 @@ def evaluate_spy(
     fit_ok, fit_note = _spy_signal_fits_regime(sig)
     checks.append(("G4_regime_fit", fit_ok, fit_note))
 
-    # G5: Premium-based per-trade $ risk vs. cap
-    # SPY contracts are 100 shares; assume 1-contract size.
-    # estimated_risk = 50% premium loss × 100 × legs
+    # G5: Premium sizing context — ADVISORY ONLY (MAY 21 2026).
+    # The SPY bot is signal-only (see shree/spy_options/manager.py); it never
+    # places an order, so a premium "cap" here protects no position — it only
+    # decides whether an *alert* surfaces. A hard cap was suppressing the
+    # majority of valid setups: typical SPY premiums ($300–$700) dwarf the
+    # 2%-of-equity nominal budget (~$90), so almost everything got REJECTed and
+    # the user never saw otherwise-good signals. Worse, "loss" on a naked long
+    # isn't even definable — the 50%-premium figure is a managed-exit
+    # assumption, not a real max-loss. So premium is now surfaced as a *sizing
+    # note* on the signal and never blocks it; the user sizes the trade.
+    #
+    # Risk model still branches on sig.structure (see
+    # SpySignal.estimated_risk_per_contract_usd):
+    #   LONG / unspecified → 50% premium × 100 × legs (heuristic, NOT real max-loss)
+    #   BULL/BEAR debit spread → net_debit × 100 (real, defined max-loss)
+    #   LONG_STRADDLE → 50% combined premium × 100 (heuristic)
     risk_dollars = sig.estimated_risk_per_contract_usd
-    # If we have no premium info (mid=0), treat as "size unknown" — flag but don't hard-reject.
+    _structure = (sig.structure or "LONG").upper()
+    # Nominal sizing budget (flat 2% cap, or the opt-in defined-risk cap for
+    # tagged debit spreads). Used ONLY to flag a signal whose 1-contract outlay
+    # exceeds what 2% sizing would suggest — it no longer gates anything.
+    _cap = cfg.cap_for_structure(_structure)
+    _cap_tag = " [DEFINED_RISK]" if _cap > cfg.risk_per_trade_max_dollars else ""
     if risk_dollars <= 0:
-        risk_within_cap = True
-        risk_note = "premium not available — assuming OK"
+        risk_note = "premium not available — size unknown (advisory)"
+        sizing_advisory = "Premium/sizing data unavailable for this contract."
     else:
-        risk_within_cap = risk_dollars <= cfg.risk_per_trade_max_dollars
-        risk_note = (
-            f"~${risk_dollars:.2f} (50% premium × 100 × legs), "
-            f"cap ${cfg.risk_per_trade_max_dollars:.2f}"
+        _pct = (risk_dollars / cfg.account_equity) * 100.0 if cfg.account_equity else 0.0
+        if _structure in ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"):
+            # Reflect the executable pricing the watcher actually used.
+            if sig.ask > 0 and sig.short_bid > 0:
+                _basis = f"executable debit (long_ask {sig.ask:.2f} − short_bid {sig.short_bid:.2f}) × 100"
+                _kind = "max-loss"  # real, defined
+            elif sig.ask > 0 and sig.short_mid > 0:
+                _basis = f"blended debit (long_ask {sig.ask:.2f} − short_mid {sig.short_mid:.2f}) × 100"
+                _kind = "est. max-loss"
+            elif sig.short_mid > 0:
+                _basis = f"mid-vs-mid debit {sig.mid - sig.short_mid:+.2f} × 100"
+                _kind = "est. max-loss"
+            else:
+                _basis = f"~60% of {abs(sig.strike - sig.short_strike):.0f}-wide debit spread (no short quote)"
+                _kind = "est. max-loss"
+        elif _structure == "LONG_STRADDLE":
+            _basis = "50% of combined premium × 100"
+            _kind = "est. risk (heuristic, not a hard stop)"
+        else:
+            _basis = "50% premium × 100 × legs"
+            _kind = "est. risk (heuristic, not a hard stop)"
+        risk_note = f"~${risk_dollars:.2f} ({_structure}: {_basis}) — advisory only"
+        # Advisory surfaced on the signal so the user can size it themselves.
+        sizing_advisory = (
+            f"Premium/contract ~${risk_dollars:.2f} ({_kind}, "
+            f"{_pct:.1f}% of equity @1 lot)."
         )
-    checks.append(("risk_within_cap", risk_within_cap, risk_note))
+        if risk_dollars > _cap:
+            sizing_advisory += (
+                f" Exceeds nominal ${_cap:.2f}{_cap_tag} 2%-sizing budget "
+                f"— consider reduced exposure / treat as alert-only."
+            )
+    # Informational only — `True` so it never reads as a failed gate.
+    checks.append(("premium_sizing_advisory", True, risk_note))
 
     # G6: Daily-loss warning band — same as MES
     in_warn_band = state.realized_pnl_today <= -cfg.daily_loss_warn_dollars
@@ -784,25 +850,11 @@ def evaluate_spy(
         ))
 
     # ── Decision logic ────────────────────────────────────────────────────
-
-    if not risk_within_cap:
-        return Decision(
-            decision="REJECT",
-            confidence=95,
-            position_size="small",
-            reasoning=(
-                f"Per-contract risk ~${risk_dollars:.2f} exceeds cap "
-                f"${cfg.risk_per_trade_max_dollars:.2f} (2% of equity). "
-                f"Premium too rich for this account size."
-            ),
-            risk_notes=(
-                f"Mid {sig.mid:.2f}. Need premium <= "
-                f"${cfg.risk_per_trade_max_dollars / 50.0:.2f} for the 50%-loss heuristic to fit."
-            ),
-            override=True,
-            checks=checks,
-            posture_after=state.posture,
-        )
+    # NOTE: premium/$ is intentionally NOT a reject condition here (see G5
+    # above). On a signal-only feed, a rich premium suppresses information, not
+    # risk. It surfaces as `sizing_advisory` on the APPROVE/MODIFY decision so
+    # the user can size or skip it. Only genuine signal-quality gates below
+    # (confidence, liquidity, DTE, regime fit) can reject.
 
     if not g1_pass:
         return Decision(
@@ -810,8 +862,11 @@ def evaluate_spy(
             confidence=80,
             position_size="small",
             reasoning=(
-                f"Confidence {sig.confidence:.2f} below floor {cfg.min_confidence:.2f}. "
-                "Mandate: be selective."
+                f"Confidence {sig.confidence:.2f} below floor "
+                f"{effective_min_confidence:.2f}{g1_tag}"
+                + (f" (raised from static {cfg.min_confidence:.2f})"
+                   if effective_min_confidence > cfg.min_confidence else "")
+                + ". Mandate: be selective."
             ),
             risk_notes="Wait for higher-conviction setup.",
             override=False,
@@ -882,6 +937,7 @@ def evaluate_spy(
             risk_notes=(
                 "Cut to half of normal size. Tight management on this one."
                 + (" Soft pause: streak breaks on a winning trade." if in_soft_pause else "")
+                + f" {sizing_advisory}"
             ),
             override=False,
             checks=checks,
@@ -901,7 +957,13 @@ def evaluate_spy(
         confidence=int(round(min(95.0, 60.0 + 35.0 * sig.confidence))),
         position_size=size,
         reasoning=(
-            f"All SPY gates pass. {sig.signal_type} {sig.right}{sig.strike:.0f} "
+            # [ALERT-ONLY] tag (May 14 2026 review fix): the SPY options bot
+            # never places orders (see shree/spy_options/manager.py module
+            # docstring). APPROVE here means "alert is allowed to dispatch",
+            # not "order placed". This tag prevents the decision log from
+            # reading like a failed execution when trades_today stays at 0.
+            f"[ALERT-ONLY] All SPY gates pass. "
+            f"{sig.signal_type} {sig.right}{sig.strike:.0f} "
             f"({sig.expiry}, {sig.dte}dte) | conf={sig.confidence:.2f} "
             f"| regime={sig.regime} | risk ~${risk_dollars:.2f} "
             f"({(risk_dollars/cfg.account_equity)*100.0:.2f}% equity). "
@@ -911,7 +973,8 @@ def evaluate_spy(
         risk_notes=(
             f"Greeks: Δ={sig.delta:.2f} Γ={sig.gamma:.3f} Θ={sig.theta:.2f} V={sig.vega:.2f}. "
             f"IV={sig.impl_vol:.2f}, IVR={sig.iv_rank:.0f}. "
-            f"Daily PnL buffer remaining: ${cfg.daily_loss_hard_dollars + state.realized_pnl_today:.2f}."
+            f"Daily PnL buffer remaining: ${cfg.daily_loss_hard_dollars + state.realized_pnl_today:.2f}. "
+            f"{sizing_advisory}"
         ),
         override=False,
         checks=checks,

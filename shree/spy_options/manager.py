@@ -788,6 +788,9 @@ class SpyOptionsManager:
                         f"BUY {'CALL' if cand.direction == 'C' else 'PUT'} on break of "
                         f"{cand.trigger_price:.2f} — stop {cand.stop_price:.2f}"
                     ),
+                    # TREND_CONTINUATION is a naked long call/put entry with a
+                    # structural stop; size with the long-leg heuristic.
+                    structure="LONG",
                 )
             )
             logger.info(
@@ -1993,6 +1996,13 @@ class SpyOptionsManager:
             "sentiment_score": float(sig.sentiment_score or 0.0),
             "reasoning": list(sig.reasoning or []),
             "suggested_trade": sig.suggested_trade,
+            # MAY 19 2026 — structure tag lets the Trading Manager size
+            # actual per-trade risk correctly for defined-risk spreads.
+            # Older readers ignore unknown keys, so this is back-compatible.
+            "structure": getattr(sig, "structure", "") or "",
+            "short_strike": float(getattr(sig, "short_strike", 0.0) or 0.0),
+            "short_bid": float(getattr(sig, "short_bid", 0.0) or 0.0),
+            "short_ask": float(getattr(sig, "short_ask", 0.0) or 0.0),
         }
 
         try:
