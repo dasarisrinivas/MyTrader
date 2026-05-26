@@ -11,6 +11,8 @@ generation.
 from __future__ import annotations
 
 import asyncio
+import math
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,6 +54,12 @@ class IBOptionsClient:
         self._chain_params: Optional[Dict] = None
         self._spy_contract: Optional[Any] = None
         self._vix_contract: Optional[Any] = None
+        # Persistent VIX streaming ticker — subscribed once, read every poll
+        self._vix_ticker: Optional[Any] = None
+        # Historical fallback cache (used when streaming ticker returns NaN)
+        self._vix_cached_price: Optional[float] = None
+        self._vix_cache_ts: float = 0.0
+        self._vix_cache_ttl_s: float = 90.0  # refresh historical fallback at most every 90s
         self._keepalive_task: Optional[asyncio.Task] = None
         self._reconnecting = False
 
@@ -145,6 +153,7 @@ class IBOptionsClient:
             # Clear stale state so fresh data is fetched after reconnect
             self._chain_params = None
             self._spy_ticker = None
+            self._vix_ticker = None  # force VIX re-subscription after reconnect
 
             for attempt in range(1, 6):  # up to 5 retries
                 try:
@@ -189,6 +198,13 @@ class IBOptionsClient:
                 except Exception:
                     pass
                 self._spy_ticker = None
+            # Cancel persistent VIX streaming subscription
+            if self._vix_ticker is not None:
+                try:
+                    self._ib.cancelMktData(self._vix_contract)
+                except Exception:
+                    pass
+                self._vix_ticker = None
             self._ib.disconnect()
         logger.info("IBOptionsClient disconnected")
 
@@ -521,7 +537,7 @@ class IBOptionsClient:
     # ── VIX ───────────────────────────────────────────────────────────────────
 
     async def _get_vix_contract(self) -> Optional[Any]:
-        """Qualify and cache the VIX Index contract."""
+        """Qualify and cache the VIX Index contract (CBOE)."""
         if self._vix_contract is not None:
             return self._vix_contract
         try:
@@ -533,52 +549,92 @@ class IBOptionsClient:
         return self._vix_contract
 
     async def get_vix(self) -> Optional[float]:
-        """Return VIX index level via IB Gateway.
+        """Return the current spot VIX level from a persistent streaming subscription.
 
-        VIX is a CBOE index — it has no 'last' trade price. The primary
-        value comes from ``ticker.marketPrice()`` (IB's best effort), with
-        fallbacks to ``last``, ``close``, and bid/ask midpoint.
+        Mirrors the SPY price pattern (_spy_ticker): subscribe once with
+        snapshot=False so IB pushes ticks continuously, then just read the
+        latest value from the ticker every poll — no new IB request needed.
+
+        IBKR sometimes does not push ticks for the VIX CBOE Index via the
+        streaming subscription (marketPrice/last return NaN, same as snapshot).
+        In that case we fall back to reqHistoricalDataAsync("TRADES", "1 min")
+        with a 90-second TTL cache so we don't re-request on every poll cycle.
+        The historical fallback always returns real spot VIX, consistent with
+        the 52w range used for IV rank computation.
         """
         contract = await self._get_vix_contract()
         if not contract:
-            logger.warning("VIX contract unavailable — cannot fetch spot VIX")
+            logger.warning("VIX contract unavailable — cannot fetch VIX level")
             return None
-        ticker = None
-        try:
-            ticker = self._ib.reqMktData(contract, genericTickList="", snapshot=True)
-            await asyncio.sleep(self._cfg.snapshot_wait_s)
 
-            # Primary: IB's computed market price (works best for indices)
-            mp = _safe_float(ticker.marketPrice())
-            if mp > 0:
-                return mp
-
-            # Fallback chain: last → close → bid/ask midpoint
-            for val in (ticker.last, ticker.close):
-                f = _safe_float(val)
-                if f > 0:
-                    return f
-
-            bid = _safe_float(ticker.bid)
-            ask = _safe_float(ticker.ask)
-            if bid > 0 and ask > 0:
-                return round((bid + ask) / 2, 2)
-
-            # All attempts failed — log diagnostics
-            logger.warning(
-                "VIX snapshot empty: marketPrice={} last={} close={} bid={} ask={}",
-                ticker.marketPrice(), ticker.last, ticker.close, ticker.bid, ticker.ask,
+        # ── 1. Start persistent streaming subscription once ──────────────────
+        if self._vix_ticker is None:
+            self._vix_ticker = self._ib.reqMktData(
+                contract,
+                genericTickList="",
+                snapshot=False,
+                regulatorySnapshot=False,
             )
+            # Give IB a moment to deliver the first tick
+            await asyncio.sleep(self._cfg.snapshot_wait_s)
+            logger.debug("VIX streaming subscription started (Index VIX CBOE)")
 
+        # ── 2. Read from the live streaming ticker ────────────────────────────
+        ticker = self._vix_ticker
+        for val in (
+            ticker.marketPrice(),
+            ticker.last,
+            ticker.close,
+        ):
+            f = _safe_float(val)
+            if f > 0:
+                self._vix_cached_price = f
+                self._vix_cache_ts = time.monotonic()
+                return f
+
+        bid, ask = _safe_float(ticker.bid), _safe_float(ticker.ask)
+        if bid > 0 and ask > 0:
+            mid = round((bid + ask) / 2, 2)
+            self._vix_cached_price = mid
+            self._vix_cache_ts = time.monotonic()
+            return mid
+
+        # ── 3. Streaming ticker returned NaN — IBKR limitation for VIX Index ─
+        # Return the TTL-cached historical value if still fresh enough
+        if (
+            self._vix_cached_price is not None
+            and (time.monotonic() - self._vix_cache_ts) < self._vix_cache_ttl_s
+        ):
+            logger.debug(
+                "VIX streaming NaN — using cached value {:.2f} (age {:.0f}s)",
+                self._vix_cached_price,
+                time.monotonic() - self._vix_cache_ts,
+            )
+            return self._vix_cached_price
+
+        # ── 4. Cache stale — refresh via historical bars (proven to work) ─────
+        try:
+            bars = await self._ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime="",
+                durationStr="1 D",
+                barSizeSetting="1 min",
+                whatToShow="TRADES",
+                useRTH=False,
+                keepUpToDate=False,
+                timeout=10,
+            )
+            if bars:
+                price = float(bars[-1].close)
+                if price > 0:
+                    self._vix_cached_price = price
+                    self._vix_cache_ts = time.monotonic()
+                    logger.debug("VIX refreshed via historical bars: {:.2f}", price)
+                    return price
+            logger.warning("VIX historical bars returned no data")
         except Exception as exc:
             logger.warning("VIX fetch error: {}", exc)
-        finally:
-            # Always cancel the snapshot subscription to avoid stale tickers
-            if ticker is not None:
-                try:
-                    self._ib.cancelMktData(contract)
-                except Exception:
-                    pass
+
         return None
 
     async def get_vix_52w_range(self) -> Optional[Tuple[float, float]]:
