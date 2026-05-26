@@ -1,0 +1,32 @@
+============================================================================================
+FROZEN FORWARD TEST — box_rng_atr >= 3.01 gate on relaxed continuation rule (ES 15m, longs)
+FORWARD_TEST_PROTOCOL.md — no tuning, no re-thresholding
+============================================================================================
+
+metric                                IN-SAMPLE (ref)          FORWARD
+----------------------------------------------------------------------
+re-timed / net-new / no-change              25/32/107          7/11/43
+relaxed entries / base                        164/132            61/50
+AUC pooled                                       0.78             0.79
+AUC open / midday                           0.68/0.67        0.85/0.75
+AUC atr lo/mid/hi                      0.60/0.70/0.96   0.38/ n/a/0.89
+base exp                                        +0.06            +0.10
+relaxed ungated exp                             +0.17            +0.15
+gated exp                                       +0.34            +0.42
+edge (gated - base)                             +0.28            +0.31
+edge trend / rot                          +0.30/+0.31      +0.37/+0.34
+kept re-timed MFE/MAE                       2.33/0.63        2.01/0.84
+dropped meanR / loser%                      +0.06/59%        -0.16/68%
+TOD open/mid/close %                         50/36/14         48/43/10
+
+============================================================================================
+PRE-REGISTERED VERDICT
+============================================================================================
+  F1 within-seg AUC >= 0.62 (open & midday) : PASS  (0.85/0.75)
+  F2 pooled AUC >= 0.6                      : PASS  (0.79)
+  F3 gated>base & >=ungated & edge>=+0.12R    : PASS  (edge +0.31R)
+  F4 edge>0 in BOTH regimes                   : PASS  (trend +0.37 / rot +0.34)
+  F5 kept re-timed MFE>=1.8 & MAE<=0.8       : FAIL  (2.01/0.84)
+
+  OVERALL (F1 AND F3 AND F4): CONFIRMED
+  (F2/F5 are diagnostic context; magnitudes are directional given thin samples.)

@@ -322,7 +322,7 @@ one_minute:
   ft_or_break_sl_ceiling_pts: 12.0  # MAR 12 2026 Fix B: Maximum SL in points (cap at 12pt / $60)
   ft_or_break_rr_ratio: 1.33        # MAR 12 2026 Fix B: R:R ratio for TP (TP = SL × ratio), preserves 1.33:1
   ft_or_target_r: 1.0               # (LEGACY — superseded by fixed-point TP)
-  ft_adx_min: 18.0                  # MAR 3 2026: Lowered from 20→18. ADX 18-19 blocked 3 valid pullbacks. Borderline trending with EMA alignment is sufficient.
+  ft_adx_min: 12.0                  # MAY 25 2026: Lowered 18→12. Live-faithful backtest (reports/bt_latest_2026-05-24): ADX>=18 over-restricted EMA21 pullbacks. 18→12 adds +51 trades/yr (117→168, +44%) and +$728 (+58%), WR flat ~59%, positive every quarter; added trades avg +$14/ea (accretive). NOTE: only affects pullback signals; TREND_CONT keeps ft_trend_cont_adx_min=25.
   ft_adx_max: 45.0                  # MAR 3 2026: Raised from 35→45. ADX 35+ blocked 6 valid pullbacks in strong trends. ADX=42 means "very strong trend" — pullbacks are highest-probability.
   ft_ema_touch_pct: 0.0015          # EMA21 touch tolerance (0.15%) — FEB 20 2026: widened from 0.001
   ft_ema_touch_atr_mult: 0.75       # MAR 2026 Fix #6: ATR-adaptive touch band for A/D. Replaces pct when >0.
@@ -538,7 +538,7 @@ one_minute:
   # FEB 12 2026: Short-side signals (D, E) — mirror of long signals for bearish markets
   # Signal D: EMA21 pullback short in downtrend (mirror of Signal A)
   # Signal E: OR breakdown short below OR low (mirror of Signal B)
-  ft_shorts_enabled: true            # ✅ ENABLE short-side signals
+  ft_shorts_enabled: false           # MAY 25 2026: DISABLED — live-faithful backtest (reports/bt_latest_2026-05-24): shorts -$492/yr, no edge (EMA21_PB_SHORT only +$79 at ADX>=27, OR_BREAK_SHORT -$266 n=19). Disabling lifts longs-only book +$687 -> +$1,249, positive every quarter. Reversible.
   ft_short_pb_stop_mult: 1.5         # Short stop loss = 1.5 × ATR above entry
   ft_short_pb_target_mult: 1.0       # (LEGACY — superseded by fixed-point TP)
   ft_short_or_target_r: 1.0          # (LEGACY — superseded by fixed-point TP)

@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from .backfill_learning import run_backfill
 from .bot_control import bots_alive, kill_bots
 from .config import CONFIG
-from .decision_log import append_decision, append_spy_decision
+from .decision_log import append_decision, append_spy_decision, append_posture_transition
 from .executions_reader import (
     last_n_closed_trades,
     open_position_count,
@@ -154,6 +154,12 @@ def _enforce_kill_switch(state: ManagerState, cfg, log) -> bool:
     return False
 
 
+def _posture_log_path(cfg) -> str:
+    """logs/posture_transitions.jsonl beside the manager decision log."""
+    base = getattr(cfg, "manager_jsonl", "logs/manager_decisions.jsonl")
+    return os.path.join(os.path.dirname(base) or ".", "posture_transitions.jsonl")
+
+
 def _maybe_update_posture(state: ManagerState, cfg, log) -> None:
     """Update posture based on PnL warn band, streak, etc. (non-killing)."""
     if state.posture == POSTURE_KILLED:
@@ -174,6 +180,10 @@ def _maybe_update_posture(state: ManagerState, cfg, log) -> None:
             "Posture %s → %s (pnl=%+.2f, trades=%d, consec_L=%d)",
             state.posture, new_posture,
             state.realized_pnl_today, state.trades_today, state.consec_losses,
+        )
+        append_posture_transition(
+            _posture_log_path(cfg), state.posture, new_posture,
+            "session_rule(streak/pnl/trades)", state,
         )
         state.posture = new_posture
 
@@ -217,6 +227,10 @@ def _run_health_check(state: ManagerState, cfg, log) -> None:
                 "Manual unlock required: python -m shree.trading_manager.unlock",
                 m.trigger_count, ", ".join(m.triggers),
             )
+            append_posture_transition(
+                _posture_log_path(cfg), state.posture, POSTURE_LOCKED,
+                f"health:{m.trigger_count} triggers (LOCKED)", state, triggers=m.triggers,
+            )
             state.posture = POSTURE_LOCKED
             state.lock_reason = (
                 f"{m.trigger_count} health triggers fired: {', '.join(m.triggers)}. "
@@ -233,6 +247,10 @@ def _run_health_check(state: ManagerState, cfg, log) -> None:
                     "⚠️  HEALTH CHECK: 2 triggers (%s) — posture → SIT_OUT for the day",
                     ", ".join(m.triggers),
                 )
+                append_posture_transition(
+                    _posture_log_path(cfg), state.posture, POSTURE_SIT_OUT,
+                    "health:2 triggers (SUSPECT)", state, triggers=m.triggers,
+                )
             state.posture = POSTURE_SIT_OUT
         return
 
@@ -242,6 +260,10 @@ def _run_health_check(state: ManagerState, cfg, log) -> None:
                 log.info(
                     "🟡 HEALTH CHECK: 1 trigger (%s) — posture → DEFENSIVE",
                     ", ".join(m.triggers),
+                )
+                append_posture_transition(
+                    _posture_log_path(cfg), state.posture, POSTURE_DEFENSIVE,
+                    "health:1 trigger (DEGRADED)", state, triggers=m.triggers,
                 )
             state.posture = POSTURE_DEFENSIVE
         return
@@ -317,6 +339,10 @@ def _check_probation_outcome(state: ManagerState, cfg, log) -> None:
         log.warning(
             "✅ PROBATION CLEARED: probe trade WON (+$%.2f). Posture → NORMAL.",
             t.net_pnl,
+        )
+        append_posture_transition(
+            _posture_log_path(cfg), state.posture, POSTURE_NORMAL,
+            "probation_cleared(probe_win)", state,
         )
         state.posture = POSTURE_NORMAL
         state.health_status = HEALTH_HEALTHY
@@ -513,6 +539,10 @@ def run() -> int:
                 if decision.posture_after != state.posture:
                     log.warning("Posture %s → %s (rule-driven)",
                                 state.posture, decision.posture_after)
+                    append_posture_transition(
+                        _posture_log_path(cfg), state.posture, decision.posture_after,
+                        "rule-driven(MES)", state,
+                    )
                     state.posture = decision.posture_after
                 # If a rule moved us to KILLED, fire the kill switch immediately
                 if state.posture == POSTURE_KILLED:
@@ -553,6 +583,10 @@ def run() -> int:
                 if spy_decision.posture_after != state.posture:
                     log.warning("Posture %s → %s (SPY rule-driven)",
                                 state.posture, spy_decision.posture_after)
+                    append_posture_transition(
+                        _posture_log_path(cfg), state.posture, spy_decision.posture_after,
+                        "rule-driven(SPY)", state,
+                    )
                     state.posture = spy_decision.posture_after
                 if state.posture == POSTURE_KILLED:
                     res = kill_bots(

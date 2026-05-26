@@ -37,6 +37,14 @@ from .signal_watcher import Signal
 from .spy_signal_watcher import SpySignal
 from .state import ManagerState
 
+try:
+    # Shadow-only expectancy computation (Phase 0 of the expectancy-gate
+    # proposal). Import is guarded so a problem here can never stop a live
+    # decision from being logged.
+    from .expectancy_priors import shadow_expectancy as _shadow_expectancy
+except Exception:  # pragma: no cover - defensive
+    _shadow_expectancy = None
+
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -77,8 +85,20 @@ def append_decision(
             "consec_wins": state.consec_wins,
             "consec_losses": state.consec_losses,
             "posture": state.posture,
+            "health_status": getattr(state, "health_status", ""),
+            "health_triggers": list(getattr(state, "health_triggers", []) or []),
         },
     }
+    # Phase 0 SHADOW: log what an expectancy-based cold-start floor WOULD decide
+    # for this signal, alongside the live (unchanged) decision. Purely additive;
+    # never affects gating. Wrapped so it can't break the logging path.
+    if _shadow_expectancy is not None:
+        try:
+            shadow = _shadow_expectancy(sig.signal_type, sig.rr)
+            if shadow is not None:
+                rec["shadow_expectancy"] = shadow
+        except Exception:
+            pass
     with open(path, "a") as f:
         f.write(json.dumps(rec) + "\n")
 
@@ -125,10 +145,46 @@ def append_spy_decision(
             "consec_wins": state.consec_wins,
             "consec_losses": state.consec_losses,
             "posture": state.posture,
+            "health_status": getattr(state, "health_status", ""),
+            "health_triggers": list(getattr(state, "health_triggers", []) or []),
         },
     }
     with open(path, "a") as f:
         f.write(json.dumps(rec) + "\n")
+
+
+def append_posture_transition(
+    path: str,
+    prior: str,
+    new: str,
+    reason: str,
+    state: ManagerState,
+    triggers: Optional[list] = None,
+) -> None:
+    """Additive structured record for a posture transition, written alongside
+    the existing log.warning at each transition site. One JSON object per line
+    in posture_transitions.jsonl. Pure telemetry — wrapped so a logging failure
+    can never propagate into the trading loop.
+    """
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        rec = {
+            "ts": _now_iso(),
+            "prior_posture": prior,
+            "new_posture": new,
+            "reason": reason,
+            "triggers": list(triggers) if triggers else list(getattr(state, "health_triggers", []) or []),
+            "health_status": getattr(state, "health_status", ""),
+            "reset_condition": {
+                "realized_pnl_today": round(getattr(state, "realized_pnl_today", 0.0), 2),
+                "trades_today": getattr(state, "trades_today", 0),
+                "consec_losses": getattr(state, "consec_losses", 0),
+            },
+        }
+        with open(path, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
 
 
 def latest_decision_by_signal_id(path: str, signal_id: str) -> Optional[dict]:

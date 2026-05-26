@@ -1,0 +1,6 @@
+signal_type,n,wins,losses,win_rate_pct,total_pnl,avg_pnl
+EMA21_PB_LONG,43,23,20,53.5,265.55,6.18
+EMA9_PB_LONG,13,10,3,76.9,348.8,26.83
+OR_BREAK_LONG,5,3,2,60.0,91.75,18.35
+TREND_CONT_LONG,105,48,57,45.7,-639.5,-6.09
+ALL,166,84,82,50.6,66.6,0.4

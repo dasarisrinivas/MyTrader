@@ -1788,10 +1788,13 @@ class BacktestEngine:
             return
         
         # Determine the final bar source (1m or 15m)
-        if self.df_1m is not None:
+        # NOTE: in the 15m-only path df_1m is an EMPTY DataFrame (not None),
+        # so guard on .empty too or index[-1] raises (it had never triggered
+        # before because prior runs happened to end flat).
+        if self.df_1m is not None and not self.df_1m.empty:
             final_timestamp = self.df_1m.index[-1]
             final_bar = self.df_1m.iloc[-1]
-        elif self.df_15m is not None:
+        elif self.df_15m is not None and not self.df_15m.empty:
             final_timestamp = self.df_15m.index[-1]
             final_bar = self.df_15m.iloc[-1]
         else:

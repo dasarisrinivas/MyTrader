@@ -191,6 +191,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._monday_block_enabled: bool = getattr(config, 'ft_monday_block_enabled', True)
         self._late_afternoon_block_hour_utc: int = int(getattr(config, 'ft_late_afternoon_block_hour_utc', 20))
 
+        # MAY 24 2026: Opening-range block + Friday trend-continuation block.
+        # From the latest-code replay (Feb 2025–Jan 2026, reports/bt_latest_2026-05-24):
+        #   - First 30 min of RTH (9:30–9:59 ET) is net-negative on EVERY signal
+        #     (TREND_CONT_LONG -$668, other signals -$225) — whipsaw before the
+        #     opening range is established. Block is global.
+        #   - Friday is a TREND_CONT-only disaster (-$741, 23% WR); pullback/OR
+        #     signals trade Friday fine (+$108), so the Friday block is scoped to
+        #     the trend-continuation family only.
+        # Both default-ON, asymmetric (only remove trades), and config-gated like
+        # the Monday/late-afternoon blocks above.
+        self._opening_block_minutes: int = int(getattr(config, 'ft_opening_block_minutes', 30))
+        self._friday_block_trend_cont: bool = bool(getattr(config, 'ft_friday_block_trend_cont', True))
+
         # MAR 16 2026 Fix #1: A/D per-session overnight cap.
         # Signal A (EMA21_PB_LONG) and D (EMA21_PB_SHORT) have no daily counter,
         # unlike every other signal (B, E, F, G all have max_per_day guards).
@@ -468,6 +481,27 @@ class EsFifteenMinStrategy(BaseStrategy):
         self._trend_cont_long_count: int = 0   # Track how many fired
         self._trend_cont_short_count: int = 0
         self._trend_cont_max_per_day: int = getattr(config, 'ft_trend_cont_max_per_day', 2)
+
+        # MAY 26 2026: Signal H — Momentum Breakout Long (data-discovered).
+        # Breaks a rolling N-bar high with a clean EMA stack (9>21>50).
+        # ⚠️ TESTED & REJECTED — DO NOT ENABLE. A 26-month flat-bar SCREEN looked
+        # great (~50% WR @ 2:1, +$2,288, positive every year), but the faithful
+        # engine backtest (live config, 26mo) showed it LOSES: 62 trades, ~31%
+        # WR, −$973, degraded the book in all 3 chunks (+$2,142 → +$1,375). The
+        # screen's edge was an artifact of ignored costs + idealized first-touch
+        # exits; real breakout-on-15m-close fills enter extended and get whipsawed
+        # by the 1.5×ATR stop. Kept default-OFF/frozen as a documented negative
+        # (see reports/bt_multiyr_2026-05-26/). NOT in config.yaml → live never
+        # trades it. Do not optimize variants (overfitting risk).
+        self._mom_brk_long_enabled: bool = bool(getattr(config, 'ft_mom_brk_long_enabled', False))
+        self._mom_brk_lookback: int = int(getattr(config, 'ft_mom_brk_lookback', 16))
+        self._mom_brk_sl_atr_mult: float = float(getattr(config, 'ft_mom_brk_sl_atr_mult', 1.5))
+        self._mom_brk_rr_ratio: float = float(getattr(config, 'ft_mom_brk_rr_ratio', 2.0))
+        self._mom_brk_sl_floor: float = float(getattr(config, 'ft_mom_brk_sl_floor', 4.0))
+        self._mom_brk_sl_ceiling: float = float(getattr(config, 'ft_mom_brk_sl_ceiling', 30.0))
+        self._mom_brk_max_chase_atr: float = float(getattr(config, 'ft_mom_brk_max_chase_atr', 0.75))
+        self._mom_brk_max_per_day: int = int(getattr(config, 'ft_mom_brk_max_per_day', 2))
+        self._mom_brk_long_count: int = 0
 
         # MAR 9 2026: Signal G — London Momentum Breakout
         # During London session (2-5 AM CST / 3-6 AM ET / 8-11 AM GMT),
@@ -848,6 +882,16 @@ class EsFifteenMinStrategy(BaseStrategy):
                 macd_hist, pdh=pdh,
             )
 
+        # ---- Signal H: Momentum Breakout Long (data-discovered MAY 26 2026) ----
+        # Self-gates its own time windows; placed LOW priority so it only fills
+        # bars the existing longs leave empty (additive, not cannibalizing).
+        signal_h = None
+        if self._mom_brk_long_enabled:
+            signal_h = self._check_momentum_breakout_long(
+                enriched, et_time, current_time,
+                close, ema9, ema21, ema50, atr, adx, rsi,
+            )
+
         # ---- Signal D: EMA21 Pullback Short (downtrend mirror of A) ----
         signal_d = None
         signal_dprox = None
@@ -1098,6 +1142,39 @@ class EsFifteenMinStrategy(BaseStrategy):
                     signal_d = signal_dprox = signal_e = None
                     signal_f_long = signal_f_short = signal_g = None
 
+        # ── MAY 24 2026: Opening-range block (first N min of RTH) ────────
+        # 9:30–9:59 ET loses on every signal (whipsaw before the opening
+        # range is set). Blocks new entries only; existing positions run.
+        if self._opening_block_minutes > 0:
+            _open_block_end = self._add_minutes_to_time(
+                self._core_rth_start, self._opening_block_minutes
+            )
+            if self._core_rth_start <= et_time.time() < _open_block_end:
+                _any_active = any(s is not None for s in [
+                    signal_a, signal_aprox, signal_b, signal_c,
+                    signal_d, signal_dprox, signal_e,
+                    signal_f_long, signal_f_short, signal_g,
+                ])
+                if _any_active:
+                    logger.info(
+                        f"🚫 OPENING_BLOCK: within first {self._opening_block_minutes}min "
+                        f"of RTH ({et_time.strftime('%H:%M')} ET) — blocking all signals"
+                    )
+                    signal_a = signal_aprox = signal_b = signal_c = None
+                    signal_d = signal_dprox = signal_e = None
+                    signal_f_long = signal_f_short = signal_g = None
+
+        # ── MAY 24 2026: Friday trend-continuation block ─────────────────
+        # TREND_CONT on Fridays = 23% WR, -$741. Scoped to the trend-
+        # continuation family only; pullback/OR signals trade Friday fine.
+        if self._friday_block_trend_cont and et_time.weekday() == 4:
+            if signal_f_long is not None or signal_f_short is not None:
+                logger.info(
+                    f"🚫 FRIDAY_TREND_CONT_BLOCK: blocking TREND_CONT on Friday "
+                    f"({et_time.strftime('%Y-%m-%d')})"
+                )
+                signal_f_long = signal_f_short = None
+
         # Priority: A (EMA21 PB Long) > A-prime (proximity long)
         #         > C (EMA9 PB Long) > B (OR breakout Long) > F_long
         #         > D (EMA21 PB Short) > D-prime (proximity short)
@@ -1116,6 +1193,8 @@ class EsFifteenMinStrategy(BaseStrategy):
             chosen = signal_b
         elif signal_f_long is not None:
             chosen = signal_f_long
+        elif signal_h is not None:
+            chosen = signal_h
         elif signal_d is not None:
             chosen = signal_d
         elif signal_dprox is not None:
@@ -1683,6 +1762,69 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         tag = "" if self._or_break_long_count == 1 else f" | retest#{self._or_break_long_count}"
         reason = f"OR_BREAK_LONG | ADX={adx:.0f} | OR_H={self._or_high:.2f} | SL={sl_pts:.1f}pt | TP={tp_pts:.1f}pt{tag}"
+        return ("BUY", stop_loss, take_profit, reason)
+
+    # ------------------------------------------------------------------
+    #  Signal H: Momentum Breakout Long (MAY 26 2026, data-discovered)
+    # ------------------------------------------------------------------
+    def _check_momentum_breakout_long(
+        self, enriched, et_time, current_time,
+        close: float, ema9: float, ema21: float, ema50: float,
+        atr: float, adx: float, rsi: float,
+    ) -> Optional[tuple]:
+        """
+        Break of a rolling N-bar high with a clean EMA stack (9>21>50).
+
+        Fills mid-session bars the pullback/OR/trend-cont longs miss — the only
+        additive long pocket found in a 26-month screen. RTH-only. Self-gates to
+        the same windows the shared blocks enforce (opening / Monday / late-
+        afternoon / exhaustion cooldown), reading the SAME flags, so it needs no
+        edits to those block lists and stays consistent with them.
+
+        Returns: (action, stop, target, reason) or None.
+        """
+        if not self._mom_brk_long_enabled:
+            return None
+        if self._mom_brk_long_count >= self._mom_brk_max_per_day:
+            return None
+        # ── self-gated time windows (mirror shared blocks, same flags) ──
+        if self._monday_block_enabled and et_time.weekday() == 0:
+            return None
+        if self._opening_block_minutes > 0:
+            _open_end = self._add_minutes_to_time(self._core_rth_start, self._opening_block_minutes)
+            if self._core_rth_start <= et_time.time() < _open_end:
+                return None
+        if self._late_afternoon_block_hour_utc > 0:
+            _utc_hour = (current_time.astimezone(__import__('zoneinfo').ZoneInfo('UTC')).hour
+                         if current_time.tzinfo else current_time.hour)
+            if _utc_hour >= self._late_afternoon_block_hour_utc:
+                return None
+        if self._exhaustion_long_bars_left > 0:
+            return None
+        # ── trigger: clean EMA stack + fresh break of prior N-bar high ──
+        if not (ema9 > ema21 > ema50):
+            return None
+        lb = self._mom_brk_lookback
+        if len(enriched) < lb + 2:
+            return None
+        recent_high = float(enriched["high"].iloc[-(lb + 1):-1].max())
+        if recent_high <= 0:
+            return None
+        if not (close > recent_high and self._prev_close <= recent_high):
+            return None
+        # anti-chase: don't buy too far past the breakout level
+        if atr > 0 and (close - recent_high) > self._mom_brk_max_chase_atr * atr:
+            return None
+        # ── ATR-adaptive stop / target (mirrors OR-break style) ──
+        sl_pts = min(self._mom_brk_sl_ceiling,
+                     max(self._mom_brk_sl_floor, atr * self._mom_brk_sl_atr_mult))
+        tp_pts = round(sl_pts * self._mom_brk_rr_ratio * 4) / 4
+        stop_loss = close - sl_pts
+        take_profit = close + tp_pts
+        self._mom_brk_long_count += 1
+        self._save_counters()
+        reason = (f"MOM_BRK_LONG | ADX={adx:.0f} | RSI={rsi:.0f} | "
+                  f"brkH={recent_high:.2f} | SL={sl_pts:.1f}pt | TP={tp_pts:.1f}pt")
         return ("BUY", stop_loss, take_profit, reason)
 
     # ------------------------------------------------------------------
@@ -2574,6 +2716,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         # Signal F counters
         self._trend_cont_long_count = 0
         self._trend_cont_short_count = 0
+        self._mom_brk_long_count = 0  # Signal H momentum-breakout daily cap
         # Signal A/D (EMA21 pullback) counters — MAR 16 2026 Fix #1
         self._ema21_pb_long_count = 0
         self._ema21_pb_short_count = 0
