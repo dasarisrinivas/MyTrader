@@ -198,8 +198,28 @@ Examples:
         action="store_true",
         help="Verbose output"
     )
-    
-    return parser.parse_args()
+
+    # MAY 27 2026: run the REAL live Trade Manager gate inside the backtest so
+    # research == live (closes the parity gap that hid the R:R deadlock for months).
+    parser.add_argument(
+        "--with-manager",
+        action="store_true",
+        help="Enable the live trading_manager approval gate (rules.evaluate) in the backtest"
+    )
+    parser.add_argument(
+        "--tm-min-rr",
+        type=float,
+        default=None,
+        help="Override the Trade Manager R:R floor for --with-manager (live default 2.0; strategy needs ~1.2)"
+    )
+
+    args = parser.parse_args()
+    # Plumb manager flags to the engine via env (engine reads BT_WITH_MANAGER/BT_MIN_RR).
+    if getattr(args, "with_manager", False):
+        os.environ["BT_WITH_MANAGER"] = "1"
+        if args.tm_min_rr is not None:
+            os.environ["BT_MIN_RR"] = str(args.tm_min_rr)
+    return args
 
 
 def load_config(config_path: Optional[str]) -> dict:

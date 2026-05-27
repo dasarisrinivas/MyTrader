@@ -1,0 +1,879 @@
+autonomous:
+  apply_weekly_suggestions: false
+  auto_apply_changes: false
+  auto_approve_threshold: 0.85
+  daily_analysis_time: '18:00'
+  enable_auto_rollback: true
+  enabled: false
+  reports_retention_days: 90
+  require_human_approval: true
+  rollback_check_days: 1
+  rollback_threshold_pnl: -500.0
+  run_daily_analysis: true
+  run_weekly_review: true
+  safety_constraints:
+    max_parameter_change_pct: 0.2
+    min_confidence_max: 0.9
+    min_confidence_min: 0.5
+    rsi_buy_max: 45.0
+    rsi_buy_min: 20.0
+    rsi_sell_max: 80.0
+    rsi_sell_min: 55.0
+    sentiment_buy_max: 0.0
+    sentiment_buy_min: -1.0
+    sentiment_sell_max: 1.0
+    sentiment_sell_min: 0.0
+    sentiment_weight_max: 0.9
+    sentiment_weight_min: 0.1
+    stop_loss_max: 50.0
+    stop_loss_min: 10.0
+    take_profit_max: 100.0
+    take_profit_min: 15.0
+  save_daily_reports: true
+  save_weekly_reports: true
+  weekly_review_day: sunday
+  weekly_review_time: '20:00'
+aws_agents:
+  agent_alias_ids:
+    data: ''
+    decision: ''
+    learning: ''
+    risk: ''
+  agent_ids:
+    data: ''
+    decision: ''
+    learning: ''
+    risk: ''
+  apply_agent_decision: false
+  config_path: aws/config/deployed_resources.yaml
+  enabled: true
+  knowledge_base_id: ''
+  log_agent_responses: true
+  log_to_s3: true
+  max_requests_per_minute: 20
+  max_retries: 3
+  min_decision_confidence: 0.6
+  min_risk_approval_threshold: 0.5
+  region_name: us-east-1
+  require_risk_approval: true
+  s3_bucket: ''
+  step_functions:
+    nightly_flow: ''
+    signal_flow: ''
+  timeout_seconds: 30
+  use_deployed_config: true
+  use_step_functions: false
+backtest:
+  data_path: data/es_historical.csv
+  end_date: null
+  initial_capital: 5000.0
+  risk_free_rate: 0.02
+  slippage: 0.25
+  start_date: null
+data:
+  ibkr_client_id: 1
+  ibkr_currency: USD
+  ibkr_exchange: CME
+  ibkr_host: 127.0.0.1
+  ibkr_port: 4001
+  ibkr_symbol: MES
+  news_api_keys: []
+  sentiment_refresh_interval: 60
+  tradingview_interval: 1m
+  tradingview_symbol: MES
+  tradingview_webhook_url: http://localhost:8000/tradingview
+  twitter_bearer_token: ''
+dynamic_support:
+  buffer_points: 5.0
+  min_sources: 1
+  use_or_low: true
+  use_pdl: true
+  use_weekly_low: true
+futures_trading:
+  active_sessions:
+    evening:
+      atr_multiplier_sl: 3.5
+      atr_multiplier_tp: 7.0
+      cooldown_after_loss_minutes: 30
+      end_time: '23:00'
+      max_trades_per_hour: 3
+      max_trades_per_session: 6
+      min_confidence: 0.45
+      min_risk_reward: 2.0
+      rsi_buffer: 2.0
+      spread_gate_ticks: 2.0
+      start_time: '17:00'
+      timezone: America/Chicago
+    maintenance:
+      end_time: '17:00'
+      reason: CME daily maintenance window
+      start_time: '16:00'
+      timezone: America/Chicago
+      trading_blocked: true
+    overnight:
+      atr_multiplier_sl: 4.0
+      atr_multiplier_tp: 8.0
+      cooldown_after_loss_minutes: 30
+      end_time: 03:00
+      max_trades_per_hour: 2
+      max_trades_per_session: 5
+      min_confidence: 0.5
+      min_risk_reward: 2.0
+      rsi_buffer: 2.0
+      spread_gate_ticks: 3.0
+      start_time: '23:00'
+      timezone: America/Chicago
+    premarket:
+      atr_multiplier_sl: 3.5
+      atr_multiplier_tp: 7.0
+      cooldown_after_loss_minutes: 30
+      end_time: 08:30
+      max_trades_per_hour: 1
+      max_trades_per_session: 2
+      min_confidence: 0.65
+      min_risk_reward: 2.0
+      rsi_buffer: 3.0
+      spread_gate_ticks: 2.0
+      start_time: 03:00
+      timezone: America/Chicago
+    rth:
+      atr_multiplier_sl: 3.0
+      atr_multiplier_tp: 6.0
+      cooldown_after_loss_minutes: 20
+      end_time: '15:00'
+      max_trades_per_hour: 4
+      max_trades_per_session: 8
+      min_confidence: 0.55
+      min_risk_reward: 1.5
+      spread_gate_ticks: 2.0
+      start_time: 08:30
+      timezone: America/Chicago
+  rule_relaxation:
+    circuit_breaker_threshold: 5
+    evening_session_relaxation: 0.15
+    low_vol_atr_floor: 0.05
+  s3_cache:
+    aggressive_caching: true
+    max_cache_size_mb: 50
+    trade_logs_ttl_seconds: 1800
+  session_manager_enabled: true
+gold:
+  allow_gc: false
+  currency: USD
+  enabled: true
+  entry:
+    adx_trend_max: 55.0
+    adx_trend_min: 20.0
+    extended_hours_extension_strictness_mult: 0.7
+    orb_enabled: true
+    orb_max_extension_atr: 0.75
+    orb_max_vwap_extension_atr: 1.5
+    post_loss_cooldown_bars: 3
+    post_loss_opposite_cooldown_bars: 1
+    post_loss_same_family_cooldown_bars: 6
+    pullback_max_ema_extension_atr: 1.25
+    pullback_max_vwap_extension_atr: 1.5
+  exchange: COMEX
+  exit:
+    atr_sl_multiplier: 1.5
+    atr_tp_multiplier: 2.5
+    time_stop_bars: 60
+    time_stop_stage_1_bars: 20
+    time_stop_stage_1_min_progress_r: 0.25
+    time_stop_stage_2_bars: 40
+    time_stop_stage_2_min_progress_r: 0.0
+    trailing_stop_enabled: true
+  ibkr_client_id: 3
+  ibkr_host: 127.0.0.1
+  ibkr_port: 4001
+  indicators:
+    adx_period: 14
+    atr_period: 14
+    ema_fast: 9
+    ema_slope_enabled: true
+    ema_slope_lookback_bars: 3
+    ema_slope_min_per_bar: 0.02
+    ema_slow: 21
+    ema_spread_min_ratio: 0.00015
+    mtf_enabled: false
+    price_structure_enabled: true
+    price_structure_lookback_bars: 5
+    warmup_bars: 60
+  risk:
+    daily_loss_limit_usd: 200.0
+    max_consecutive_losses: 3
+    max_contracts_hard_cap: 1
+    max_risk_per_trade_usd: 50.0
+    max_trades_per_day: 1
+    post_loss_cooldown_minutes: 30
+  session:
+    bucket_comex_open_start_et: 08:20
+    bucket_midday_start_et: '10:30'
+    bucket_overnight_start_et: '18:00'
+    bucket_pre_close_start_et: '12:00'
+    bucket_pre_comex_start_et: 03:00
+    extended_hours_enabled: true
+    flatten_before_close_minutes: 10
+    news_lockout_windows_et: []
+    no_trade_open_minutes: 3
+    opening_range_minutes: 15
+    session_close_et: '13:30'
+    session_open_et: 08:20
+  simulation: false
+  symbol: MGC
+high_impact_event_dates:
+- '2026-02-20'
+hybrid:
+  chop_ema_spread_min_pct: 0.0
+  level_confirmation_enabled: false
+  no_signal_allow_chop_bias: true
+  no_signal_allow_weak_signals: true
+  oversold_extension_rsi_min: 25.0
+  signal_threshold: 20
+hybrid_decision:
+  confidence:
+    min_model_confidence: 0.4
+    min_technical_score: 0.5
+    require_consensus: true
+    threshold: 0.6
+    weights:
+      model: 0.3
+      rag: 0.2
+      technical: 0.5
+  d_engine:
+    atr_max_threshold: 90.0
+    atr_min_threshold: 0.1
+    atr_stop_mult: 3.0
+    atr_target_mult: 6.0
+    atr_weight: 0.15
+    candidate_threshold: 0.55
+    ema_fast: 9
+    ema_slow: 20
+    ema_weight: 0.25
+    macd_weight: 0.25
+    rsi_overbought: 70.0
+    rsi_oversold: 30.0
+    rsi_weight: 0.25
+    volume_weight: 0.1
+  dry_run: false
+  enabled: true
+  h_engine:
+    cache_ttl_seconds: 300
+    max_calls_per_hour: 10
+    min_interval_seconds: 60
+    top_k: 5
+  level_confirm_buffer_atr_mult: 0.1
+  level_confirm_max_wait_candles: 6
+  level_confirm_min_buffer_points: 0.0
+  level_confirm_proximity_pct: 0.3
+  level_confirm_timeout_mode: SOFT_PENALTY
+  level_confirm_timeout_penalty: 0.12
+  level_confirmation_enabled: true
+  min_confidence_for_trade: 0.45
+  safety:
+    emergency_pnl_drop_pct: 2.5
+    max_orders_per_15min: 3
+    order_cooldown_minutes: 5
+hybrid_pipeline:
+  level_confirmation:
+    buffer_points: 1.0
+    enabled: false
+    strict_mode: false
+    timeout_cycles: 10
+  llm:
+    fallback_technical_signals: true
+    hold_to_signal_conversion: true
+  rule_engine:
+    allowed_regimes:
+    - TRENDING
+    - RANGING
+    - VOLATILE
+    - QUIET
+    - UNCERTAIN
+    no_signal_gate:
+      allow_weak_signals: true
+      enabled: true
+      trending_market_threshold: 0.15
+    rag_regime_filter:
+      enabled: true
+      evening_relaxed: true
+      strictness: medium
+hybrid_rsi_filter:
+  d_engine:
+    atr_multiplier_sl: 3.0
+    atr_multiplier_tp: 2.0
+    ema_no_trade_band_pct: 0.0005
+    ema_trend_period: 50
+    enable_rsi_filter: true
+    enable_session_aware_rsi: true
+    overnight_rsi_buffer: 2.0
+    overnight_sl_multiplier: 0.9
+    overnight_tp_multiplier: 0.85
+    rsi_long_pullback_low: 30
+    rsi_long_pullback_reentry: 40
+    rsi_period: 14
+    rsi_short_pullback_high: 70
+    rsi_short_pullback_reentry: 60
+  emergency_mode:
+    enable_forced_exits: true
+    max_position_duration_hours: 4
+    recent_loss_threshold: 8
+  emergency_signal_generation: true
+  hard_block_when_below: false
+  max_consecutive_holds: 8
+  min_confidence_for_trade: 0.45
+  regime_filter:
+    allow_position_exits: true
+    emergency_win_rate: 0.05
+    min_win_rate: 0.1
+    min_win_rate_for_exits: 0.05
+    position_exit_bypass: true
+  regime_mode: relaxed
+live_review:
+  analysis_days: 3
+  auto_apply_recommendations: false
+  csv_log_path: logs/trades.csv
+  email_on_warnings_only: true
+  email_recipients: []
+  enable_ai_insights: true
+  enabled: true
+  feed_to_autonomous: false
+  generate_json: true
+  generate_markdown: true
+  insight_confidence_threshold: 0.6
+  max_recommendations: 10
+  reports_dir: reports/daily_reviews
+  reports_retention_days: 90
+  run_time: '18:00'
+  send_email_notifications: false
+  use_database: true
+llm:
+  call_interval_seconds: 60
+  enable_sentiment: true
+  enabled: false
+  max_tokens: 2048
+  min_confidence_threshold: 0.6
+  min_training_trades: 100
+  model_id: anthropic.claude-3-sonnet-20240229-v1:0
+  override_mode: false
+  region_name: us-east-1
+  retrain_interval_days: 7
+  s3_bucket: srini-shree-east-1
+  s3_prefix: llm-training-data
+  sentiment_region: us-east-1
+  temperature: 0.3
+  trade_log_db_path: data/llm_trades.db
+multi_source_sentiment:
+  agreement_confidence_mult: 1.1
+  enabled: true
+  entry_block_threshold: 0.3
+  low_volume_confidence_penalty: 0.95
+  low_volume_entry_block_threshold: 0.35
+  low_volume_weak_threshold: 0.15
+  mild_contradiction_confidence_mult: 0.7
+  reddit_search_terms:
+  - SPY
+  - SPX
+  - ES
+  - S&P 500
+  - futures
+  reddit_subreddits:
+  - wallstreetbets
+  - stocks
+  - options
+  reddit_weight: 0.45
+  refresh_interval_seconds: 300
+  request_timeout_seconds: 3.0
+  stocktwits_symbols:
+  - ES_F
+  - SPY
+  stocktwits_weight: 0.55
+  strong_exit_threshold: 0.6
+  twitter_enabled: false
+  twitter_search_terms:
+  - $SPY
+  - SPX
+  - ES futures
+  - S&P 500
+  twitter_weight: 0.0
+  weak_threshold: 0.15
+observability:
+  env_label: live
+  prometheus_addr: 0.0.0.0
+  prometheus_enabled: true
+  prometheus_port: 8000
+one_minute:
+  allow_add_on: false
+  allow_overnight_trading: true
+  atr_bounds_blocking: false
+  atr_percentile_high: 0.9
+  atr_percentile_low: 0.1
+  breakout_adx_threshold: 10.0
+  breakout_enabled: true
+  breakout_use_or_levels: false
+  cooldown_minutes: 15
+  dry_run: false
+  enabled: true
+  ft_adx_max: 45.0
+  ft_adx_min: 12.0
+  ft_atr_extreme_threshold: 20.0
+  ft_atr_high_threshold: 13.0
+  ft_atr_very_low_threshold: 8.0
+  ft_breakeven_trigger_pts: 3.0
+  ft_ema21_macd_divergence_block: 0.5
+  ft_ema21_pb_max_overnight: 1
+  ft_ema21_pb_max_rth: 3
+  ft_ema21_rr_ratio: 1.33
+  ft_ema21_sl_atr_mult: 1.25
+  ft_ema21_sl_buffer_pts: 0.5
+  ft_ema21_sl_ceiling_pts: 15.0
+  ft_ema21_sl_floor_pts: 6.0
+  ft_ema21_sl_use_structural: true
+  ft_ema9_pb_enabled: true
+  ft_ema9_pb_macd_min: 0.3
+  ft_ema9_pb_stop_mult: 1.2
+  ft_ema9_pb_target_mult: 1.5
+  ft_ema9_rr_ratio: 1.25
+  ft_ema9_sl_atr_mult: 1.0
+  ft_ema9_sl_ceiling_pts: 20.0
+  ft_ema9_sl_floor_pts: 8.0
+  ft_ema9_touch_pct: 0.0015
+  ft_ema_touch_atr_mult: 0.75
+  ft_ema_touch_pct: 0.0015
+  ft_entry_end_hour: 16
+  ft_entry_end_minute: 0
+  ft_entry_slippage_pts: 0.0
+  ft_entry_start_hour: 9
+  ft_entry_start_minute: 30
+  ft_exhaustion_cooldown_bars: 4
+  ft_fixed_sl_points: 6.0
+  ft_fixed_sl_points_ema9: 8.0
+  ft_fixed_sl_points_trend: 8.0
+  ft_fixed_tp_points: 8.0
+  ft_fixed_tp_points_ema9: 10.0
+  ft_fixed_tp_points_trend: 12.0
+  ft_htf_ema_period: 20
+  ft_htf_filter_enabled: true
+  ft_htf_filter_mode: block_counter
+  ft_htf_refresh_interval_s: 60
+  ft_kb_hard_floor_min_n: 10
+  ft_kb_hard_floor_win_rate: 0.2
+  ft_late_afternoon_block_hour_utc: 20
+  ft_london_adx_min: 15.0
+  ft_london_enabled: false
+  ft_london_end_hour: 5
+  ft_london_end_minute: 0
+  ft_london_max_per_day: 1
+  ft_london_sl_atr_cap: 1.0
+  ft_london_sl_points: 5.0
+  ft_london_start_hour: 2
+  ft_london_start_minute: 0
+  ft_london_tp_points: 8.0
+  ft_max_hold_bars: 8
+  ft_medium_atr_adx_bump: 7.0
+  ft_medium_atr_block_enabled: true
+  ft_medium_atr_block_mode: adx_gate
+  ft_monday_block_enabled: true
+  ft_or_break_long_enabled: false
+  ft_or_break_long_rsi_max: 60.0
+  ft_or_break_max_per_day: 2
+  ft_or_break_rr_ratio: 1.33
+  ft_or_break_short_enabled: true
+  ft_or_break_short_rsi_min: 40.0
+  ft_or_break_sl_atr_mult: 0.75
+  ft_or_break_sl_ceiling_pts: 12.0
+  ft_or_break_sl_floor_pts: 6.0
+  ft_or_minutes: 30
+  ft_or_target_r: 1.0
+  ft_overnight_breakeven_trigger_pts: 2.0
+  ft_overnight_macd_divergence_threshold: 0.4
+  ft_overnight_min_atr_ad: 6.0
+  ft_overnight_min_rr: 1.5
+  ft_overnight_rsi_extreme_block: 35.0
+  ft_overnight_sl_mult: 1.2
+  ft_overnight_tp_mult: 1.5
+  ft_pb_stop_mult: 1.5
+  ft_pb_target_mult: 1.0
+  ft_pdh_proximity_block_enabled: true
+  ft_pdh_proximity_block_pct: 0.001
+  ft_pdh_proximity_rsi_block_pct: 0.005
+  ft_pdh_proximity_rsi_max: 70.0
+  ft_profit_lock_pts: 5.0
+  ft_proximity_enabled: true
+  ft_proximity_gap_mult: 0.3
+  ft_proximity_max_per_day: 2
+  ft_proximity_size_mult: 0.7
+  ft_proximity_sl_mult: 0.8
+  ft_proximity_tp_mult: 0.8
+  ft_short_or_target_r: 1.0
+  ft_short_pb_stop_mult: 1.5
+  ft_short_pb_target_mult: 1.0
+  ft_shorts_enabled: false
+  ft_thesis_reversal_arm_profit_pts: 2.0
+  ft_thesis_reversal_arm_stop_fraction: 0.35
+  ft_thesis_reversal_exit_enabled: true
+  ft_trend_cont_adx_min: 25.0
+  ft_trend_cont_ema9_pct: 0.003
+  ft_trend_cont_enabled: true
+  ft_trend_cont_gap_adx_min: 25.0
+  ft_trend_cont_long_enabled: true
+  ft_trend_cont_max_ext_pts: 30.0
+  ft_trend_cont_max_per_day: 2
+  ft_trend_cont_short_enabled: false
+  ft_trend_cont_stop_mult: 1.0
+  ft_trend_cont_target_mult: 2.0
+  ft_trend_exhaustion_atr_multiple: 8.0
+  ft_trend_flip_exit_enabled: true
+  ft_trend_flip_exit_min_profit_pts: 2.0
+  ft_trend_sl_atr_mult: 1.25
+  ft_trend_sl_ceiling_pts: 20.0
+  ft_trend_sl_floor_pts: 6.0
+  max_hold_minutes: 120
+  max_trades_per_day: 25
+  max_trades_per_hour: 3
+  mtf_ema_period: 20
+  mtf_gate_enabled: false
+  profit_lock_stop_buffer_points: 0.5
+  profit_lock_trigger_r: 0.75
+  pullback_lookback: 3
+  require_5m_trend_alignment: false
+  require_pullback_confirmation: false
+  rth_close_stop_buffer_points: 0.5
+  rth_close_tighten_minutes: 20
+  rth_end_hour: 16
+  rth_end_minute: 0
+  rth_flatten_time_et: '15:50'
+  rth_high_atr_percentile: 0.3
+  rth_no_trade_end_hour: null
+  rth_no_trade_end_minute: null
+  rth_no_trade_start_hour: null
+  rth_no_trade_start_minute: null
+  rth_only: false
+  rth_open_max_adx: 18.0
+  rth_open_mean_reversion_enabled: true
+  rth_open_min_volume: 250
+  rth_open_minutes: 90
+  rth_open_rsi_overbought: 65.0
+  rth_open_rsi_oversold: 35.0
+  rth_open_vwap_atr_mult: 0.4
+  rth_pullback_adx_bypass: 22.0
+  rth_require_high_atr: false
+  rth_require_pullback_confirmation: true
+  rth_rsi_long_max: 60
+  rth_rsi_long_min: 35
+  rth_rsi_short_max: 65
+  rth_rsi_short_min: 40
+  rth_start_hour: 9
+  rth_start_minute: 30
+  rth_stop_atr_multiplier: 3.5
+  rth_take_profit_multiple: 1.1
+  rth_trend_adx_threshold: 15.0
+  scoring_lunch_full_threshold: 72.0
+  scoring_lunch_half_threshold: 58.0
+  stop_atr_multiplier: 3.0
+  take_profit_multiple: 2.0
+  tiny_candle_atr_factor: 0.4
+  tiny_candle_blocking: false
+  trend_adx_threshold: 10.0
+  trend_flip_exit: true
+  use_15m_strategy: true
+  use_eth_session: true
+  use_scoring_system: false
+  warmup_bars: 60
+  window_bars: 200
+optimization:
+  parameter_grid:
+    macd_fast:
+    - 12
+    - 16
+    - 20
+    macd_slow:
+    - 26
+    - 30
+    - 35
+    momentum_lookback:
+    - 20
+    - 30
+    - 40
+    rsi_buy:
+    - 25
+    - 30
+    - 35
+    rsi_sell:
+    - 65
+    - 70
+    - 75
+    sentiment_threshold:
+    - 0.4
+    - 0.5
+    - 0.6
+  retrain_interval: 3600
+  window_length: 500
+rag:
+  backend: local_faiss
+  batch_size: 10
+  cache_enabled: true
+  cache_ttl_seconds: 3600
+  embedding_dimension: 1536
+  embedding_model_id: amazon.titan-embed-text-v1
+  enabled: false
+  kb_cache_ttl_seconds: 120
+  knowledge_base_path: data/knowledge_base
+  local_store_path: rag_data/local_kb/local_kb.sqlite
+  min_sample_for_hard_block: 30
+  min_similar_trades: 0
+  min_similar_trades_for_full_threshold: 8
+  min_weighted_win_rate: 0.3
+  min_weighted_win_rate_soft_floor: 0.15
+  min_win_rate: 0.15
+  opensearch_enabled: false
+  region_name: us-east-1
+  score_threshold: 0.5
+  soft_penalty_when_below: 0.1
+  top_k_results: 3
+  vector_store_path: data/rag_index
+range_trading:
+  boundary_threshold: 0.1
+  enabled: true
+  min_range_size: 1.0
+risk:
+  atr_multiplier: 2.0
+  max_portfolio_heat: 0.02
+  position_sizing_method: kelly
+  use_dynamic_stops: true
+risk_gate:
+  avoid_close_enabled: true
+  avoid_close_window_minutes: 20
+  daily_max_loss_usd: 250
+  initial_margin_long: 2464.0
+  initial_margin_short: 2305.6
+  margin_buffer_usd: 1000
+  max_consecutive_losses: 5
+  max_contracts: 1
+  max_stop_points: 25.0
+  min_stop_points: 6.0
+  peak_drawdown_action: halt
+  peak_drawdown_enabled: true
+  peak_drawdown_flatten_on_trigger: true
+  peak_drawdown_pct: 4.0
+  peak_drawdown_reset_on_new_day: true
+  peak_drawdown_stop_buffer_points: 0.5
+  peak_drawdown_tier1_pct: 3.0
+  peak_drawdown_tier1_size_mult: 0.5
+  peak_drawdown_tier2_pct: 5.0
+  peak_drawdown_tier2_size_mult: 0.25
+  peak_drawdown_tier3_pct: 7.0
+  peak_drawdown_tighten_multiplier: 0.5
+  risk_per_trade_max: 125.0
+  risk_per_trade_min: 25
+  risk_per_trade_usd: 100.0
+  weekly_max_loss_usd: 500
+spy_options:
+  analytics:
+    db_path: data/spy_options_signals.db
+    enabled: true
+  chain:
+    conid_resolve_delay_s: 0.1
+    exchange: SMART
+    liquidity_max_spread_pct: 8.0
+    liquidity_min_oi: 100
+    liquidity_min_volume: 50
+    max_strikes_per_expiry: 30
+    num_expiries: 2
+    strike_pct_range: 0.04
+  enabled: true
+  external:
+    breadth_enabled: true
+    breadth_ttl_minutes: 10.0
+    calendar_enabled: true
+    cboe_enabled: true
+    composite_confidence_boost: 0.05
+    enabled: true
+    event_risk_window_minutes: 30
+    flow_barchart_enabled: true
+    flow_dark_pool_enabled: true
+    flow_enabled: true
+    flow_ttl_minutes: 10.0
+    macro_enabled: true
+    news_enabled: true
+    news_ttl_minutes: 10.0
+    opex_enabled: true
+    reddit_client_id: ''
+    reddit_client_secret: ''
+    reddit_enabled: false
+    reddit_ttl_minutes: 15.0
+    sector_enabled: true
+    sector_ttl_minutes: 10.0
+    stocktwits_enabled: true
+    stocktwits_ttl_minutes: 10.0
+    vol_structure_enabled: true
+    vol_structure_ttl_minutes: 15.0
+  ib:
+    greeks_wait_s: 4.0
+    ibkr_client_id: 6
+    ibkr_host: 127.0.0.1
+    ibkr_port: 4001
+    max_subscriptions: 60
+    snapshot_wait_s: 3.0
+  log_file: logs/spy_options.log
+  rules_v2:
+    enabled: true
+    expected_move_gate_enabled: true
+  session:
+    poll_interval_s: 60
+    rth_only: true
+    rth_start_et: 09:35
+    rth_stop_et: '15:45'
+  signals:
+    bid_ask_imbalance_threshold: 3.0
+    confidence_tier_extreme: 0.8
+    confidence_tier_high: 0.7
+    dedup_window_minutes: 90
+    max_signals_per_day: 10
+    min_confidence: 0.77
+    min_volume_for_signal: 500
+    pc_ratio_bearish: 1.8
+    pc_ratio_bullish: 0.5
+    pc_ratio_flip_cooldown_minutes: 30
+    pc_ratio_min_denom_volume: 200
+    straddle_spike_mult: 3.0
+    sweep_poll_volume_threshold: 300
+    sweep_window_minutes: 15
+    vix_high: 26.0
+    vix_low: 16.0
+    volume_spike_mult: 4.0
+  telegram:
+    bot_token: 8252063184:AAHE_uiEcEqRaB1jfWvjGSjMsnbNfWluCfI
+    chat_id: '5524962877'
+    enabled: true
+stocktwits_sentiment:
+  agreement_confidence_mult: 1.1
+  enabled: false
+  entry_block_threshold: 0.3
+  low_volume_confidence_penalty: 0.95
+  low_volume_entry_block_threshold: 0.35
+  low_volume_protect_position_threshold: 0.4
+  low_volume_weak_threshold: 0.15
+  mild_contradiction_confidence_mult: 0.8
+  protect_position_threshold: 0.6
+  refresh_interval_seconds: 300
+  request_timeout_seconds: 3.0
+  symbols:
+  - ES_F
+  - SPY
+  weak_threshold: 0.15
+strategies:
+- enabled: true
+  name: rsi_macd_sentiment
+  params:
+    rsi_buy: 35.84
+    rsi_sell: 54.83
+    sentiment_buy: -0.82
+    sentiment_sell: 0.22
+structural_support_floor: 0
+telegram:
+  bot_token: 8277270355:AAERK77ILK3R2-jJ79h9n0E83Gt4uA31CQE
+  chat_id: '5524962877'
+  enabled: true
+  notify_on_error: true
+  notify_on_signal: false
+  notify_on_trade: true
+trading:
+  commission_per_contract: 2.4
+  confidence_threshold: 0.6
+  contract_multiplier: 5.0
+  contracts_per_order: 1
+  cooldown_on_consecutive_losses_minutes: 30
+  cooldown_on_loss_minutes: 20
+  emergency_mode_enabled: true
+  entry_filters:
+    adx_period: 14
+    allow_counter_trend: true
+    atr_percentile_lookback: 240
+    atr_period: 14
+    chop_zone_buffer_pct: 0.25
+    contract_month_offset: 0
+    counter_trend_penalty: 0.15
+    ema_alignment_tolerance_pct: 0.0002
+    ema_fast_period: 9
+    ema_slow_period: 20
+    low_atr_penalty: 0.15
+    low_atr_penalty_mode: true
+    max_atr_threshold: 50.0
+    min_adx_threshold: 10.0
+    min_adx_threshold_low_volume: 7.0
+    min_atr_percentile: 10
+    min_atr_threshold: 0.3
+    require_adx_confirmation: true
+    require_trend_alignment: true
+    sr_proximity_ticks: 8
+    wait_for_candle_close: true
+  evening_session_threshold: 0.35
+  exit_signals:
+    bypass_regime_filter: true
+    profit_target_exit: true
+    stop_loss_exit: true
+    time_based_exit: true
+  fallback_signals_enabled: true
+  ft_consecutive_loss_trigger: 3
+  initial_capital: 5000.0
+  market_hours:
+    daily_reset_time: '17:00'
+    daily_reset_timezone: America/Chicago
+    enabled: true
+    futures_mode: true
+    maintenance_windows:
+    - end: '17:00'
+      start: '16:00'
+      timezone: America/Chicago
+  max_contracts_limit: 1
+  max_daily_loss: 135.0
+  max_daily_trades: 4
+  max_losses_before_extended_cooldown: 2
+  max_position_size: 1
+  max_spread_ticks: 2.0
+  max_stop_distance_ticks: 60
+  max_trade_logs_per_query: 5
+  min_confidence_for_trade: 0.4
+  min_confidence_threshold: 0.45
+  min_risk_reward_ratio: 1.0
+  min_stop_distance_ticks: 16
+  min_weighted_confidence: 0.5
+  order_lock_timeout_seconds: 300
+  pending_order_timeout_seconds: 180
+  position_exit:
+    max_hold_time_hours: 4
+    profit_target_dollars: 100
+    stop_loss_dollars: 75
+  position_management:
+    bypass_filters_for_exits: true
+    emergency_close_enabled: true
+    emergency_exit_confidence: 60
+    force_exits_after_hours: 4
+    max_position_duration_hours: 4
+    profit_target_points: 20
+    stop_loss_points: 10
+  reset_state_on_start: false
+  s3_cache_duration_minutes: 10
+  spread_gate_enabled: true
+  startup_grace_period_seconds: 120
+  startup_min_completed_bars: 2
+  stop_loss_ticks: 60.0
+  take_profit_ticks: 120.0
+  tick_size: 0.25
+  tick_value: 1.25
+  trade_cooldown_minutes: 10
+vix_feed:
+  base_delay: 1.0
+  client_id: 71
+  conservative_on_stale: false
+  enabled: true
+  ib_host: 127.0.0.1
+  ib_port: 4001
+  market_data_type: 1
+  max_delay: 60.0
+  max_retries: 5
+  stale_seconds: 120
+  thresholds:
+    elevated: 20.0
+    extreme: 30.0

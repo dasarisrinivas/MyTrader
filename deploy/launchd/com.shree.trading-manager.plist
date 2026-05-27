@@ -55,6 +55,19 @@
         <!-- Set TM_DRY_RUN=1 to disable the SIGTERM kill-switch (logs only). -->
         <key>TM_DRY_RUN</key>
         <string>0</string>
+        <!-- 2026-05-27 FIX: es_fifteen_min is a high-win-rate (~53-59%), low-R:R
+             (~1.3:1) strategy. The static 2.0 R:R floor vetoed 100% of its signals
+             (cold-start deadlock → zero live trades for MES + SPY). Lower the floor
+             to 1.2 to admit the validated ~1.3 setups. Reversible: delete to restore
+             2.0 default. See reports/bt_multiyr_2026-05-26/NO_SIGNALS_ROOT_CAUSE.md -->
+        <key>TM_MIN_RR</key>
+        <string>1.2</string>
+        <!-- Soft-pause (2-loss streak) otherwise raises the floor to 2.5, which would
+             re-create the deadlock on the first ordinary 2-loss streak (frequent at
+             ~53% WR). Tighten to 1.3 instead: still trades the better setups when in a
+             drawdown, without full-blocking. Reversible. -->
+        <key>TM_SOFT_PAUSE_MIN_RR</key>
+        <string>1.3</string>
     </dict>
 </dict>
 </plist>

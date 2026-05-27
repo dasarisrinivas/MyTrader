@@ -71,3 +71,33 @@ fix was kept: `_close_final_position` now handles the 15m-only path (where `df_1
 is empty) instead of crashing when a position is open at the data's end.
 
 Trade list: `mom_brk_REJECTED_trades.csv`.
+
+## Second pass — cost-aware re-screen of other new triggers (also negative)
+
+After the momentum reject, I re-screened a broader set of genuinely-different long
+triggers, this time **cost-aware** (−$5/trade for commission+slippage), with
+realistic exits, and including a *non-extended* (near-level) breakout entry that
+directly fixes momentum's failure mode. Flat (additive) bars only:
+
+| Trigger | n | WR | exp/tr (after cost) | total | 2024 / 2025 / 2026 |
+|---|---|---|---|---|---|
+| near-16-high break + EMA stack (≤0.3 ATR) | 272 | 48.2% | −$1.7 | −$473 | −124 / −762 / +413 |
+| VWAP reclaim (uptrend) | 171 | 43.3% | +$2.9 | +$491 | **−816** / +486 / +822 |
+| EMA20 pullback (uptrend) | 371 | 44.7% | +$0.8 | +$292 | **−1,721** / +1,497 / +516 |
+| PDH reclaim (near, ≤0.3 ATR) | 111 | 47.7% | +$10.3 | +$1,142 | **−450** / +1,285 / +306 |
+| NR-contraction break | 176 | 42.6% | −$8.0 | −$1,410 | −158 / −637 / −614 |
+
+**Not one is positive every year** — every candidate has a losing 2024, and this
+screen is known to be ~20 WR-points optimistic vs the faithful engine (momentum:
+screen ~50% → engine 31%). So even the best-looking one (PDH reclaim) would very
+likely lose in faithful execution, and it's already negative in 2024.
+
+## Final conclusion
+
+The simple additive-long-signal space is exhausted: the existing six long signals
+already capture the available 15-minute long edge, and 2024's tape punished every
+new additive long idea. The genuine frequency levers are (1) **already pulled**:
+`ft_adx_min` 18→12 (+44% trades, validated), or (2) **structural**: a finer 5m
+decision timeframe (more decision points). Chasing a new signal by tuning until it
+backtests positive would be overfitting — not advisable on a live account.
+

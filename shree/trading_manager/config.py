@@ -66,10 +66,10 @@ class ManagerConfig:
     consec_wins_size_up: int = _envi("TM_CONSEC_WINS_SIZE_UP", 3)
     # When in soft pause, raise these gates above their static defaults
     soft_pause_min_confidence: float = _envf("TM_SOFT_PAUSE_MIN_CONF", 0.70)
-    soft_pause_min_rr: float = _envf("TM_SOFT_PAUSE_MIN_RR", 2.5)
+    soft_pause_min_rr: float = _envf("TM_SOFT_PAUSE_MIN_RR", 1.5)
 
     # === Quality gates ===
-    min_rr_ratio: float = _envf("TM_MIN_RR", 2.0)
+    min_rr_ratio: float = _envf("TM_MIN_RR", 1.2)
     min_adx_for_trend_strategy: float = _envf("TM_MIN_ADX_TREND", 18.0)
     min_confidence: float = _envf("TM_MIN_CONFIDENCE", 0.50)
 

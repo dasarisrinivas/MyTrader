@@ -22,7 +22,7 @@ From these we derive *adaptive thresholds* per signal:
 
   • min_confidence_required — pushed up if the bucket bleeds, down if it pays
   • auto_suppress           — True if win_rate < 35% on >= 10 samples
-  • allowed_min_rr          — relaxed below 2.0 if the winner/loser ratio earns it
+  • allowed_min_rr          — relaxed below 1.2 if the winner/loser ratio earns it
 
 This file is pure I/O + math. No event loop, no daemon logic — the manager
 calls update() periodically and the rules engine calls get_bucket_stats() per
@@ -386,7 +386,7 @@ def derive_thresholds(
     stats: BucketStats,
     *,
     base_min_confidence: float = 0.50,
-    base_min_rr: float = 2.0,
+    base_min_rr: float = 1.2,
 ) -> AdaptiveThresholds:
     """Map empirical performance to threshold overrides.
 
@@ -430,8 +430,8 @@ def derive_thresholds(
             notes.append("Low WR but edge ratio pays — confidence raised, not suppressed")
         elif wr < 0.45:
             floor = max(floor, 0.75)
-            rr = max(rr, 2.5)
-            notes.append("Bucket bleeding (WR 35-45%) — confidence raised to 0.75, R:R 2.5")
+            rr = max(rr, 1.5)
+            notes.append("Bucket bleeding (WR 35-45%) — confidence raised to 0.75, R:R 1.5")
         elif wr >= 0.65:
             floor = min(floor, 0.40)
             rr = min(rr, 1.5)
@@ -451,7 +451,7 @@ def derive_thresholds(
         rr = min(rr, 1.5)
         notes.append("Edge ratio >=2.0 — R:R 1.5 acceptable (math pays even at low WR)")
     elif confident and 0 < er < 0.6:
-        rr = max(rr, 2.5)
+        rr = max(rr, 1.5)
         floor = max(floor, 0.70)
         notes.append("Edge ratio <0.6 — winners much smaller than losers; tightening")
 
@@ -478,7 +478,7 @@ def adaptive_lookup(
     ts_iso: str,
     vix: Optional[float],
     base_min_confidence: float = 0.50,
-    base_min_rr: float = 2.0,
+    base_min_rr: float = 1.2,
 ) -> Optional[AdaptiveThresholds]:
     """One-shot lookup: returns the thresholds the rules engine should apply
     for this signal, or None if no usable empirical data is available.

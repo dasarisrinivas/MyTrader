@@ -19,6 +19,14 @@ set -e
 
 cd "$(dirname "$0")"
 
+# 2026-05-27 FIX: es_fifteen_min is high-WR / low-R:R (~1.3:1). The default 2.0
+# R:R floor vetoed 100% of signals (cold-start deadlock → no live trades). Admit
+# the validated ~1.3 setups; soft-pause tightens to 1.3 instead of an unreachable
+# 2.5. Override here so the nohup launch path matches the launchd plist.
+# Reversible: remove these two lines to restore the 2.0/2.5 defaults.
+: "${TM_MIN_RR:=1.2}"; export TM_MIN_RR
+: "${TM_SOFT_PAUSE_MIN_RR:=1.3}"; export TM_SOFT_PAUSE_MIN_RR
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

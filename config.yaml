@@ -1384,7 +1384,7 @@ spy_options:
   ib:
     ibkr_host: "127.0.0.1"
     ibkr_port: 4001
-    ibkr_client_id: 5
+    ibkr_client_id: 6
     snapshot_wait_s: 3.0
     greeks_wait_s: 4.0
     max_subscriptions: 60

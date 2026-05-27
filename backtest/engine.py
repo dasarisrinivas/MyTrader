@@ -16,6 +16,7 @@ and the live trading logic from shree/.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -203,7 +204,24 @@ class BacktestEngine:
         self.equity_curve: List[Tuple[datetime, float]] = []
         self.block_reasons: Dict[str, int] = {}
         self.signal_counts: Dict[str, int] = {"BUY": 0, "SELL": 0, "HOLD": 0}
-        
+
+        # MAY 27 2026: optional execution-faithful Trade Manager gate (default OFF).
+        # Enable with env BT_WITH_MANAGER=1 to run the REAL live `rules.evaluate`
+        # approval path in the backtest, so research == live. Touches no live code.
+        self.manager_gate = None
+        if os.environ.get("BT_WITH_MANAGER") == "1":
+            try:
+                from .manager_gate import BacktestManagerGate
+                _mrr = os.environ.get("BT_MIN_RR")
+                _eq = os.environ.get("BT_ACCT_EQUITY")
+                self.manager_gate = BacktestManagerGate(
+                    min_rr=float(_mrr) if _mrr else None,
+                    account_equity=float(_eq) if _eq else None,
+                )
+                logger.info(f"🛡️  Backtest Trade Manager gate ENABLED (min_rr={_mrr or 'default'})")
+            except Exception as e:
+                logger.error(f"Failed to enable backtest manager gate: {e}")
+
         # Callbacks
         self.on_bar: Optional[Callable] = None
         self.on_trade: Optional[Callable] = None
@@ -1261,7 +1279,24 @@ class BacktestEngine:
         if stop_loss is None or take_profit is None:
             self._record_block("MISSING_STOPS")
             return
-        
+
+        # MAY 27 2026: Trade Manager veto — the REAL live gate, if enabled (default OFF).
+        # Placed before the risk gate so it sees the strategy's proposed levels, exactly
+        # like the live signal feed. A rejection here frees the slot for later signals.
+        if self.manager_gate is not None:
+            _md = signal.metadata
+            _approved, _dec = self.manager_gate.evaluate(
+                action=signal.action, ts=timestamp, close=float(bar["close"]),
+                stop_loss=stop_loss, take_profit=take_profit,
+                adx=float(_md.get("adx_value", _md.get("adx", 20.0)) or 20.0),
+                rsi=float(_md.get("rsi", 55.0) or 55.0),
+                atr=float(_md.get("atr_value", bar.get("ATR_14", 8.0)) or 8.0),
+                signal_type=(_md.get("reason", "") or "").split("|")[0].strip(),
+            )
+            if not _approved:
+                self._record_block("TM_REJECT:" + (_dec.reasoning or "")[:40])
+                return
+
         # Evaluate risk gate (EXACT same logic as live)
         close_price = float(bar["close"])
         atr_value = float(bar.get("ATR_14", 2.0))
@@ -1655,9 +1690,14 @@ class BacktestEngine:
                 pnl = last_trade.get("realized_pnl", 0)
                 self.state.daily_pnl += pnl
                 self.state.realized_pnl += pnl
-                
+
                 # Track win/loss for risk gate
                 self.risk_gate.record_trade_result(pnl > 0)
+
+                # MAY 27 2026: feed closed-trade outcome to the Trade Manager gate so
+                # its streak/posture/daily-PnL state evolves like live (if enabled).
+                if self.manager_gate is not None:
+                    self.manager_gate.record_outcome(pnl, fill.timestamp)
             
             # Reset position state
             self.state.entry_price = 0.0
