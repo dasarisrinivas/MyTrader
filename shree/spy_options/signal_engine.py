@@ -399,16 +399,13 @@ class SignalEngine:
                 )
 
         # ── 4. Directional inside ORB after 10:30 ET ──────────────────────
-        if is_directional and ext is not None:
-            _ET = ZoneInfo("America/New_York")
-            now_et = _dt.datetime.now(_ET)
-            after_orb_lock = now_et.time() >= _dt.time(10, 30)
-            orb_established = getattr(ext, "orb_established", False)
-            orb_status = getattr(ext, "orb_status", "BUILDING")
-            if after_orb_lock and orb_established and orb_status == "INSIDE":
-                fails.append(
-                    "Quality gate: price inside ORB after 10:30 ET — range-bound, directional blocked"
-                )
+        # NOTE: This was previously a hard block but caused 91/106 quality-gate
+        # blocks (85% of all blocks) — SPY spends most of normal trading days
+        # inside the ORB, effectively shutting down the bot for the majority of
+        # the session in low-IV environments.  Converted to a -0.10 confidence
+        # penalty applied later in the pipeline (see _orb_inside_penalty below).
+        # A signal with genuine strength can still exceed the threshold after this
+        # penalty; a marginal signal will be filtered at the threshold check.
 
         # ── 5. Tight intraday range < 0.20% (chop day — no directional edge) ─
         if is_directional and self._intraday_high and self._intraday_low and self._intraday_low > 0:
@@ -420,6 +417,43 @@ class SignalEngine:
                 )
 
         return len(fails) == 0, fails
+
+    # ── ORB-inside confidence penalty (soft, replaces former hard block) ─────
+
+    @staticmethod
+    def _orb_inside_penalty(
+        sig: "SpySignal",
+        ext: Optional["ExternalContext"],
+    ) -> Tuple[float, str]:
+        """Return a confidence penalty when price is inside the ORB after 10:30 ET.
+
+        Replaces the former hard quality-gate block which killed 91/106 signals
+        (85% of all blocks) in low-volatility environments.  Being inside the ORB
+        is a genuine risk factor — directional signals there are lower probability
+        — but not a categorical veto.  A strong signal (high flow, clear breadth,
+        9x+ spike) can legitimately fire inside the ORB if confidence is high
+        enough to absorb this -0.10 penalty and still clear the threshold.
+
+        Returns (penalty, note_str).  penalty is 0.0 or negative.
+        """
+        is_directional = sig.signal_type in {
+            SignalType.CALL_SWEEP, SignalType.PUT_SWEEP,
+            SignalType.BULL_CALL_SPREAD, SignalType.BEAR_PUT_SPREAD,
+            SignalType.PC_RATIO_EXTREME, SignalType.ORB_BREAKOUT,
+        }
+        if not is_directional or ext is None:
+            return 0.0, ""
+
+        _ET = ZoneInfo("America/New_York")
+        now_et = _dt.datetime.now(_ET)
+        after_orb_lock = now_et.time() >= _dt.time(10, 30)
+        orb_established = getattr(ext, "orb_established", False)
+        orb_status = getattr(ext, "orb_status", "BUILDING")
+
+        if after_orb_lock and orb_established and orb_status == "INSIDE":
+            return -0.10, "ORB inside after 10:30 ET — range-bound penalty (−10%)"
+
+        return 0.0, ""
 
     # ── Priority conflict check (Tier-1 / 2 / 3 hierarchy) ───────────────────
 
@@ -952,6 +986,23 @@ class SignalEngine:
                         _vwap_pos, _below_pdl, _orb_bear,
                     )
 
+        # ── ORB-inside soft penalty ───────────────────────────────────────
+        # Applied BEFORE the quality gate so the penalised confidence is what
+        # gets checked at the threshold.  Strong signals can survive; marginal
+        # signals will be filtered.
+        for sig in signals:
+            orb_pen, orb_pen_note = self._orb_inside_penalty(sig, context.external)
+            if orb_pen < 0:
+                _pre = sig.confidence
+                sig.confidence = max(0.0, sig.confidence + orb_pen)
+                sig.confidence_tier = self._tier_cfg(sig.confidence)
+                sig.reasoning.append(f"🔶 {orb_pen_note}")
+                logger.info(
+                    "ORB-inside penalty: {} {} {}{} conf {:.0f}%→{:.0f}%",
+                    sig.signal_type.value, sig.expiry, sig.strike, sig.right,
+                    _pre * 100, sig.confidence * 100,
+                )
+
         # ── Quality gate (hard blocks — confidence cannot override) ──────
         # Any signal that fails the quality gate is dropped here and counted
         # separately from confidence-threshold rejections.
@@ -1035,7 +1086,11 @@ class SignalEngine:
         """Compute weighted confidence score (0.0–1.0) for a spike-based signal."""
 
         # 25% — volume spike strength (normalized against threshold)
-        vol_score = min(1.0, max(0.0, (spike_mult - c.volume_spike_mult) / 10.0))
+        # Denominator is 5.0 (not 10.0): at 4× threshold = 0% score (floor),
+        # at 9× = 100% score (full 25% weight).  The old /10.0 required a 14×
+        # spike for full credit — a threshold only ever reached in extreme events.
+        # Most genuine sweeps are 5–9×; this change makes them score fairly.
+        vol_score = min(1.0, max(0.0, (spike_mult - c.volume_spike_mult) / 5.0))
         w_vol = 0.25 * vol_score
 
         # 15% — bid/ask imbalance
