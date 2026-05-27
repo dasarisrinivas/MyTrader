@@ -1409,7 +1409,7 @@ spy_options:
     pc_ratio_bullish: 0.5
     bid_ask_imbalance_threshold: 3.0
     straddle_spike_mult: 3.0
-    min_confidence: 0.72  # MAY 2026: 0.90→0.78 (APR 9), 0.78→0.72 (MAY). Vol-score normalization fix: old /10.0 denominator required 14x spike for full weight; typical 6-8x sweeps scored only 0.05-0.10 of 0.25 max. New /5.0 makes 9x = full score. ORB hard-block softened to -0.10 penalty. Strong 7x+ sweep with good greeks in OPEN = ~0.72-0.77. 0.72 filters out noise while allowing genuine conviction signals.
+    min_confidence: 0.77  # MAY 2026: Final calibration after OPEN-window fix. Simulation result: bad signal (INSIDE ORB, BELOW_VWAP, neutral context, 10:27 ET) lands at 76.5% → blocked. Good signal (confirmed ORB ABOVE, TREND_UP, ABOVE_VWAP) lands at 90-92% → fires. History: 0.90→0.78 (APR 9), 0.78→0.72 (attempt), 0.72→0.76 (attempt), 0.76→0.77 (MAY 27 final). Root cause fix was the blind OPEN-window +10% boost (10:15-10:30 ET) — now conditional on ORB+VWAP+breadth confirmation.
     confidence_tier_high: 0.70
     confidence_tier_extreme: 0.80
     dedup_window_minutes: 90

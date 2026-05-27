@@ -193,7 +193,40 @@ class DynamicConfidence:
                 else:
                     tod_delta = -0.04                  # unconfirmed: early-session caution
             else:
-                tod_delta = (base * self._open_mult) - base   # post-10:15: standard 10% boost
+                # 10:15–10:30 ET: ORB is established but lock not yet active.
+                # Apply boost ONLY if context confirms direction; otherwise neutral.
+                # Previously this was a blind +10% which fired calls during declining
+                # BELOW-VWAP conditions (root cause of MAY 27 2026 false positive).
+                orb_confirmed = (
+                    getattr(ext_ctx, "orb_breakout_confirmed", False)
+                    if ext_ctx else False
+                )
+                orb_status = getattr(ext_ctx, "orb_status", "INSIDE") if ext_ctx else "INSIDE"
+                vwap_pos = getattr(ext_ctx, "vwap_band_position", "INSIDE_1SD") if ext_ctx else "INSIDE_1SD"
+                breadth = getattr(ext_ctx, "breadth_ratio", 0.5) if ext_ctx else 0.5
+
+                # Direction-aligned confirmation required
+                orb_aligned = (
+                    (right == "C" and orb_confirmed and orb_status == "ABOVE_ORB") or
+                    (right == "P" and orb_confirmed and orb_status == "BELOW_ORB")
+                )
+                vwap_aligned = (
+                    (right == "C" and vwap_pos in ("ABOVE_1SD", "ABOVE_2SD")) or
+                    (right == "P" and vwap_pos in ("BELOW_1SD", "BELOW_2SD")) or
+                    right == "BOTH"
+                )
+                breadth_aligned = (
+                    (right == "C" and breadth >= 0.60) or
+                    (right == "P" and breadth <= 0.40) or
+                    right == "BOTH"
+                )
+                confirms = sum([orb_aligned, vwap_aligned, breadth_aligned])
+                if confirms >= 2:
+                    tod_delta = (base * 1.05) - base   # well-confirmed: 5% boost
+                elif confirms == 1:
+                    tod_delta = 0.0                    # weak confirmation: neutral
+                else:
+                    tod_delta = -0.04                  # no confirmation: caution
         elif tod == _TOD.POWER_HOUR:
             tod_delta = (base * self._power_mult) - base  # 5% boost
         total_delta += tod_delta

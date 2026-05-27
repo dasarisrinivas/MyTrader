@@ -1086,11 +1086,11 @@ class SignalEngine:
         """Compute weighted confidence score (0.0–1.0) for a spike-based signal."""
 
         # 25% — volume spike strength (normalized against threshold)
-        # Denominator is 5.0 (not 10.0): at 4× threshold = 0% score (floor),
-        # at 9× = 100% score (full 25% weight).  The old /10.0 required a 14×
-        # spike for full credit — a threshold only ever reached in extreme events.
-        # Most genuine sweeps are 5–9×; this change makes them score fairly.
-        vol_score = min(1.0, max(0.0, (spike_mult - c.volume_spike_mult) / 5.0))
+        # Denominator is 10.0: full score requires a 14× spike (rare — extreme events
+        # only). Typical 6-8× sweeps score 0.05–0.10 of the 0.25 max, keeping the
+        # base honest. High-conviction setups reach threshold via DynConf context
+        # boosts (ORB confirmed + above VWAP + regime), not inflated base alone.
+        vol_score = min(1.0, max(0.0, (spike_mult - c.volume_spike_mult) / 10.0))
         w_vol = 0.25 * vol_score
 
         # 15% — bid/ask imbalance
