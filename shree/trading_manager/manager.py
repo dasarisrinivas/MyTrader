@@ -161,7 +161,29 @@ def _posture_log_path(cfg) -> str:
 
 
 def _maybe_update_posture(state: ManagerState, cfg, log) -> None:
-    """Update posture based on PnL warn band, streak, etc. (non-killing)."""
+    """Update posture based on PnL warn band, streak, etc. (non-killing).
+
+    MONOTONIC ESCALATION RULE (2026-05-28): this function may only move the
+    posture *up* (more restrictive).  It must never silently overwrite a
+    health-check-driven SIT_OUT with NORMAL because the streak/pnl counters
+    happen to read zero at bot start — that was the posture-flap bug where
+    `_run_health_check` pushed SIT_OUT and this function immediately reset it
+    back to NORMAL one second later.
+
+    The daily session roll (`roll_session_if_needed`) is the *only* path that
+    resets posture back toward NORMAL; intra-day streak/pnl logic can only
+    escalate.
+    """
+    # Severity ordering — higher = more restrictive.
+    _SEVERITY = {
+        POSTURE_NORMAL:     0,
+        POSTURE_DEFENSIVE:  1,
+        POSTURE_SIT_OUT:    2,
+        POSTURE_PROBATION:  3,
+        POSTURE_LOCKED:     4,
+        POSTURE_KILLED:     5,
+    }
+
     if state.posture == POSTURE_KILLED:
         return  # only daily roll can leave KILLED
     new_posture = POSTURE_NORMAL
@@ -175,17 +197,23 @@ def _maybe_update_posture(state: ManagerState, cfg, log) -> None:
         new_posture = POSTURE_SIT_OUT
     if state.trades_today >= cfg.max_trades_per_day:
         new_posture = POSTURE_SIT_OUT
-    if new_posture != state.posture:
-        log.warning(
-            "Posture %s → %s (pnl=%+.2f, trades=%d, consec_L=%d)",
-            state.posture, new_posture,
-            state.realized_pnl_today, state.trades_today, state.consec_losses,
-        )
-        append_posture_transition(
-            _posture_log_path(cfg), state.posture, new_posture,
-            "session_rule(streak/pnl/trades)", state,
-        )
-        state.posture = new_posture
+
+    # Only apply if strictly more restrictive than the current posture.
+    # This prevents overwriting a health-check-driven SIT_OUT / LOCKED with
+    # NORMAL just because today's session counters start at zero.
+    if _SEVERITY.get(new_posture, 0) <= _SEVERITY.get(state.posture, 0):
+        return
+
+    log.warning(
+        "Posture %s → %s (pnl=%+.2f, trades=%d, consec_L=%d)",
+        state.posture, new_posture,
+        state.realized_pnl_today, state.trades_today, state.consec_losses,
+    )
+    append_posture_transition(
+        _posture_log_path(cfg), state.posture, new_posture,
+        "session_rule(streak/pnl/trades)", state,
+    )
+    state.posture = new_posture
 
 
 def _run_health_check(state: ManagerState, cfg, log) -> None:
@@ -202,7 +230,11 @@ def _run_health_check(state: ManagerState, cfg, log) -> None:
     only the unlock CLI (or the probation winner) clears them.
     """
     try:
-        m = compute_metrics(cfg.orders_db, account_equity=cfg.account_equity)
+        m = compute_metrics(
+            cfg.orders_db,
+            account_equity=cfg.account_equity,
+            since_iso=cfg.health_since or None,
+        )
     except Exception as exc:
         log.warning("Health check failed (non-fatal): %s", exc)
         return
@@ -513,6 +545,30 @@ def run() -> int:
             for sig in tailer.poll():
                 if not sig.action:
                     continue
+                # 2026-05-28: skip stale signals (bot bootstrap replays historical bars
+                # and re-appends old shadow rows to decisions.jsonl on restart; the
+                # tailer correctly sees them as "new lines" but the signal_ts is months
+                # old — re-scoring them pollutes the decision log and could in theory
+                # let a ghost signal pass the gate. Drop anything older than the
+                # freshness window (default 600s, override TM_MAX_SIGNAL_AGE_SEC).
+                try:
+                    _max_age = int(os.environ.get("TM_MAX_SIGNAL_AGE_SEC", "600"))
+                    _ts = sig.ts
+                    if _ts:
+                        _sig_dt = datetime.fromisoformat(str(_ts).replace("Z", "+00:00"))
+                        if _sig_dt.tzinfo is None:
+                            _sig_dt = _sig_dt.replace(tzinfo=ZoneInfo("UTC"))
+                        _age = (datetime.now(_sig_dt.tzinfo) - _sig_dt).total_seconds()
+                        if _age > _max_age:
+                            log.info(
+                                "⏭️  SKIP stale signal: type=%s ts=%s age=%.0fs > %ds "
+                                "(bot bootstrap / batch replay)",
+                                sig.signal_type, _ts, _age, _max_age,
+                            )
+                            continue
+                except Exception as _e:  # never let a parse problem stop the loop
+                    log.debug("Stale-signal check failed (non-fatal): %s", _e)
+
                 state.last_signal_ts = sig.ts
                 state.last_decision_id += 1
                 recent = last_n_closed_trades(cfg.orders_db, n=20)

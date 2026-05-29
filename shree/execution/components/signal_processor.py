@@ -632,19 +632,59 @@ class SignalProcessor:
                             rag_win_rate = getattr(pipeline_result.rag_retrieval, "weighted_win_rate", 0.5)
 
                     # APR 6 2026: RAG zero-win-rate hard block.
-                    # Trade on 2026-04-06 entered with rag_similar_trades=5 and
-                    # rag_win_rate=0.0 (all 5 similar trades lost) yet still fired.
-                    # When RAG has >= 3 similar trades and 0% win rate, the historical
-                    # evidence is overwhelming — block the entry entirely.
-                    _rag_block_min_samples = 3
-                    if rag_count >= _rag_block_min_samples and rag_win_rate < 0.01:
+                    # Originally fired at n≥3 — but the RAG store is contaminated by
+                    # old-config losers (cold-start deadlock #3: 2026-05-28 found this
+                    # was zeroing 100% of MES signals because the polluted store
+                    # always finds ≥3 "similar" losses, so conf goes to 0 and no
+                    # trade ever fires, so no new clean RAG data is ever produced).
+                    #
+                    # 2026-05-28 FIX: raised threshold to require *real* statistical
+                    # evidence (default n≥20, override via env RAG_BLOCK_MIN_SAMPLES),
+                    # mirroring the boost path's "n must be meaningful" discipline
+                    # (the boost requires n≥5; the block was firing at n=3 — inverse
+                    # of the safer asymmetry). Also caps the negative adjustment so a
+                    # block cannot fully zero the signal — it dampens by up to 0.35
+                    # max, preserving enough conf for downstream gates to decide.
+                    # Set RAG_BLOCK_MIN_SAMPLES=3 to restore the old aggressive block.
+                    import os as _os
+                    _rag_block_min_samples = int(
+                        _os.environ.get("RAG_BLOCK_MIN_SAMPLES", "20")
+                    )
+                    _rag_block_max_dampen = float(
+                        _os.environ.get("RAG_BLOCK_MAX_DAMPEN", "0.35")
+                    )
+                    # 2026-05-28: Unified RAG-decisioning gate.
+                    # WRITES continue regardless — record_outcome is called from
+                    # order_coordinator on every closed trade, so the learning DB
+                    # accrues data even while reads are gated. READS (block, boost,
+                    # HOLD-dampen, opposes-dampen — every RAG-driven conf
+                    # adjustment) are skipped until the store has enough samples
+                    # for the current setup. Default n≥20 (env RAG_MIN_TRADES_TO_USE).
+                    # This is the architectural answer to the three cold-start
+                    # deadlocks: contaminated/tiny samples can no longer drive
+                    # conf to 0. The gate auto-clears as live trades accrue real
+                    # signal-similar history. Set RAG_MIN_TRADES_TO_USE=0 to
+                    # restore old behavior (per-branch thresholds only).
+                    _rag_min_use = int(
+                        _os.environ.get("RAG_MIN_TRADES_TO_USE", "20")
+                    )
+                    if rag_count < _rag_min_use:
+                        logger.info(
+                            f"🤖 RAG advisory-only: rag_count={rag_count} < "
+                            f"{_rag_min_use} min — conf unchanged "
+                            f"(writes continue; gate clears as data accrues)"
+                        )
+                    elif rag_count >= _rag_block_min_samples and rag_win_rate < 0.01:
                         original_conf = signal.confidence
-                        signal.confidence = 0.0
-                        confidence_adjustments["rag_zero_winrate_block"] = -original_conf
+                        dampen = min(_rag_block_max_dampen, original_conf)
+                        signal.confidence = max(0.0, original_conf - dampen)
+                        confidence_adjustments["rag_zero_winrate_block"] = -dampen
                         logger.warning(
                             f"🚫 RAG_ZERO_WINRATE_BLOCK: {rag_count} similar trades, "
                             f"win_rate={rag_win_rate:.0%} — all lost. "
-                            f"conf {original_conf:.3f} → 0.0"
+                            f"conf {original_conf:.3f} → {signal.confidence:.3f} "
+                            f"(dampened by {dampen:.2f}, not fully zeroed; "
+                            f"min_samples={_rag_block_min_samples})"
                         )
                     elif hybrid_action == signal.action:
                         # Aligned — boost confidence scaled by RAG's own win rate.

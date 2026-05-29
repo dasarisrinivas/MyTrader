@@ -619,7 +619,9 @@ def _get_reddit_sentiment_public() -> SourceSentiment:
     all_texts = []
     seen_post_ids: set = set()  # RESEARCH FIX: Deduplicate posts across search terms
     
-    headers = {"User-Agent": REDDIT_USER_AGENT}
+    # Reddit blocks generic UA strings like "ShreeBot/1.0"; use a browser UA
+    # that matches what we already use for other public endpoints.
+    headers = {"User-Agent": BROWSER_USER_AGENT}
     
     # Search terms to look for
     search_terms = ["SPY", "SPX", "ES", "S&P"]

@@ -98,6 +98,15 @@ class ManagerConfig:
     poll_interval_seconds: float = _envf("TM_POLL_SECONDS", 1.0)
     # Health check cadence (multi-day metrics — cheap, not time-critical)
     health_check_interval_seconds: int = _envi("TM_HEALTH_CHECK_S", 600)  # 10 min
+
+    # Health history cutoff — ISO date string (YYYY-MM-DD or full ISO timestamp).
+    # When set, compute_metrics only reads executions *on or after* this date,
+    # preventing old-book / pre-config-change / paper trades from poisoning the
+    # rolling health window (cold-start deadlock #2). Default empty = no cutoff,
+    # original behavior unchanged.
+    # Example: TM_HEALTH_SINCE=2026-05-27
+    health_since: str = _envs("TM_HEALTH_SINCE", "")
+
     # Unlock CLI drops a marker here; manager picks it up
     unlock_marker_file: str = _envs("TM_UNLOCK_MARKER", "logs/trading_manager_unlock.marker")
 

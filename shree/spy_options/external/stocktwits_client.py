@@ -40,9 +40,17 @@ class StockTwitsClient:
         await self._fetch()
 
     async def _fetch(self) -> None:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+        }
         try:
             async with aiohttp.ClientSession(timeout=self._timeout) as session:
-                async with session.get(_API_URL) as resp:
+                async with session.get(_API_URL, headers=headers) as resp:
                     if resp.status == 429:
                         logger.debug("[StockTwits] Rate limited — skipping")
                         self._state = StockTwitsState(

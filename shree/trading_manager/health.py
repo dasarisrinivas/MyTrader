@@ -151,22 +151,41 @@ def compute_metrics(
     winloser_floor: float = DEFAULTS["winloser_floor"],
     multi_day_red_count: int = DEFAULTS["multi_day_red_count"],
     multi_day_red_dd_pct: float = DEFAULTS["multi_day_red_dd_pct"],
+    since_iso: str | None = None,
 ) -> HealthMetrics:
     """Compute all four health metrics from orders.db.executions.
 
     Reads only closed trades (net_pnl != 0 AND |net_pnl| < 5000 — drops the
     known corrupted CORRUPTED_PNL_CUMULATIVE_IBKR rows from Feb 2026).
+
+    2026-05-28: `since_iso` scopes the window to trades AFTER a calibration date,
+    preventing the cold-start deadlock where pre-config-change / paper / old-book
+    trades stay in the rolling window indefinitely (the bot hasn't traded since
+    May 7 → rolling_wr was frozen at 20%, multi_day_red permanently triggered →
+    permanent SUSPECT → MODIFY-at-small-size → no recovery). Default None = no
+    cutoff, original behavior preserved.
     """
     con = _connect(orders_db)
     try:
-        rows = con.execute(
-            """SELECT order_id, timestamp, net_pnl
-               FROM executions
-               WHERE net_pnl IS NOT NULL AND net_pnl != 0
-                 AND ABS(net_pnl) < 5000
-               ORDER BY timestamp DESC LIMIT ?""",
-            (max(rolling_n, winloser_n, 100),),
-        ).fetchall()
+        if since_iso:
+            rows = con.execute(
+                """SELECT order_id, timestamp, net_pnl
+                   FROM executions
+                   WHERE net_pnl IS NOT NULL AND net_pnl != 0
+                     AND ABS(net_pnl) < 5000
+                     AND timestamp >= ?
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (since_iso, max(rolling_n, winloser_n, 100)),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """SELECT order_id, timestamp, net_pnl
+                   FROM executions
+                   WHERE net_pnl IS NOT NULL AND net_pnl != 0
+                     AND ABS(net_pnl) < 5000
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (max(rolling_n, winloser_n, 100),),
+            ).fetchall()
     finally:
         con.close()
 

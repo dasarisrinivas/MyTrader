@@ -73,9 +73,17 @@ class CboeFlow:
 
     async def _fetch(self) -> None:
         # Try the simpler equity P/C CSV first (most reliable endpoint)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
         try:
             async with aiohttp.ClientSession(timeout=self._timeout) as session:
-                async with session.get(_CBOE_EQ_URL) as resp:
+                async with session.get(_CBOE_EQ_URL, headers=headers) as resp:
                     resp.raise_for_status()
                     text = await resp.text()
             eq_pc = self._parse_equity_csv(text)
