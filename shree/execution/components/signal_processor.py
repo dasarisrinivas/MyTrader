@@ -1194,6 +1194,30 @@ class SignalProcessor:
             )
             signal.action = original_action
 
+        # ── Step 3.5: Confidence→action invariant (Tier-1 fix, MAY 30 2026) ──
+        # If any overlay drove confidence below the execution floor, the signal
+        # is no longer tradeable.  Flip action to HOLD so a directional action
+        # (BUY/SELL/SCALP_*) can never survive with execution-ineligible
+        # confidence — the "BUY@0.00" desync class where rag_zero_winrate_block,
+        # hybrid_oppose, chop_regime_block, dead_zone_block, etc. zero the
+        # confidence while leaving action directional.  This makes the signal
+        # state semantically consistent at the source and is PURELY DEFENSIVE:
+        # it only converts already-blocked signals (conf < floor would be
+        # rejected downstream at live_trading_manager.py:1981 regardless) into
+        # an explicit HOLD.  It can never enable a trade that was not already
+        # eligible, so it cannot increase risk or trade count on its own.
+        _exec_floor = getattr(m, "_min_confidence_for_trade", 0.40)
+        if signal.action not in ("HOLD", None) and signal.confidence < _exec_floor:
+            logger.warning(
+                f"🔒 Conf→action invariant: {signal.action} "
+                f"conf={signal.confidence:.3f} < floor {_exec_floor:.2f} after "
+                f"overlays → forcing HOLD (overlays={confidence_adjustments})"
+            )
+            if isinstance(signal.metadata, dict):
+                signal.metadata["preinvariant_action"] = signal.action
+                signal.metadata["invariant_forced_hold"] = True
+            signal.action = "HOLD"
+
         # Add overlay summary to metadata
         if isinstance(signal.metadata, dict):
             signal.metadata["confidence_overlays"] = confidence_adjustments

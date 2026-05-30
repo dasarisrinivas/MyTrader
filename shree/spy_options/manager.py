@@ -547,6 +547,33 @@ class SpyOptionsManager:
             f"  Flow={ext_ctx.flow_score:+.0f}  DP={ext_ctx.flow_dark_pool}"
             if ext_ctx else "",
         )
+        # ── Flow-feed health alarm (Tier-1 fix, MAY 30 2026) ──
+        # The CBOE flow feed returning HTTP 403 leaves flow_score pinned at 0
+        # for the entire session with no operator-visible error.  flow_score
+        # contributes up to +0.10 confidence per directional signal, so a
+        # silent zero degrades every signal.  Alarm when flow has been exactly
+        # 0 for many consecutive polls so a dead feed is surfaced, not silently
+        # absorbed.  Pure observability — no effect on signal/trade logic.
+        if ext_ctx is not None:
+            if abs(ext_ctx.flow_score) < 1e-9:
+                self._flow_zero_streak = getattr(self, "_flow_zero_streak", 0) + 1
+                if self._flow_zero_streak == 10 or self._flow_zero_streak % 60 == 0:
+                    logger.error(
+                        "⚠️ FLOW FEED HEALTH: flow_score == 0 for {} consecutive "
+                        "polls — CBOE/flow source likely dead (HTTP 403). "
+                        "Directional signals are losing their flow-alignment "
+                        "boost (up to +0.10 conf). Verify flow feed "
+                        "credentials/endpoint.",
+                        self._flow_zero_streak,
+                    )
+            else:
+                if getattr(self, "_flow_zero_streak", 0) >= 10:
+                    logger.info(
+                        "✅ FLOW FEED HEALTH: flow_score recovered "
+                        "(was 0 for {} polls)",
+                        self._flow_zero_streak,
+                    )
+                self._flow_zero_streak = 0
         # Log technical levels summary
         _orb_tag = (
             f"ORB={tech_levels.orb_status}"
