@@ -297,7 +297,24 @@ async def download_data(args: argparse.Namespace) -> tuple:
         data_path = Path(args.data_file)
         if data_path.suffix == ".parquet":
             raw = pd.read_parquet(data_path)
-            
+
+            # PERF (MAY 2026): pre-slice the raw frame to the requested window
+            # BEFORE the expensive enrichment/resampling, so large multi-year
+            # files don't force a full-file enrich for a smaller window. Keeps a
+            # warmup lookback so indicators prime correctly at the window start.
+            if isinstance(raw.index, pd.DatetimeIndex):
+                if raw.index.tz is None:
+                    raw.index = raw.index.tz_localize("UTC")
+                _lo = start_date - pd.Timedelta(days=10)
+                _hi = end_date + pd.Timedelta(days=2)
+                _before = len(raw)
+                raw = raw.loc[(raw.index >= _lo) & (raw.index <= _hi)]
+                if len(raw) != _before:
+                    logger.info(
+                        f"Windowed raw {_before}->{len(raw)} rows "
+                        f"for {start_date.date()}..{end_date.date()} (warmup lookback kept)"
+                    )
+
             # FEB 2026: Detect if the loaded file is 15m data (not 1m)
             if "15m" in data_path.name:
                 # This IS 15m data — load directly, don't treat as 1m

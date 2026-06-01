@@ -53,6 +53,47 @@ class BacktestManagerGate:
         self._cur_day = None
         self.stats = Counter()                          # decisions + reject buckets
 
+        # ── Learning-DB accrual (env BT_LEARNING_DB) ─────────────────────────
+        # When set, every closed approved trade is written to an ISOLATED
+        # backtest learning DB (clean each run), and the adaptive-bucket lookup
+        # is repointed at it — so the manager's LEARNED-REJECTION auto-suppress
+        # (win-rate < 35% on >= MIN_SAMPLE trades) actually learns from the
+        # backtest and acts on future trades, exactly like live. Default OFF.
+        import os as _os
+        self._learn = None
+        self._learn_last = None   # (sig, entry_iso) of the last approved signal
+        _ldb = _os.environ.get("BT_LEARNING_DB")
+        if _ldb:
+            from shree.trading_manager.learning import open_db as _open_learn
+            # BT_KEEP_DB=1 appends to an existing learning DB (for chunked
+            # multi-period runs that accrue continuously); default wipes clean.
+            if _os.path.exists(_ldb) and _os.environ.get("BT_KEEP_DB") != "1":
+                _os.remove(_ldb)
+            self._learn = _open_learn(_ldb)
+            self.cfg = dataclasses.replace(self.cfg, learning_db=_ldb)
+            _log.info(f"BT learning accrual ENABLED → {_ldb}")
+
+            # DEMO: pre-seed a bleeding bucket (env BT_SEED_BAD_BUCKET=<signal_type>)
+            # with low-WR, bad-math history so the manager's LEARNED-REJECTION
+            # auto-suppress fires on future trades in that bucket. Proves the
+            # learning loop acts on future behaviour.
+            _bad = _os.environ.get("BT_SEED_BAD_BUCKET")
+            if _bad:
+                import uuid as _uuid
+                from shree.trading_manager.learning import (
+                    upsert_event as _ue, bucketize_vix as _bv,
+                )
+                _vb = _bv(None)
+                # 1 small winner + 11 big losers → ~8% WR with terrible edge ratio
+                _seed = [(+3.0, "2025-06-01T14:00:00")] + [
+                    (-10.0, f"2025-06-0{1+(i % 8)}T14:0{i % 6}:00") for i in range(11)
+                ]
+                for _pnl, _t in _seed:
+                    _ue(self._learn, event_id=str(_uuid.uuid4()), bot="mes",
+                        signal_type=_bad, regime="TRENDING", time_bucket="RTH_MID",
+                        vix_bucket=_vb, pnl=_pnl, entry_time=_t, exit_time=_t)
+                _log.info(f"BT SEEDED bleeding bucket: {_bad}/TRENDING/RTH_MID (1W/11L)")
+
     def _roll(self, day: str) -> None:
         if day != self._cur_day:
             self._cur_day = day
@@ -89,6 +130,8 @@ class BacktestManagerGate:
         self.stats[d.decision] += 1
         if approved:
             self.state.trades_today += 1            # count opened trade for Q3 overtrading
+            if self._learn is not None:
+                self._learn_last = (sig, ts.isoformat())   # bucket source for accrual on close
         else:
             self.stats["reject:" + _bucket(d.reasoning)] += 1
         return approved, d
@@ -98,6 +141,33 @@ class BacktestManagerGate:
         self._roll(ts.strftime("%Y-%m-%d"))
         self._approved.append((ts.isoformat(), float(pnl)))
         self.state.realized_pnl_today += float(pnl)
+
+        # Accrue the closed trade into the backtest learning DB using the SAME
+        # bucket keys adaptive_lookup reads, so LEARNED-REJECTION can fire on
+        # future trades in a bleeding bucket.
+        if self._learn is not None and self._learn_last is not None:
+            import uuid
+            from shree.trading_manager.rules import _market_regime
+            from shree.trading_manager.learning import (
+                upsert_event, bucketize_time, bucketize_vix, normalize_regime,
+            )
+            sig, entry_iso = self._learn_last
+            try:
+                upsert_event(
+                    self._learn,
+                    event_id=str(uuid.uuid4()),
+                    bot="mes",
+                    signal_type=getattr(sig, "signal_type", "") or "",
+                    regime=normalize_regime(_market_regime(sig)),
+                    time_bucket=bucketize_time(entry_iso),
+                    vix_bucket=bucketize_vix(None),
+                    pnl=float(pnl),
+                    entry_time=entry_iso,
+                    exit_time=ts.isoformat(),
+                )
+            except Exception as _e:
+                _log.debug(f"learning upsert skipped: {_e}")
+            self._learn_last = None
 
     def summary(self) -> dict:
         return dict(self.stats)

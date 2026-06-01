@@ -1249,7 +1249,15 @@ class BacktestEngine:
 
         # --- AGENT SIMULATION HOOKS ---
         # 1. RAG Agent: Check market context validation
-        if self.rag_agent_enabled and signal.action != "HOLD":
+        if os.environ.get("BT_WITH_RAG") == "1" and signal.action != "HOLD":
+            # REAL RAG path: live win-rate block + conf→action invariant against
+            # an isolated backtest store that starts clean and accrues on close.
+            if getattr(self, "rag_real", None) is None:
+                self._init_real_rag()
+            signal = self._real_rag_gate(bar, signal, timestamp)
+            if signal.action == "HOLD":
+                self._record_block("RAG_INVARIANT_HOLD")
+        elif self.rag_agent_enabled and signal.action != "HOLD":
             # In live trading, this calls HybridPipelineIntegration.enrich_signal()
             # which queries vector DB for similar historical scenarios.
             # For backtest, we simulate this by validating the context exists.
@@ -1352,6 +1360,15 @@ class BacktestEngine:
             metadata={
                 "signal_confidence": signal.confidence,
                 "signal_reason": signal.metadata.get("reason", ""),
+                # Phase 2 conviction sizing — RECORDED ONLY. realized_pnl stays the
+                # RAW (qty=1) truth layer; the validation report applies this
+                # multiplier to compute the separate WEIGHTED economic layer.
+                "size_multiplier": (getattr(_dec, "size_multiplier", 1.0)
+                                    if self.manager_gate is not None else 1.0),
+                "size_tier": (getattr(_dec, "size_tier", "NEUTRAL")
+                              if self.manager_gate is not None else "NEUTRAL"),
+                "catastrophic_flag": (getattr(_dec, "catastrophic_flag", False)
+                                      if self.manager_gate is not None else False),
                 "entry_module": signal.metadata.get("entry_module", ""),
                 "entry_reason": signal.metadata.get("entry_reason", getattr(signal, "reason", "")),
                 "entry_type": signal.metadata.get("entry_type", getattr(signal, "entry_type", "")),
@@ -1366,6 +1383,22 @@ class BacktestEngine:
             }
         )
         
+        # ── Production observability (instrumentation only; exception-isolated,
+        #    returns nothing — cannot affect trades/P&L; results stay byte-identical) ──
+        try:
+            from shree.observability import log_entry as _obs_log_entry
+            _reason = signal.metadata.get("reason", "") or ""
+            _obs_log_entry(
+                timestamp=timestamp,
+                setup=_reason.split("|")[0].strip(),
+                adx=adx_value,
+                session=signal.metadata.get("session_type", "RTH"),
+                entry_reason=_reason,
+                confidence=getattr(signal, "confidence", None),
+            )
+        except Exception:
+            pass
+
         # Update state
         self.state.stop_loss = stop_loss
         self.state.take_profit = take_profit
@@ -1698,7 +1731,21 @@ class BacktestEngine:
                 # its streak/posture/daily-PnL state evolves like live (if enabled).
                 if self.manager_gate is not None:
                     self.manager_gate.record_outcome(pnl, fill.timestamp)
-            
+
+                # REAL RAG path: persist the closed trade so the win-rate gate
+                # accrues data and activates after RAG_MIN_TRADES_TO_USE — exactly
+                # like the live system rebuilding after decontamination.
+                if getattr(self, "rag_real", None) is not None:
+                    try:
+                        _hold = 0
+                        if self.state.entry_time is not None:
+                            _hold = int((fill.timestamp - self.state.entry_time).total_seconds())
+                        self._real_rag_record(
+                            self.state.entry_price, fill.price, pnl, _hold, fill.timestamp,
+                        )
+                    except Exception as _e:
+                        logger.debug(f"RAG record skipped: {_e}")
+
             # Reset position state
             self.state.entry_price = 0.0
             self.state.entry_time = None
@@ -1916,6 +1963,71 @@ class BacktestEngine:
             ]
         
         return results
+
+    # ── REAL RAG + learning backtest path (BT_WITH_RAG=1) ────────────────────
+    # Acts like the live system: uses the real shree.llm.rag_storage.RAGStorage
+    # class against an ISOLATED backtest DB (default data/rag_storage_bt.db) that
+    # starts CLEAN (mirroring the decontaminated live store) and accrues as
+    # trades close. Applies the same RAG win-rate block (RAG_MIN_TRADES_TO_USE /
+    # RAG_BLOCK_MIN_SAMPLES / RAG_BLOCK_MAX_DAMPEN) and the conf→action invariant
+    # used live in signal_processor.py.
+    def _init_real_rag(self) -> None:
+        from shree.llm.rag_storage import RAGStorage, TradeRecord as _TR
+        import sqlite3 as _sq
+        bt_db = os.environ.get("BT_RAG_DB", "data/rag_storage_bt.db")
+        self.rag_real = RAGStorage(db_path=bt_db)
+        _c = _sq.connect(bt_db); _c.execute("DELETE FROM trades"); _c.commit(); _c.close()
+        self._rag_tr_cls = _TR
+        self._rag_floor = 0.40
+        self._rag_min_use = int(os.environ.get("RAG_MIN_TRADES_TO_USE", "20"))
+        self._rag_block_min = int(os.environ.get("RAG_BLOCK_MIN_SAMPLES", "20"))
+        self._rag_block_max_dampen = float(os.environ.get("RAG_BLOCK_MAX_DAMPEN", "0.35"))
+        self._rag_buckets_last = {}
+        self._rag_stats = {"advisory": 0, "dampened": 0, "invariant_hold": 0, "recorded": 0}
+        logger.info(f"🧠 REAL RAG backtest path ENABLED — clean store {bt_db}, min_use={self._rag_min_use}")
+
+    def _rag_buckets(self, bar: pd.Series, signal: Signal, timestamp: datetime) -> dict:
+        atr = float(bar.get("ATR_14", 0) or 0)
+        vol = "HIGH" if atr > 10 else ("MED" if atr > 5 else "LOW")
+        h = timestamp.hour
+        tod = "MORNING" if h < 11 else ("MIDDAY" if h < 14 else "AFTERNOON")
+        st = (signal.metadata.get("reason", "") or "").split("|")[0].strip()
+        return {"volatility": vol, "time_of_day": tod, "signal_type": st}
+
+    def _real_rag_gate(self, bar: pd.Series, signal: Signal, timestamp: datetime) -> Signal:
+        """Live-faithful RAG win-rate block + conf→action invariant on the backtest store."""
+        buckets = self._rag_buckets(bar, signal, timestamp)
+        self._rag_buckets_last = buckets
+        similar = self.rag_real.retrieve_similar_trades(buckets, limit=50)
+        rag_count = len(similar)
+        conf = float(signal.confidence)
+        if rag_count >= self._rag_min_use:
+            wins = sum(1 for t in similar if (t.get("pnl") or 0) > 0)
+            win_rate = wins / rag_count if rag_count else 0.5
+            if rag_count >= self._rag_block_min and win_rate < 0.01:
+                dampen = min(self._rag_block_max_dampen, conf)
+                conf = max(0.0, conf - dampen)
+                self._rag_stats["dampened"] += 1
+        else:
+            self._rag_stats["advisory"] += 1
+        signal.confidence = conf
+        # conf→action invariant (matches signal_processor.py)
+        if signal.action not in ("HOLD", None) and conf < self._rag_floor:
+            self._rag_stats["invariant_hold"] += 1
+            signal.metadata["preinvariant_action"] = signal.action
+            signal.action = "HOLD"
+            signal.confidence = 0.0
+        return signal
+
+    def _real_rag_record(self, entry_price, exit_price, pnl, hold_seconds, timestamp) -> None:
+        import uuid as _uuid
+        tr = self._rag_tr_cls(
+            uuid=str(_uuid.uuid4()), timestamp_utc=timestamp.isoformat(),
+            contract_month="MES", entry_price=float(entry_price), entry_qty=1,
+            exit_price=float(exit_price), exit_qty=1, pnl=float(pnl), fees=0.0,
+            hold_seconds=int(hold_seconds), decision_features={}, decision_rationale={})
+        self.rag_real.save_trade(tr, getattr(self, "_rag_buckets_last", {}))
+        self._rag_stats["recorded"] += 1
 
     def _simulate_rag_context_check(self, bar: pd.Series, signal: Signal) -> bool:
         """

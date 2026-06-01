@@ -218,6 +218,15 @@ class AdaptiveThresholds:
     rationale: str                      # human-readable reason
     confident: bool                     # True if n_trades >= TRUST_SAMPLE
 
+    # ADAPTIVE REDESIGN Phase 2 (MAY 31 2026): conviction sizing.
+    # size_multiplier is a bounded scalar applied to EXPOSURE AFTER signal
+    # generation — it never rejects, re-times, or alters R:R/SL/TP.
+    # Bounds [0.50, 1.25]; the ONLY value below 0.50 is the catastrophic 0.0.
+    # catastrophic_flag is ALWAYS recorded (even when False) for audit.
+    size_multiplier: float = 1.0
+    catastrophic_flag: bool = False
+    size_tier: str = "NEUTRAL"          # EXCELLENT/GOOD/NEUTRAL/WEAK/POOR/CATASTROPHIC
+
 
 def open_db(db_path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
@@ -455,6 +464,15 @@ def derive_thresholds(
         floor = max(floor, 0.70)
         notes.append("Edge ratio <0.6 — winners much smaller than losers; tightening")
 
+    # ── ADAPTIVE REDESIGN Phase 2: conviction sizing ─────────────────────────
+    # Map bucket quality → bounded size_multiplier. This NEVER rejects, re-times,
+    # or alters R:R/SL/TP — it is a scalar applied to exposure AFTER the signal.
+    # The catastrophic check is ALWAYS evaluated and recorded (even when False).
+    size_tier, size_mult, catastrophic_flag = _bucket_size_tier(stats)
+    notes.append(
+        f"SIZE: {size_tier} x{size_mult:.2f} (catastrophic={catastrophic_flag})"
+    )
+
     return AdaptiveThresholds(
         bucket=stats,
         n_trades=n,
@@ -466,7 +484,50 @@ def derive_thresholds(
         min_rr_required=rr,
         rationale=" | ".join(notes),
         confident=confident,
+        size_multiplier=size_mult,
+        catastrophic_flag=catastrophic_flag,
+        size_tier=size_tier,
     )
+
+
+# Conviction-sizing bounds (Phase 2). Conservative; optimization is Phase >2.
+SIZE_MIN = 0.50          # floor for any non-catastrophic bucket
+SIZE_MAX = 1.25          # hard ceiling
+SIZE_CATASTROPHIC = 0.0  # the ONLY deletion
+
+
+def _bucket_size_tier(stats: "BucketStats") -> Tuple[str, float, bool]:
+    """Map bucket stats → (tier, size_multiplier, catastrophic_flag).
+
+    The catastrophic rule is ALWAYS evaluated first and its boolean ALWAYS
+    returned (even when False) so callers can log it unconditionally:
+        n >= 30 AND WR < 10% AND expectancy <= -1R     (R = avg_loser)
+    Everything else is graceful degradation in [SIZE_MIN, SIZE_MAX].
+    """
+    n = stats.n_trades
+    wr = stats.win_rate
+    exp = stats.expectancy
+    R = stats.avg_loser or 0.0  # one risk unit (avg loss, positive $)
+
+    catastrophic = (n >= 30 and wr < 0.10 and (R > 0 and exp <= -R))
+    if catastrophic:
+        return "CATASTROPHIC", SIZE_CATASTROPHIC, True
+
+    if n < MIN_SAMPLE:
+        tier, mult = "NEUTRAL", 1.00          # insufficient data → full size
+    elif wr >= 0.60 and exp > 0:
+        tier, mult = "EXCELLENT", 1.15
+    elif wr >= 0.53:
+        tier, mult = "GOOD", 1.05
+    elif wr >= 0.47:
+        tier, mult = "NEUTRAL", 1.00
+    elif wr >= 0.40:
+        tier, mult = "WEAK", 0.85
+    else:
+        tier, mult = "POOR", 0.70
+
+    mult = max(SIZE_MIN, min(SIZE_MAX, mult))  # deterministic clamp
+    return tier, mult, False
 
 
 def adaptive_lookup(

@@ -5,6 +5,7 @@ recent trade outcomes, returns a Decision.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
@@ -34,6 +35,11 @@ class Decision:
     override: bool = False
     checks: List[Tuple[str, bool, str]] = field(default_factory=list)  # (name, passed, note)
     posture_after: str = POSTURE_NORMAL
+    # ADAPTIVE REDESIGN Phase 2: bounded exposure scalar (conviction sizing).
+    # Default 1.0 (no effect). Applied to exposure AFTER signal generation only.
+    size_multiplier: float = 1.0
+    size_tier: str = "NEUTRAL"
+    catastrophic_flag: bool = False    # ALWAYS recorded, even when False
 
 
 def _market_regime(sig: Signal) -> str:
@@ -273,23 +279,39 @@ def evaluate(
     # bucket has been bleeding historically, AUTO-SUPPRESS. If it pays
     # asymmetrically, relax the R:R requirement. Falls through silently
     # when no usable data exists.
-    adaptive = adaptive_lookup(
-        cfg.learning_db,
-        signal_type=sig.signal_type,
-        bot="mes",
-        regime=_market_regime(sig),
-        ts_iso=sig.ts,
-        vix=None,  # MES decisions don't carry VIX
-        base_min_confidence=cfg.min_confidence,
-        base_min_rr=cfg.min_rr_ratio,
-    )
+    # ABLATION (env-gated, default OFF, no live effect):
+    #   BT_NO_ADAPTIVE=1     → fully disable the adaptive layer (true baseline)
+    #   BT_ADAPTIVE_RR_CAP=X → cap the adaptive R:R floor at X (e.g. 1.33)
+    if os.environ.get("BT_NO_ADAPTIVE") == "1":
+        adaptive = None
+    else:
+        adaptive = adaptive_lookup(
+            cfg.learning_db,
+            signal_type=sig.signal_type,
+            bot="mes",
+            regime=_market_regime(sig),
+            ts_iso=sig.ts,
+            vix=None,  # MES decisions don't carry VIX
+            base_min_confidence=cfg.min_confidence,
+            base_min_rr=cfg.min_rr_ratio,
+        )
+    # ADAPTIVE REDESIGN Phase 2: conviction sizing scalars. ALWAYS computed and
+    # recorded (even when neutral / non-catastrophic) so the caller can log them
+    # unconditionally — never silently skipped.
+    size_mult, size_tier, catastrophic_flag = 1.0, "NEUTRAL", False
     if adaptive is not None:
+        if cfg.adaptive_sizing_enabled:
+            size_mult = adaptive.size_multiplier
+            size_tier = adaptive.size_tier
+            catastrophic_flag = adaptive.catastrophic_flag
         checks.append((
             "adaptive_bucket",
             not adaptive.auto_suppress,
             adaptive.rationale,
         ))
-        if adaptive.auto_suppress:
+        # Phase 2 converts auto_suppress from a hard REJECT into a size reduction.
+        # The REJECT path is retained ONLY in legacy mode (sizing disabled).
+        if adaptive.auto_suppress and not cfg.adaptive_sizing_enabled:
             return Decision(
                 decision="REJECT",
                 confidence=90,
@@ -306,9 +328,31 @@ def evaluate(
                 posture_after=state.posture,
             )
         effective_min_rr = adaptive.min_rr_required
+        # ADAPTIVE REDESIGN Phase 1 (MAY 30 2026): neutralize the adaptive R:R
+        # lever. The adaptive layer may LOWER the floor (strong bucket) but must
+        # NEVER raise it above the static base — raising it mass-rejects the
+        # strategy's fixed ~1.25 R:R trades and forks the state machine.
+        # Deterministic risk controls (soft_pause_min_rr below) are preserved.
+        if not cfg.adaptive_modifies_rr:
+            effective_min_rr = min(effective_min_rr, cfg.min_rr_ratio)
+        # Legacy ablation override (kept for backtest A/B): cap at a fixed value.
+        _rr_cap = os.environ.get("BT_ADAPTIVE_RR_CAP")
+        if _rr_cap:
+            try:
+                effective_min_rr = min(effective_min_rr, float(_rr_cap))
+            except ValueError:
+                pass
     else:
         checks.append(("adaptive_bucket", True, "no empirical data — using static rules"))
         effective_min_rr = cfg.min_rr_ratio
+
+    # Phase 2: always record the conviction-sizing decision (audit trail).
+    checks.append((
+        "conviction_size",
+        not catastrophic_flag,   # passed=False ONLY on catastrophic
+        f"tier={size_tier} x{size_mult:.2f} catastrophic={catastrophic_flag} "
+        f"(sizing_enabled={cfg.adaptive_sizing_enabled})",
+    ))
 
     # SOFT-PAUSE override: raise R:R floor when in a 2-4 loss streak.
     # Take the max of any active source (adaptive, soft pause, static).
@@ -461,6 +505,9 @@ def evaluate(
             override=False,
             checks=checks,
             posture_after=POSTURE_DEFENSIVE if in_soft_pause else posture_after,
+            size_multiplier=size_mult,
+            size_tier=size_tier,
+            catastrophic_flag=catastrophic_flag,
         )
 
     # Clean signal — but if we're in soft pause OR probation, force small size
@@ -488,6 +535,9 @@ def evaluate(
         override=False,
         checks=checks,
         posture_after=posture_after,
+        size_multiplier=size_mult,
+        size_tier=size_tier,
+        catastrophic_flag=catastrophic_flag,
     )
 
 

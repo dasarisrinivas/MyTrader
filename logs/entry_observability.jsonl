@@ -1,0 +1,2 @@
+{"ts": "2025-03-19T15:15:00+00:00", "event": "entry", "setup": "EMA21_PB_LONG", "adx": 24.0, "regime": "TRENDING", "session": "RTH_MID", "entry_reason": "EMA21_PB_LONG | ADX=24", "confidence": 0.7, "attribution_tag": "EMA21_PB_LONG/TRENDING/RTH_MID", "logged_at": "2026-06-01T02:33:51.264242+00:00"}
+{"ts": "None", "event": "entry", "setup": null, "adx": 0.0, "regime": "CHOPPY", "session": null, "entry_reason": "", "confidence": null, "attribution_tag": "None/CHOPPY/NA", "logged_at": "2026-06-01T02:33:51.268420+00:00"}

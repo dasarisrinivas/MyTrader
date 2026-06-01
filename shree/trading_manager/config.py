@@ -24,6 +24,13 @@ def _envs(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def _envb(name: str, default: bool) -> bool:
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class ManagerConfig:
     # === Capital ===
@@ -70,6 +77,23 @@ class ManagerConfig:
 
     # === Quality gates ===
     min_rr_ratio: float = _envf("TM_MIN_RR", 1.2)
+    # ADAPTIVE REDESIGN Phase 1 (MAY 30 2026): the adaptive learning layer must
+    # NEVER raise the effective R:R floor above the static base (min_rr_ratio).
+    # The MES strategy emits a razor-thin R:R band (~1.24–1.36); any adaptive
+    # raise mass-rejects profitable trades and forks the path-dependent state
+    # machine (root cause: docs/adaptive_architecture_redesign.md). Default
+    # False = adaptive R:R neutralized (the fix). Set TM_ADAPTIVE_MODIFIES_RR=1
+    # to restore the legacy (destructive) behavior for A/B comparison.
+    # NOTE: this caps ONLY the adaptive/learning R:R lever; deterministic risk
+    # controls (soft_pause_min_rr) are unaffected.
+    adaptive_modifies_rr: bool = _envb("TM_ADAPTIVE_MODIFIES_RR", False)
+    # ADAPTIVE REDESIGN Phase 2 (MAY 31 2026): conviction-based position sizing.
+    # When True, bucket quality drives a bounded size_multiplier (exposure scalar,
+    # applied AFTER signal generation — never rejects/re-times/alters R:R). When
+    # False (default until backtest-validated), size_multiplier is always 1.0 and
+    # behavior is identical to Phase 1. Catastrophic deletion (n>=30, WR<10%,
+    # exp<=-1R) still applies only when sizing is enabled.
+    adaptive_sizing_enabled: bool = _envb("TM_ADAPTIVE_SIZING", False)
     min_adx_for_trend_strategy: float = _envf("TM_MIN_ADX_TREND", 18.0)
     min_confidence: float = _envf("TM_MIN_CONFIDENCE", 0.50)
 

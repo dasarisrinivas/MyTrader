@@ -2794,7 +2794,21 @@ TRADING GUIDANCE:
                 aws_size_multiplier = signal.metadata.get("aws_size_multiplier")
             if aws_size_multiplier:
                 qty = max(1, int(round(qty * max(0.1, float(aws_size_multiplier)))))
-            
+
+            # ADAPTIVE REDESIGN Phase 2: conviction sizing scalar from the Trading
+            # Manager. Applied AFTER signal generation in the same bounded chain.
+            # 0.0 = catastrophic skip → no position. Absent → 1.0 (no effect),
+            # so this is inert until the manager attaches it (live-parity wiring).
+            adaptive_size_mult = None
+            if isinstance(signal.metadata, dict):
+                adaptive_size_mult = signal.metadata.get("adaptive_size_multiplier")
+            if adaptive_size_mult is not None:
+                m = float(adaptive_size_mult)
+                if m <= 0.0:
+                    logger.info("  🛑 Adaptive conviction sizing = 0.0 (catastrophic) — skipping trade")
+                    return
+                qty = max(1, int(round(qty * max(0.50, min(1.25, m)))))
+
             qty = min(qty, self.settings.trading.max_position_size)
             
             if not self.risk.can_trade(qty):
