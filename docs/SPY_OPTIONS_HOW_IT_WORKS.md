@@ -1090,6 +1090,25 @@ spy_options:After the base confidence model (10 components) and event-risk modif
 | Near max pain + 0DTE directional | −6% (pin risk) |
 | Near max pain + 1–2 DTE directional | −3% |
 
+### Real Order Flow Adjustment (Block 20 — Jul 5 2026)
+
+Real data from IB replacing proxies: tick-by-tick prints classified against the
+NBBO (`tape_score`, −100..+100) and aggregated SMART L2 book imbalance
+(`depth_imbalance`, −1..+1). **Unbacktested** (no historical tick data) —
+weights capped small pending live calibration. Opposing flow is penalised
+slightly harder than aligned flow is rewarded.
+
+| Condition | Effect |
+|---|---|
+| Tape aligned ≥ +60 | +5% |
+| Tape aligned ≥ +30 | +3% |
+| Tape opposed ≤ −30 | −4% |
+| Tape opposed ≤ −60 | −6% |
+| Block prints (≥10k sh) agree / disagree | +2% / −2% |
+| Depth imbalance aligned ≥ 0.30 | +2% |
+| Depth imbalance opposed ≤ −0.30 | −3% |
+| Feed unavailable | 0% (bot runs as before) |
+
 ### Net Adjustment Tiers
 
 | Net delta | Label |
@@ -1307,6 +1326,8 @@ Schema migrations applied automatically on startup — existing databases are up
 | Source | Data | Requires | Refresh |
 |---|---|---|---|
 | IB Gateway (ib_insync) | SPY price, VIX, bars, Greeks | IB account + Gateway | Every 60s |
+| IB tick-by-tick tape (RealFlowFeed) | SPY prints classified vs NBBO → tape score, block-trade bias | IB account (live data) | Streaming, snapshot per poll |
+| IB Level 2 depth (RealFlowFeed) | SMART book imbalance, top-5 levels | TotalView/ArcaBook entitlement (degrades gracefully) | Streaming, snapshot per poll |
 | TechnicalLevelsTracker | ORB, VWAP bands, pivots, EDR, RSI, max pain | Nothing (pure Python) | Every 60s (instant) |
 | yfinance options chain | SPY options flow, GEX, gamma walls, unusual activity | Nothing | 10 min |
 | yfinance sector ETFs | 11-sector breadth ratio, up/down vol proxy | Nothing | 10 min |

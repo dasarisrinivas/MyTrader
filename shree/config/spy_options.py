@@ -1,11 +1,16 @@
-"""SPY Options signal-only bot configuration.
+"""SPY Options bot configuration.
 
-Signal-only: no orders placed. Signals sent via Telegram.
+Signals are sent via Telegram. When ``execution.enabled`` is true, signals
+passing the strict quality gate are ALSO executed as IB bracket orders
+(limit entry + attached stop-loss + take-profit) — see
+SpyOptionsExecutionConfig. Otherwise the bot remains signal-only.
+
 Uses ib_insync connecting to the same IB Gateway as the MES/Gold bots (port 4001).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
@@ -38,6 +43,12 @@ class SpyOptionsChainConfig:
 
     # How many near-term expiries to track simultaneously
     num_expiries: int = 2
+
+    # Which expiry to use within each month (JUL 2 2026):
+    #   "nearest" — earliest non-past expiry (0-2 DTE via SPY dailies/weeklies;
+    #               required for the execution gate to ever see tradeable DTE)
+    #   "monthly" — legacy end-of-month expiry (13-29 DTE signals)
+    expiry_selection: str = "nearest"
 
     # IB exchange
     exchange: str = "SMART"
@@ -139,6 +150,15 @@ class SpyOptionsSignalConfig:
     suppress_red_edge: bool = True
     cap_tier_on_amber_edge: bool = True
 
+    # ── Exit-monitor timing (JUL 2 2026 profitability review) ──────────────
+    # Apr-Jun data: 44 resolved signals, exits were ~exclusively time_stop /
+    # vwap_reversion firing into losses; profit_target fired ONCE. The 30/60
+    # min stops cut positions before the thesis could play out while theta
+    # was already paid. Widen the windows and make them tunable.
+    exit_time_stop_0dte_min: int = 45     # was hard-coded 30
+    exit_time_stop_swing_min: int = 90    # was hard-coded 60
+    exit_profit_target_pct: float = 0.5   # favorable SPY move → take-profit alert
+
     # Long-straddle gate: block LONG_STRADDLE generation in RANGE_BOUND /
     # TRANSITION / LOW_VOL regimes with IVR < 30 unless a high-impact
     # catalyst is within 60 min. Long straddles need realised-vol expansion
@@ -166,6 +186,68 @@ class SpyOptionsAnalyticsConfig:
 
     enabled: bool = True
     db_path: str = "data/spy_options_signals.db"
+
+
+@dataclass
+class SpyOptionsExecutionConfig:
+    """Live/paper order execution for SPY options signals (JUL 2 2026).
+
+    When enabled, signals that pass the *strict quality gate* below are
+    executed as IB bracket orders (limit entry + attached stop + take-profit)
+    on a DEDICATED ib_insync connection — separate host/port/client_id from
+    the market-data connection so paper execution (port 4002) can run against
+    live data (port 4001).
+
+    The Telegram signal feed is unchanged: every signal still alerts; only
+    the subset passing this gate trades. This preserves the long-standing
+    design that feed-level quality gates are advisory (premium/$ never
+    rejects a *signal*) while execution applies hard gates.
+    """
+
+    enabled: bool = False
+
+    # ── Order connection (separate from data connection) ──────────────────
+    ibkr_host: str = "127.0.0.1"
+    ibkr_port: int = 4002            # 4002 = PAPER (default), 4001 = LIVE
+    ibkr_client_id: int = 7          # Separate from data client (6)
+    account: str = ""                # Optional explicit IB account id (e.g. DU1234567)
+
+    # ── Sizing: fixed dollar risk per trade ────────────────────────────────
+    # contracts = floor(risk_per_trade_usd / (entry_mid × 100 × stop_pct))
+    # A signal whose 1-contract stop-risk exceeds the budget is NOT traded.
+    risk_per_trade_usd: float = 150.0
+    max_contracts: int = 5           # Absolute cap regardless of budget math
+
+    # ── Portfolio guards ───────────────────────────────────────────────────
+    max_open_positions: int = 2
+    max_trades_per_day: int = 4
+    daily_loss_limit_usd: float = 300.0   # Realized; halts new entries for the day
+    max_consecutive_stopouts: int = 2     # Halts new entries for the day
+
+    # ── Bracket geometry ───────────────────────────────────────────────────
+    # Stop % comes from the signal's IV-adjusted stop (15/20/25 by IVR band);
+    # stop_pct_fallback is used when the signal carries none.
+    stop_pct_fallback: float = 25.0
+    take_profit_pct: float = 40.0    # vs stop 15-25% → ~1.6-2.6 : 1 reward:risk
+    stop_type: str = "stop_limit"    # "stop_limit" (default) or "stop" (market)
+    stop_limit_buffer_pct: float = 10.0   # limit = stop_price × (1 − buffer)
+
+    # ── Strict quality gate ────────────────────────────────────────────────
+    allowed_tiers: List[str] = field(default_factory=lambda: ["HIGH", "EXTREME"])
+    require_green_edge: bool = True  # edge_margin > 0 after costs — hard gate
+    max_dte: int = 2                 # 0-2 DTE only: tightest spreads, real gamma
+    min_abs_delta: float = 0.30      # avoid lottery tickets
+    max_abs_delta: float = 0.70      # avoid deep-ITM (poor % leverage per $)
+    max_entry_spread_pct: float = 5.0    # bid/ask spread as % of mid — cost gate
+    min_premium: float = 0.30        # avoid junk contracts (spread noise dominates)
+    max_premium: float = 8.0
+    skip_event_risk: bool = True     # No entries within the event-risk window
+
+    # ── Timing guards ──────────────────────────────────────────────────────
+    no_new_entries_after_et: str = "15:00"   # theta-kill zone
+    flatten_0dte_at_et: str = "15:50"        # force-close 0DTE before the bell
+    entry_timeout_s: int = 180       # cancel unfilled entry limit after this
+    max_hold_minutes: int = 90       # position time stop (bracket may exit earlier)
 
 
 @dataclass
@@ -224,6 +306,22 @@ class SpyOptionsExternalConfig:
 
 
 @dataclass
+class SpyOptionsRealFlowConfig:
+    """Real order-flow data: SPY L2 depth + tick-by-tick time & sales.
+
+    Depth requires paid entitlements (NASDAQ TotalView / NYSE ArcaBook);
+    both feeds degrade gracefully to unavailable if IB rejects them.
+    """
+
+    enabled: bool = True
+    tape_enabled: bool = True          # reqTickByTickData(SPY, 'AllLast')
+    depth_enabled: bool = True         # reqMktDepth(SPY, isSmartDepth=True)
+    depth_levels: int = 5              # book levels per side for imbalance
+    tape_window_minutes: int = 5       # rolling tape aggregation window
+    large_print_shares: int = 10_000   # block-trade threshold for large-print bias
+
+
+@dataclass
 class SpyOptionsConfig:
     """Top-level SPY Options signal bot configuration.
 
@@ -239,6 +337,8 @@ class SpyOptionsConfig:
     session: SpyOptionsSessionConfig = field(default_factory=SpyOptionsSessionConfig)
     analytics: SpyOptionsAnalyticsConfig = field(default_factory=SpyOptionsAnalyticsConfig)
     external: SpyOptionsExternalConfig = field(default_factory=SpyOptionsExternalConfig)
+    execution: SpyOptionsExecutionConfig = field(default_factory=SpyOptionsExecutionConfig)
+    real_flow: SpyOptionsRealFlowConfig = field(default_factory=SpyOptionsRealFlowConfig)
 
     # Regime-first, structure-based rules layer (added Apr 22 2026 after Apr 21 postmortem).
     # Defaults to enabled=False — turning this on replaces the legacy directional

@@ -167,6 +167,14 @@ class IBOptionsClient:
                         timeout=30,
                     )
                     self._ib.reqMarketDataType(1)
+                    # After a successful reconnect, reset the delayed-data
+                    # fallback marker so we will attempt live data again and
+                    # re-evaluate delayed fallback if needed.
+                    try:
+                        self._tried_delayed_fallback = False
+                    except Exception:
+                        # defensive: attribute may not exist in some tests
+                        pass
                     logger.info(
                         "IBOptionsClient reconnected (attempt {}/5)", attempt,
                     )
@@ -227,6 +235,16 @@ class IBOptionsClient:
         logger.info("SPY qualified: conId={}", qualified[0].conId)
         return qualified[0].conId
 
+    @property
+    def ib(self):
+        """Underlying ib_insync IB instance (shared by RealFlowFeed)."""
+        return self._ib
+
+    @property
+    def spy_contract(self):
+        """Qualified SPY Stock contract (None until get_spy_conid succeeds)."""
+        return self._spy_contract
+
     # ── Option chain parameters ───────────────────────────────────────────────
 
     async def _load_chain_params(self, spy_conid: int, exchange: str) -> None:
@@ -279,15 +297,30 @@ class IBOptionsClient:
             logger.warning("Unrecognised IB month format: {}", month)
             return None
 
+    # Expiry selection mode — set by the manager from cfg.chain.expiry_selection.
+    #   "nearest" (default): earliest non-past expiry in the month. SPY has
+    #       daily/weekly expirations, so this yields 0-2 DTE contracts with
+    #       the tightest spreads — the ones the execution gate can trade.
+    #   "monthly" (legacy): latest expiry in the month (end-of-month). This
+    #       produced 13-29 DTE signals that the executor's max_dte gate
+    #       blocks ~always (Apr-Jun: 123/127 directional signals were 3+ DTE).
+    expiry_mode: str = "nearest"
+
     def _best_expiry(self, month: str) -> Optional[str]:
-        """Return the latest monthly expiry YYYYMMDD for a given month string."""
+        """Return the chosen expiry YYYYMMDD for a given month string."""
         if self._chain_params is None:
             return None
         prefix = self._month_to_prefix(month)
         if not prefix:
             return None
-        candidates = [e for e in self._chain_params["expirations"] if e.startswith(prefix)]
-        return max(candidates) if candidates else None
+        today = datetime.now().strftime("%Y%m%d")
+        candidates = [
+            e for e in self._chain_params["expirations"]
+            if e.startswith(prefix) and e >= today
+        ]
+        if not candidates:
+            return None
+        return min(candidates) if self.expiry_mode == "nearest" else max(candidates)
 
     async def get_strikes(
         self,
@@ -532,6 +565,27 @@ class IBOptionsClient:
                         logger.info("SPY price recovered via delayed streaming: {:.2f}", f)
                         return f
 
+        # Final fallback: try a one-off snapshot request which sometimes
+        # contains a valid last/delayedLast even when the persistent
+        # streaming ticker hasn't populated fields yet. This is slightly
+        # heavier but only used rarely.
+        try:
+            contracts = [self._contract_cache[c] for c in (self._spy_contract.conId,) if c in self._contract_cache] if hasattr(self, "_contract_cache") else []
+            if not contracts and hasattr(self, "_spy_contract") and self._spy_contract:
+                contracts = [self._spy_contract]
+            if contracts:
+                snap = self._ib.reqMktData(contracts[0], genericTickList="", snapshot=True)
+                await asyncio.sleep(min(self._cfg.snapshot_wait_s, 2.0))
+                # attempt to read from snapshot fields
+                for val in (getattr(snap, "last", None), getattr(snap, "close", None), getattr(snap, "delayedLast", None)):
+                    if val is not None:
+                        f = _safe_float(val)
+                        if f > 0:
+                            logger.info("SPY price recovered via one-off snapshot: {:.2f}", f)
+                            return f
+        except Exception as _ex:
+            logger.debug("Snapshot fallback for SPY price failed: {}", _ex)
+
         return None
 
     # ── VIX ───────────────────────────────────────────────────────────────────
@@ -666,6 +720,85 @@ class IBOptionsClient:
         except Exception as exc:
             logger.warning("VIX 52w range fetch failed: {}", exc)
             return None
+
+    # ── Opening context: prior-day + overnight levels (JUL 2 2026) ───────────
+
+    async def get_opening_context(self) -> Optional[Dict[str, Any]]:
+        """Fetch prior-day H/L/C and true overnight (extended-hours) H/L.
+
+        Audit item #5: a SPY day trader marks PDH/PDL/PDC, the overnight
+        range, and the gap before the first trade — the bot previously woke
+        at 09:35 with none of it (the "overnight" flags in sector_signals
+        were actually today's RTH high/low from yfinance — mislabeled).
+
+        Returns dict with keys pdh, pdl, pdc, overnight_high, overnight_low
+        (any may be None on partial failure), or None if nothing resolved.
+        """
+        if not self._spy_contract:
+            return None
+        from datetime import time as _dtime
+        from zoneinfo import ZoneInfo
+        _ET = ZoneInfo("America/New_York")
+        out: Dict[str, Any] = {
+            "pdh": None, "pdl": None, "pdc": None,
+            "overnight_high": None, "overnight_low": None,
+        }
+
+        # Prior-day RTH bar
+        try:
+            daily = await self._ib.reqHistoricalDataAsync(
+                self._spy_contract, endDateTime="", durationStr="5 D",
+                barSizeSetting="1 day", whatToShow="TRADES", useRTH=True,
+                keepUpToDate=False, timeout=20,
+            )
+            if daily:
+                today = datetime.now(_ET).date()
+                prior = [b for b in daily if getattr(b.date, "year", None) and (
+                    b.date if not hasattr(b.date, "date") else b.date.date()
+                ) < today]
+                if prior:
+                    pb = prior[-1]
+                    out["pdh"], out["pdl"], out["pdc"] = (
+                        float(pb.high), float(pb.low), float(pb.close)
+                    )
+        except Exception as exc:
+            logger.warning("Opening context: prior-day fetch failed: {}", exc)
+
+        # True overnight session H/L (extended hours between prior RTH close
+        # and today's open)
+        try:
+            ext_bars = await self._ib.reqHistoricalDataAsync(
+                self._spy_contract, endDateTime="", durationStr="2 D",
+                barSizeSetting="30 mins", whatToShow="TRADES", useRTH=False,
+                keepUpToDate=False, timeout=20,
+            )
+            if ext_bars:
+                today = datetime.now(_ET).date()
+                on_h, on_l = None, None
+                for b in ext_bars:
+                    bdt = b.date
+                    if not hasattr(bdt, "hour"):
+                        continue
+                    if bdt.tzinfo is not None:
+                        bdt = bdt.astimezone(_ET)
+                    t = bdt.time()
+                    in_rth = _dtime(9, 30) <= t < _dtime(16, 0)
+                    # Overnight = extended-hours bars from prior close up to
+                    # today's 09:30 (yesterday evening + today premarket)
+                    is_overnight = (not in_rth) and (
+                        bdt.date() == today and t < _dtime(9, 30)
+                        or bdt.date() < today and t >= _dtime(16, 0)
+                    )
+                    if is_overnight and b.high and b.low:
+                        on_h = max(on_h, float(b.high)) if on_h else float(b.high)
+                        on_l = min(on_l, float(b.low)) if on_l else float(b.low)
+                out["overnight_high"], out["overnight_low"] = on_h, on_l
+        except Exception as exc:
+            logger.warning("Opening context: overnight fetch failed: {}", exc)
+
+        if all(v is None for v in out.values()):
+            return None
+        return out
 
     # ── SPY 5-minute bars ─────────────────────────────────────────────────────
 

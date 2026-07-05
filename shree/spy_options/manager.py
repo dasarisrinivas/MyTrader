@@ -48,6 +48,7 @@ from .sentiment_engine import SentimentContext, SentimentEngine
 from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal
 from .sweep_tracker import SweepTracker
 from .technical_levels import TechnicalLevelsTracker, compute_max_pain
+from .real_flow import RealFlowFeed, RealFlowState
 
 ET = ZoneInfo("America/New_York")
 
@@ -183,6 +184,10 @@ class SpyOptionsManager:
         # Technical levels tracker (ORB, VWAP bands, pivots, EDR, RSI)
         self._tech_tracker = TechnicalLevelsTracker()
 
+        # Real order-flow feed (L2 depth + tape) — created in start() once the
+        # SPY contract is qualified; None when disabled or unavailable
+        self._real_flow: Optional[RealFlowFeed] = None
+
         # Last-poll technical levels cache (read by Telegram formatter)
         self._last_orb_status: str = "BUILDING"
         self._last_orb_high: Optional[float] = None
@@ -269,6 +274,25 @@ class SpyOptionsManager:
         if self._executor is not None:
             await self._executor.start()
 
+        # Real order-flow feeds (L2 depth + tick-by-tick tape) on the shared
+        # ib_insync connection. Feeds degrade to unavailable on entitlement errors.
+        rf_cfg = getattr(self._cfg, "real_flow", None)
+        if rf_cfg is not None and rf_cfg.enabled and self._ib.spy_contract is not None:
+            try:
+                self._real_flow = RealFlowFeed(
+                    self._ib.ib,
+                    self._ib.spy_contract,
+                    tape_enabled=rf_cfg.tape_enabled,
+                    depth_enabled=rf_cfg.depth_enabled,
+                    depth_levels=rf_cfg.depth_levels,
+                    tape_window_minutes=rf_cfg.tape_window_minutes,
+                    large_print_shares=rf_cfg.large_print_shares,
+                )
+                await self._real_flow.start()
+            except Exception as exc:
+                logger.warning("RealFlowFeed init failed — continuing without: {}", exc)
+                self._real_flow = None
+
         self._running = True
         try:
             while self._running:
@@ -278,6 +302,8 @@ class SpyOptionsManager:
                     logger.opt(exception=True).error("Poll error: {}", exc)
                 await asyncio.sleep(self._cfg.session.poll_interval_s)
         finally:
+            if self._real_flow is not None:
+                self._real_flow.stop()
             if self._executor is not None:
                 await self._executor.close()
             await self._ib.close()
@@ -573,6 +599,28 @@ class SpyOptionsManager:
         ext_ctx.rsi_overbought        = tech_levels.rsi_overbought
         ext_ctx.rsi_oversold          = tech_levels.rsi_oversold
         ext_ctx.rsi_divergence        = tech_levels.rsi_divergence
+
+        # ── Real order flow (L2 depth + tape) ──────────────────────────────
+        if self._real_flow is not None:
+            rf = self._real_flow.snapshot()
+            ext_ctx.tape_available   = rf.tape_available
+            ext_ctx.tape_score       = rf.tape_score
+            ext_ctx.tape_buy_vol     = rf.tape_buy_vol
+            ext_ctx.tape_sell_vol    = rf.tape_sell_vol
+            ext_ctx.tape_large_bias  = rf.tape_large_bias
+            ext_ctx.depth_available  = rf.depth_available
+            ext_ctx.depth_imbalance  = rf.depth_imbalance
+            ext_ctx.depth_bid_qty    = rf.depth_bid_qty
+            ext_ctx.depth_ask_qty    = rf.depth_ask_qty
+            if rf.tape_available or rf.depth_available:
+                logger.info(
+                    "RealFlow: tape={:+.0f} ({}k buy / {}k sell{}){}",
+                    rf.tape_score,
+                    rf.tape_buy_vol // 1000, rf.tape_sell_vol // 1000,
+                    f", blocks={rf.tape_large_bias}" if rf.tape_large_bias != "NEUTRAL" else "",
+                    f"  depth={rf.depth_imbalance:+.2f} ({rf.depth_bid_qty}/{rf.depth_ask_qty})"
+                    if rf.depth_available else "",
+                )
 
         # ── Opening context (JUL 2 2026, audit item #5) ───────────────────
         # Fetched once per session day from IB: prior-day H/L/C + TRUE

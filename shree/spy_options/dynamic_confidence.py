@@ -655,6 +655,66 @@ class DynamicConfidence:
                 total_delta += dp_delta
                 breakdown["dark_pool"] = round(dp_delta, 4)
 
+        # ── 20. Real order flow: tape + L2 depth (JUL 5 2026) ─────────────────
+        # Real data from IB: tick-by-tick prints classified against the NBBO
+        # (tape_score) and aggregated SMART book imbalance (depth_imbalance).
+        # UNBACKTESTED (no historical tick data) — weights deliberately small
+        # (max combined ±8%) pending live calibration.  Conflict asymmetry:
+        # opposing tape is penalised slightly harder than aligned tape is
+        # rewarded, because fighting real-time aggression is the costlier error.
+        if ext_ctx is not None and getattr(ext_ctx, "tape_available", False):
+            tape = ext_ctx.tape_score          # -100..+100
+            tape_delta = 0.0
+            if right == "C":
+                aligned_score = tape
+            elif right == "P":
+                aligned_score = -tape
+            else:
+                aligned_score = 0.0            # straddle: direction-agnostic
+
+            if aligned_score >= 60:
+                tape_delta = 0.05              # strong real aggression with us
+            elif aligned_score >= 30:
+                tape_delta = 0.03
+            elif aligned_score <= -60:
+                tape_delta = -0.06             # strong real aggression against us
+            elif aligned_score <= -30:
+                tape_delta = -0.04
+
+            # Block-print bias adds ±2% when it agrees/disagrees with the signal
+            large = getattr(ext_ctx, "tape_large_bias", "NEUTRAL")
+            if large == "BUY" and right == "C":
+                tape_delta += 0.02
+            elif large == "SELL" and right == "P":
+                tape_delta += 0.02
+            elif large == "BUY" and right == "P":
+                tape_delta -= 0.02
+            elif large == "SELL" and right == "C":
+                tape_delta -= 0.02
+
+            if tape_delta != 0:
+                total_delta += tape_delta
+                breakdown["tape"] = round(tape_delta, 4)
+
+        if ext_ctx is not None and getattr(ext_ctx, "depth_available", False):
+            imb = ext_ctx.depth_imbalance      # -1..+1 (positive = bid support)
+            depth_delta = 0.0
+            if right == "C":
+                aligned_imb = imb
+            elif right == "P":
+                aligned_imb = -imb
+            else:
+                aligned_imb = 0.0
+
+            if aligned_imb >= 0.30:
+                depth_delta = 0.02             # book stacked in our favour
+            elif aligned_imb <= -0.30:
+                depth_delta = -0.03            # book stacked against us
+
+            if depth_delta != 0:
+                total_delta += depth_delta
+                breakdown["depth"] = round(depth_delta, 4)
+
         # ── Finalise ─────────────────────────────────────────────────────────
         # Hard cap at 0.95 — no signal should ever reach 100% confidence.
         # This preserves uncertainty and prevents over-conviction from

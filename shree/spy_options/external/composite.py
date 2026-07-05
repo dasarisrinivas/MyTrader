@@ -113,6 +113,18 @@ class ExternalContext:
     overnight_range_pct: float = 0.0
     usdjpy_trend: str = "NEUTRAL"         # RISK_ON / RISK_OFF / NEUTRAL
 
+    # ── Opening context levels (JUL 2 2026, audit item #5) ────────────────
+    # TRUE prior-day + overnight levels from IB (RTH daily bar + extended-
+    # hours session). NOTE: the sector_signals "overnight" flags above were
+    # historically populated from TODAY's RTH high/low (mislabeled); the
+    # manager now overrides them from these real levels every poll.
+    pdh: Optional[float] = None           # prior-day RTH high
+    pdl: Optional[float] = None           # prior-day RTH low
+    pdc: Optional[float] = None           # prior-day RTH close
+    overnight_high: Optional[float] = None
+    overnight_low: Optional[float] = None
+    gap_type: str = "NONE"                # GAP_UP / GAP_DOWN / FLAT / NONE
+
     # Volatility term structure
     vix_vxv_ratio: Optional[float] = None
     vol_structure: str = "FLAT"           # STEEP_CONTANGO / CONTANGO / FLAT / BACKWARDATION / STEEP_BACKWARDATION
@@ -170,6 +182,21 @@ class ExternalContext:
     max_pain_strike: Optional[float] = None
     near_max_pain: bool = False           # price within $1.50 of max pain
     max_pain_distance: float = 999.0      # |SPY − max_pain| in points
+
+    # ── Real order flow (from RealFlowFeed — injected by manager) ─────────────
+    # SPY tick-by-tick tape: prints classified against the NBBO (real
+    # aggression, not the volume-spike proxy)
+    tape_available: bool = False
+    tape_score: float = 0.0               # -100..+100 (buy − sell) / total
+    tape_buy_vol: int = 0
+    tape_sell_vol: int = 0
+    tape_large_bias: str = "NEUTRAL"      # BUY | SELL | NEUTRAL (block prints)
+
+    # SPY Level 2 depth: aggregated SMART book imbalance, top N levels
+    depth_available: bool = False
+    depth_imbalance: float = 0.0          # -1..+1 (bid − ask) / (bid + ask)
+    depth_bid_qty: int = 0
+    depth_ask_qty: int = 0
 
 
 class ExternalDataManager:
@@ -240,6 +267,12 @@ class ExternalDataManager:
         self._opex = OpexCalendar()
         self._event_window = event_risk_window_minutes
         self._context = ExternalContext()
+
+    def set_ibkr_flow_quotes(self, quotes) -> None:
+        """Forward IBKR chain quotes to the flow source (real bid/ask → real
+        directional flow_score). No-op if flow is disabled."""
+        if self._flow_enabled:
+            self._flow.set_ibkr_quotes(quotes)
 
     async def refresh_if_stale(self) -> None:
         """Refresh only the enabled data sources concurrently."""
