@@ -6,7 +6,7 @@
 
 > Entry point: `run_spy_options.py` → `SpyOptionsManager` (IB client_id=5).
 
-Every 60 seconds during market hours (9:35–3:45 ET), the bot:
+Every 60 seconds during market hours (9:35–3:45 ET, weekdays excluding NYSE full-day holidays — a built-in 2026/2027 holiday calendar skips days like July 3 2026), the bot:
 
 ---1. Fetches SPY price, VIX, 5-minute bars, and option chain data from IB Gateway
 
@@ -1032,32 +1032,46 @@ spy_options:After the base confidence model (10 components) and event-risk modif
 
 ### VWAP Band Exhaustion Adjustment (Block 14)
 
+> **Backtest-calibrated (Jul 2026, 60 sessions)**: the fade edge is asymmetric.
+> Fading BELOW −2σ (buying calls) won 61%; fading ABOVE +2σ (buying puts) won
+> only 43% — upside extension tends to continue. Put boosts above VWAP removed.
+
 | Condition | Effect |
 |---|---|
-| ABOVE_2SD + put (fade) | +5% |
-| ABOVE_2SD + call (chase) | −6% |
-| BELOW_2SD + call (fade) | +5% |
+| ABOVE_2SD + put (fade) | 0% (no edge — was +5%) |
+| ABOVE_2SD + call (chase) | −3% (was −6%) |
+| BELOW_2SD + call (fade) | +5% (validated: 61% win) |
 | BELOW_2SD + put (chase) | −6% |
-| ABOVE_1SD / BELOW_1SD | ±2% (mild) |
+| ABOVE_1SD + put | 0% (was +2%) |
+| ABOVE_1SD + call / BELOW_1SD | ±2% (mild) |
 
 ### EDR Exhaustion Adjustment (Block 15)
 
-| EDR consumed | Effect |
-|---|---|
-| ≥ 120% | −8% directional |
-| ≥ 85% | −5% directional |
-| ≥ 60% | −2% directional |
+> **Backtest-calibrated (Jul 2026)**: exhaustion is time-dependent. 85% crossed
+> before 13:00 ET → continuation only 25% (penalty justified); crossed after
+> 13:00 → continuation 67% (trend days run into the close). Penalties are
+> **halved during PRE_POWER and POWER_HOUR**.
 
-### RSI Divergence Adjustment (Block 16)
+| EDR consumed | Effect (before 14:00) | Effect (14:00–16:00) |
+|---|---|---|
+| ≥ 120% | −8% directional | −4% |
+| ≥ 85% | −5% directional | −2.5% |
+| ≥ 60% | −2% directional | −1% |
+
+### RSI Overbought/Oversold Adjustment (Block 16)
+
+> **Backtest result (Jul 2026, 134 events)**: RSI divergence showed NO
+> predictive edge — trading in the divergence direction won only 41–44% at
+> 30/60-min horizons. **All divergence adjustments neutralized to 0%.**
+> Divergence is still computed and shown on alerts for context only.
 
 | Condition | Effect |
 |---|---|
-| Bearish divergence + put | +5% |
-| Bearish divergence + call | −5% |
-| Bullish divergence + call | +5% |
-| Bullish divergence + put | −5% |
-| RSI overbought + put (no divergence) | +2% |
-| RSI oversold + call (no divergence) | +2% |
+| Bearish/bullish divergence (any direction) | 0% (was ±5%) |
+| RSI overbought + put | +2% |
+| RSI overbought + call | −2% |
+| RSI oversold + call | +2% |
+| RSI oversold + put | −2% |
 
 ### Pivot Point Proximity Adjustment (Block 17)
 
@@ -1144,6 +1158,13 @@ A spike fires if: `delta ≥ 4× rolling_average` AND `delta ≥ 300 contracts`
 | **ORB BREAKOUT** | SPY closes outside 30-min opening range for ≥1 bar | TREND_UP / TREND_DOWN |
 
 **ORB BREAKOUT** fires once the 10:00 ET build window closes and price has confirmed a break above (→ call) or below (→ put) the range. Base confidence 72%, boosted by regime/sentiment/flow alignment and a tight ORB width. Monitored for EXIT alerts like all other directional signals.
+
+**Backtest-calibrated gates (Jul 2026, 60 sessions of SPY 5-min data):**
+- **Time gate — signal only fires before 11:30 ET.** Breakouts entered 10:00–11:00 won 60% first-touch; breakouts entered 11:00–13:00 won only 25%.
+- **Wide-range gate — suppressed entirely when ORB width > 0.60%.** Wide-range breakouts popped briefly (83% first-touch) but closed direction-wrong 100% of the time (−0.84% avg by close) — a reversal trap.
+- **Tight-range bonus increased to +5%** (was +3%): ORB width < 0.20% won 80% first-touch and was 100% direction-correct at close (+0.31% avg).
+
+Reproduce with `scripts/backtest_spy_tech_levels.py` (results snapshot: `docs/spy_tech_levels_backtest_2026-07-05.txt`).
 
 P/C confidence formula (tuned for 70% min threshold):
 - Bearish (P/C > 1.8): `base = 0.70 + (pc − 1.8) × 0.10` (base capped 0.90)

@@ -1,0 +1,75 @@
+Downloading SPY 5-min (60d) and VIX daily...
+Sessions: 60  (2026-04-08 .. 2026-07-02)
+
+======================================================================
+1. ORB BREAKOUT (first confirmed close outside 30-min range)
+======================================================================
+Overall first-touch win rate (+-0.15%): 55%  (n=58)
+Direction correct at close: 48%  avg close ret -0.07%  (n=58)
+
+By ORB width bucket:
+  <0.20% (tight)   first-touch    80% (n= 5)   close-correct 100%  avg +0.31%
+  0.20-0.40%       first-touch    45% (n=31)   close-correct  48%  avg -0.09%
+  0.40-0.60%       first-touch    56% (n=16)   close-correct  50%  avg +0.13%
+  >0.60% (wide)    first-touch    83% (n= 6)   close-correct   0%  avg -0.84%
+
+By opening gap:
+  |gap| < 0.30%      first-touch    55% (n=33)
+  |gap| 0.30-0.70%   first-touch    53% (n=19)
+  |gap| >= 0.70%     first-touch    67% (n=6)
+
+Gap-aligned vs gap-opposed breakouts (|gap| >= 0.30%):
+  aligned  56% (n=16)
+  opposed  56% (n=9)
+
+By weekday (0=Mon):
+  wd=0  first-touch    55% (n=11)
+  wd=1  first-touch    50% (n=12)
+  wd=2  first-touch    62% (n=13)
+  wd=3  first-touch    55% (n=11)
+  wd=4  first-touch    55% (n=11)
+
+By entry time:
+  10:00-11:00  first-touch    60% (n=50)
+  11:00-13:00  first-touch    25% (n=8)
+  13:00-16:00  first-touch   nan% (n=0)
+
+======================================================================
+2. VWAP BAND EXTREMES (+/-2sd) — fade vs continuation, 30/60-min fwd
+======================================================================
+Events (first entry into +/-2sd, after 10:30): n=139
+Fade profitable 30m fwd: 53%   avg -0.002%
+Fade profitable 60m fwd: 52%   avg -0.012%
+Reverted >=50% toward VWAP within 60m: 20%
+  ABOVE_2SD: n=72  fade-win-60m 43%  avg -0.030%
+  BELOW_2SD: n=67  fade-win-60m 61%  avg +0.008%
+
+======================================================================
+3. EDR EXHAUSTION — after 85% of VIX-implied range is used
+======================================================================
+Sessions hitting 85% EDR: 10/60
+Avg final range: 136% of EDR  (median 109%)
+Range extended past 120% after crossing 85%: 40%
+Continuation (close further in dominant direction): 50%  avg -0.05%
+  crossed before 13:00 (n=4): continuation 25%  avg -0.10%
+  crossed after  13:00 (n=6): continuation 67%  avg -0.01%
+
+======================================================================
+4. RSI(14, 5m) DIVERGENCE — forward 30/60-min return in divergence direction
+======================================================================
+Divergence events: n=134  (88 bearish, 46 bullish)
+Profitable 30m: 41%  avg -0.011%
+Profitable 60m: 44%  avg -0.016%
+  BEARISH_DIV: n=88  win-60m 44%  avg -0.007%
+  BULLISH_DIV: n=46  win-60m 43%  avg -0.032%
+
+======================================================================
+5. PIVOT TOUCHES — bounce rate within 30 min of first touch (>=0.10% bounce)
+======================================================================
+  R1: n=29  bounce-profitable-30m  52%  avg +0.035%
+  R2: n=13  bounce-profitable-30m  46%  avg -0.000%
+  S1: n=15  bounce-profitable-30m  67%  avg +0.017%
+  S2: n=12  bounce-profitable-30m  50%  avg -0.016%
+  ALL: n=69  54%  avg +0.016%
+
+Done.

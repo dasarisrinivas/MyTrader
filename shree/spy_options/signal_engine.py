@@ -130,6 +130,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import html as _html
+import os
 import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -169,6 +170,14 @@ class SignalContext:
     vix: Optional[float]
     spy_price: float
     external: Optional[ExternalContext] = None  # External signals (news/macro/social)
+
+    # True session high/low from today's 5-min bars (JUL 2 2026). The engine's
+    # internal intraday tracker only sees prices AFTER process start, so after
+    # a mid-session restart it under-states the day range (a -0.5% trend day
+    # was blocked as "0.12% chop" on Jul 2 after 8 restarts). Bars are fetched
+    # fresh each poll with 1-day duration, so these survive restarts.
+    day_high: Optional[float] = None
+    day_low: Optional[float] = None
 
 
 @dataclass
@@ -408,7 +417,15 @@ class SignalEngine:
         # penalty; a marginal signal will be filtered at the threshold check.
 
         # ── 5. Tight intraday range < 0.20% (chop day — no directional edge) ─
-        if is_directional and self._intraday_high and self._intraday_low and self._intraday_low > 0:
+        # Requires a REAL measured range (high > low). A single-point seed
+        # (first poll, no bars yet) carries no range information — skipping
+        # beats false-blocking everything at 0.00% (JUL 2 2026).
+        if (
+            is_directional
+            and self._intraday_high and self._intraday_low
+            and self._intraday_low > 0
+            and self._intraday_high > self._intraday_low
+        ):
             range_pct = (self._intraday_high - self._intraday_low) / self._intraday_low * 100
             if range_pct < 0.20:
                 fails.append(
@@ -588,6 +605,30 @@ class SignalEngine:
             return -0.04   # 30-45 min: moderate penalty
         return -0.02       # 15-30 min: mild penalty
 
+    def _sync_intraday_range(self, context: "SignalContext") -> None:
+        """Merge bar-derived session high/low into the intraday tracker.
+
+        The tracker previously seeded from the first spy_price seen after
+        process start, so any mid-session restart erased the morning range —
+        breaking BOTH the chop-day gate (range under-stated → real trend days
+        blocked as chop) and the move-exhaustion penalty (drop-from-high
+        under-stated → late chasers not penalized). Bars carry the full
+        session, so take the max/min of both sources.
+        """
+        today_str = _dt.date.today().isoformat()
+        if self._intraday_date != today_str:
+            self._intraday_high = None
+            self._intraday_low = None
+            self._intraday_date = today_str
+
+        px = context.spy_price
+        hi_candidates = [v for v in (self._intraday_high, context.day_high, px) if v]
+        lo_candidates = [v for v in (self._intraday_low, context.day_low, px) if v]
+        if hi_candidates:
+            self._intraday_high = max(hi_candidates)
+        if lo_candidates:
+            self._intraday_low = min(lo_candidates)
+
     def _intraday_move_penalty(self, direction: str, spy_price: float) -> Tuple[float, str]:
         """Penalize continuation signals when the intraday move is already exhausted.
 
@@ -734,6 +775,10 @@ class SignalEngine:
         c = self._cfg
         signals: List[SpySignal] = []
 
+        # Sync the intraday high/low tracker with the TRUE session range from
+        # bars before any gate reads it (restart-proofing — see SignalContext).
+        self._sync_intraday_range(context)
+
         iv_low = context.iv_rank < 30          # Low IV → debit spreads cheap
         iv_high = context.iv_rank > 70         # High IV → premium selling
 
@@ -874,6 +919,37 @@ class SignalEngine:
             sig.confidence = adj.final
             sig.confidence_tier = self._tier_cfg(adj.final)
             sig.dynamic_confidence_delta = adj.delta
+
+            # ── TEMP DIAGNOSTIC: ORB confidence decomposition ──────────────────
+            # Flow-causality verification (Phase 2). Emits the exact reason each
+            # ORB candidate passes/fails the threshold: base, flow contribution,
+            # and each continuation-vs-fade penalty. Gated by env so it can be
+            # silenced; REMOVE this block once causality is established.
+            if (
+                sig.signal_type == SignalType.ORB_BREAKOUT
+                and os.getenv("SPY_ORB_DIAG", "1") == "1"
+            ):
+                bd = adj.breakdown
+                _flow = bd.get("flow_alignment", 0.0) + bd.get("dte", 0.0)
+                _vwap = bd.get("vwap_band", 0.0)
+                _rsi = bd.get("rsi", 0.0)
+                _edr = bd.get("edr_exhaustion", 0.0)
+                _orb = bd.get("orb", 0.0)
+                _other = adj.delta - (_flow + _vwap + _rsi + _edr + _orb)
+                logger.info(
+                    "ORB-DIAG {} {:.0f}{} | base={:.0f}% flow={:+.0f} orb={:+.0f} "
+                    "vwap={:+.0f} rsi={:+.0f} edr={:+.0f} other={:+.0f} "
+                    "→ final={:.0f}% need={:.0f}% {} | flow_score={:+.0f}",
+                    sig.expiry, sig.strike, sig.right,
+                    bd.get("base", 0.0) * 100,
+                    _flow * 100, _orb * 100, _vwap * 100, _rsi * 100,
+                    _edr * 100, _other * 100,
+                    adj.final * 100, c.min_confidence * 100,
+                    "PASS" if adj.final >= c.min_confidence else "FAIL",
+                    getattr(context.external, "flow_score", 0.0)
+                    if context.external else 0.0,
+                )
+
             sig.confidence_time_bucket = adj.time_bucket
             sig.confidence_dte_rule = adj.dte_rule
             sig.conflict_detected = adj.conflict_detected
@@ -2269,21 +2345,23 @@ class SignalEngine:
                 )
                 return []
 
-        # ── Guard 2: ORB time decay ──────────────────────────────────────────
-        # ORB breakouts lose their edge as the day progresses. The 30-min ORB
-        # is set at 10:00 ET. After 2+ hours the move is mature; after 3+ hours
-        # it's a momentum trade, not an ORB breakout.
+        # ── Guard 2: ORB time gate ───────────────────────────────────────────
+        # Backtest (60 sessions, Apr–Jul 2026, SPY 5-min): breakouts entered
+        # 10:00–11:00 ET won 60% first-touch; entries 11:00–13:00 won only 25%.
+        # The old graduated decay (−3% at 11:30+) was far too soft for a setup
+        # that loses 3 out of 4 times — hard gate at 11:30 ET instead.
         _ET = ZoneInfo("America/New_York")
         now_et = _dt.datetime.now(_ET)
-        # ORB is established at 10:00 ET (first 30 min of RTH)
-        orb_established_mins = (now_et.hour * 60 + now_et.minute) - 600  # mins since 10:00 ET
-        orb_time_penalty = 0.0
-        if orb_established_mins > 180:    # > 3 hours after ORB
-            orb_time_penalty = -0.08
-        elif orb_established_mins > 120:  # > 2 hours
-            orb_time_penalty = -0.05
-        elif orb_established_mins > 90:   # > 1.5 hours
-            orb_time_penalty = -0.03
+        if now_et.time() >= _dt.time(11, 30):
+            logger.info(
+                "ORB time gate: {} ET is past 11:30 — late breakouts won only "
+                "25% in backtest, suppressing",
+                now_et.strftime("%H:%M"),
+            )
+            return []
+        # Mild staleness penalty within the allowed window (ORB set at 10:00 ET)
+        orb_established_mins = (now_et.hour * 60 + now_et.minute) - 600
+        orb_time_penalty = -0.03 if orb_established_mins > 60 else 0.0
 
         atm = chain.atm_strike(context.spy_price)
         atm_quote = chain.call_at(atm) if right == "C" else chain.put_at(atm)
@@ -2294,11 +2372,19 @@ class SignalEngine:
         # adjustment is applied here.
         base_conf = 0.72
 
-        # Narrow ORB = more reliable breakout (tight consolidation then range expansion)
-        if orb_width < 0.20:   # < 0.20% is a tight range
-            base_conf += 0.03
-        elif orb_width > 0.60:  # wide range = less reliable
-            base_conf -= 0.03
+        # Narrow ORB = more reliable breakout (backtest: <0.20% width → 80%
+        # first-touch win, 100% direction-correct at close, +0.31% avg).
+        # Wide ORB (>0.60%) popped briefly but closed direction-wrong 100% of
+        # the time (−0.84% avg) — a reversal trap, so the signal is suppressed.
+        if orb_width > 0.60:
+            logger.info(
+                "ORB width gate: {:.2f}% > 0.60% — wide-range breakouts closed "
+                "direction-wrong 100% in backtest, suppressing",
+                orb_width,
+            )
+            return []
+        if orb_width < 0.20:
+            base_conf += 0.05
 
         # Apply ORB time decay
         base_conf += orb_time_penalty

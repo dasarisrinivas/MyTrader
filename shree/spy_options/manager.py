@@ -9,8 +9,9 @@ Orchestration loop (every 60 seconds during RTH):
   6. Apply liquidity filters per contract
   7. Run SignalEngine (weighted confidence model)
   8. Deduplicate → send Telegram alerts → persist to SQLite
-
-No orders are ever placed.
+  9. When execution.enabled: signals passing the strict quality gate are
+     executed as IB bracket orders (limit entry + stop-loss + take-profit)
+     via SpyOptionsExecutor. Otherwise signal-only.
 """
 from __future__ import annotations
 
@@ -38,6 +39,7 @@ from .edge_reality import (
     round_trip_cost_pct_from_quote,
     skew_warning,
 )
+from .executor import SpyOptionsExecutor
 from .external import ExternalDataManager
 from .ib_client import IBOptionsClient
 from .regime_detector import RegimeContext, RegimeDetector
@@ -89,6 +91,9 @@ class SpyOptionsManager:
         self._running = False
 
         self._ib = IBOptionsClient(cfg.ib)
+        # Expiry selection: "nearest" (0-2 DTE dailies/weeklies, tradeable by
+        # the executor) vs "monthly" (legacy end-of-month). JUL 2 2026.
+        self._ib.expiry_mode = getattr(cfg.chain, "expiry_selection", "nearest")
         self._tracker = VolumeTracker()
         self._engine = SignalEngine(
             cfg.signals,
@@ -144,6 +149,23 @@ class SpyOptionsManager:
             )
         else:
             self._telegram = TelegramNotifier("", "", enabled=False)
+
+        # Order executor (JUL 2 2026) — bracket orders at IB for signals that
+        # pass the strict quality gate. None when execution.enabled is false,
+        # in which case the bot behaves exactly as the legacy signal-only feed.
+        if cfg.execution.enabled:
+            self._executor: Optional[SpyOptionsExecutor] = SpyOptionsExecutor(
+                cfg.execution, telegram=self._telegram, analytics=self._analytics,
+            )
+            logger.info(
+                "SPY EXECUTION ENABLED — port={} risk/trade=${:.0f} "
+                "TP+{:.0f}% IV-adj stops, strict gate (green edge, {}, ≤{} DTE)",
+                cfg.execution.ibkr_port, cfg.execution.risk_per_trade_usd,
+                cfg.execution.take_profit_pct,
+                "/".join(cfg.execution.allowed_tiers), cfg.execution.max_dte,
+            )
+        else:
+            self._executor = None
 
         # Deduplication: dedup_key → last sent datetime
         self._sent_times: Dict[str, datetime] = {}
@@ -244,6 +266,9 @@ class SpyOptionsManager:
         else:
             logger.warning("Could not fetch VIX 52w range — IV rank will default to 50")
 
+        if self._executor is not None:
+            await self._executor.start()
+
         self._running = True
         try:
             while self._running:
@@ -253,6 +278,8 @@ class SpyOptionsManager:
                     logger.opt(exception=True).error("Poll error: {}", exc)
                 await asyncio.sleep(self._cfg.session.poll_interval_s)
         finally:
+            if self._executor is not None:
+                await self._executor.close()
             await self._ib.close()
             await self._telegram.close()
             if self._analytics:
@@ -261,9 +288,23 @@ class SpyOptionsManager:
 
     # ── Session gate ──────────────────────────────────────────────────────────
 
+    # NYSE full-day market holidays (YYYY-MM-DD). Observed dates included.
+    _MARKET_HOLIDAYS = {
+        # 2026
+        "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03",
+        "2026-05-25", "2026-06-19", "2026-07-03", "2026-09-07",
+        "2026-11-26", "2026-12-25",
+        # 2027
+        "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26",
+        "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06",
+        "2027-11-25", "2027-12-24",
+    }
+
     def _market_open(self) -> bool:
         now = datetime.now(ET)
         if now.weekday() >= 5:
+            return False
+        if now.strftime("%Y-%m-%d") in self._MARKET_HOLIDAYS:
             return False
         if self._cfg.session.rth_only:
             h0, m0 = map(int, self._cfg.session.rth_start_et.split(":"))
@@ -292,6 +333,8 @@ class SpyOptionsManager:
             self._daily_signal_count = 0
             if self._rules_v2 is not None:
                 self._rules_v2.begin_session()
+            if self._executor is not None:
+                self._executor.daily_reset()
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -484,6 +527,16 @@ class SpyOptionsManager:
         # Refresh external signals (TTL-gated; most sources won't re-fetch every 60s)
         ext_ctx = None
         if self._external is not None:
+            # Feed the flow source the IBKR chain from the PREVIOUS poll (real
+            # bid/ask/size → real directional flow_score). yfinance can't supply
+            # bid/ask, so this is the working directional input. 1-poll lag is
+            # immaterial for flow. Falls back to yfinance if no quotes yet.
+            prev_quotes = getattr(self, "_last_ibkr_flow_quotes", None)
+            if prev_quotes:
+                try:
+                    self._external.set_ibkr_flow_quotes(prev_quotes)
+                except Exception as exc:
+                    logger.warning("IBKR flow injection failed: {}", exc)
             try:
                 await self._external.refresh_if_stale()
                 ext_ctx = self._external.context
@@ -520,6 +573,54 @@ class SpyOptionsManager:
         ext_ctx.rsi_overbought        = tech_levels.rsi_overbought
         ext_ctx.rsi_oversold          = tech_levels.rsi_oversold
         ext_ctx.rsi_divergence        = tech_levels.rsi_divergence
+
+        # ── Opening context (JUL 2 2026, audit item #5) ───────────────────
+        # Fetched once per session day from IB: prior-day H/L/C + TRUE
+        # overnight range. Overrides the mislabeled sector_signals flags
+        # (which were today's RTH high/low) with real overnight levels.
+        oc = getattr(self, "_opening_ctx", None)
+        oc_day = getattr(self, "_opening_ctx_day", None)
+        today_str = datetime.now(ET).strftime("%Y-%m-%d")
+        if oc_day != today_str:
+            try:
+                oc = await self._ib.get_opening_context()
+            except Exception as exc:
+                logger.warning("Opening context fetch failed: {}", exc)
+                oc = None
+            self._opening_ctx = oc
+            self._opening_ctx_day = today_str
+            if oc:
+                # Gap vs prior close from today's first RTH bar
+                gap_pct, gap_type = 0.0, "NONE"
+                if oc.get("pdc") and bars_5m:
+                    today_open = bars_5m[0].get("open") or spy_price
+                    gap_pct = (today_open - oc["pdc"]) / oc["pdc"] * 100.0
+                    gap_type = (
+                        "GAP_UP" if gap_pct >= 0.30
+                        else "GAP_DOWN" if gap_pct <= -0.30
+                        else "FLAT"
+                    )
+                oc["gap_pct"], oc["gap_type"] = round(gap_pct, 2), gap_type
+                logger.info(
+                    "OPENING CONTEXT: PDH={} PDL={} PDC={}  ON_H={} ON_L={}  "
+                    "gap={:+.2f}% ({})",
+                    *(f"{oc[k]:.2f}" if oc.get(k) else "n/a"
+                      for k in ("pdh", "pdl", "pdc", "overnight_high", "overnight_low")),
+                    oc["gap_pct"], oc["gap_type"],
+                )
+        if oc:
+            ext_ctx.pdh            = oc.get("pdh")
+            ext_ctx.pdl            = oc.get("pdl")
+            ext_ctx.pdc            = oc.get("pdc")
+            ext_ctx.overnight_high = oc.get("overnight_high")
+            ext_ctx.overnight_low  = oc.get("overnight_low")
+            ext_ctx.gap_pct        = oc.get("gap_pct", 0.0)
+            ext_ctx.gap_type       = oc.get("gap_type", "NONE")
+            # Correct the legacy flags with TRUE overnight levels
+            if oc.get("overnight_high"):
+                ext_ctx.above_overnight_high = spy_price >= oc["overnight_high"] * 0.9995
+            if oc.get("overnight_low"):
+                ext_ctx.below_overnight_low = spy_price <= oc["overnight_low"] * 1.0005
 
         # Cache for Telegram formatter (which only receives the signal, not ext_ctx)
         self._last_orb_status     = tech_levels.orb_status
@@ -589,6 +690,11 @@ class SpyOptionsManager:
             _orb_tag, _vwap_tag, _edr_tag, _rsi_tag, _pvt_tag,
         )
 
+        # True session high/low from today's bars — restart-proof inputs for
+        # the engine's chop-day gate and move-exhaustion penalty (JUL 2 2026).
+        _day_high = max((b["high"] for b in bars_5m), default=None) if bars_5m else None
+        _day_low = min((b["low"] for b in bars_5m), default=None) if bars_5m else None
+
         ctx = SignalContext(
             regime=regime_ctx,
             sentiment=sentiment_ctx,
@@ -596,6 +702,8 @@ class SpyOptionsManager:
             vix=vix,
             spy_price=spy_price,
             external=ext_ctx,
+            day_high=_day_high,
+            day_low=_day_low,
         )
 
         now_et = datetime.now(ET)
@@ -606,9 +714,25 @@ class SpyOptionsManager:
 
         all_signals: List[SpySignal] = []
         max_pain_computed = False   # compute once from the first available chain
+        ibkr_flow_quotes: List[dict] = []   # collected for next poll's flow source
         for expiry in expiry_months:
             chain = await self._build_chain(spy_conid, spy_price, expiry)
             if chain:
+                # Snapshot quotes (real bid/ask/size) for the flow source.
+                try:
+                    _edt = datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                    _dte = max(0, (_edt - datetime.now().date()).days)
+                except Exception:
+                    _dte = 7
+                for _q in list(chain.calls) + list(chain.puts):
+                    ibkr_flow_quotes.append({
+                        "strike": _q.strike, "right": _q.right,
+                        "expiry": chain.expiry_month,
+                        "bid": _q.bid, "ask": _q.ask,
+                        "bid_size": _q.bid_size, "ask_size": _q.ask_size,
+                        "volume": _q.volume, "open_interest": _q.open_interest,
+                        "delta": _q.delta, "gamma": _q.gamma, "dte": _dte,
+                    })
                 logger.info(
                     "Chain {}: {} calls vol={:,}  {} puts vol={:,}  P/C={}",
                     expiry,
@@ -640,6 +764,9 @@ class SpyOptionsManager:
                 all_signals.extend(self._engine.evaluate(chain, ctx, self._sweep_tracker))
             else:
                 logger.info("Chain {}: empty (all options filtered out or no conids)", expiry)
+
+        # Stash this poll's chain quotes; next poll feeds them to the flow source.
+        self._last_ibkr_flow_quotes = ibkr_flow_quotes
 
         if all_signals:
             logger.info("Signal engine produced {} signal(s)", len(all_signals))
@@ -692,6 +819,14 @@ class SpyOptionsManager:
         # Check whether any previously-sent signals now warrant an EXIT alert
         await self._check_exit_conditions(spy_price, regime_ctx)
 
+        # Executor maintenance: fill detection, entry timeouts, position time
+        # stops, 0DTE EOD flatten, bracket-exit P&L accounting.
+        if self._executor is not None:
+            try:
+                await self._executor.on_poll()
+            except Exception as exc:
+                logger.opt(exception=True).error("Executor on_poll error: {}", exc)
+
     # ── rules_v2 layer ─────────────────────────────────────────────────────────
     def _apply_rules_v2(
         self,
@@ -724,6 +859,20 @@ class SpyOptionsManager:
         now = datetime.now(ET)
 
         regime = engine.classify_regime(bars_5m, spy_price)
+
+        # Observability (JUL 2 2026): the v2 classifier requires ATR expansion
+        # for a trend call, so it drops to TRANSITION on grind days while the
+        # legacy detector still says TREND_* — which silently disables the
+        # continuation generator. Log v2 regime changes so the divergence is
+        # visible instead of inferred.
+        _prev_v2 = getattr(self, "_last_v2_regime", None)
+        if regime.regime != _prev_v2:
+            logger.info(
+                "rules_v2 regime: {} → {}  ({})",
+                _prev_v2 or "—", regime.regime,
+                "; ".join(regime.reasons[:2]) if regime.reasons else "no reasons",
+            )
+            self._last_v2_regime = regime.regime
 
         inputs = EngineInputs(
             bars=bars_5m,
@@ -777,7 +926,16 @@ class SpyOptionsManager:
                 )
 
         # ── Generate TREND_CONTINUATION candidates (not emitted by legacy) ─
-        for cand in engine.generate_additional(bars_5m, regime, spy_price, now=now):
+        _continuation_cands = engine.generate_additional(bars_5m, regime, spy_price, now=now)
+        # Observability (JUL 2 2026): in a confirmed trend with no candidate,
+        # say WHY — the generator was silent for a -1.25% trend day and the
+        # logs couldn't distinguish "wrong v2 regime" from "no pullback setup".
+        if not _continuation_cands and regime.regime in ("TREND_UP", "TREND_DOWN"):
+            logger.info(
+                "rules_v2 CONTINUATION none ({}): {}",
+                regime.regime, engine.continuation_skip_reason or "unknown",
+            )
+        for cand in _continuation_cands:
             decision = engine.filter(
                 signal_type="TREND_CONTINUATION",
                 direction=cand.direction,
@@ -832,6 +990,23 @@ class SpyOptionsManager:
         daily_cap = self._cfg.signals.max_signals_per_day
         now = datetime.utcnow()
         seen_keys: set[str] = set()          # batch-level dedup (cross-expiry)
+
+        def _v2_rollback(s: SpySignal) -> None:
+            # JUL 2 2026: rules_v2 commits at filter time, so any signal
+            # suppressed AFTER that point but BEFORE dispatch must be rolled
+            # back — otherwise phantom entries consume the leg cap and
+            # zone-lock real setups (live bug: TM-vetoed 10:21/10:25
+            # continuation puts blocked the 744-745 zone on a trend day).
+            if self._rules_v2 is not None and s.right in ("C", "P"):
+                try:
+                    if self._rules_v2.uncommit(s.right):
+                        logger.info(
+                            "rules_v2 ROLLBACK: uncommitted {} {} (suppressed pre-dispatch)",
+                            s.signal_type.value, s.right,
+                        )
+                except Exception as _rb_err:
+                    logger.warning("rules_v2 rollback error: {}", _rb_err)
+
         for sig in signals:
             key = sig.dedup_key
             # ── Daily signal cap ──────────────────────────────────────────────
@@ -840,14 +1015,17 @@ class SpyOptionsManager:
                     "Daily signal cap reached ({}/{}) — suppressing {}",
                     self._daily_signal_count, daily_cap, key,
                 )
+                _v2_rollback(sig)
                 break   # no more signals today
             # ── Batch dedup: same key already dispatched this cycle ───────────
             if key in seen_keys:
                 logger.debug("Batch dedup suppress (cross-expiry): {}", key)
+                _v2_rollback(sig)
                 continue
             last_sent = self._sent_times.get(key)
             if last_sent and (now - last_sent) < dedup_td:
                 logger.debug("Dedup suppress: {}", key)
+                _v2_rollback(sig)
                 continue
 
             # ── PC_RATIO direction-flip cooldown ──────────────────────────────
@@ -863,6 +1041,7 @@ class SpyOptionsManager:
                         "PC_RATIO flip suppressed: {} after {} — cooldown {}min remaining",
                         sig.right, opposite, remaining,
                     )
+                    _v2_rollback(sig)
                     continue
 
             # ── Same-direction throttle ───────────────────────────────────────
@@ -907,6 +1086,7 @@ class SpyOptionsManager:
                     sig.signal_type.value, sig.strike, sig.right,
                     sig.regime_wr, sig.breakeven_wr, sig.edge_margin,
                 )
+                _v2_rollback(sig)
                 continue
 
             # MAY 4 2026: Trading Manager veto for SPY options.
@@ -921,6 +1101,7 @@ class SpyOptionsManager:
                         "🛡️  TRADING MANAGER VETO (SPY): {} {}{} {} — skipping dispatch",
                         sig.signal_type.value, sig.right, sig.strike, sig.expiry,
                     )
+                    _v2_rollback(sig)
                     continue
             except Exception as _tm_err:
                 # Never let the veto hook block trading on its own bug.
@@ -930,6 +1111,19 @@ class SpyOptionsManager:
             self._sent_times[key] = now
             seen_keys.add(key)
             self._daily_signal_count += 1
+
+            # ── Order execution (JUL 2 2026) ──────────────────────────────
+            # Strict quality gate lives inside the executor; a rejected
+            # signal stays Telegram-only. Never let an execution bug break
+            # the signal feed.
+            if self._executor is not None:
+                try:
+                    await self._executor.maybe_execute(sig)
+                except Exception as exc:
+                    logger.opt(exception=True).error(
+                        "Executor error for {} (signal feed unaffected): {}",
+                        key, exc,
+                    )
 
             # Record directional send time for throttle
             if sig.right in ("C", "P"):
@@ -962,6 +1156,36 @@ class SpyOptionsManager:
                     "entry_dte": getattr(sig, "dte", 1),
                     "sent_at": now,
                 }
+
+    # ── Empirical WR cache (JUL 2 2026, audit item #1) ───────────────────────
+
+    def _empirical_wr_for(self, signal_type: str) -> Optional[Dict]:
+        """Cached empirical win rate from REAL fills, or None (use prior).
+
+        Cache is rebuilt lazily once per session day; real fills accumulate
+        at a few per day at most, so intraday staleness is immaterial.
+        """
+        if self._analytics is None:
+            return None
+        cache_day = getattr(self, "_emp_wr_cache_day", None)
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        if cache_day != today:
+            self._emp_wr_cache: Dict[str, Optional[Dict]] = {}
+            self._emp_wr_cache_day = today
+        if signal_type not in self._emp_wr_cache:
+            try:
+                res = self._analytics.empirical_win_rate(signal_type, min_n=30)
+            except Exception as exc:
+                logger.warning("empirical_win_rate lookup failed: {}", exc)
+                res = None
+            self._emp_wr_cache[signal_type] = res
+            if res is not None:
+                logger.info(
+                    "Edge Reality: EMPIRICAL WR active for {} — {}% over {} "
+                    "real fills (avg ${:+.2f}/trade). Doc prior retired.",
+                    signal_type, res["wr"], res["n"], res["avg_pnl_usd"],
+                )
+        return self._emp_wr_cache[signal_type]
 
     # ── Edge Reality population ───────────────────────────────────────────────
 
@@ -1011,11 +1235,21 @@ class SpyOptionsManager:
             )
 
         # Edge Reality bundle: regime-adjusted WR + breakeven + margin.
-        # WR source stays at the doc-prior default until analytics_db has
-        # ≥ 30 closed trades per signal type — at which point a future
-        # _wr_source_for(signal_type) helper can override it to "empirical".
+        # JUL 2 2026 (audit item #1): the empirical WR loop is now LIVE.
+        # Once analytics_db holds ≥30 REAL executor-fill outcomes for a
+        # signal type, its measured win rate replaces the doc prior and
+        # wr_source flips to "empirical". Cached per-day (refreshed on the
+        # daily reset) — fills accrue slowly, no need to re-query per signal.
         target = default_target_pct(regime)
         sig.target_pct_assumed = target
+
+        _emp_wr: Optional[int] = None
+        _wr_src = "doc_prior"
+        emp = self._empirical_wr_for(signal_type_str)
+        if emp is not None:
+            _emp_wr = emp["wr"]
+            _wr_src = "empirical"
+
         edge = compute_edge_reality(
             signal_type=signal_type_str,
             regime=regime,
@@ -1024,6 +1258,8 @@ class SpyOptionsManager:
             stop_pct=sig.iv_adjusted_stop_pct,
             round_trip_pct=sig.round_trip_cost_pct,
             rt_source=sig.rt_source,
+            base_wr=_emp_wr,
+            wr_source=_wr_src,
         )
         sig.historical_wr = edge.historical_wr
         sig.regime_wr = edge.regime_wr
@@ -1144,6 +1380,25 @@ class SpyOptionsManager:
             price_chg_pct = (spy_price - entry_price) / entry_price * 100.0
             reasons: List[str] = []
 
+            # ── Trigger 5 (checked FIRST — JUL 2 2026 profitability fix):
+            # profit target hit. Apr-Jun data: profit_target fired once in
+            # 44 resolved exits because time_stop/vwap labels always won the
+            # "first reason" slot. Winners must be labelled as winners so
+            # analytics can measure the profit side.
+            _profit_target_pct = float(
+                getattr(self._cfg.signals, "exit_profit_target_pct", 0.5)
+            )
+            if direction == "BULLISH" and price_chg_pct >= _profit_target_pct:
+                reasons.append(
+                    f"✅ Profit target: SPY +{price_chg_pct:.2f}% since entry "
+                    f"(${entry_price:.2f} → ${spy_price:.2f}) — consider taking profits"
+                )
+            elif direction == "BEARISH" and price_chg_pct <= -_profit_target_pct:
+                reasons.append(
+                    f"✅ Profit target: SPY {price_chg_pct:.2f}% since entry "
+                    f"(${entry_price:.2f} → ${spy_price:.2f}) — consider taking profits"
+                )
+
             # ── Trigger 1: price adverse ≥ 0.5% ──────────────────────────
             if direction == "BULLISH" and price_chg_pct <= -0.5:
                 reasons.append(
@@ -1179,28 +1434,24 @@ class SpyOptionsManager:
 
             # ── Trigger 4: time stop ──────────────────────────────────────
             # 0DTE options lose value exponentially — hard cap at 30 min.
-            # Swing setups (1+ DTE) allow 60 min before staleness forces exit.
+            # Swing setups (1+ DTE) allow a longer leash before staleness
+            # forces exit. Configurable since JUL 2 2026 — the hard-coded
+            # 30/60 min stops were cutting positions before targets while
+            # theta was already paid (Apr-Jun: ~all time_stop exits negative).
             minutes_held = (now - entry["sent_at"]).total_seconds() / 60.0
-            time_stop_min = 30 if entry_dte == 0 else 60
+            time_stop_min = (
+                getattr(self._cfg.signals, "exit_time_stop_0dte_min", 45)
+                if entry_dte == 0
+                else getattr(self._cfg.signals, "exit_time_stop_swing_min", 90)
+            )
             if minutes_held >= time_stop_min:
                 reasons.append(
                     f"⏱ Time stop: held {minutes_held:.0f} min "
                     f"(limit {time_stop_min} min for {'0DTE' if entry_dte == 0 else 'swing'})"
                 )
 
-            # ── Trigger 5: profit target hit (+0.5% favorable move) ───────
-            # Advisory exit — "take profits here" rather than "stop loss".
-            _PROFIT_TARGET_PCT = 0.5
-            if direction == "BULLISH" and price_chg_pct >= _PROFIT_TARGET_PCT:
-                reasons.append(
-                    f"✅ Profit target: SPY +{price_chg_pct:.2f}% since entry "
-                    f"(${entry_price:.2f} → ${spy_price:.2f}) — consider taking profits"
-                )
-            elif direction == "BEARISH" and price_chg_pct <= -_PROFIT_TARGET_PCT:
-                reasons.append(
-                    f"✅ Profit target: SPY {price_chg_pct:.2f}% since entry "
-                    f"(${entry_price:.2f} → ${spy_price:.2f}) — consider taking profits"
-                )
+            # (Trigger 5 — profit target — is evaluated FIRST, above Trigger 1,
+            #  so winning exits are labelled profit_target in analytics.)
 
             # ── Trigger 6: VWAP reversion ─────────────────────────────────
             # If the signal was entered with SPY on one side of VWAP and SPY
@@ -1282,6 +1533,21 @@ class SpyOptionsManager:
                 )
                 await self._send_exit_alert(sig, spy_price, entry_price, reasons, regime_ctx.regime)
                 self._exit_sent.add(key)
+
+                # If the executor holds this position, close it now — the
+                # bot-managed exit fires earlier than the resting bracket
+                # would (regime flips, VWAP reversion, time stops). The IB
+                # bracket remains the fail-safe if this path errors.
+                if self._executor is not None and self._executor.has_open_position(key):
+                    try:
+                        await self._executor.close_position(
+                            key, reasons[0][:120]
+                        )
+                    except Exception as exc:
+                        logger.opt(exception=True).error(
+                            "Executor close on exit-trigger failed for {}: {}",
+                            key, exc,
+                        )
 
                 # ── Record outcome in analytics DB ─────────────────────────
                 if self._analytics:
