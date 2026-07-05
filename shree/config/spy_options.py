@@ -243,6 +243,23 @@ class SpyOptionsExecutionConfig:
     max_premium: float = 8.0
     skip_event_risk: bool = True     # No entries within the event-risk window
 
+    # ── Greeks gates (JUL 5 2026) — theta/IV/gamma as HARD entry filters ──
+    # Theta: refuse entries whose premium decays faster than the strategy can
+    # realistically outrun. Burn is computed at the CURRENT session pace
+    # (edge_reality hourly theta fractions), so the same option passes at
+    # 10:00 and fails at 14:30.
+    max_theta_burn_pct_per_hour: float = 6.0
+    # Required SPY drift (%/hr) merely to offset decay: |theta_hr| / ($delta).
+    # SPY sustains ~0.10-0.20%/hr on trend days; needing more than 0.15%/hr
+    # just to break even on theta means the trade is renting a melting asset.
+    max_breakeven_drift_pct_per_hour: float = 0.15
+    # IV crush: no naked-long entries at extreme IV rank — direction can be
+    # right and the trade still loses when vol mean-reverts.
+    max_ivr_naked_long: float = 75.0
+    # Gamma bomb: no fresh 0DTE entries once effective gamma ≥ this multiple
+    # (2.5x kicks in <60 min to close; backstops no_new_entries_after_et).
+    max_0dte_gamma_accel: float = 2.5
+
     # ── Timing guards ──────────────────────────────────────────────────────
     no_new_entries_after_et: str = "15:00"   # theta-kill zone
     flatten_0dte_at_et: str = "15:50"        # force-close 0DTE before the bell

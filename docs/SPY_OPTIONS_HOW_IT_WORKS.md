@@ -1090,6 +1090,22 @@ spy_options:After the base confidence model (10 components) and event-risk modif
 | Near max pain + 0DTE directional | −6% (pin risk) |
 | Near max pain + 1–2 DTE directional | −3% |
 
+### Greeks Hard Gates at Execution (Jul 5 2026)
+
+Before this change, theta/gamma/IV only nudged advisory confidence (±10%
+weights); the executor could still buy premium that decays faster than any
+realistic move can pay for. Four hard gates now run in the executor after the
+spread check — a rejected signal still alerts on Telegram, it just doesn't trade:
+
+| Gate | Rule | Default |
+|---|---|---|
+| **Theta burn** | Premium decay per hour at the *current* session pace (5%/hr open → 38%/hr power hour) must stay under the cap. Same contract passes at 10:30, blocked at 14:30. | ≤ 6%/hr of premium |
+| **Breakeven drift** | SPY %/hr required *just to offset theta* (theta $/hr ÷ dollar-delta). Needing more drift than SPY realistically sustains means renting a melting asset. | ≤ 0.15%/hr |
+| **IV crush** | No naked-long entries at extreme IV rank — direction can be right and the trade still loses when vol mean-reverts. | IV rank ≤ 75 |
+| **Gamma bomb** | No fresh 0DTE entries once effective gamma (edge_reality convexity multiplier) reaches the cap (<60 min to close). Backstops the 15:00 cutoff if it's ever relaxed. | < 2.5× |
+
+Config: `execution.max_theta_burn_pct_per_hour`, `max_breakeven_drift_pct_per_hour`, `max_ivr_naked_long`, `max_0dte_gamma_accel`.
+
 ### Real Order Flow Adjustment (Block 20 — Jul 5 2026)
 
 Real data from IB replacing proxies: tick-by-tick prints classified against the
