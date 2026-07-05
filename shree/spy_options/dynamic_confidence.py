@@ -715,6 +715,59 @@ class DynamicConfidence:
                 total_delta += depth_delta
                 breakdown["depth"] = round(depth_delta, 4)
 
+        # ── 21. Cross-asset confirmation: live QQQ/IWM (JUL 5 2026) ──────────
+        # SPY never moves alone.  QQQ leading in the signal direction is the
+        # strongest intraday confirmation there is; a session-extreme
+        # non-confirmation (SPY new high, QQQ didn't) is the strongest fade
+        # tell.  The executor additionally applies a HARD veto on active
+        # divergence — this block handles the graded middle ground.
+        if ext_ctx is not None and getattr(ext_ctx, "cross_asset_available", False):
+            ca_delta = 0.0
+            qqq_rs = getattr(ext_ctx, "qqq_rs", 0.0)
+            qqq_trend = getattr(ext_ctx, "qqq_trend", "FLAT")
+            divergence = getattr(ext_ctx, "cross_asset_divergence", "NONE")
+            bias = getattr(ext_ctx, "cross_asset_bias", "NEUTRAL")
+
+            # Relative-strength alignment (QQQ leading the signal direction)
+            if right == "C":
+                if qqq_rs >= 0.20 and qqq_trend == "UP":
+                    ca_delta += 0.05   # tech leading up hard — strong confirm
+                elif qqq_rs >= 0.10:
+                    ca_delta += 0.03
+                elif qqq_rs <= -0.20:
+                    ca_delta -= 0.05   # SPY up without tech = narrow rally
+            elif right == "P":
+                if qqq_rs <= -0.20 and qqq_trend == "DOWN":
+                    ca_delta += 0.05
+                elif qqq_rs <= -0.10:
+                    ca_delta += 0.03
+                elif qqq_rs >= 0.20:
+                    ca_delta -= 0.05
+
+            # Active session-extreme divergence (executor also hard-vetoes)
+            if divergence == "BEARISH_NONCONFIRM":
+                if right == "C":
+                    ca_delta -= 0.06
+                elif right == "P":
+                    ca_delta += 0.04
+            elif divergence == "BULLISH_NONCONFIRM":
+                if right == "P":
+                    ca_delta -= 0.06
+                elif right == "C":
+                    ca_delta += 0.04
+
+            # Risk-appetite bias (small, composite)
+            if bias == "RISK_ON" and right == "C":
+                ca_delta += 0.02
+            elif bias == "RISK_OFF" and right == "P":
+                ca_delta += 0.02
+            elif bias == "MIXED" and right in ("C", "P"):
+                ca_delta -= 0.02   # split tape = lower conviction either way
+
+            if ca_delta != 0:
+                total_delta += ca_delta
+                breakdown["cross_asset"] = round(ca_delta, 4)
+
         # ── Finalise ─────────────────────────────────────────────────────────
         # Hard cap at 0.95 — no signal should ever reach 100% confidence.
         # This preserves uncertainty and prevents over-conviction from

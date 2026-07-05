@@ -1106,6 +1106,28 @@ spread check — a rejected signal still alerts on Telegram, it just doesn't tra
 
 Config: `execution.max_theta_burn_pct_per_hour`, `max_breakeven_drift_pct_per_hour`, `max_ivr_naked_long`, `max_0dte_gamma_accel`.
 
+### Cross-Asset Confirmation (Block 21 + Executor Veto — Jul 5 2026)
+
+SPY never moves alone. Live QQQ + IWM 5-min bars from the same IB gateway
+(replacing the 10-min-delayed yfinance sector proxy) feed two layers:
+
+**Graded adjustments (Block 21):**
+
+| Condition | Effect |
+|---|---|
+| QQQ leading ≥ +0.20pp RS + trend UP, call | +5% |
+| QQQ leading ≥ +0.10pp RS, call | +3% |
+| QQQ opposing ≥ 0.20pp, directional | −5% |
+| Session-extreme non-confirmation against signal | −6% |
+| Session-extreme non-confirmation with signal | +4% |
+| RISK_ON + call / RISK_OFF + put | +2% |
+| MIXED tape (QQQ and IWM split) | −2% directional |
+
+**Hard executor veto** (`execution.require_cross_asset_confirm`, default on):
+- No **calls** when SPY printed a new session high that QQQ did not confirm (bearish non-confirmation — the classic narrow-rally fade tell)
+- No **puts** when SPY printed a new session low that QQQ held above (bullish non-confirmation)
+- No entries against opposing QQQ relative strength ≥ 0.35pp
+
 ### Real Order Flow Adjustment (Block 20 — Jul 5 2026)
 
 Real data from IB replacing proxies: tick-by-tick prints classified against the

@@ -198,6 +198,14 @@ class ExternalContext:
     depth_bid_qty: int = 0
     depth_ask_qty: int = 0
 
+    # ── Cross-asset confirmation (from CrossAssetFeed — live QQQ/IWM via IB) ──
+    cross_asset_available: bool = False
+    qqq_rs: float = 0.0                   # QQQ vs SPY intraday, pct points
+    iwm_rs: float = 0.0                   # IWM vs SPY intraday, pct points
+    qqq_trend: str = "FLAT"               # UP / DOWN / FLAT
+    cross_asset_divergence: str = "NONE"  # BEARISH_NONCONFIRM / BULLISH_NONCONFIRM / NONE
+    cross_asset_bias: str = "NEUTRAL"     # RISK_ON / RISK_OFF / MIXED / NEUTRAL
+
 
 class ExternalDataManager:
     """

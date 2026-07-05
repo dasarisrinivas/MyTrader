@@ -252,6 +252,24 @@ class SpyOptionsExecutor:
             if accel >= max_accel:
                 return f"0DTE gamma zone (effective gamma {accel:.1f}x ≥ {max_accel:.1f}x)"
 
+        # ── Cross-asset veto (JUL 5 2026) ─────────────────────────────────
+        # Never buy a SPY breakout the rest of the tape refuses to confirm.
+        # Active session-extreme divergence (SPY new high, QQQ didn't → calls
+        # blocked; SPY new low, QQQ held → puts blocked). Strong opposing QQQ
+        # relative strength also vetoes.
+        if getattr(c, "require_cross_asset_confirm", True):
+            div = getattr(sig, "cross_asset_divergence", "NONE")
+            if div == "BEARISH_NONCONFIRM" and sig.right == "C":
+                return "QQQ did not confirm SPY session high (bearish non-confirm)"
+            if div == "BULLISH_NONCONFIRM" and sig.right == "P":
+                return "QQQ held while SPY made session low (bullish non-confirm)"
+            qqq_rs = getattr(sig, "qqq_rs", 0.0)
+            max_opposed = getattr(c, "max_opposed_qqq_rs", 0.35)
+            if sig.right == "C" and qqq_rs <= -max_opposed:
+                return f"QQQ lagging SPY by {abs(qqq_rs):.2f}pp — narrow rally, no call entries"
+            if sig.right == "P" and qqq_rs >= max_opposed:
+                return f"QQQ leading SPY by {qqq_rs:.2f}pp — tech bid, no put entries"
+
         open_count = sum(1 for p in self._positions.values() if not p.closed)
         if open_count >= c.max_open_positions:
             return f"max open positions ({open_count})"

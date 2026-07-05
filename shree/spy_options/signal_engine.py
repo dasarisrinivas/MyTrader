@@ -238,6 +238,11 @@ class SpySignal:
     gex_bias: str = "NEUTRAL"
     intraday_pc_ratio: Optional[float] = None
 
+    # Cross-asset confirmation (live QQQ/IWM via IB)
+    cross_asset_divergence: str = "NONE"  # BEARISH_NONCONFIRM / BULLISH_NONCONFIRM / NONE
+    cross_asset_bias: str = "NEUTRAL"     # RISK_ON / RISK_OFF / MIXED / NEUTRAL
+    qqq_rs: float = 0.0                   # QQQ vs SPY intraday, pct points
+
     # Dynamic confidence adjustment
     dynamic_confidence_delta: float = 0.0
     confidence_time_bucket: str = "MIDDAY"
@@ -1287,6 +1292,10 @@ class SignalEngine:
             sig.dark_pool_bias = ext.flow_dark_pool
             sig.gex_bias = ext.flow_gex_bias
             sig.intraday_pc_ratio = ext.flow_pc_ratio
+            # Cross-asset confirmation
+            sig.cross_asset_divergence = getattr(ext, "cross_asset_divergence", "NONE")
+            sig.cross_asset_bias = getattr(ext, "cross_asset_bias", "NEUTRAL")
+            sig.qqq_rs = getattr(ext, "qqq_rs", 0.0)
         return sig
 
     # ── Rule implementations ──────────────────────────────────────────────────

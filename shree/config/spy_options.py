@@ -204,7 +204,10 @@ class SpyOptionsExecutionConfig:
     rejects a *signal*) while execution applies hard gates.
     """
 
-    enabled: bool = False
+    # JUL 5 2026: the bot is a TRADING bot, not an advisory bot — execution
+    # defaults ON against the PAPER port (4002). Telegram remains the audit
+    # trail. Switch ibkr_port to 4001 only when paper results earn it.
+    enabled: bool = True
 
     # ── Order connection (separate from data connection) ──────────────────
     ibkr_host: str = "127.0.0.1"
@@ -259,6 +262,13 @@ class SpyOptionsExecutionConfig:
     # Gamma bomb: no fresh 0DTE entries once effective gamma ≥ this multiple
     # (2.5x kicks in <60 min to close; backstops no_new_entries_after_et).
     max_0dte_gamma_accel: float = 2.5
+
+    # ── Cross-asset veto (JUL 5 2026) ──────────────────────────────────────
+    # Hard veto: no calls on an active bearish QQQ non-confirmation (SPY new
+    # session high that QQQ didn't confirm), no puts on a bullish one, and no
+    # entries against strong opposing QQQ relative strength.
+    require_cross_asset_confirm: bool = True
+    max_opposed_qqq_rs: float = 0.35   # pct points of opposing QQQ-vs-SPY RS
 
     # ── Timing guards ──────────────────────────────────────────────────────
     no_new_entries_after_et: str = "15:00"   # theta-kill zone

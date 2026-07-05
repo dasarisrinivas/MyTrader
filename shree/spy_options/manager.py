@@ -49,6 +49,7 @@ from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal
 from .sweep_tracker import SweepTracker
 from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 from .real_flow import RealFlowFeed, RealFlowState
+from .cross_asset import CrossAssetFeed, CrossAssetState
 
 ET = ZoneInfo("America/New_York")
 
@@ -188,6 +189,9 @@ class SpyOptionsManager:
         # SPY contract is qualified; None when disabled or unavailable
         self._real_flow: Optional[RealFlowFeed] = None
 
+        # Cross-asset confirmation feed (live QQQ/IWM bars via IB)
+        self._cross_asset: Optional[CrossAssetFeed] = None
+
         # Last-poll technical levels cache (read by Telegram formatter)
         self._last_orb_status: str = "BUILDING"
         self._last_orb_high: Optional[float] = None
@@ -292,6 +296,14 @@ class SpyOptionsManager:
             except Exception as exc:
                 logger.warning("RealFlowFeed init failed — continuing without: {}", exc)
                 self._real_flow = None
+
+        # Cross-asset confirmation: live QQQ/IWM on the shared connection
+        try:
+            self._cross_asset = CrossAssetFeed(self._ib.ib)
+            await self._cross_asset.start()
+        except Exception as exc:
+            logger.warning("CrossAssetFeed init failed — continuing without: {}", exc)
+            self._cross_asset = None
 
         self._running = True
         try:
@@ -620,6 +632,27 @@ class SpyOptionsManager:
                     f", blocks={rf.tape_large_bias}" if rf.tape_large_bias != "NEUTRAL" else "",
                     f"  depth={rf.depth_imbalance:+.2f} ({rf.depth_bid_qty}/{rf.depth_ask_qty})"
                     if rf.depth_available else "",
+                )
+
+        # ── Cross-asset confirmation (live QQQ/IWM) ─────────────────────────
+        if self._cross_asset is not None:
+            try:
+                ca = await self._cross_asset.snapshot(bars_5m)
+            except Exception as exc:
+                logger.warning("CrossAsset snapshot failed: {}", exc)
+                ca = CrossAssetState()
+            ext_ctx.cross_asset_available   = ca.available
+            ext_ctx.qqq_rs                  = ca.qqq_rs
+            ext_ctx.iwm_rs                  = ca.iwm_rs
+            ext_ctx.qqq_trend               = ca.qqq_trend
+            ext_ctx.cross_asset_divergence  = ca.cross_asset_divergence
+            ext_ctx.cross_asset_bias        = ca.cross_asset_bias
+            if ca.available:
+                logger.info(
+                    "CrossAsset: QQQ_RS={:+.2f}  IWM_RS={:+.2f}  QQQ={}  bias={}{}",
+                    ca.qqq_rs, ca.iwm_rs, ca.qqq_trend, ca.cross_asset_bias,
+                    f"  ⚠ {ca.cross_asset_divergence}"
+                    if ca.cross_asset_divergence != "NONE" else "",
                 )
 
         # ── Opening context (JUL 2 2026, audit item #5) ───────────────────
