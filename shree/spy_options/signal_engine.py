@@ -387,13 +387,13 @@ class SignalEngine:
                     f"Quality gate: flow strongly BULLISH ({fs:.0f}) opposes PUT — blocked"
                 )
 
-        # ── 2. 0DTE near max pain (hard pin-risk block) ────────────────────
-        if sig.dte == 0 and ext is not None and getattr(ext, "near_max_pain", False):
-            mp = getattr(ext, "max_pain_strike", None)
-            mp_str = f"${mp:.0f}" if mp else "strike"
-            fails.append(
-                f"Quality gate: 0DTE near max pain ({mp_str}) — gamma pin risk, blocked"
-            )
+        # ── 2. 0DTE near max pain — HARD BLOCK REMOVED (JUL 6 2026) ─────────
+        # Live evidence (Jul 6): on a TREND_UP day SPY walked from $749→$752
+        # with max pain tracking price the whole way, so this distance-based
+        # hard block vetoed 215 call signals across a clean 3.5-hour trend.
+        # Pin risk is now handled by the −6% confidence penalty in
+        # DynamicConfidence block 18 (discourages pin trades without a hard
+        # veto), so genuine trends near a walking pin can still trade.
 
         # ── 3. 0DTE missing required confirmation ──────────────────────────
         if sig.dte == 0 and is_directional and ext is not None:
