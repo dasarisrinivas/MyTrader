@@ -150,6 +150,60 @@ class RegimeV2Detector:
                 reasons=reasons,
             )
 
+        # ── Grind-trend (JUL 7 2026): low-volatility directional trends ─────
+        # The strict gates above require a VWAP-slope threshold AND ATR
+        # expansion, which is blind to slow grinds (steady drift on contracting
+        # ATR with a flat anchored-VWAP slope). Recognise those from structure
+        # (LH/LL or HH/HL) + a responsive EMA9/EMA21 cross + a decisive VWAP
+        # side. No ATR-expansion requirement. Chop can't satisfy all three at
+        # once (its EMAs interleave and price oscillates across VWAP), so this
+        # only adds genuine grind-trends — it does not reclassify range days.
+        closes = [b["close"] for b in bars]
+        ema9_series = _s.ema(closes, 9)
+        ema21_series = _s.ema(closes, 21)
+        e9 = ema9_series[-1] if ema9_series else vwap
+        e21 = ema21_series[-1] if ema21_series else vwap
+        vwap_band = cfg.grind_vwap_band_pct * spy_price
+        ema_sep = abs(e9 - e21) / spy_price if spy_price > 0 else 0.0
+        # Responsive directional slope: EMA9 now vs 5 bars ago (25 min).
+        ema9_falling = len(ema9_series) > 5 and ema9_series[-1] < ema9_series[-6]
+        ema9_rising = len(ema9_series) > 5 and ema9_series[-1] > ema9_series[-6]
+
+        one_sided = crosses <= cfg.grind_max_vwap_crosses
+        grind_up = (
+            has_hhhl and e9 > e21 and ema_sep >= cfg.grind_ema_sep_min
+            and spy_vs_vwap > vwap_band and ema9_rising and one_sided
+        )
+        grind_down = (
+            has_lhll and e9 < e21 and ema_sep >= cfg.grind_ema_sep_min
+            and spy_vs_vwap < -vwap_band and ema9_falling and one_sided
+        )
+
+        if grind_up:
+            reasons.append(
+                f"grind TREND_UP: HH/HL, EMA9>EMA21 sep={ema_sep:.4f}, EMA9 rising, "
+                f"price {spy_vs_vwap:+.2f} above VWAP (ATR expansion not required)"
+            )
+            return RegimeV2Context(
+                regime=TREND_UP,
+                vwap=vwap, vwap_slope=slope, atr_ratio=atr_ratio,
+                pivots_recent=pivots_recent, has_hhhl=has_hhhl, has_lhll=has_lhll,
+                vwap_crosses_30m=crosses, spy_vs_vwap=spy_vs_vwap,
+                timestamp=now, reasons=reasons,
+            )
+        if grind_down:
+            reasons.append(
+                f"grind TREND_DOWN: LH/LL, EMA9<EMA21 sep={ema_sep:.4f}, EMA9 falling, "
+                f"price {spy_vs_vwap:+.2f} below VWAP (ATR expansion not required)"
+            )
+            return RegimeV2Context(
+                regime=TREND_DOWN,
+                vwap=vwap, vwap_slope=slope, atr_ratio=atr_ratio,
+                pivots_recent=pivots_recent, has_hhhl=has_hhhl, has_lhll=has_lhll,
+                vwap_crosses_30m=crosses, spy_vs_vwap=spy_vs_vwap,
+                timestamp=now, reasons=reasons,
+            )
+
         # ── RANGE_BOUND ─────────────────────────────────────────────────────
         range_votes = 0
         if abs(slope) < cfg.range_slope_max:

@@ -54,6 +54,22 @@ class RegimeV2Config:
     # Minimum bars required to classify; fewer ⇒ TRANSITION
     min_bars: int = 22
 
+    # ── Grind-trend path (JUL 7 2026) ──────────────────────────────────────
+    # The strict trend gates above require BOTH a VWAP-slope threshold AND ATR
+    # expansion. That excludes low-volatility directional grinds — steady drift
+    # on CONTRACTING ATR with a flat anchored-VWAP slope (e.g. SPY 750→746 on
+    # Jul 7). Those are real trends for pullback continuation. This path calls a
+    # trend from structure + EMA cross + a decisive VWAP side, without requiring
+    # ATR expansion or the VWAP-slope threshold. Guarded three ways so chop
+    # can't qualify: price decisively beyond VWAP (band), EMA9/EMA21 separated
+    # by a real margin, and EMA9 sloping the trend way over 5 bars (the
+    # responsive directional check the anchored-VWAP slope misses).
+    grind_vwap_band_pct: float = 0.0015   # price ≥ 0.15% beyond VWAP
+    grind_ema_sep_min: float = 0.0003     # EMA9/EMA21 gap ≥ 0.03% of price
+    # A real grind stays on ONE side of VWAP; chop whips across it. Veto the
+    # grind path when price crossed VWAP more than this in the last 30 min.
+    grind_max_vwap_crosses: int = 1
+
 
 @dataclass
 class OrbGateConfig:
