@@ -45,7 +45,7 @@ from .ib_client import IBOptionsClient
 from .regime_detector import RegimeContext, RegimeDetector
 from .rules_v2.engine import EngineInputs, RulesV2Engine
 from .sentiment_engine import SentimentContext, SentimentEngine
-from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal
+from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal, _tier
 from .sweep_tracker import SweepTracker
 from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 from .real_flow import RealFlowFeed, RealFlowState
@@ -1112,6 +1112,10 @@ class SpyOptionsManager:
                     expiry=expiry,
                     right=cand.direction,
                     confidence=cand.confidence,
+                    # BUG FIX (JUL 7 2026): tier was never computed → defaulted to
+                    # "MEDIUM", so the executor (HIGH/EXTREME only) rejected EVERY
+                    # continuation signal regardless of confidence. Compute it.
+                    confidence_tier=_tier(cand.confidence),
                     spy_price=spy_price,
                     vix=vix,
                     volume=0,
