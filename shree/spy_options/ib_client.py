@@ -322,6 +322,27 @@ class IBOptionsClient:
             return None
         return min(candidates) if self.expiry_mode == "nearest" else max(candidates)
 
+    def resolve_expiry_min_dte(self, min_dte: int) -> Optional[str]:
+        """Return the nearest expiry (YYYYMMDD) at least ``min_dte`` days out.
+
+        Used for continuation swing trades that want 1DTE instead of 0DTE so
+        theta doesn't erode a multi-hour hold. Scans all listed expirations
+        (across months), not just the current month. Returns None if none
+        qualify (caller falls back to the 0DTE chain).
+        """
+        if self._chain_params is None:
+            return None
+        today = datetime.now().date()
+        candidates = []
+        for e in self._chain_params["expirations"]:
+            try:
+                ed = datetime.strptime(e, "%Y%m%d").date()
+            except ValueError:
+                continue
+            if (ed - today).days >= min_dte:
+                candidates.append(e)
+        return min(candidates) if candidates else None
+
     async def get_strikes(
         self,
         spy_conid: int,
@@ -342,10 +363,16 @@ class IBOptionsClient:
         strike: float,
         right: str,
         exchange: str = "SMART",
+        expiry_date: Optional[str] = None,
     ) -> Optional[int]:
-        """Qualify an option contract and cache it for later market data requests."""
+        """Qualify an option contract and cache it for later market data requests.
+
+        ``expiry_date`` (YYYYMMDD), when given, pins the exact expiration —
+        used to build a 1DTE continuation chain distinct from the 0DTE chain in
+        the same month. Otherwise the month's nearest expiry is used.
+        """
         await self._load_chain_params(spy_conid, exchange)
-        expiry = self._best_expiry(month)
+        expiry = expiry_date or self._best_expiry(month)
         if not expiry:
             return None
 

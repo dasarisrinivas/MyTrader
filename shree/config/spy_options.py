@@ -50,6 +50,14 @@ class SpyOptionsChainConfig:
     #   "monthly" — legacy end-of-month expiry (13-29 DTE signals)
     expiry_selection: str = "nearest"
 
+    # Minimum DTE for TREND_CONTINUATION swing entries (JUL 7 2026). These are
+    # held minutes-to-hours, so 0DTE afternoon theta erodes the backtested 1.5R
+    # (and the theta-burn gate blocks many 0DTE afternoon entries outright).
+    # 1 => enrich continuation from the nearest ≥1DTE expiry (gentler theta,
+    # holds through the afternoon). 0 => use the 0DTE chain like other signals.
+    # Falls back to 0DTE if no ≥min_dte expiry is listed.
+    continuation_min_dte: int = 1
+
     # IB exchange
     exchange: str = "SMART"
 

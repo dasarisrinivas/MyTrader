@@ -405,8 +405,15 @@ class SpyOptionsManager:
         spy_conid: int,
         spy_price: float,
         expiry_month: str,
+        expiry_date: Optional[str] = None,
     ) -> Optional[ChainSnapshot]:
-        """Fetch strikes, resolve conids, snapshot Greeks → ChainSnapshot."""
+        """Fetch strikes, resolve conids, snapshot Greeks → ChainSnapshot.
+
+        ``expiry_date`` (YYYYMMDD), when given, pins the exact expiration so a
+        1DTE continuation chain can be built distinct from the 0DTE chain in the
+        same month. The conid cache is keyed by the resolved expiry DATE (not the
+        month) so 0DTE and 1DTE contracts never collide.
+        """
         cfg_c = self._cfg.chain
 
         strikes_data = await self._ib.get_strikes(spy_conid, expiry_month, cfg_c.exchange)
@@ -421,13 +428,20 @@ class SpyOptionsManager:
         near_calls = _near_strikes(call_strikes, spy_price, cfg_c.strike_pct_range, half_cap)
         near_puts  = _near_strikes(put_strikes,  spy_price, cfg_c.strike_pct_range, half_cap)
 
+        # Resolve the exact expiration up front; the conid cache keys on it.
+        resolved_expiry = expiry_date or self._ib._best_expiry(expiry_month) or ""
+        if not resolved_expiry:
+            logger.warning("No expiry resolved for SPY {}", expiry_month)
+            return None
+
         # Resolve missing option conids
         async def _resolve(strike: float, right: str) -> None:
-            key = (expiry_month, strike, right)
+            key = (resolved_expiry, strike, right)
             if key in self._conid_map:
                 return
             conid = await self._ib.get_option_conid(
-                spy_conid, expiry_month, strike, right, cfg_c.exchange
+                spy_conid, expiry_month, strike, right, cfg_c.exchange,
+                expiry_date=resolved_expiry,
             )
             if conid:
                 self._conid_map[key] = conid
@@ -440,20 +454,18 @@ class SpyOptionsManager:
             await _resolve(strike, "P")
             await asyncio.sleep(cfg_c.conid_resolve_delay_s)
 
-        call_conids = [self._conid_map[(expiry_month, s, "C")] for s in near_calls if (expiry_month, s, "C") in self._conid_map]
-        put_conids  = [self._conid_map[(expiry_month, s, "P")] for s in near_puts  if (expiry_month, s, "P") in self._conid_map]
+        call_conids = [self._conid_map[(resolved_expiry, s, "C")] for s in near_calls if (resolved_expiry, s, "C") in self._conid_map]
+        put_conids  = [self._conid_map[(resolved_expiry, s, "P")] for s in near_puts  if (resolved_expiry, s, "P") in self._conid_map]
         all_conids  = call_conids + put_conids
 
         if not all_conids:
-            logger.warning("No option conids resolved for SPY {}", expiry_month)
+            logger.warning("No option conids resolved for SPY {} exp {}", expiry_month, resolved_expiry)
             return None
 
         # Fetch price + Greeks (snapshot=False + explicit cancel)
         snaps = await self._ib.get_snapshot_with_greeks(all_conids)
 
-        # Resolve actual expiry date (YYYYMMDD) for this month
-        expiry_date = self._ib._best_expiry(expiry_month) or ""
-
+        expiry_date = resolved_expiry
         chain = ChainSnapshot(expiry_month, expiry_date=expiry_date)
         filtered_count = 0
 
@@ -919,13 +931,42 @@ class SpyOptionsManager:
         # Enrich TREND_CONTINUATION signals with a real, delta-selected option
         # quote. The generator only produces a trigger strike + structural stop;
         # without bid/ask/greeks the executor rejects them at "no live bid/ask".
+        # Continuation is a minutes-to-hours swing hold, so prefer a ≥1DTE
+        # expiry (theta protection) — built lazily and reused across signals,
+        # falling back to the already-built 0DTE chain if 1DTE isn't listed.
+        _cont_chain = None            # lazily resolved swing chain (1DTE preferred)
+        _cont_chain_resolved = False
         for sig in all_signals:
             if sig.signal_type == SignalType.TREND_CONTINUATION and not (sig.bid and sig.ask):
-                chain = chains_by_expiry.get(sig.expiry) or (
-                    chains_by_expiry.get(expiry_months[0]) if expiry_months else None
-                )
-                if chain is not None:
-                    self._enrich_continuation_quote(sig, chain)
+                if not _cont_chain_resolved:
+                    _cont_chain_resolved = True
+                    min_dte = getattr(self._cfg.chain, "continuation_min_dte", 0)
+                    if min_dte >= 1:
+                        swing_exp = self._ib.resolve_expiry_min_dte(min_dte)
+                        # Only build a separate chain if 1DTE differs from 0DTE
+                        already = {c.expiry_date for c in chains_by_expiry.values()}
+                        if swing_exp and swing_exp not in already:
+                            try:
+                                _cont_chain = await self._build_chain(
+                                    spy_conid, spy_price,
+                                    expiry_months[0] if expiry_months else "",
+                                    expiry_date=swing_exp,
+                                )
+                                if _cont_chain:
+                                    logger.info(
+                                        "Continuation swing chain built: exp {} "
+                                        "({} calls / {} puts)",
+                                        swing_exp, len(_cont_chain.calls), len(_cont_chain.puts),
+                                    )
+                            except Exception as exc:
+                                logger.warning("Swing chain build failed, using 0DTE: {}", exc)
+                                _cont_chain = None
+                    if _cont_chain is None:   # fallback to nearest built chain
+                        _cont_chain = chains_by_expiry.get(sig.expiry) or (
+                            chains_by_expiry.get(expiry_months[0]) if expiry_months else None
+                        )
+                if _cont_chain is not None:
+                    self._enrich_continuation_quote(sig, _cont_chain)
 
         await self._dispatch_signals(all_signals)
 
