@@ -395,21 +395,42 @@ class SignalEngine:
         # DynamicConfidence block 18 (discourages pin trades without a hard
         # veto), so genuine trends near a walking pin can still trade.
 
-        # ── 3. 0DTE missing required confirmation ──────────────────────────
+        # ── 3. 0DTE confirmation — ADAPTIVE (JUL 7 2026) ───────────────────
+        # OLD behaviour: hard-require |external flow| ≥ 25 OR an aligned ORB.
+        # This blocked today's clean morning short (TREND_DOWN + RISK_OFF + QQQ
+        # leading down, but slow composite flow only −12 to −21). The slow
+        # external composite was vetoing a trade every FAST signal confirmed.
+        #
+        # NEW behaviour: the flow requirement scales down with trend conviction
+        # from the fast signals (regime, cross-asset, tape). Strong multi-factor
+        # agreement waives the flow bar entirely; weak/mixed keeps the full ±25.
+        # Real-time tape ABSORPTION against the signal (buying into a downtrend)
+        # subtracts conviction — so a good morning breakdown passes while a late
+        # afternoon chase into absorption still gets held to the full bar.
+        # Flow still VETOES strong opposition via check #1 above.
         if sig.dte == 0 and is_directional and ext is not None:
-            flow_ok = abs(ext.flow_score) >= 25
             orb_confirmed = getattr(ext, "orb_breakout_confirmed", False)
-            orb_aligned = False
-            if orb_confirmed:
-                orb_status = getattr(ext, "orb_status", "INSIDE")
-                orb_aligned = (
-                    (sig.right == "C" and orb_status == "ABOVE_ORB") or
-                    (sig.right == "P" and orb_status == "BELOW_ORB")
-                )
+            orb_status = getattr(ext, "orb_status", "INSIDE")
+            orb_aligned = orb_confirmed and (
+                (sig.right == "C" and orb_status == "ABOVE_ORB") or
+                (sig.right == "P" and orb_status == "BELOW_ORB")
+            )
+
+            required_flow, conviction = self._adaptive_flow_requirement(sig, ext)
+            flow_ok = abs(ext.flow_score) >= required_flow
+
             if not flow_ok and not orb_aligned:
                 fails.append(
-                    f"Quality gate: 0DTE requires flow ≥ ±25 OR confirmed aligned ORB "
-                    f"(flow={ext.flow_score:.0f}, orb={'aligned' if orb_aligned else 'not aligned'}) — blocked"
+                    f"Quality gate: 0DTE flow {ext.flow_score:+.0f} < adaptive req "
+                    f"±{required_flow:.0f} (conviction={conviction:+d}) and no aligned ORB — blocked"
+                )
+            elif required_flow < 25 and not orb_aligned:
+                # Passed only because fast-signal conviction lowered the bar — log it.
+                logger.info(
+                    "Adaptive flow PASS: {} {}{} flow={:+.0f} req±{:.0f} conviction={:+d} "
+                    "(regime/cross-asset/tape confirm)",
+                    sig.signal_type.value, sig.strike, sig.right,
+                    ext.flow_score, required_flow, conviction,
                 )
 
         # ── 4. Directional inside ORB after 10:30 ET ──────────────────────
@@ -439,6 +460,65 @@ class SignalEngine:
                 )
 
         return len(fails) == 0, fails
+
+    @staticmethod
+    def _adaptive_flow_requirement(
+        sig: "SpySignal", ext: "ExternalContext"
+    ) -> Tuple[float, int]:
+        """Scale the 0DTE flow-confirmation bar by fast-signal trend conviction.
+
+        Conviction counts how many *fast* signals confirm the trade direction:
+          +1 regime aligned (TREND_DOWN for puts / TREND_UP for calls)
+          +1 cross-asset risk bias aligned (RISK_OFF puts / RISK_ON calls)
+          +1 QQQ leading the move (trend + relative strength ≥ 0.15pp)
+          +1 tape aggression WITH the direction (real-time buyers/sellers)
+          −1 tape ABSORBING against the direction (buying into a downtrend →
+             late-move exhaustion; the tell that separates a chase from an entry)
+          −2 cross-asset non-confirmation against the direction (SPY made an
+             extreme QQQ didn't confirm)
+
+        Required |flow|:
+          conviction ≥ 3 → 0   (fast signals unanimous — waive the slow composite)
+          conviction = 2 → 10  (mostly aligned — light confirmation)
+          conviction ≤ 1 → 25  (weak/mixed — full confirmation, as before)
+
+        Returns (required_flow, conviction).
+        """
+        right = sig.right
+        regime = getattr(sig, "regime", "RANGE_BOUND")
+        bias = getattr(ext, "cross_asset_bias", "NEUTRAL")
+        qqq_trend = getattr(ext, "qqq_trend", "FLAT")
+        qqq_rs = getattr(ext, "qqq_rs", 0.0)
+        tape_ok = getattr(ext, "tape_available", False)
+        tape = getattr(ext, "tape_score", 0.0)
+        divergence = getattr(ext, "cross_asset_divergence", "NONE")
+
+        conviction = 0
+        if (right == "P" and regime == "TREND_DOWN") or (right == "C" and regime == "TREND_UP"):
+            conviction += 1
+        if (right == "P" and bias == "RISK_OFF") or (right == "C" and bias == "RISK_ON"):
+            conviction += 1
+        if (right == "P" and qqq_trend == "DOWN" and qqq_rs <= -0.15) or \
+           (right == "C" and qqq_trend == "UP" and qqq_rs >= 0.15):
+            conviction += 1
+        if tape_ok:
+            tape_with = (right == "P" and tape <= -20) or (right == "C" and tape >= 20)
+            tape_against = (right == "P" and tape >= 20) or (right == "C" and tape <= -20)
+            if tape_with:
+                conviction += 1
+            elif tape_against:
+                conviction -= 1   # absorption against us — hold the full bar
+        if (divergence == "BEARISH_NONCONFIRM" and right == "C") or \
+           (divergence == "BULLISH_NONCONFIRM" and right == "P"):
+            conviction -= 2
+
+        if conviction >= 3:
+            required = 0.0
+        elif conviction == 2:
+            required = 10.0
+        else:
+            required = 25.0
+        return required, conviction
 
     # ── ORB-inside confidence penalty (soft, replaces former hard block) ─────
 
