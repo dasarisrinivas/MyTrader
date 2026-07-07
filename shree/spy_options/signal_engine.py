@@ -286,6 +286,12 @@ class SpySignal:
     short_bid: float = 0.0
     short_ask: float = 0.0
 
+    # Structural stop in SPY (underlying) terms — populated for entries that
+    # carry a price-structure invalidation level (TREND_CONTINUATION: the far
+    # side of the rejection bar). The executor derives the option premium
+    # stop/target from this via delta, instead of a fixed premium %.
+    structural_stop: float = 0.0     # SPY level; 0.0 = none (use fixed premium bracket)
+
     @property
     def dedup_key(self) -> str:
         """Dedup key excludes expiry — same signal across APR/MAY is one signal.

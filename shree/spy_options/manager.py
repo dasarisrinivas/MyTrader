@@ -815,9 +815,11 @@ class SpyOptionsManager:
         all_signals: List[SpySignal] = []
         max_pain_computed = False   # compute once from the first available chain
         ibkr_flow_quotes: List[dict] = []   # collected for next poll's flow source
+        chains_by_expiry: Dict[str, ChainSnapshot] = {}   # retained for continuation enrichment
         for expiry in expiry_months:
             chain = await self._build_chain(spy_conid, spy_price, expiry)
             if chain:
+                chains_by_expiry[expiry] = chain
                 # Snapshot quotes (real bid/ask/size) for the flow source.
                 try:
                     _edt = datetime.strptime(chain.expiry_date, "%Y%m%d").date()
@@ -913,6 +915,17 @@ class SpyOptionsManager:
                 rsi_5m=tech_levels.rsi_5m,
                 expiry=expiry_months[0] if expiry_months else "",
             )
+
+        # Enrich TREND_CONTINUATION signals with a real, delta-selected option
+        # quote. The generator only produces a trigger strike + structural stop;
+        # without bid/ask/greeks the executor rejects them at "no live bid/ask".
+        for sig in all_signals:
+            if sig.signal_type == SignalType.TREND_CONTINUATION and not (sig.bid and sig.ask):
+                chain = chains_by_expiry.get(sig.expiry) or (
+                    chains_by_expiry.get(expiry_months[0]) if expiry_months else None
+                )
+                if chain is not None:
+                    self._enrich_continuation_quote(sig, chain)
 
         await self._dispatch_signals(all_signals)
 
@@ -1075,6 +1088,9 @@ class SpyOptionsManager:
                     # TREND_CONTINUATION is a naked long call/put entry with a
                     # structural stop; size with the long-leg heuristic.
                     structure="LONG",
+                    # Structural invalidation in SPY terms — the executor turns
+                    # this into the option premium stop/target via delta (1.5R).
+                    structural_stop=cand.stop_price,
                 )
             )
             logger.info(
@@ -1083,6 +1099,62 @@ class SpyOptionsManager:
             )
 
         return kept
+
+    def _enrich_continuation_quote(
+        self, sig: SpySignal, chain: ChainSnapshot, target_delta: float = 0.48
+    ) -> None:
+        """Attach a real delta-selected option quote to a continuation signal.
+
+        Picks the option on the signal's side whose |delta| is closest to
+        target_delta within [0.30, 0.65] (directional-swing sweet spot), and
+        copies its strike, quote, and greeks onto the signal so the executor
+        can gate, size, and bracket it. Leaves the signal unquoted (bid/ask 0 →
+        executor skips it) if no suitable liquid strike exists.
+        """
+        quotes = chain.calls if sig.right == "C" else chain.puts
+        best = None
+        best_err = 1e9
+        for q in quotes:
+            d = abs(q.delta or 0.0)
+            if d < 0.30 or d > 0.65:
+                continue
+            if not (q.bid and q.ask and q.bid > 0 and q.ask > 0):
+                continue
+            err = abs(d - target_delta)
+            if err < best_err:
+                best_err, best = err, q
+        if best is None:
+            logger.info(
+                "CONTINUATION {}{}: no liquid 0.30–0.65Δ strike to enrich — stays alert-only",
+                sig.strike, sig.right,
+            )
+            return
+        sig.strike = best.strike
+        sig.bid = best.bid
+        sig.ask = best.ask
+        sig.bid_size = best.bid_size
+        sig.ask_size = best.ask_size
+        sig.delta = best.delta
+        sig.gamma = best.gamma
+        sig.theta = best.theta
+        sig.vega = best.vega
+        sig.impl_vol = best.impl_vol
+        sig.open_interest = best.open_interest
+        sig.spread_pct = best.spread_pct
+        sig.volume = best.volume
+        sig.expiry_date = chain.expiry_date
+        if chain.expiry_date:
+            try:
+                exp_dt = datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                sig.dte = max(0, (exp_dt - datetime.now().date()).days)
+            except ValueError:
+                pass
+        logger.info(
+            "CONTINUATION enriched: {}{} Δ={:.2f} bid/ask={:.2f}/{:.2f} dte={} "
+            "(structural_stop=${:.2f})",
+            sig.strike, sig.right, sig.delta, sig.bid, sig.ask, sig.dte,
+            sig.structural_stop,
+        )
 
     async def _dispatch_signals(self, signals: List[SpySignal]) -> None:
         dedup_td  = timedelta(minutes=self._cfg.signals.dedup_window_minutes)

@@ -235,6 +235,19 @@ class SpyOptionsExecutionConfig:
     stop_type: str = "stop_limit"    # "stop_limit" (default) or "stop" (market)
     stop_limit_buffer_pct: float = 10.0   # limit = stop_price × (1 − buffer)
 
+    # ── Structure-based bracket (JUL 7 2026) ───────────────────────────────
+    # For entries carrying a structural_stop (SPY level) — TREND_CONTINUATION —
+    # derive the option premium stop from that level via delta and set the
+    # target at continuation_target_r × the stop (the backtested 1.5R sweet
+    # spot: PF 1.52 on 60d). The derived premium stop is clamped to
+    # [structural_stop_pct_min, structural_stop_pct_max] so a razor-thin
+    # structural stop isn't noise-stopped and a huge one doesn't over-risk;
+    # the target scales with the clamped stop to hold the R:R.
+    use_structural_bracket: bool = True
+    continuation_target_r: float = 1.5
+    structural_stop_pct_min: float = 12.0
+    structural_stop_pct_max: float = 35.0
+
     # ── Strict quality gate ────────────────────────────────────────────────
     allowed_tiers: List[str] = field(default_factory=lambda: ["HIGH", "EXTREME"])
     require_green_edge: bool = True  # edge_margin > 0 after costs — hard gate

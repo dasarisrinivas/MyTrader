@@ -305,7 +305,32 @@ class SpyOptionsExecutor:
             return False
 
         mid = _round_tick((sig.bid + sig.ask) / 2.0)
+
+        # Bracket geometry. Default: fixed premium % (IV-adjusted stop, 40% TP).
+        # Structure-based (TREND_CONTINUATION with a structural_stop): translate
+        # the SPY invalidation level into a premium stop via delta and target
+        # continuation_target_r × it — anchored to where the thesis is right/wrong.
         stop_pct = float(sig.iv_adjusted_stop_pct or self._cfg.stop_pct_fallback)
+        tp_pct = float(self._cfg.take_profit_pct)
+        bracket_basis = "premium"
+        if (
+            getattr(self._cfg, "use_structural_bracket", False)
+            and getattr(sig, "structural_stop", 0.0)
+            and sig.delta and abs(sig.delta) > 0.05
+            and sig.spy_price and mid > 0
+        ):
+            stop_dist_spy = abs(sig.spy_price - sig.structural_stop)
+            prem_stop_dist = abs(sig.delta) * stop_dist_spy      # $ premium move to stop
+            raw_stop_pct = prem_stop_dist / mid * 100.0
+            clamped = max(
+                self._cfg.structural_stop_pct_min,
+                min(self._cfg.structural_stop_pct_max, raw_stop_pct),
+            )
+            if clamped > 0:
+                stop_pct = clamped
+                tp_pct = clamped * self._cfg.continuation_target_r
+                bracket_basis = "structural"
+
         qty = self._size(mid, stop_pct)
         if qty < 1:
             logger.info(
@@ -341,8 +366,16 @@ class SpyOptionsExecutor:
 
         # Bracket prices — entry capped at the ask (never chase above it).
         entry_limit = _round_tick(min(sig.ask, mid + 0.02))
-        tp_price = _round_tick(entry_limit * (1 + self._cfg.take_profit_pct / 100.0))
+        tp_price = _round_tick(entry_limit * (1 + tp_pct / 100.0))
         sl_stop = _round_tick(entry_limit * (1 - stop_pct / 100.0))
+        if bracket_basis == "structural":
+            logger.info(
+                "EXEC structural bracket: {} {}{} SPY_stop=${:.2f} (Δ={:.2f}) "
+                "→ prem stop {:.0f}% / TP {:.0f}% ({:.1f}R)",
+                sig.signal_type.value, sig.strike, sig.right,
+                sig.structural_stop, sig.delta, stop_pct, tp_pct,
+                self._cfg.continuation_target_r,
+            )
 
         parent = LimitOrder("BUY", qty, entry_limit)
         parent.tif = "DAY"
