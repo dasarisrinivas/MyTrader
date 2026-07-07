@@ -153,6 +153,24 @@ class RealFlowFeed:
         except Exception:
             pass
 
+    async def resubscribe(self) -> None:
+        """Tear down stale subscriptions and request fresh ones.
+
+        IB tick-by-tick and market-depth streams go stale across the overnight
+        session boundary and do NOT auto-resume — the handle persists but stops
+        delivering updates (tape reads 0/0, depth freezes on its last book).
+        Call this on the first market-open poll of each new session to restore
+        both feeds. Resets the rolling buckets and update counters so
+        snapshot() reports availability from fresh data only.
+        """
+        self.stop()
+        self._buckets.clear()
+        self._tape_update_count = 0
+        self._depth_update_count = 0
+        self._bid = 0.0
+        self._ask = 0.0
+        await self.start()
+
     # ── Event handlers (called by ib_insync event loop) ──────────────────────
 
     def _on_depth_update(self, ticker) -> None:

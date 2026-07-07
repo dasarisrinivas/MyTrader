@@ -192,6 +192,10 @@ class SpyOptionsManager:
         # Cross-asset confirmation feed (live QQQ/IWM bars via IB)
         self._cross_asset: Optional[CrossAssetFeed] = None
 
+        # Set by the daily reset; consumed on the first market-open poll to
+        # re-subscribe the RealFlow tape/depth streams (they go stale overnight).
+        self._feeds_need_resubscribe: bool = False
+
         # Last-poll technical levels cache (read by Telegram formatter)
         self._last_orb_status: str = "BUILDING"
         self._last_orb_high: Optional[float] = None
@@ -373,6 +377,10 @@ class SpyOptionsManager:
                 self._rules_v2.begin_session()
             if self._executor is not None:
                 self._executor.daily_reset()
+            # RealFlow tape/depth subscriptions die across the overnight session
+            # boundary. Flag a re-subscribe for the first market-open poll (doing
+            # it now, at ET-midnight with the market closed, would just re-stale).
+            self._feeds_need_resubscribe = True
             logger.info("New day {} — signal dedup + tracker reset", today)
 
     # ── IV rank ───────────────────────────────────────────────────────────────
@@ -520,6 +528,17 @@ class SpyOptionsManager:
         if not self._market_open():
             logger.debug("Market closed — skipping poll")
             return
+
+        # First market-open poll of a new session: re-establish the RealFlow
+        # tape/depth streams, which go stale across the overnight boundary.
+        if self._feeds_need_resubscribe:
+            self._feeds_need_resubscribe = False
+            if self._real_flow is not None:
+                try:
+                    await self._real_flow.resubscribe()
+                    logger.info("RealFlow: re-subscribed tape + depth for new session")
+                except Exception as exc:
+                    logger.warning("RealFlow resubscribe failed: {}", exc)
 
         spy_price = await self._ib.get_spy_price(spy_conid)
         if not spy_price:
