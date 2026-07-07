@@ -1116,6 +1116,12 @@ class SpyOptionsManager:
                     # "MEDIUM", so the executor (HIGH/EXTREME only) rejected EVERY
                     # continuation signal regardless of confidence. Compute it.
                     confidence_tier=_tier(cand.confidence),
+                    # BUG FIX (JUL 7 2026): regime was never set → defaulted to
+                    # "RANGE_BOUND", so the Trading Manager vetoed every
+                    # continuation ("TREND_CONTINUATION in RANGE_BOUND — regime
+                    # fit failed") pre-dispatch. Carry the v2 trend regime that
+                    # actually generated the signal.
+                    regime=regime.regime,
                     spy_price=spy_price,
                     vix=vix,
                     volume=0,
