@@ -93,6 +93,8 @@ class SpyOptionsExecutor:
         self._analytics = analytics
         self._ib = IB()
         self._connected = False
+        self._reconnecting = False
+        self._keepalive_task = None
 
         self._positions: Dict[str, LivePosition] = {}
 
@@ -131,6 +133,14 @@ class SpyOptionsExecutor:
                     "⚠️ SPY EXECUTOR is connected to a LIVE port ({}) — real "
                     "orders will be placed.", self._cfg.ibkr_port,
                 )
+            # Auto-reconnect: the IB Gateway restarts nightly (~midnight ET) for
+            # maintenance, dropping this order connection. Without this the
+            # executor stays stale-connected and every order fails at placement
+            # (root cause of a "signal but no trade" morning). Mirror the data
+            # client: keepalive ping + disconnect handler + backoff reconnect.
+            if self._keepalive_task is None:
+                self._keepalive_task = asyncio.ensure_future(self._keepalive_loop())
+            self._ib.disconnectedEvent += self._on_disconnect
             await self._notify(
                 f"🤖 <b>SPY Executor ONLINE</b> [{mode}]\n"
                 f"Risk/trade: ${self._cfg.risk_per_trade_usd:.0f} · "
@@ -152,7 +162,59 @@ class SpyOptionsExecutor:
                 "Bot continues signal-only."
             )
 
+    async def _keepalive_loop(self) -> None:
+        """Ping the order gateway every 30s; reconnect if the socket dropped."""
+        while True:
+            await asyncio.sleep(30)
+            if not self._cfg.enabled:
+                continue
+            try:
+                if self._ib.isConnected():
+                    self._ib.reqCurrentTime()
+                    if not self._connected:      # socket back but flag stale
+                        self._connected = True
+                elif not self._reconnecting:
+                    logger.warning("EXEC keepalive: order gateway down — reconnecting")
+                    await self._reconnect()
+            except Exception as exc:
+                logger.debug("EXEC keepalive ping failed: {}", exc)
+
+    def _on_disconnect(self) -> None:
+        """Handle an unexpected order-gateway disconnect (nightly IB restart)."""
+        self._connected = False
+        if not self._reconnecting:
+            logger.warning("EXEC order gateway disconnected — scheduling reconnect")
+            asyncio.ensure_future(self._reconnect())
+
+    async def _reconnect(self) -> None:
+        """Reconnect the order connection with backoff. Positions are held in
+        memory and brackets rest at IB, so both survive the reconnect."""
+        if self._reconnecting:
+            return
+        self._reconnecting = True
+        try:
+            for attempt in range(1, 6):
+                try:
+                    if self._ib.isConnected():
+                        self._ib.disconnect()
+                    await asyncio.sleep(min(attempt * 5, 30))
+                    await self._ib.connectAsync(
+                        self._cfg.ibkr_host, self._cfg.ibkr_port,
+                        clientId=self._cfg.ibkr_client_id, timeout=30,
+                    )
+                    self._connected = True
+                    logger.info("SPY EXECUTOR reconnected (attempt {}/5)", attempt)
+                    return
+                except Exception as exc:
+                    logger.warning("EXEC reconnect attempt {}/5 failed: {}", attempt, exc)
+            logger.error("EXEC: all 5 reconnect attempts failed — retry on next keepalive")
+        finally:
+            self._reconnecting = False
+
     async def close(self) -> None:
+        if self._keepalive_task is not None:
+            self._keepalive_task.cancel()
+            self._keepalive_task = None
         if self._connected:
             try:
                 self._ib.disconnect()
