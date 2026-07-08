@@ -56,7 +56,12 @@ class SpyOptionsChainConfig:
     # 1 => enrich continuation from the nearest ≥1DTE expiry (gentler theta,
     # holds through the afternoon). 0 => use the 0DTE chain like other signals.
     # Falls back to 0DTE if no ≥min_dte expiry is listed.
-    continuation_min_dte: int = 1
+    # 2 (JUL 8 2026): a minutes-to-hours swing hold wants the lowest theta the
+    # executor allows (max_dte=2). Live evidence — a valid TREND_DOWN
+    # continuation (TM-approved, HIGH tier) was blocked at the theta gate on
+    # 1DTE (6.4%/hr). 2DTE roughly halves the theta rate while staying a same-
+    # day intraday instrument (never held to expiry).
+    continuation_min_dte: int = 2
 
     # IB exchange
     exchange: str = "SMART"
@@ -272,7 +277,12 @@ class SpyOptionsExecutionConfig:
     # realistically outrun. Burn is computed at the CURRENT session pace
     # (edge_reality hourly theta fractions), so the same option passes at
     # 10:00 and fails at 14:30.
-    max_theta_burn_pct_per_hour: float = 6.0
+    # 8.0 (JUL 8 2026): calibrated from live evidence. 6.0 was a conservative
+    # placeholder; it blocked a validated 1-2DTE swing continuation at 6.4%/hr.
+    # For a swing targeting 1.5R over ~1-2h, ≤8%/hr theta (≤~12-16% decay over
+    # the hold) is tolerable — the directional edge clears it. Still blocks the
+    # 0DTE afternoon traps (11-38%/hr) this gate was built for.
+    max_theta_burn_pct_per_hour: float = 8.0
     # Required SPY drift (%/hr) merely to offset decay: |theta_hr| / ($delta).
     # SPY sustains ~0.10-0.20%/hr on trend days; needing more than 0.15%/hr
     # just to break even on theta means the trade is renting a melting asset.
