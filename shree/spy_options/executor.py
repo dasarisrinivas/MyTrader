@@ -96,6 +96,12 @@ class SpyOptionsExecutor:
         self._reconnecting = False
         self._keepalive_task = None
 
+        # Research log: full feature vector + realized P&L, one row per closed
+        # trade. Accumulates the production dataset for feature-importance
+        # analysis (backtest can't see live-only features). Never affects trading.
+        from .research_log import TradeResearchLog
+        self._research = TradeResearchLog()
+
         self._positions: Dict[str, LivePosition] = {}
 
         # Daily counters (reset by daily_reset())
@@ -688,6 +694,35 @@ class SpyOptionsExecutor:
                 )
             except Exception as exc:
                 logger.warning("record_fill_exit failed: {}", exc)
+
+        # Research log: full feature vector at entry + realized option P&L.
+        try:
+            s = pos.signal
+            entry = pos.entry_mid or 0.0
+            exitp = exit_premium if exit_premium is not None else 0.0
+            risk_frac = (pos.stop_pct or 0.0) / 100.0
+            pnl_r = (exitp - entry) / (entry * risk_frac) if (entry and risk_frac) else 0.0
+            hold_min = (datetime.utcnow() - pos.placed_at).total_seconds() / 60.0
+            sig_fields = {
+                k: v for k, v in s.__dict__.items()
+                if k != "research_ctx" and not k.startswith("_")
+            }
+            self._research.log_trade({
+                "trade_id": pos.key,
+                "entry_at": pos.placed_at.isoformat(),
+                "closed_at": datetime.utcnow().isoformat(),
+                "signal_type": s.signal_type.value,
+                "right": s.right, "strike": s.strike, "dte": s.dte, "qty": pos.qty,
+                "entry_premium": entry, "exit_premium": exitp,
+                "pnl_usd": pnl, "pnl_r": round(pnl_r, 3),
+                "hold_min": round(hold_min, 1),
+                "exit_reason": reason,
+                "outcome": "win" if pnl > 0 else "loss",
+                "signal_fields": sig_fields,
+                "ext_ctx": getattr(s, "research_ctx", {}) or {},
+            })
+        except Exception as exc:
+            logger.debug("research log write skipped: {}", exc)
         if reason == "stop_loss":
             self._consecutive_stopouts += 1
         elif pnl > 0:

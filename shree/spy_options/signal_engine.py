@@ -292,6 +292,12 @@ class SpySignal:
     # stop/target from this via delta, instead of a fixed premium %.
     structural_stop: float = 0.0     # SPY level; 0.0 = none (use fixed premium bracket)
 
+    # Full ExternalContext snapshot at dispatch, for the trade research log
+    # (features not already on this signal: VWAP bands, tape, depth, breadth,
+    # sector, vol structure, gamma env, RSI, EDR, ORB, pivots, …). Not used for
+    # trading — captured so closed trades carry the complete feature vector.
+    research_ctx: dict = field(default_factory=dict)
+
     @property
     def dedup_key(self) -> str:
         """Dedup key excludes expiry — same signal across APR/MAY is one signal.

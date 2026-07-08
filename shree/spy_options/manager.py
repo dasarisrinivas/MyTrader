@@ -196,6 +196,9 @@ class SpyOptionsManager:
         # re-subscribe the RealFlow tape/depth streams (they go stale overnight).
         self._feeds_need_resubscribe: bool = False
 
+        # Latest ExternalContext, snapshotted onto signals for the research log.
+        self._last_ext_ctx = None
+
         # Last-poll technical levels cache (read by Telegram formatter)
         self._last_orb_status: str = "BUILDING"
         self._last_orb_high: Optional[float] = None
@@ -642,6 +645,10 @@ class SpyOptionsManager:
         ext_ctx.rsi_overbought        = tech_levels.rsi_overbought
         ext_ctx.rsi_oversold          = tech_levels.rsi_oversold
         ext_ctx.rsi_divergence        = tech_levels.rsi_divergence
+
+        # Cache the full context for the trade research log (snapshotted onto
+        # each signal at dispatch so closed trades carry every live feature).
+        self._last_ext_ctx = ext_ctx
 
         # ── Real order flow (L2 depth + tape) ──────────────────────────────
         if self._real_flow is not None:
@@ -1340,6 +1347,15 @@ class SpyOptionsManager:
             # signal stays Telegram-only. Never let an execution bug break
             # the signal feed.
             if self._executor is not None:
+                # Snapshot the full external context onto the signal so a
+                # closed trade carries every live feature for research.
+                try:
+                    ec = getattr(self, "_last_ext_ctx", None)
+                    if ec is not None:
+                        from dataclasses import asdict as _asdict
+                        sig.research_ctx = _asdict(ec)
+                except Exception:
+                    pass
                 try:
                     await self._executor.maybe_execute(sig)
                 except Exception as exc:
