@@ -409,6 +409,7 @@ class SpyOptionsManager:
         spy_price: float,
         expiry_month: str,
         expiry_date: Optional[str] = None,
+        liquidity_override: Optional[dict] = None,
     ) -> Optional[ChainSnapshot]:
         """Fetch strikes, resolve conids, snapshot Greeks → ChainSnapshot.
 
@@ -416,8 +417,16 @@ class SpyOptionsManager:
         1DTE continuation chain can be built distinct from the 0DTE chain in the
         same month. The conid cache is keyed by the resolved expiry DATE (not the
         month) so 0DTE and 1DTE contracts never collide.
+
+        ``liquidity_override`` (min_oi/max_spread_pct/min_volume) relaxes the
+        default filter — used for the continuation swing chain so the ATM
+        ~0.50Δ strikes (lower volume 2-3 DTE out) survive for enrichment. The
+        executor's own gates (spread, delta) remain the final arbiter.
         """
         cfg_c = self._cfg.chain
+        _liq_min_oi = (liquidity_override or {}).get("min_oi", cfg_c.liquidity_min_oi)
+        _liq_max_spread = (liquidity_override or {}).get("max_spread_pct", cfg_c.liquidity_max_spread_pct)
+        _liq_min_vol = (liquidity_override or {}).get("min_volume", cfg_c.liquidity_min_volume)
 
         strikes_data = await self._ib.get_strikes(spy_conid, expiry_month, cfg_c.exchange)
         if not strikes_data:
@@ -510,9 +519,9 @@ class SpyOptionsManager:
             # Apply liquidity filter before adding to chain
             if not passes_liquidity(
                 quote,
-                min_oi=cfg_c.liquidity_min_oi,
-                max_spread_pct=cfg_c.liquidity_max_spread_pct,
-                min_volume=cfg_c.liquidity_min_volume,
+                min_oi=_liq_min_oi,
+                max_spread_pct=_liq_max_spread,
+                min_volume=_liq_min_vol,
             ):
                 filtered_count += 1
                 if filtered_count <= 3:  # Log first 3 drops at INFO
@@ -958,10 +967,16 @@ class SpyOptionsManager:
                         already = {c.expiry_date for c in chains_by_expiry.values()}
                         if swing_exp and swing_exp not in already:
                             try:
+                                # Relaxed liquidity so the ATM ~0.50Δ swing
+                                # strikes (lower volume 2-3 DTE out) survive to
+                                # be enriched; executor gates make the final call.
                                 _swing_chain = await self._build_chain(
                                     spy_conid, spy_price,
                                     expiry_months[0] if expiry_months else "",
                                     expiry_date=swing_exp,
+                                    liquidity_override={
+                                        "min_oi": 100, "min_volume": 0, "max_spread_pct": 15.0,
+                                    },
                                 )
                                 if _swing_chain:
                                     logger.info(
@@ -1176,11 +1191,14 @@ class SpyOptionsManager:
         executor skips it) if no suitable liquid strike exists.
         """
         quotes = chain.calls if sig.right == "C" else chain.puts
+        # Delta band matches the executor's gate [0.30, 0.70] (was [0.30, 0.65])
+        # so a slightly-ITM swing strike is enrichable. Pick |Δ| closest to
+        # target among liquid strikes.
         best = None
         best_err = 1e9
         for q in quotes:
             d = abs(q.delta or 0.0)
-            if d < 0.30 or d > 0.65:
+            if d < 0.30 or d > 0.70:
                 continue
             if not (q.bid and q.ask and q.bid > 0 and q.ask > 0):
                 continue
@@ -1189,7 +1207,7 @@ class SpyOptionsManager:
                 best_err, best = err, q
         if best is None:
             logger.info(
-                "CONTINUATION {}{}: no liquid 0.30–0.65Δ strike to enrich — stays alert-only",
+                "CONTINUATION {}{}: no liquid 0.30–0.70Δ strike to enrich — stays alert-only",
                 sig.strike, sig.right,
             )
             return
