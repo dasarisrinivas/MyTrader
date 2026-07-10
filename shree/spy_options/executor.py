@@ -638,28 +638,65 @@ class SpyOptionsExecutor:
                     if self._cfg.account:
                         mkt.account = self._cfg.account
                     exit_trade = self._ib.placeOrder(pos.contract, mkt)
-                    # Give IB a moment; P&L is best-effort here
                     try:
-                        await asyncio.wait_for(exit_trade.fillEvent, timeout=10)
+                        await asyncio.wait_for(exit_trade.fillEvent, timeout=15)
                     except Exception:
                         pass
+                    # Capture the REAL exit fill. avgFillPrice populates async, so
+                    # retry a few times before giving up — never silently record a
+                    # false breakeven from entry_px.
                     entry_px = pos.parent.orderStatus.avgFillPrice or pos.entry_mid
-                    exit_px = exit_trade.orderStatus.avgFillPrice or entry_px
-                    pnl = (exit_px - entry_px) * remaining * 100.0
-                    self._register_close(
-                        pos, f"bot exit: {reason}", pnl, exit_premium=exit_px
-                    )
-                    await self._notify(
-                        f"🔻 <b>CLOSED</b> {pos.contract.localSymbol} — {reason}\n"
-                        f"${entry_px:.2f} → ${exit_px:.2f}  "
-                        f"P&L <b>${pnl:+.0f}</b>  (day: ${self._realized_pnl_today:+.0f})"
-                    )
+                    exit_px = 0.0
+                    for _ in range(6):
+                        exit_px = exit_trade.orderStatus.avgFillPrice or 0.0
+                        if exit_px > 0:
+                            break
+                        await asyncio.sleep(1.0)
+                    if exit_px > 0:
+                        pnl = (exit_px - entry_px) * remaining * 100.0
+                        self._register_close(
+                            pos, f"bot exit: {reason}", pnl, exit_premium=exit_px
+                        )
+                        logger.info(
+                            "EXEC CLOSE {} @ ${:.2f} (entry ${:.2f})  P&L ${:+.0f} — {} "
+                            "(day ${:+.0f})",
+                            pos.contract.localSymbol, exit_px, entry_px, pnl, reason,
+                            self._realized_pnl_today,
+                        )
+                        await self._notify(
+                            f"🔻 <b>CLOSED</b> {pos.contract.localSymbol} — {reason}\n"
+                            f"${entry_px:.2f} → ${exit_px:.2f}  "
+                            f"P&L <b>${pnl:+.0f}</b>  (day: ${self._realized_pnl_today:+.0f})"
+                        )
+                    else:
+                        # Exit fill never confirmed after retries — mark closed to
+                        # avoid re-sending the close, but do NOT record a fabricated
+                        # breakeven. Flag loudly so the real fill is reconciled from
+                        # the IB account rather than trusting a bad record.
+                        pos.closed = True
+                        pos.close_reason = f"{reason} (exit fill unconfirmed)"
+                        logger.warning(
+                            "EXEC CLOSE {} — {} — exit fill UNCONFIRMED after retries; "
+                            "P&L NOT recorded (reconcile from IB account)",
+                            pos.contract.localSymbol, reason,
+                        )
                 else:
+                    # Already exited via a bracket child; that fill's P&L is
+                    # recorded by on_poll's fill detection.
                     self._register_close(pos, reason, 0.0)
+                    logger.info(
+                        "EXEC CLOSE {} — {} (exited via bracket child)",
+                        pos.contract.localSymbol, reason,
+                    )
             else:
+                # Entry order NEVER filled — this is a CANCEL, not a position
+                # close. No fill, no P&L, and it must not look like a trade.
                 pos.closed = True
-                pos.close_reason = reason
-            logger.info("EXEC CLOSE {} — {}", pos.contract.localSymbol, reason)
+                pos.close_reason = f"unfilled entry cancelled: {reason}"
+                logger.info(
+                    "EXEC CANCEL (entry never filled): {} — {}",
+                    pos.contract.localSymbol, reason,
+                )
             return True
         except Exception as exc:
             logger.opt(exception=True).error(
