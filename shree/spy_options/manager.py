@@ -941,39 +941,45 @@ class SpyOptionsManager:
         # Continuation is a minutes-to-hours swing hold, so prefer a ≥1DTE
         # expiry (theta protection) — built lazily and reused across signals,
         # falling back to the already-built 0DTE chain if 1DTE isn't listed.
-        _cont_chain = None            # lazily resolved swing chain (1DTE preferred)
-        _cont_chain_resolved = False
+        _swing_chain = None           # lazily resolved swing chain (≥1DTE, theta-friendly)
+        _swing_resolved = False
+        # The already-built 0DTE (nearest) chain — liquid fallback when the thin
+        # swing chain has no enrichable strike.
+        _zero_chain = (
+            chains_by_expiry.get(expiry_months[0]) if expiry_months else None
+        ) or (next(iter(chains_by_expiry.values()), None))
         for sig in all_signals:
             if sig.signal_type == SignalType.TREND_CONTINUATION and not (sig.bid and sig.ask):
-                if not _cont_chain_resolved:
-                    _cont_chain_resolved = True
+                if not _swing_resolved:
+                    _swing_resolved = True
                     min_dte = getattr(self._cfg.chain, "continuation_min_dte", 0)
                     if min_dte >= 1:
                         swing_exp = self._ib.resolve_expiry_min_dte(min_dte)
-                        # Only build a separate chain if 1DTE differs from 0DTE
                         already = {c.expiry_date for c in chains_by_expiry.values()}
                         if swing_exp and swing_exp not in already:
                             try:
-                                _cont_chain = await self._build_chain(
+                                _swing_chain = await self._build_chain(
                                     spy_conid, spy_price,
                                     expiry_months[0] if expiry_months else "",
                                     expiry_date=swing_exp,
                                 )
-                                if _cont_chain:
+                                if _swing_chain:
                                     logger.info(
                                         "Continuation swing chain built: exp {} "
                                         "({} calls / {} puts)",
-                                        swing_exp, len(_cont_chain.calls), len(_cont_chain.puts),
+                                        swing_exp, len(_swing_chain.calls), len(_swing_chain.puts),
                                     )
                             except Exception as exc:
                                 logger.warning("Swing chain build failed, using 0DTE: {}", exc)
-                                _cont_chain = None
-                    if _cont_chain is None:   # fallback to nearest built chain
-                        _cont_chain = chains_by_expiry.get(sig.expiry) or (
-                            chains_by_expiry.get(expiry_months[0]) if expiry_months else None
-                        )
-                if _cont_chain is not None:
-                    self._enrich_continuation_quote(sig, _cont_chain)
+                                _swing_chain = None
+                # Prefer the theta-friendly swing chain; if it has no liquid
+                # enrichable strike, fall back to the liquid 0DTE chain so a
+                # valid signal still reaches the executor (better a 0DTE trade
+                # the theta gate can judge than a dropped signal). Try both.
+                if _swing_chain is not None:
+                    self._enrich_continuation_quote(sig, _swing_chain)
+                if not (sig.bid and sig.ask) and _zero_chain is not None and _zero_chain is not _swing_chain:
+                    self._enrich_continuation_quote(sig, _zero_chain)
 
         await self._dispatch_signals(all_signals)
 
