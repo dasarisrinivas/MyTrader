@@ -264,7 +264,7 @@ class SpyOptionsExecutionConfig:
     # ── Strict quality gate ────────────────────────────────────────────────
     allowed_tiers: List[str] = field(default_factory=lambda: ["HIGH", "EXTREME"])
     require_green_edge: bool = True  # edge_margin > 0 after costs — hard gate
-    max_dte: int = 2                 # 0-2 DTE only: tightest spreads, real gamma
+    max_dte: int = 3                 # 0-3 DTE (3 covers Fri→Mon weekend gap): tightest spreads, real gamma
     min_abs_delta: float = 0.30      # avoid lottery tickets
     max_abs_delta: float = 0.70      # avoid deep-ITM (poor % leverage per $)
     max_entry_spread_pct: float = 5.0    # bid/ask spread as % of mid — cost gate
