@@ -33,3 +33,11 @@ if pgrep -f "run_spy_options.py" >/dev/null 2>&1; then
   pkill -f "run_spy_options.py"
 fi
 echo "$(date '+%H:%M:%S') ✅ SPY bot stopped for the day" >> "$LOG"
+
+# 4) Flatten: cancel resting SPY-option brackets and market-close any open SPY
+#    option position, so nothing carries overnight. Runs AFTER the bot is stopped
+#    (no race). Strictly scoped to SPY options — never touches other positions.
+sleep 2
+echo "$(date '+%H:%M:%S') running EOD flatten…" >> "$LOG"
+python3 "$ROOT/scripts/flatten_positions.py" >> "$LOG" 2>&1
+echo "$(date '+%H:%M:%S') ✅ EOD flatten done" >> "$LOG"
