@@ -229,11 +229,21 @@ def backfill_spy(
 
     src = sqlite3.connect(spy_db)
     src.row_factory = sqlite3.Row
+    # CRITICAL (JUL 10 2026): only ingest REAL EXECUTED FILLS, never the
+    # signal-level exit-monitor outcomes. The spy_signals table records a
+    # simulated outcome/pnl_pct/exit_trigger for EVERY dispatched signal
+    # (advisory "would this have worked" tracking), including signals that were
+    # never traded — e.g. impossible RANGE_BOUND continuations from April. The
+    # old `WHERE outcome IS NOT NULL` swept ~207 of those simulated rows into
+    # the learning DB as if they were closed trades, poisoning the adaptive
+    # layer into auto-suppressing live strategies (continuation was blocked by
+    # a fabricated 18% WR). Real fills are marked by the fill_* columns, written
+    # only by the executor at a genuine close. Gate on those.
     closed = src.execute(
-        """SELECT id, sent_at, signal_type, outcome, pnl_pct, exit_at,
-                  vix, regime, dollar_pnl_1ct
+        """SELECT id, sent_at, signal_type, fill_exit_at AS exit_at,
+                  vix, regime, fill_pnl_usd
            FROM spy_signals
-           WHERE outcome IS NOT NULL AND outcome != ''"""
+           WHERE fill_pnl_usd IS NOT NULL AND fill_exit_at IS NOT NULL"""
     ).fetchall()
     src.close()
 
@@ -242,13 +252,9 @@ def backfill_spy(
     processed = new = skipped = 0
     for r in closed:
         processed += 1
-        # Convert pct PnL to a dollar proxy. If dollar_pnl_1ct is populated
-        # use it directly; otherwise fall back to pnl_pct as a normalized
-        # dimensionless score (still preserves win/loss sign).
-        if r["dollar_pnl_1ct"] is not None:
-            pnl = float(r["dollar_pnl_1ct"] or 0.0)
-        elif r["pnl_pct"] is not None:
-            pnl = float(r["pnl_pct"] or 0.0)
+        # Real dollar P&L from the executed fill (never a simulated proxy).
+        if r["fill_pnl_usd"] is not None:
+            pnl = float(r["fill_pnl_usd"] or 0.0)
         else:
             skipped += 1
             continue
