@@ -853,7 +853,7 @@ class IBOptionsClient:
             )
             if not bars:
                 return []
-            return [
+            out = [
                 {
                     "date":   b.date if isinstance(b.date, datetime) else datetime.utcnow(),
                     "open":   float(b.open),
@@ -864,6 +864,26 @@ class IBOptionsClient:
                 }
                 for b in bars
             ]
+            # Drop the currently-forming (incomplete) last bar. With endDateTime=""
+            # IB returns the in-progress 5-min bar as the final element; its
+            # high/low/close are still changing, so regime/continuation/ORB logic
+            # would REPAINT if it acted on it. A bar is complete only once a full
+            # interval has elapsed since its start. When the timestamp is tz-aware
+            # we check precisely; otherwise default to dropping it (during RTH the
+            # trailing bar is always the forming one). Never empties the list.
+            # (audit 2026-07-13, P1-15)
+            if len(out) > 1:
+                last_dt = out[-1]["date"]
+                drop_last = True
+                tz = getattr(last_dt, "tzinfo", None)
+                if tz is not None:
+                    try:
+                        drop_last = (datetime.now(tz) - last_dt).total_seconds() < 300
+                    except Exception:
+                        drop_last = True
+                if drop_last:
+                    out = out[:-1]
+            return out
         except Exception as exc:
             logger.warning("SPY 5m bars fetch failed: {}", exc)
             return []
