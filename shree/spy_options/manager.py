@@ -546,11 +546,32 @@ class SpyOptionsManager:
 
     # ── Main poll cycle ───────────────────────────────────────────────────────
 
+    async def _executor_maintenance(self) -> None:
+        """Position/exit management: fill detection, entry timeouts, position
+        time stops, 0DTE EOD flatten, bracket-exit P&L.
+
+        MUST run on every poll tick — including the early-return paths below —
+        because it manages OPEN positions on the executor's own IB connection
+        (clientId 7), which is independent of the data feed. Previously it was
+        only reached at the end of a fully-successful poll, so:
+          • outside the entry window (rth_stop 15:45 < flatten_0dte 15:50) the
+            0DTE EOD flatten and time-stops never fired, and
+          • a data-feed-only outage (get_spy_price fails → early return) silently
+            suspended ALL position risk management while the execution socket
+            was perfectly healthy.
+        (audit 2026-07-13: P0-6 + P0-7)"""
+        if self._executor is not None:
+            try:
+                await self._executor.on_poll()
+            except Exception as exc:
+                logger.opt(exception=True).error("Executor on_poll error: {}", exc)
+
     async def _poll(self, spy_conid: int) -> None:
         self._daily_reset_if_needed()
 
         if not self._market_open():
-            logger.debug("Market closed — skipping poll")
+            logger.debug("Outside entry window — running position management only")
+            await self._executor_maintenance()   # exits/flatten must still run
             return
 
         # First market-open poll of a new session: re-establish the RealFlow
@@ -566,7 +587,9 @@ class SpyOptionsManager:
 
         spy_price = await self._ib.get_spy_price(spy_conid)
         if not spy_price:
-            logger.warning("Could not fetch SPY price — skipping poll cycle")
+            logger.warning("Could not fetch SPY price — skipping signal generation "
+                           "this cycle (position management still runs)")
+            await self._executor_maintenance()   # data feed down ≠ stop managing positions
             return
 
         vix = await self._ib.get_vix()
@@ -1002,12 +1025,9 @@ class SpyOptionsManager:
         await self._check_exit_conditions(spy_price, regime_ctx)
 
         # Executor maintenance: fill detection, entry timeouts, position time
-        # stops, 0DTE EOD flatten, bracket-exit P&L accounting.
-        if self._executor is not None:
-            try:
-                await self._executor.on_poll()
-            except Exception as exc:
-                logger.opt(exception=True).error("Executor on_poll error: {}", exc)
+        # stops, 0DTE EOD flatten, bracket-exit P&L accounting. Same helper is
+        # invoked on the early-return paths above so exits never stall.
+        await self._executor_maintenance()
 
     # ── rules_v2 layer ─────────────────────────────────────────────────────────
     def _apply_rules_v2(
