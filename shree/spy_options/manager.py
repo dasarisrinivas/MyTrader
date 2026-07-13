@@ -1408,7 +1408,17 @@ class SpyOptionsManager:
                     _v2_rollback(sig)
                     continue
             except Exception as _tm_err:
-                # Never let the veto hook block trading on its own bug.
+                # The veto hook itself errored. Don't let its own bug block
+                # trading in general — but still FAIL CLOSED on a hard kill-switch
+                # read from the TM state file. (audit 2026-07-13, P0-5)
+                _local = self._tm_local_kill_check()
+                if _local is not None:
+                    logger.error(
+                        "🛡️  TM veto hook error AND local kill-switch ACTIVE — "
+                        "skipping dispatch: {} | {}", _local, _tm_err,
+                    )
+                    _v2_rollback(sig)
+                    continue
                 logger.error("Trading Manager SPY veto hook error (fail-open): {}", _tm_err)
 
             await self._send_signal(sig)
@@ -2550,6 +2560,43 @@ class SpyOptionsManager:
         )
         await self._telegram.send_message(msg)
 
+    def _tm_local_kill_check(self) -> Optional[str]:
+        """Fallback kill-switch read DIRECTLY from the TM state file, for when
+        the TM daemon's per-signal verdict never lands (daemon down/slow/crashed)
+        or the veto hook itself errors. Returns a rejection reason if a HARD stop
+        is active for the SPY track, else None.
+
+        This makes the veto FAIL CLOSED on the safety-critical states
+        (POSTURE_KILLED / LOCKED / SPY daily-loss breach) instead of blindly
+        proceeding — the prior behaviour disabled every multi-day/daily
+        kill-switch exactly when the daemon was most likely to be down.
+        It does NOT halt on a merely-slow daemon when no hard stop is active:
+        the executor's own local guards (daily-loss, stopout, max-positions)
+        remain the second layer. (audit 2026-07-13, P0-5)"""
+        try:
+            import json as _json
+            import os as _os
+            from ..trading_manager.config import CONFIG as _TMCFG
+            path = _TMCFG.state_file
+            if not path or not _os.path.exists(path):
+                return None
+            with open(path, "r") as fh:
+                st = _json.load(fh)
+        except Exception:
+            return None  # can't read state → don't fabricate a block
+        posture = str(st.get("spy_posture") or st.get("posture") or "").upper()
+        if posture in ("KILLED", "LOCKED"):
+            return f"TM state: SPY posture={posture} (daemon silent → fail-closed)"
+        try:
+            spy_pnl = float(st.get("spy_realized_pnl_today", 0.0) or 0.0)
+            hard = float(getattr(_TMCFG, "daily_loss_hard_dollars", 0.0) or 0.0)
+            if hard > 0 and spy_pnl <= -hard:
+                return (f"TM state: SPY daily loss {spy_pnl:+.0f} <= -{hard:.0f} "
+                        f"(daemon silent → fail-closed)")
+        except Exception:
+            pass
+        return None
+
     async def _tm_check_and_publish(self, sig: SpySignal) -> bool:
         """Publish candidate to logs/spy_signals.jsonl and check the Trading
         Manager's verdict from logs/manager_decisions.jsonl.
@@ -2634,9 +2681,17 @@ class SpyOptionsManager:
             await asyncio.sleep(0.2)
 
         if verdict is None:
+            local = self._tm_local_kill_check()
+            if local is not None:
+                logger.error(
+                    "🛡️  TM verdict missing for {} AND local kill-switch ACTIVE — "
+                    "REJECT: {}", signal_id, local,
+                )
+                return False
             logger.warning(
-                "⚠️  Trading Manager decision not found for {} — proceeding fail-open. "
-                "Verify the TM daemon is running.",
+                "⚠️  Trading Manager decision not found for {} — daemon may be down. "
+                "No hard kill-switch active in the TM state file; proceeding under "
+                "the executor's own local risk guards. Verify the TM daemon.",
                 signal_id,
             )
             return True
