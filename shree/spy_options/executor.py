@@ -432,8 +432,19 @@ class SpyOptionsExecutor:
             logger.error("EXEC: qualify failed for {}: {}", contract, exc)
             return False
 
-        # Bracket prices — entry capped at the ask (never chase above it).
-        entry_limit = _round_tick(min(sig.ask, mid + 0.02))
+        # Entry must be MARKETABLE to fill in the fast tape a momentum/continuation
+        # signal fires into. Cross the spread: take the ask plus a small, bounded
+        # buffer (a fraction of the spread, hard-capped) so a 1–2 tick uptick during
+        # routing still fills. The quality gate already caps spread width, bounding
+        # worst-case slippage.
+        #   PREV BUG: entry = min(ask, mid+0.02) priced BELOW the ask on any spread
+        #   wider than ~4¢ (routine for SPY 0DTE off-ATM) → a passive resting order
+        #   that never filled in a moving market (e.g. 753C, 2026-07-10: placed,
+        #   never filled, cancelled at cleanup). There was no reprice/chase loop.
+        _spread = max(0.0, sig.ask - sig.bid)
+        _cross = min(_spread * getattr(self._cfg, "entry_cross_frac", 0.25),
+                     getattr(self._cfg, "entry_cross_max", 0.03))
+        entry_limit = _round_tick(sig.ask + _cross)
         tp_price = _round_tick(entry_limit * (1 + tp_pct / 100.0))
         sl_stop = _round_tick(entry_limit * (1 - stop_pct / 100.0))
         if bracket_basis == "structural":

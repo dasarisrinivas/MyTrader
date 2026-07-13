@@ -11,9 +11,16 @@ echo "════════ $(date '+%Y-%m-%d %H:%M:%S %Z') START_TRADING_DAY
 
 UID_=$(id -u)
 
-# Ensure the Trading Manager daemon is running (launchd-managed).
-launchctl kickstart "gui/$UID_/com.shree.trading-manager" >> "$LOG" 2>&1 \
-  && echo "$(date '+%H:%M:%S') TM daemon kickstarted" >> "$LOG"
+# Ensure the Trading Manager daemon is running, WITHOUT disturbing it if it is.
+# The TM is shared with the MES bot, so we must never force-restart it here.
+# `kickstart` (no -k) starts it only if stopped; on an already-running service
+# it is a harmless no-op — MES is never interrupted.
+if launchctl print "gui/$UID_/com.shree.trading-manager" 2>/dev/null | grep -q "state = running"; then
+  echo "$(date '+%H:%M:%S') TM daemon already running (left untouched)" >> "$LOG"
+else
+  launchctl kickstart "gui/$UID_/com.shree.trading-manager" >> "$LOG" 2>&1 \
+    && echo "$(date '+%H:%M:%S') TM daemon was down — started" >> "$LOG"
+fi
 
 # IB Gateway must be up + authenticated on 4001 (it needs manual/auto login).
 if lsof -i:4001 >/dev/null 2>&1; then

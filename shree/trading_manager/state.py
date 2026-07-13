@@ -38,6 +38,19 @@ class ManagerState:
     last_n_outcomes: List[str] = field(default_factory=list)  # WIN/LOSS strings
     notes: str = ""
 
+    # ── SPY-options risk track (INDEPENDENT of the MES track above) ──────────
+    # The fields above are derived from orders.db (the MES/futures truth
+    # source). SPY options run their own P&L / streak / posture, derived from
+    # spy_options_signals.db, so an MES loss day never halts or resizes SPY
+    # (and vice versa). evaluate_spy() runs against a scoped snapshot built
+    # from these. See manager._refresh_state_from_disk / _refresh_spy_from_disk.
+    spy_realized_pnl_today: float = 0.0
+    spy_trades_today: int = 0
+    spy_consec_wins: int = 0
+    spy_consec_losses: int = 0
+    spy_posture: str = POSTURE_NORMAL
+    spy_last_n_outcomes: List[str] = field(default_factory=list)
+
     # Layer 1.5 health monitoring (multi-day forest view)
     health_status: str = "HEALTHY"            # HEALTHY/DEGRADED/SUSPECT/LOCKED/PROBATION
     health_triggers: List[str] = field(default_factory=list)
@@ -130,6 +143,13 @@ def roll_session_if_needed(state: ManagerState, today: str) -> bool:
         # signal evaluation will re-impose them if conditions persist.
         if state.posture in (POSTURE_DEFENSIVE, POSTURE_SIT_OUT):
             state.posture = POSTURE_NORMAL
+        # SPY track rolls on the same boundary but stays independent of MES.
+        state.spy_realized_pnl_today = 0.0
+        state.spy_trades_today = 0
+        state.spy_consec_wins = 0
+        state.spy_consec_losses = 0
+        if state.spy_posture in (POSTURE_KILLED, POSTURE_DEFENSIVE, POSTURE_SIT_OUT):
+            state.spy_posture = POSTURE_NORMAL
         # IMPORTANT: LOCKED and PROBATION survive session rolls.
         # They are multi-day flags driven by the health module, not session
         # streaks. The session-roll-clears-everything pattern would defeat

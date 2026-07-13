@@ -748,7 +748,19 @@ def evaluate_spy(
             not adaptive.auto_suppress,
             adaptive.rationale,
         ))
-        if adaptive.auto_suppress:
+        # A learned suppression only HARD-REJECTS when it is backed by real
+        # statistical mass (n >= TRUST_SAMPLE) AND adaptive sizing is off. This
+        # removes two problems the old unconditional `if adaptive.auto_suppress:`
+        # reject had:
+        #   1) ASYMMETRY with the MES path (rules.py ~314), which is gated on
+        #      `not cfg.adaptive_sizing_enabled` — SPY could never be converted to
+        #      a size-down and stayed stuck on hard-reject even with sizing on.
+        #   2) LOW-SAMPLE FRAGILITY — with only a handful of real SPY fills, a
+        #      thin (or freshly re-poisoned) negative bucket must not nuke the
+        #      primary strategy. (Durable poison protection already lives in
+        #      backfill_spy, which ingests real fills only.)
+        # A thin negative bucket instead TIGHTENS the confidence floor.
+        if adaptive.auto_suppress and adaptive.confident and not cfg.adaptive_sizing_enabled:
             return Decision(
                 decision="REJECT",
                 confidence=90,
@@ -764,7 +776,18 @@ def evaluate_spy(
                 checks=checks,
                 posture_after=state.posture,
             )
-        effective_min_confidence = adaptive.confidence_floor
+        if adaptive.auto_suppress:
+            effective_min_confidence = max(
+                adaptive.confidence_floor, cfg.soft_pause_min_confidence
+            )
+            checks.append((
+                "adaptive_soft_suppress",
+                True,
+                f"negative bucket (n={adaptive.n_trades}, thin or sizing-on) → "
+                f"floor raised to {effective_min_confidence:.2f}, not rejected",
+            ))
+        else:
+            effective_min_confidence = adaptive.confidence_floor
     else:
         checks.append(("adaptive_bucket", True, "no empirical data — using static rules"))
         effective_min_confidence = cfg.min_confidence
@@ -816,12 +839,30 @@ def evaluate_spy(
         f"spread={sig.spread_pct:.2f}% (need <= 5.0%)",
     ))
 
-    # G3: DTE bounds — avoid 0DTE gamma bombs and >45DTE theta drag
-    g3_pass = 1 <= sig.dte <= 45
+    # G3: DTE bounds — JUL 2 2026: 0DTE is now ALLOWED before 14:30 ET.
+    # The SPY chain intentionally tracks the nearest expiry (0-2 DTE) since
+    # the execution layer trades brackets with hard stops at IB, so the old
+    # blanket "0DTE = gamma bomb" rule would veto the bot's primary mandate.
+    # The gamma-bomb concern is real ONLY late-session: after 14:30 ET the
+    # convexity acceleration (×2.5-4.0 per edge_reality) makes 0DTE stops
+    # unreliable, so 0DTE stays rejected there. >45 DTE remains theta drag.
+    from datetime import datetime as _dt_g3, time as _time_g3
+    from zoneinfo import ZoneInfo as _zi_g3
+    _now_et_g3 = _dt_g3.now(_zi_g3("America/New_York")).time()
+    if sig.dte == 0:
+        g3_pass = _now_et_g3 < _time_g3(14, 30)
+        g3_note = (
+            f"DTE=0 ok before 14:30 ET (now {_now_et_g3.strftime('%H:%M')})"
+            if g3_pass else
+            f"DTE=0 rejected after 14:30 ET (now {_now_et_g3.strftime('%H:%M')}) — gamma accel zone"
+        )
+    else:
+        g3_pass = 1 <= sig.dte <= 45
+        g3_note = f"DTE={sig.dte} (need 0..45; 0DTE only before 14:30 ET)"
     checks.append((
         "G3_dte",
         g3_pass,
-        f"DTE={sig.dte} (need 1..45)",
+        g3_note,
     ))
 
     # G4: Regime-fit
@@ -945,10 +986,15 @@ def evaluate_spy(
             confidence=80,
             position_size="small",
             reasoning=(
-                f"DTE={sig.dte} outside acceptable band [1, 45]. "
-                "0DTE = gamma bomb; >45DTE = theta-heavy and slow."
+                f"DTE={sig.dte} outside acceptable band "
+                f"[0 (before 14:30 ET only), 45]. "
+                "0DTE after 14:30 ET = gamma acceleration zone; "
+                ">45DTE = theta-heavy and slow."
             ),
-            risk_notes="If you want 0DTE, that's a different mandate.",
+            risk_notes=(
+                "0DTE is the execution mandate but only while stops are "
+                "reliable; late-session convexity makes them not."
+            ),
             override=False,
             checks=checks,
             posture_after=state.posture,

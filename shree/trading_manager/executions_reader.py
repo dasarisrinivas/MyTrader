@@ -108,6 +108,75 @@ def last_n_closed_trades(db_path: str, n: int = 20) -> List[TradeOutcome]:
     ]
 
 
+def spy_realized_pnl_for_session(db_path: str, session_date: str) -> Tuple[float, int]:
+    """Realized SPY-options PnL + closed-trade count for the CT session.
+
+    SPY equivalent of realized_pnl_for_session, reading spy_options_signals.db
+    instead of orders.db. ONLY real fills count — rows with both fill_pnl_usd
+    and fill_exit_at (same filter as backfill_spy); simulated signal outcomes
+    are ignored. Keeps the SPY risk track fully independent of the MES track.
+    """
+    import os
+    from datetime import timedelta
+
+    if not os.path.exists(db_path):
+        return 0.0, 0
+    try:
+        d = datetime.strptime(session_date, "%Y-%m-%d")
+    except ValueError:
+        return 0.0, 0
+    start_utc = f"{session_date}T04:00:00"
+    end_utc = (d + timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%S")
+    con = _connect(db_path)
+    try:
+        rows = con.execute(
+            """SELECT fill_pnl_usd FROM spy_signals
+               WHERE fill_pnl_usd IS NOT NULL AND fill_exit_at IS NOT NULL
+                 AND fill_exit_at >= ? AND fill_exit_at < ?""",
+            (start_utc, end_utc),
+        ).fetchall()
+    except sqlite3.Error:
+        return 0.0, 0
+    finally:
+        con.close()
+    total = sum(float(r["fill_pnl_usd"] or 0.0) for r in rows)
+    return float(total), len(rows)
+
+
+def spy_last_n_closed_trades(db_path: str, n: int = 20) -> List[TradeOutcome]:
+    """Last N real SPY-option exits (newest first) as TradeOutcome rows.
+
+    SPY equivalent of last_n_closed_trades. fill_pnl_usd → net_pnl so the
+    shared streaks_from_recent() works unchanged on SPY outcomes.
+    """
+    import os
+
+    if not os.path.exists(db_path):
+        return []
+    con = _connect(db_path)
+    try:
+        rows = con.execute(
+            """SELECT id, fill_exit_at, fill_pnl_usd FROM spy_signals
+               WHERE fill_pnl_usd IS NOT NULL AND fill_exit_at IS NOT NULL
+               ORDER BY fill_exit_at DESC LIMIT ?""",
+            (n,),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    return [
+        TradeOutcome(
+            order_id=int(r["id"]),
+            timestamp=r["fill_exit_at"],
+            net_pnl=float(r["fill_pnl_usd"] or 0.0),
+            gross_pnl=float(r["fill_pnl_usd"] or 0.0),
+            commission=0.0,
+        )
+        for r in rows
+    ]
+
+
 def open_position_count(db_path: str) -> int:
     """Count entries in trade_outcomes with NULL exit_time as a proxy for open positions.
 

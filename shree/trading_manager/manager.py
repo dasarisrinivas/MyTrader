@@ -13,6 +13,7 @@ import os
 import signal as signal_mod
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -25,6 +26,8 @@ from .executions_reader import (
     last_n_closed_trades,
     open_position_count,
     realized_pnl_for_session,
+    spy_last_n_closed_trades,
+    spy_realized_pnl_for_session,
     streaks_from_recent,
 )
 from .health import (
@@ -131,7 +134,35 @@ def _refresh_state_from_disk(state: ManagerState, cfg) -> None:
     state.last_n_outcomes = [
         "WIN" if t.is_win else "LOSS" for t in recent[: cfg.last_n_for_pattern_check]
     ]
+
+    # SPY-options track — same session-scoping, but sourced from the SPY DB so
+    # it never mixes with MES outcomes. See _refresh_spy_from_disk.
+    _refresh_spy_from_disk(state, cfg, today, session_start_naive_utc)
     return rolled
+
+
+def _refresh_spy_from_disk(
+    state: ManagerState, cfg, today: str, session_start_naive_utc: str
+) -> None:
+    """Recompute the SPY-options P&L / trade count / streak from the SPY DB.
+
+    Mirrors the MES block in _refresh_state_from_disk but reads
+    spy_options_signals.db (real fills only). Keeps SPY risk state fully
+    independent of MES: an MES loss streak never resizes or halts SPY.
+    """
+    spy_pnl, spy_n = spy_realized_pnl_for_session(cfg.spy_signals_db, today)
+    state.spy_realized_pnl_today = spy_pnl
+    state.spy_trades_today = spy_n
+
+    spy_recent = spy_last_n_closed_trades(cfg.spy_signals_db, n=20)
+    spy_wins, spy_losses = streaks_from_recent(
+        spy_recent, since_iso=session_start_naive_utc
+    )
+    state.spy_consec_wins = spy_wins
+    state.spy_consec_losses = spy_losses
+    state.spy_last_n_outcomes = [
+        "WIN" if t.is_win else "LOSS" for t in spy_recent[: cfg.last_n_for_pattern_check]
+    ]
 
 
 def _enforce_kill_switch(state: ManagerState, cfg, log) -> bool:
@@ -407,8 +438,9 @@ def _heartbeat(state: ManagerState, cfg, log) -> None:
     except Exception:
         learn_str = "n/a"
     log.info(
-        "💓 TM heartbeat | %s | pnl=%+.2f / -$%.2f cap | trades=%d/%d | "
-        "streak=%dW/%dL | posture=%s | health=%s | learn=%s | bots: %s",
+        "💓 TM heartbeat | %s | MES pnl=%+.2f / -$%.2f cap | trades=%d/%d | "
+        "streak=%dW/%dL | posture=%s | SPY pnl=%+.2f trades=%d streak=%dW/%dL "
+        "posture=%s | health=%s | learn=%s | bots: %s",
         state.session_date,
         state.realized_pnl_today,
         cfg.daily_loss_hard_dollars,
@@ -417,6 +449,11 @@ def _heartbeat(state: ManagerState, cfg, log) -> None:
         state.consec_wins,
         state.consec_losses,
         state.posture,
+        state.spy_realized_pnl_today,
+        state.spy_trades_today,
+        state.spy_consec_wins,
+        state.spy_consec_losses,
+        state.spy_posture,
         state.health_status or "n/a",
         learn_str,
         alive_str,
@@ -600,28 +637,41 @@ def run() -> int:
                         "rule-driven(MES)", state,
                     )
                     state.posture = decision.posture_after
-                # If a rule moved us to KILLED, fire the kill switch immediately
+                # If an MES rule moved us to KILLED, kill ONLY the MES bot —
+                # SPY runs on its own risk track and must not be halted here.
                 if state.posture == POSTURE_KILLED:
                     res = kill_bots(
-                        [cfg.bot_pid_file, cfg.spy_pid_file],
+                        [cfg.bot_pid_file],
                         dry_run=cfg.dry_run,
                     )
                     for pf, pid, status in res:
                         log.warning("  kill: %s pid=%s status=%s", pf, pid, status)
                 save_state(state, cfg.state_file)
 
-            # Process new SPY options signals
+            # Process new SPY options signals.
+            # SPY is evaluated against a SCOPED snapshot whose posture / P&L /
+            # streak come from the SPY track (spy_options_signals.db), so MES
+            # risk state never leaks into SPY decisions — and vice versa.
             for spy_sig in spy_tailer.poll():
                 state.last_signal_ts = spy_sig.ts
                 state.last_decision_id += 1
-                recent = last_n_closed_trades(cfg.orders_db, n=20)
-                spy_decision = evaluate_spy(spy_sig, state, recent, cfg)
+                spy_recent = spy_last_n_closed_trades(cfg.spy_signals_db, n=20)
+                spy_state = replace(
+                    state,
+                    posture=state.spy_posture,
+                    realized_pnl_today=state.spy_realized_pnl_today,
+                    trades_today=state.spy_trades_today,
+                    consec_wins=state.spy_consec_wins,
+                    consec_losses=state.spy_consec_losses,
+                    last_n_outcomes=list(state.spy_last_n_outcomes),
+                )
+                spy_decision = evaluate_spy(spy_sig, spy_state, spy_recent, cfg)
                 append_spy_decision(
                     cfg.manager_jsonl,
                     state.last_decision_id,
                     spy_sig,
                     spy_decision,
-                    state,
+                    spy_state,
                 )
                 log.info(
                     "SPY #%d %s %s%g %s/%dDTE | %s | conf=%d | size=%s | %s",
@@ -636,17 +686,19 @@ def run() -> int:
                     spy_decision.position_size,
                     spy_decision.reasoning[:120],
                 )
-                if spy_decision.posture_after != state.posture:
-                    log.warning("Posture %s → %s (SPY rule-driven)",
-                                state.posture, spy_decision.posture_after)
+                # Posture changes land on the SPY posture only.
+                if spy_decision.posture_after != state.spy_posture:
+                    log.warning("SPY posture %s → %s (SPY rule-driven)",
+                                state.spy_posture, spy_decision.posture_after)
                     append_posture_transition(
-                        _posture_log_path(cfg), state.posture, spy_decision.posture_after,
-                        "rule-driven(SPY)", state,
+                        _posture_log_path(cfg), state.spy_posture,
+                        spy_decision.posture_after, "rule-driven(SPY)", state,
                     )
-                    state.posture = spy_decision.posture_after
-                if state.posture == POSTURE_KILLED:
+                    state.spy_posture = spy_decision.posture_after
+                # A SPY KILLED kills ONLY the SPY bot — MES is untouched.
+                if state.spy_posture == POSTURE_KILLED:
                     res = kill_bots(
-                        [cfg.bot_pid_file, cfg.spy_pid_file],
+                        [cfg.spy_pid_file],
                         dry_run=cfg.dry_run,
                     )
                     for pf, pid, status in res:
