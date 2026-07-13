@@ -670,7 +670,34 @@ class SpyOptionsExecutor:
                     f"@ ${avg:.2f} — bracket active (TP/SL at IB)"
                 )
 
-            # 2. Unfilled entry timeout → cancel bracket
+            # 1.5 Entry died (rejected / externally cancelled) before filling —
+            #     release the slot IMMEDIATELY rather than holding it until the
+            #     timeout. Without this a rejected order pins a position slot and
+            #     a trades-today count for up to entry_timeout_s (or forever, per
+            #     the step-2 nesting bug fixed below). (audit 2026-07-13)
+            if not pos.entry_filled and st in ("Cancelled", "ApiCancelled"):
+                logger.warning(
+                    "EXEC: entry {} reached terminal status {} without filling — "
+                    "releasing slot", pos.contract.localSymbol, st,
+                )
+                for child in (pos.take_profit, pos.stop_loss):
+                    try:
+                        if child.orderStatus.status not in (
+                            "Filled", "Cancelled", "ApiCancelled", "Inactive"
+                        ):
+                            self._ib.cancelOrder(child.order)
+                    except Exception:
+                        pass
+                pos.closed = True
+                pos.close_reason = f"entry {st.lower()} (never filled)"
+                self._trades_today = max(0, self._trades_today - 1)
+                await self._notify(
+                    f"⚠️ <b>ENTRY {st.upper()}</b> {pos.contract.localSymbol} — "
+                    "did not fill; slot released"
+                )
+                continue
+
+            # 2. Unfilled entry timeout → give up and RELEASE THE SLOT.
             age_s = (now_utc - pos.placed_at).total_seconds()
             if not pos.entry_filled and age_s > self._cfg.entry_timeout_s:
                 if st not in ("Filled", "Cancelled", "ApiCancelled", "Inactive"):
@@ -682,13 +709,18 @@ class SpyOptionsExecutor:
                         self._ib.cancelOrder(pos.parent.order)
                     except Exception as exc:
                         logger.warning("EXEC cancel failed: {}", exc)
-                    pos.closed = True
-                    pos.close_reason = "entry timeout (never filled)"
-                    self._trades_today = max(0, self._trades_today - 1)  # give the slot back
-                    await self._notify(
-                        f"⏳ <b>CANCELLED</b> {pos.contract.localSymbol} — "
-                        f"entry not filled in {self._cfg.entry_timeout_s}s"
-                    )
+                # Release the slot REGARDLESS of terminal/non-terminal status.
+                # Previously this was nested under the non-terminal branch, so a
+                # terminal-but-unfilled parent (rejected/Inactive) skipped the
+                # release and leaked the slot forever → open_count stayed high and
+                # the bot silently stopped entering. (audit 2026-07-13)
+                pos.closed = True
+                pos.close_reason = "entry timeout (never filled)"
+                self._trades_today = max(0, self._trades_today - 1)  # give the slot back
+                await self._notify(
+                    f"⏳ <b>CANCELLED</b> {pos.contract.localSymbol} — "
+                    f"entry not filled in {self._cfg.entry_timeout_s}s"
+                )
                 continue
 
             # 3. Bracket exit detection (TP or SL filled)
