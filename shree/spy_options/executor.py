@@ -152,6 +152,9 @@ class SpyOptionsExecutor:
             if self._keepalive_task is None:
                 self._keepalive_task = asyncio.ensure_future(self._keepalive_loop())
             self._ib.disconnectedEvent += self._on_disconnect
+            # Startup reconciliation: surface any SPY option positions/orders
+            # left at IB by a crashed prior process (audit 2026-07-13, P0-2).
+            await self._reconcile_open_state("startup")
             await self._notify(
                 f"🤖 <b>SPY Executor ONLINE</b> [{mode}]\n"
                 f"Risk/trade: ${self._cfg.risk_per_trade_usd:.0f} · "
@@ -219,12 +222,89 @@ class SpyOptionsExecutor:
                     )
                     self._connected = True
                     logger.info("SPY EXECUTOR reconnected (attempt {}/5)", attempt)
+                    # Rebind stale Trade objects to the reconnected session so
+                    # open brackets stay tracked (audit 2026-07-13, P0-2).
+                    await self._reconcile_open_state("reconnect")
                     return
                 except Exception as exc:
                     logger.warning("EXEC reconnect attempt {}/5 failed: {}", attempt, exc)
             logger.error("EXEC: all 5 reconnect attempts failed — retry on next keepalive")
         finally:
             self._reconnecting = False
+
+    async def _reconcile_open_state(self, context: str) -> None:
+        """After a (re)connect, rebind in-memory LivePosition Trade objects to
+        the reconnected IB's live Trade objects (matched by orderId), and ALERT
+        on anything that can't be reconciled.
+
+        The old Trade objects are frozen at their pre-disconnect state, so
+        without this on_poll reads stale order status and a live bracket becomes
+        untracked after any reconnect (audit 2026-07-13). This is deliberately
+        NON-destructive: it only rebinds references and surfaces mismatches for
+        manual review — it never cancels or flattens anything, because guessing
+        wrong on live positions is worse than an operator alert.
+        """
+        if not self._connected:
+            return
+        try:
+            await self._ib.reqOpenOrdersAsync()
+        except Exception as exc:
+            logger.warning("EXEC reconcile: reqOpenOrders failed: {}", exc)
+        try:
+            by_id = {
+                t.order.orderId: t for t in self._ib.trades()
+                if getattr(t, "order", None) is not None
+            }
+        except Exception as exc:
+            logger.warning("EXEC reconcile: trades() failed: {}", exc)
+            by_id = {}
+
+        rebound = 0
+        unresolved: List[str] = []
+        for pos in self._positions.values():
+            if pos.closed:
+                continue
+            for attr in ("parent", "take_profit", "stop_loss"):
+                tr = getattr(pos, attr, None)
+                if tr is None or getattr(tr, "order", None) is None:
+                    continue
+                fresh = by_id.get(tr.order.orderId)
+                if fresh is not None and fresh is not tr:
+                    setattr(pos, attr, fresh)
+                    rebound += 1
+            pid = getattr(pos.parent.order, "orderId", None) if pos.parent else None
+            if pid is not None and pid not in by_id and not pos.entry_filled:
+                unresolved.append(pos.contract.localSymbol)
+
+        # Orphans AT IB: open SPY OPTION positions the bot isn't tracking.
+        orphans: List[str] = []
+        try:
+            tracked = {p.contract.localSymbol for p in self._positions.values() if not p.closed}
+            for ibpos in self._ib.positions():
+                c = ibpos.contract
+                if (getattr(c, "secType", "") == "OPT"
+                        and getattr(c, "symbol", "") == "SPY"
+                        and ibpos.position != 0
+                        and c.localSymbol not in tracked):
+                    orphans.append(f"{c.localSymbol} x{ibpos.position:g}")
+        except Exception as exc:
+            logger.warning("EXEC reconcile: positions() failed: {}", exc)
+
+        tracked_n = sum(1 for p in self._positions.values() if not p.closed)
+        logger.info(
+            "EXEC reconcile ({}): rebound {} order ref(s), {} tracked position(s), "
+            "{} unresolved, {} orphan(s) at IB",
+            context, rebound, tracked_n, len(unresolved), len(orphans),
+        )
+        if unresolved or orphans:
+            lines = [f"⚠️ <b>EXEC reconcile ({context})</b> — manual review:"]
+            if unresolved:
+                lines.append(f"• {len(unresolved)} tracked entr(y/ies) not found live: "
+                             + ", ".join(unresolved[:5]))
+            if orphans:
+                lines.append(f"• {len(orphans)} untracked SPY option position(s) at IB: "
+                             + ", ".join(orphans[:5]))
+            await self._notify("\n".join(lines))
 
     async def close(self) -> None:
         if self._keepalive_task is not None:
