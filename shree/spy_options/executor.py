@@ -74,6 +74,11 @@ class LivePosition:
     close_reason: str = ""
     realized_pnl: float = 0.0
     exit_reported: bool = False
+    # Entry-chase state (JUL 13 2026): bump the resting entry limit toward the
+    # live ask while unfilled, bounded by count and a hard % cap.
+    orig_entry_limit: float = 0.0            # original entry limit — chase cap anchor
+    reprice_count: int = 0
+    last_reprice_at: Optional[datetime] = None   # UTC
 
 
 class SpyOptionsExecutor:
@@ -359,6 +364,38 @@ class SpyOptionsExecutor:
         qty = int(self._cfg.risk_per_trade_usd // risk_per_ct)
         return max(0, min(qty, self._cfg.max_contracts))
 
+    async def _live_quote(self, contract: Option) -> tuple[float, float]:
+        """Fetch a FRESH (bid, ask) for `contract` on the executor's own IB
+        connection. Returns (0.0, 0.0) on any failure — callers MUST fall back
+        to the signal's snapshot quote and never price an order off zeros.
+
+        This is the fix for the stale-quote no-fill: sig.bid/sig.ask are captured
+        at signal-enrichment time (often minutes before placement); in a fast
+        move the live ask has already run away, so a limit priced off the
+        snapshot never crosses. We re-quote right before pricing and on each
+        chase step.
+        """
+        try:
+            tickers = await asyncio.wait_for(
+                self._ib.reqTickersAsync(contract), timeout=3.0
+            )
+        except Exception as exc:
+            logger.warning("EXEC live-quote failed for {}: {}",
+                           getattr(contract, "localSymbol", contract), exc)
+            return 0.0, 0.0
+        if not tickers:
+            return 0.0, 0.0
+        t = tickers[0]
+        bid = float(t.bid) if (t.bid and t.bid > 0 and not math.isnan(t.bid)) else 0.0
+        ask = float(t.ask) if (t.ask and t.ask > 0 and not math.isnan(t.ask)) else 0.0
+        return bid, ask
+
+    def _entry_limit_from(self, bid: float, ask: float) -> float:
+        """Marketable entry: cross to the ask + a small, bounded buffer."""
+        spread = max(0.0, ask - bid)
+        cross = min(spread * self._cfg.entry_cross_frac, self._cfg.entry_cross_max)
+        return _round_tick(ask + cross)
+
     # ── Entry ────────────────────────────────────────────────────────────────
 
     async def maybe_execute(self, sig: SpySignal) -> bool:
@@ -432,21 +469,29 @@ class SpyOptionsExecutor:
             logger.error("EXEC: qualify failed for {}: {}", contract, exc)
             return False
 
-        # Entry must be MARKETABLE to fill in the fast tape a momentum/continuation
-        # signal fires into. Cross the spread: take the ask plus a small, bounded
-        # buffer (a fraction of the spread, hard-capped) so a 1–2 tick uptick during
-        # routing still fills. The quality gate already caps spread width, bounding
-        # worst-case slippage.
-        #   PREV BUG: entry = min(ask, mid+0.02) priced BELOW the ask on any spread
-        #   wider than ~4¢ (routine for SPY 0DTE off-ATM) → a passive resting order
-        #   that never filled in a moving market (e.g. 753C, 2026-07-10: placed,
-        #   never filled, cancelled at cleanup). There was no reprice/chase loop.
-        _spread = max(0.0, sig.ask - sig.bid)
-        _cross = min(_spread * getattr(self._cfg, "entry_cross_frac", 0.25),
-                     getattr(self._cfg, "entry_cross_max", 0.03))
-        entry_limit = _round_tick(sig.ask + _cross)
+        # Entry must be MARKETABLE, priced off a FRESH quote. Cross the spread
+        # (ask + small bounded buffer) so a 1–2 tick uptick during routing still
+        # fills. Critically, re-quote the LIVE bid/ask here rather than trusting
+        # sig.bid/sig.ask (captured at signal-enrichment time, often minutes ago):
+        # in the fast move the strategy targets, the live ask has already run
+        # away from the snapshot, so a limit priced off the stale quote sits
+        # dead. Fall back to the snapshot only if the live quote is unavailable.
+        #   Chronic no-fills this fixes: 753C 2026-07-10; 749P/748P 2026-07-13
+        #   (all placed marketably off a stale ask, none filled).
+        q_bid, q_ask = sig.bid, sig.ask
+        q_src = "snapshot"
+        if self._cfg.entry_requote_at_placement:
+            live_bid, live_ask = await self._live_quote(contract)
+            if live_ask > 0:
+                q_bid, q_ask, q_src = live_bid or q_bid, live_ask, "live"
+        entry_limit = self._entry_limit_from(q_bid, q_ask)
         tp_price = _round_tick(entry_limit * (1 + tp_pct / 100.0))
         sl_stop = _round_tick(entry_limit * (1 - stop_pct / 100.0))
+        if q_src == "live" and abs(q_ask - sig.ask) >= 0.02:
+            logger.info(
+                "EXEC re-quote: {}{} snapshot ask ${:.2f} → live ask ${:.2f} "
+                "(entry {:.2f})", sig.strike, sig.right, sig.ask, q_ask, entry_limit,
+            )
         if bracket_basis == "structural":
             logger.info(
                 "EXEC structural bracket: {} {}{} SPY_stop=${:.2f} (Δ={:.2f}) "
@@ -502,9 +547,16 @@ class SpyOptionsExecutor:
             parent=parent_trade,
             take_profit=tp_trade,
             stop_loss=sl_trade,
+            orig_entry_limit=entry_limit,
         )
         self._positions[sig.dedup_key] = pos
         self._trades_today += 1
+
+        # Fast, bounded entry chase — independent of the ~75s poll so a fast
+        # directional move doesn't leave the limit dead. Self-terminates on
+        # fill/close/max-reprices (≤ entry_max_reprices × interval lifetime).
+        if self._cfg.entry_max_reprices > 0:
+            asyncio.ensure_future(self._chase_loop(pos))
 
         logger.info(
             "🟢 EXEC ORDER: BUY {}x SPY {} {}{} @{:.2f} LMT  "
@@ -524,6 +576,63 @@ class SpyOptionsExecutor:
             f"Trade {self._trades_today}/{self._cfg.max_trades_per_day} today"
         )
         return True
+
+    # ── Entry chase ────────────────────────────────────────────────────────
+
+    async def _chase_loop(self, pos: LivePosition) -> None:
+        """Bounded background task: re-post the entry limit toward the live ask
+        every `entry_reprice_interval_s` while it's unfilled, up to
+        `entry_max_reprices`. Runs independently of on_poll so it can react in
+        seconds, not the ~75s poll cadence. Self-terminates on fill / close /
+        max-reprices, so its lifetime is bounded (≤ interval × max_reprices)."""
+        try:
+            while (not pos.closed and not pos.entry_filled
+                   and pos.reprice_count < self._cfg.entry_max_reprices):
+                await asyncio.sleep(self._cfg.entry_reprice_interval_s)
+                if pos.closed or pos.entry_filled:
+                    return
+                if int(pos.parent.orderStatus.filled or 0) > 0:
+                    return  # on_poll will record the fill
+                await self._chase_entry(pos, datetime.utcnow())
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning("EXEC chase loop error ({}): {}", pos.key, exc)
+
+    async def _chase_entry(self, pos: LivePosition, now_utc: datetime) -> None:
+        """One chase step: bump the resting entry limit toward the live ask,
+        capped at `entry_chase_max_pct` above the ORIGINAL entry. Chases UP only.
+        Modifies the parent limit in place (children keep their parentId link;
+        their prices drift by at most the bounded chase % and only matter after
+        fill)."""
+        st = pos.parent.orderStatus.status
+        if st not in ("Submitted", "PreSubmitted", "PendingSubmit", "ApiPending"):
+            return
+        live_bid, live_ask = await self._live_quote(pos.contract)
+        if live_ask <= 0:
+            return
+        new_limit = self._entry_limit_from(live_bid, live_ask)
+        cap = _round_tick(pos.orig_entry_limit * (1 + self._cfg.entry_chase_max_pct / 100.0))
+        new_limit = min(new_limit, cap)
+        cur = float(pos.parent.order.lmtPrice or pos.orig_entry_limit)
+        if new_limit <= cur + 1e-9:
+            return  # already at/above the live ask, or capped out — nothing to chase
+        try:
+            pos.parent.order.lmtPrice = new_limit
+            pos.parent.order.transmit = True
+            self._ib.placeOrder(pos.contract, pos.parent.order)
+        except Exception as exc:
+            logger.warning("EXEC entry chase failed ({}): {}",
+                           pos.contract.localSymbol, exc)
+            return
+        pos.reprice_count += 1
+        pos.last_reprice_at = now_utc
+        pos.entry_mid = new_limit
+        logger.info(
+            "🐎 EXEC CHASE {}/{}: {} entry ${:.2f}→${:.2f} (live ask ${:.2f}, cap ${:.2f})",
+            pos.reprice_count, self._cfg.entry_max_reprices,
+            pos.contract.localSymbol, cur, new_limit, live_ask, cap,
+        )
 
     # ── Poll-cycle maintenance ───────────────────────────────────────────────
 

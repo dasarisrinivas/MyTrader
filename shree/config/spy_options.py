@@ -307,6 +307,22 @@ class SpyOptionsExecutionConfig:
     entry_timeout_s: int = 180       # cancel unfilled entry limit after this
     max_hold_minutes: int = 90       # position time stop (bracket may exit earlier)
 
+    # ── Entry fill: fresh-quote + bounded chase (JUL 13 2026) ──────────────
+    # Root cause of chronic no-fills (753C 2026-07-10; 749P/748P 2026-07-13, all
+    # placed marketably yet never filled): the entry limit was priced off the
+    # STALE signal-enrichment quote and never repriced. In the fast directional
+    # move the strategy targets, the live ask runs away from the snapshot within
+    # seconds, so the limit sits dead until an exit trigger cancels it. Fix:
+    #   (a) re-quote the LIVE bid/ask immediately before pricing the order, and
+    #   (b) chase — re-post toward the live ask every few seconds while unfilled,
+    #       bounded by count and a hard % cap above the original entry.
+    entry_requote_at_placement: bool = True  # fetch a fresh IB quote before pricing
+    entry_cross_frac: float = 0.25    # cross buffer = min(spread*frac, cross_max) beyond ask
+    entry_cross_max: float = 0.03     # hard cap on the cross buffer ($/share)
+    entry_reprice_interval_s: float = 8.0  # re-post toward the live ask this often while unfilled
+    entry_max_reprices: int = 4       # bounded chases before giving up (then normal timeout)
+    entry_chase_max_pct: float = 6.0  # never chase the limit >this% above the ORIGINAL entry
+
 
 @dataclass
 class SpyOptionsExternalConfig:
