@@ -326,6 +326,7 @@ class TechnicalLevelsTracker:
         bars: List[Dict],
         spy_price: float,
         vix: Optional[float],
+        prev_ohlc: Optional[Tuple[float, float, float]] = None,
     ) -> TechnicalLevels:
         """Compute and return a fresh TechnicalLevels snapshot.
 
@@ -345,8 +346,15 @@ class TechnicalLevelsTracker:
 
         today_bars, prev_bars = self._split_days(bars)
 
-        # Update previous-day anchor whenever we see prior-session bars
-        if prev_bars:
+        # Authoritative prior-session H/L/C for pivots. The 5-min bar feed is a
+        # trailing-24h window that in practice does NOT contain a complete prior
+        # session, so _split_days yields no/partial prev_bars and pivots never
+        # populated in production. Prefer caller-supplied prior-day OHLC (from
+        # get_opening_context's real daily bars); fall back to the bar slice only
+        # when it isn't provided. (audit 2026-07-13)
+        if prev_ohlc and all(v and v > 0 for v in prev_ohlc):
+            self._prev_high, self._prev_low, self._prev_close = prev_ohlc
+        elif prev_bars:
             self._prev_high  = max(b["high"]  for b in prev_bars)
             self._prev_low   = min(b["low"]   for b in prev_bars)
             self._prev_close = prev_bars[-1]["close"]

@@ -655,8 +655,17 @@ class SpyOptionsManager:
             regime=regime_ctx,
         )
 
-        # Compute intraday technical levels from bars (ORB, VWAP bands, pivots, EDR, RSI)
-        tech_levels = self._tech_tracker.update(bars_5m, spy_price, vix)
+        # Compute intraday technical levels from bars (ORB, VWAP bands, pivots, EDR, RSI).
+        # Feed the authoritative prior-day OHLC (from get_opening_context's real
+        # daily bars, cached on self._opening_ctx) so floor-trader pivots actually
+        # populate — the trailing 5-min window never contains a full prior session.
+        # (audit 2026-07-13, P1-14). Available from the 2nd poll of the day; the
+        # opening context for THIS poll is fetched a few lines below.
+        _oc = getattr(self, "_opening_ctx", None)
+        _prev_ohlc = None
+        if _oc and _oc.get("pdh") and _oc.get("pdl") and _oc.get("pdc"):
+            _prev_ohlc = (_oc["pdh"], _oc["pdl"], _oc["pdc"])
+        tech_levels = self._tech_tracker.update(bars_5m, spy_price, vix, prev_ohlc=_prev_ohlc)
 
         # Refresh external signals (TTL-gated; most sources won't re-fetch every 60s)
         ext_ctx = None
