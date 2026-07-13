@@ -1572,7 +1572,22 @@ class SpyOptionsManager:
         # signal type, its measured win rate replaces the doc prior and
         # wr_source flips to "empirical". Cached per-day (refreshed on the
         # daily reset) — fills accrue slowly, no need to re-query per signal.
-        target = default_target_pct(regime)
+        # Judge the edge against the target the EXECUTOR will actually aim for,
+        # not a regime guess disconnected from the trade. The old
+        # default_target_pct(regime) (30–50%) rarely matched the executor's real
+        # take-profit, so breakeven_wr/edge_margin scored a trade that never
+        # happens. (audit 2026-07-13, P1-12)
+        _exc = getattr(self._cfg, "execution", None)
+        if _exc is None:
+            target = default_target_pct(regime)
+        elif (getattr(_exc, "use_structural_bracket", False)
+              and getattr(sig, "structural_stop", 0.0)
+              and signal_type_str == "TREND_CONTINUATION"):
+            # Structural bracket: TP = continuation_target_r × the premium stop.
+            _stop = float(sig.iv_adjusted_stop_pct or _exc.stop_pct_fallback)
+            target = _stop * float(_exc.continuation_target_r)
+        else:
+            target = float(_exc.take_profit_pct)   # premium bracket default
         sig.target_pct_assumed = target
 
         _emp_wr: Optional[int] = None
