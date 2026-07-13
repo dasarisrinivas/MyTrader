@@ -2051,12 +2051,14 @@ class SignalEngine:
             _stale_note = f"Stale flow decay: {stale_decay:+.2f}" if stale_decay < 0 else ""
             _trap_note = f"Bull trap detected ({trap_adj:+.2f}): {', '.join(_trap_parts)}" if trap_adj < 0 else ""
             _confirm_note = f"Weighted confirmations: {confirm_pts}/10 (breadth×2/GEX×2/VWAP×2/flow/dark-pool/QQQ/IWM)"
+            _atm_call = chain.call_at(atm)
             sig = SpySignal(
                 signal_type=SignalType.PC_RATIO_EXTREME,
                 strike=atm, expiry=chain.expiry_month, right="C",
                 confidence=conf, spy_price=context.spy_price, vix=context.vix,
                 volume=chain.total_call_volume, volume_spike_mult=1.0 / pc if pc > 0 else 0.0,
-                bid_size=0, ask_size=0,
+                bid_size=_atm_call.bid_size if _atm_call else 0,
+                ask_size=_atm_call.ask_size if _atm_call else 0,
                 reasoning=[
                     r for r in [
                         f"P/C ratio = {pc:.2f} (<{c.pc_ratio_bullish}) — broad call activity",
@@ -2089,6 +2091,13 @@ class SignalEngine:
             sig.regime = context.regime.regime
             sig.sentiment_score = context.sentiment.score
             sig.sentiment_label = context.sentiment.label
+            # Enrich with the ATM call's live quote + Greeks so the signal is
+            # tradeable. The PUT branch does this; the CALL branch omitted it,
+            # leaving bid/ask/delta = 0 → every bullish PC_RATIO signal was
+            # untradeable (dropped by the executor's no-live-quote / zero-delta
+            # gates). (audit 2026-07-13, P1-8)
+            if _atm_call:
+                self._enrich(sig, _atm_call, context)
             signals.append(sig)
 
         return signals
