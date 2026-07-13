@@ -160,7 +160,15 @@ def _rsi_series(closes: List[float], period: int = 14) -> List[float]:
 
     avg_gain = sum(gains) / period
     avg_loss = sum(losses) / period
-    for i in range(period, n):
+    # First RSI value (at bar `period`) comes straight from the seed averages.
+    # The change at bar `period` is ALREADY included in the seed window
+    # (range(1, period+1) above), so Wilder smoothing must start at period+1.
+    # The old loop started at `period`, re-applying closes[period]'s change and
+    # double-counting that boundary bar — biasing every subsequent RSI value.
+    # (audit 2026-07-13)
+    rs = avg_gain / avg_loss if avg_loss > 0 else 100.0
+    result.append(100.0 - 100.0 / (1.0 + rs))
+    for i in range(period + 1, n):
         diff = closes[i] - closes[i - 1]
         avg_gain = (avg_gain * (period - 1) + max(diff, 0.0)) / period
         avg_loss = (avg_loss * (period - 1) + max(-diff, 0.0)) / period
