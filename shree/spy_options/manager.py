@@ -480,6 +480,7 @@ class SpyOptionsManager:
         expiry_date = resolved_expiry
         chain = ChainSnapshot(expiry_month, expiry_date=expiry_date)
         filtered_count = 0
+        live_count = 0   # contracts with a real two-sided quote (dead-feed detector)
 
         for conid, snap in snaps.items():
             details = self._conid_details.get(conid)
@@ -515,6 +516,8 @@ class SpyOptionsManager:
                 impl_vol=_f("impl_vol"),
                 open_interest=_i("open_interest"),
             )
+            if quote.bid > 0 and quote.ask > 0:
+                live_count += 1
 
             # Apply liquidity filter before adding to chain
             if not passes_liquidity(
@@ -541,6 +544,33 @@ class SpyOptionsManager:
                 "Chain {}: {}/{} options filtered by liquidity",
                 expiry_month, filtered_count, len(snaps),
             )
+
+        # Dead/delayed-feed alarm: snapshot returned contracts but NONE has a
+        # live two-sided quote → the options feed is down or in IB delayed-data
+        # mode (every field reads 0). passes_liquidity now drops these so nothing
+        # trades on a phantom, but the operator must KNOW — otherwise the bot
+        # looks merely "quiet" while it's actually blind. (audit 2026-07-13)
+        if snaps and live_count == 0:
+            logger.error(
+                "⚠️ DEAD OPTIONS FEED: SPY {} — {} contracts, ZERO live quotes "
+                "(all bid/ask=0). Likely IB delayed-data (err 10089) or a feed "
+                "outage. No trades can fire until quotes return.",
+                expiry_month, len(snaps),
+            )
+            now_alert = datetime.now(ET)
+            last_alert = getattr(self, "_last_dead_feed_alert", None)
+            if last_alert is None or (now_alert - last_alert).total_seconds() > 600:
+                self._last_dead_feed_alert = now_alert
+                try:
+                    await self._telegram.send_message(
+                        f"⚠️ <b>DEAD OPTIONS FEED</b> — SPY {expiry_month}: "
+                        f"{len(snaps)} contracts, zero live quotes. Feed outage "
+                        f"or IB delayed-data mode — the bot is blind and no "
+                        f"trades will fire. Check the IB Gateway market-data "
+                        f"subscription."
+                    )
+                except Exception as exc:
+                    logger.warning("dead-feed alert send failed: {}", exc)
 
         return chain
 

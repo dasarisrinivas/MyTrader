@@ -83,6 +83,13 @@ def passes_liquidity(
     Called in manager._build_chain() before adding quotes to ChainSnapshot.
     Contracts failing this are silently dropped — no signal can fire on them.
     """
+    # Require a real two-sided quote. Without this, a contract with no live
+    # market (bid=ask=0 — a slow tick, or IB delayed-data mode where EVERY field
+    # reads 0) sails through: mid=0 → spread_pct=0, and the OI/volume gates below
+    # only fire on NONZERO-but-below-floor values, so all-zero passes as if it
+    # were the most liquid strike on the board. (audit 2026-07-13)
+    if not (quote.bid > 0 and quote.ask > 0):
+        return False
     if quote.open_interest > 0 and quote.open_interest < min_oi:
         return False
     if quote.spread_pct > max_spread_pct and quote.spread_pct > 0:

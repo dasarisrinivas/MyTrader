@@ -274,8 +274,15 @@ class SpyOptionsExecutor:
         if now_t >= self._no_entry_after:
             return f"after {c.no_new_entries_after_et} ET (theta-kill zone)"
 
+        # Greeks must be present for a directional single-leg trade. A missing
+        # delta (0.0 — IB delayed-data mode zeroes every greek) must FAIL CLOSED:
+        # the old `if d and ...` SKIPPED the band check when delta was 0, so a
+        # phantom zero-greek contract passed the delta gate (and, downstream, the
+        # theta gate's `if sig.theta:` skipped too). (audit 2026-07-13)
         d = abs(sig.delta or 0.0)
-        if d and not (c.min_abs_delta <= d <= c.max_abs_delta):
+        if d < 0.01:
+            return "missing/zero delta — no valid greeks (fail-closed)"
+        if not (c.min_abs_delta <= d <= c.max_abs_delta):
             return f"|delta| {d:.2f} outside [{c.min_abs_delta}, {c.max_abs_delta}]"
 
         if not (sig.bid and sig.ask and sig.bid > 0 and sig.ask > 0):
