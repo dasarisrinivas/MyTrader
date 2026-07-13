@@ -181,14 +181,18 @@ class SpyOptionsExecutor:
                 continue
             try:
                 if self._ib.isConnected():
-                    self._ib.reqCurrentTime()
+                    # AWAIT the async variant — the sync reqCurrentTime() re-enters
+                    # the running loop and always raises "event loop already running"
+                    # (was swallowed at DEBUG, so the ping never completed and the
+                    # reconnect path never fired). Audit 2026-07-13.
+                    await self._ib.reqCurrentTimeAsync()
                     if not self._connected:      # socket back but flag stale
                         self._connected = True
                 elif not self._reconnecting:
                     logger.warning("EXEC keepalive: order gateway down — reconnecting")
                     await self._reconnect()
             except Exception as exc:
-                logger.debug("EXEC keepalive ping failed: {}", exc)
+                logger.warning("EXEC keepalive ping failed: {}", exc)
 
     def _on_disconnect(self) -> None:
         """Handle an unexpected order-gateway disconnect (nightly IB restart)."""

@@ -130,13 +130,16 @@ class IBOptionsClient:
             await asyncio.sleep(30)
             try:
                 if self._ib.isConnected():
-                    # reqCurrentTime is a lightweight ping that keeps the socket alive
-                    self._ib.reqCurrentTime()
+                    # AWAIT the async variant. The sync reqCurrentTime() re-enters
+                    # the running loop → always raises "event loop already running",
+                    # which was silently swallowed at DEBUG — so this liveness ping
+                    # never actually completed (audit 2026-07-13).
+                    await self._ib.reqCurrentTimeAsync()
                 else:
                     logger.warning("Keepalive: IB not connected, triggering reconnect")
                     await self._reconnect()
             except Exception as exc:
-                logger.debug("Keepalive ping failed: {}", exc)
+                logger.warning("Keepalive ping failed: {}", exc)
 
     def _on_disconnect(self) -> None:
         """Handle unexpected IB Gateway disconnection."""
