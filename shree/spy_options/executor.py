@@ -343,8 +343,18 @@ class SpyOptionsExecutor:
             return f"tier {sig.confidence_tier} not in {c.allowed_tiers}"
         if c.require_green_edge and sig.edge_color != "green":
             return f"edge {sig.edge_color or 'unknown'} (need green after costs)"
-        if sig.dte is None or sig.dte > c.max_dte:
-            return f"DTE {sig.dte} > max {c.max_dte}"
+        # max_dte is a TRADING-session budget. Prefer the manager-computed
+        # trading-day count (weekends/NYSE holidays excluded) so a Thu→Mon
+        # contract (4 calendar / 2 trading) passes while a genuine 4-session
+        # contract is still rejected. Calendar fallback when unset.
+        dte_eff = getattr(sig, "trading_dte", None)
+        if dte_eff is None:
+            dte_eff = sig.dte
+        if dte_eff is None or dte_eff > c.max_dte:
+            return (
+                f"DTE {sig.dte} cal / {dte_eff} trading > max {c.max_dte}"
+                if dte_eff is not None else "DTE unknown"
+            )
         if not sig.expiry_date:
             return "no expiry_date on signal"
         if c.skip_event_risk and sig.event_risk:

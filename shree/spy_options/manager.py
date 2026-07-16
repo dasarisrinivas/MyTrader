@@ -367,6 +367,27 @@ class SpyOptionsManager:
         "2027-11-25", "2027-12-24",
     }
 
+    def _trading_dte(self, expiry_yyyymmdd: str) -> Optional[int]:
+        """Days-to-expiry counted in TRADING sessions (Mon–Fri minus NYSE
+        holidays), from today (ET) exclusive to expiry inclusive.
+
+        Thu → Mon expiry = 2 (Fri, Mon); Fri → Mon = 1; same-day 0DTE = 0.
+        Returns None when the expiry string is missing/invalid so callers can
+        fall back to the calendar count."""
+        try:
+            expiry = datetime.strptime(expiry_yyyymmdd, "%Y%m%d").date()
+        except (TypeError, ValueError):
+            return None
+        d = datetime.now(ET).date()
+        if expiry <= d:
+            return 0
+        n = 0
+        while d < expiry:
+            d += timedelta(days=1)
+            if d.weekday() < 5 and d.strftime("%Y-%m-%d") not in self._MARKET_HOLIDAYS:
+                n += 1
+        return n
+
     def _market_open(self) -> bool:
         now = datetime.now(ET)
         if now.weekday() >= 5:
@@ -1477,6 +1498,12 @@ class SpyOptionsManager:
                         sig.research_ctx = _asdict(ec)
                 except Exception:
                     pass
+                # Trading-session DTE for the executor's max_dte gate — a
+                # Thu→Mon contract is 4 calendar but only 2 TRADING days out;
+                # the calendar count made the gate reject every Thursday swing
+                # entry (2026-07-16: "DTE 4 > max 3" ×2). Weekend/holiday-
+                # invariant by construction.
+                sig.trading_dte = self._trading_dte(sig.expiry_date)
                 try:
                     await self._executor.maybe_execute(sig)
                 except Exception as exc:

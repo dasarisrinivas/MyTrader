@@ -218,6 +218,11 @@ class SpySignal:
 
     # DTE (days to expiry) — populated from expiry string
     dte: int = 0
+    # DTE counted in TRADING sessions (weekends/NYSE holidays excluded).
+    # Set by the manager before execution; the executor's max_dte gate prefers
+    # this so a Thu→Mon contract (4 calendar / 2 trading days) isn't rejected
+    # as "too far out" while a Tue→Fri (3/3) passes. None → calendar fallback.
+    trading_dte: Optional[int] = None
 
     # External signal context (news/macro/social/flow)
     external_composite: float = 0.0   # -1.0 to +1.0
