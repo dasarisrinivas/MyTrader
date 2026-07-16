@@ -26,13 +26,7 @@ trading:
     enabled: true
     futures_mode: true
     # CME daily maintenance window - HARD BLOCK
-    maintenance_windows:
-      - start: "16:00"  # 4 PM CT daily maintenance start
-        end: "17:00"    # 5 PM CT daily maintenance end
-        timezone: "America/Chicago"
     # Daily reset at CME settlement (5 PM CT)
-    daily_reset_time: "17:00"
-    daily_reset_timezone: "America/Chicago"
 
   # === POSITION LIMITS (HARDENED) ===
   # NOTE: All max contract limits are consolidated to use the most conservative value.
@@ -60,20 +54,16 @@ trading:
   # Minimum stop/target distance
   # Option A (Jan 2026): allow tighter targets/stops in low-vol regimes
   min_stop_distance_ticks: 16  # 4 points minimum
-  max_stop_distance_ticks: 60  # 15 points maximum ($75 risk cap, increased for volatility)
   
   # === CONFIDENCE THRESHOLDS ===
   min_weighted_confidence: 0.50
   confidence_threshold: 0.60
   min_confidence_for_trade: 0.40  # MAR 3 2026: Lowered from 0.50 → 0.40. With additive VX scaling (was multiplicative 0.7x) and hybrid dampen cap at 0.05 (was 0.10), signals stay at 0.60+. 0.40 catches signals where VX+hybrid stack to ~0.55-0.60. Strategy's own 7 filters are the real quality gate.
-  emergency_mode_enabled: true
   
   # === COOLDOWNS (POST JAN 2026 AUDIT) ===
   trade_cooldown_minutes: 10     # Between any trades
-  cooldown_on_loss_minutes: 20   # After a losing trade
   cooldown_on_consecutive_losses_minutes: 30  # MAR 12 2026 Fix #14: After ft_consecutive_loss_trigger losses → 30 min pause (was 45, unused)
   ft_consecutive_loss_trigger: 3             # MAR 12 2026 Fix #14: Trigger extended cooldown after this many consecutive SL hits
-  max_losses_before_extended_cooldown: 2
   order_lock_timeout_seconds: 300
   pending_order_timeout_seconds: 180
   reset_state_on_start: false
@@ -125,33 +115,21 @@ trading:
   
   # JAN 2026 FIX: Raised confidence thresholds
   min_confidence_threshold: 0.45  # Raised from 0.25
-  evening_session_threshold: 0.35  # Raised from 0.20 (even lower 5PM-11PM)
-  fallback_signals_enabled: true
   
   # Performance optimizations
-  s3_cache_duration_minutes: 10
-  max_trade_logs_per_query: 5  # Reduce from 12+
   position_management:
     # FALLBACK: Used only if primary trading.stop_loss_ticks not available
     # Primary stop/target is in trading section above
     max_position_duration_hours: 4
     profit_target_points: 20
     stop_loss_points: 10
-    emergency_close_enabled: true
     force_exits_after_hours: 4
-    emergency_exit_confidence: 60
-    bypass_filters_for_exits: true
   position_exit:
     # DOLLAR-BASED HARD LIMITS (emergency exits only)
     # These trigger if position PnL hits these levels
     stop_loss_dollars: 75      # Exit at -$75 loss
     profit_target_dollars: 100 # Exit at +$100 profit
     max_hold_time_hours: 4     # Force exit after 4 hours
-  exit_signals:
-    bypass_regime_filter: true  # Exit signals ignore RAG filter
-    time_based_exit: true
-    profit_target_exit: true
-    stop_loss_exit: true
   
   # === Risk/Reward Requirements ===
   # FEB 18 2026: Lowered from 1.5 to 1.0 — the 1.5 floor was silently blocking
@@ -314,7 +292,18 @@ one_minute:
   #                                          improve this — re-evaluate.)
   # Re-enable LONG only after a backtest validates the corrected OR window.
   ft_or_break_long_enabled: false    # ❌ DISABLED (Fix #6, May 12 2026): 0/5 WR, -$197
-  ft_or_break_short_enabled: true    # kept active — re-evaluate after Fix #3 takes effect
+  # JUL 7 2026: NOW an enforced dataclass field (was silently dropped by the
+  # settings loader → defaulted True regardless of this value). ADX-bucket
+  # backtest confirmed OR_BREAK_SHORT is a net loser, so set false. Inert while
+  # ft_shorts_enabled=false; this just prevents a footgun if shorts are enabled.
+  ft_or_break_short_enabled: false
+  # JUL 7 2026: TREND_CONT_SHORT is the short book's biggest loser (−$387/yr,
+  # both windows) — keep off. Also now an enforced field (was defaulting True).
+  ft_trend_cont_short_enabled: false
+  # JUL 7 2026: short-specific ADX floor for EMA21_PB_SHORT (0 = share ft_adx_min).
+  # Backtest note: ADX≥22 floor BACKFIRED (path-dependence removed forward-window
+  # winners) — leave 0. Lever exists for future experimentation only.
+  ft_short_adx_min: 0.0
   ft_or_break_short_rsi_min: 40.0   # MAR 12 2026 Fix A: Block OR_BREAK_SHORT when RSI < 40 (oversold — high snap-back risk)
   ft_or_break_long_rsi_max: 60.0    # MAR 12 2026 Fix A: Block OR_BREAK_LONG when RSI > 60 (overbought — high reversal risk)
   ft_or_break_sl_atr_mult: 0.75     # MAR 12 2026 Fix B: SL = clamp(ATR × mult, floor, ceiling) — replaces fixed 6pt
@@ -356,10 +345,38 @@ one_minute:
   ft_medium_atr_adx_bump: 7.0               # ADX must exceed ft_adx_min by this much in medium regime (18+7=25)
 
   # APR 10 2026: Day-of-week and time-of-day entry blocks
-  # Monday: -$270 P&L, 20% WR. Entire day is negative expectancy.
-  ft_monday_block_enabled: true
+  # Monday: original justification "-$270 P&L, 20% WR" — FALSIFIED on current
+  # strategy. JUN 4 2026 A/B (in-sample 2025-01→2026-01-15, regime filter on):
+  # Monday OFF = 23 trades, 74% WR, +$584 (2nd-best day after Thu). Block was
+  # removing the best trades for a stale reason → DISABLED. Env override:
+  # SHREE_MONDAY_BLOCK in {0,1}.
+  # JUN 7 2026: Forward-slice confirmation DONE (A/B via SHREE_MONDAY_BLOCK,
+  # MES 15m). In-sample 2025-01→2026-01-15: Mon = 29 trades, 65.5% WR,
+  # +$534 (exp +$18.4/trade, 2nd-best day); blocking it cuts net +$1,538→
+  # +$1,004. Forward 2026-01-18→2026-05-22 (OOS): Mon = 6 trades, 66.7% WR,
+  # +$111 (exp +$18.4/trade); blocking it flips the slice +$0→−$110. Removal
+  # confirmed on both windows → keep DISABLED.
+  ft_monday_block_enabled: false
   # 20 UTC = 3 PM CT / 4 PM ET. Backtest: -$197, 0% WR. Set to 0 to disable.
-  ft_late_afternoon_block_hour_utc: 20
+  # JUL 3 2026: DISABLED (was 20) per user request for full-day trading.
+  # The UTC anchor had a DST bug anyway: inert in summer (20 UTC = 16:00 EDT,
+  # after RTH close) but blocked the whole 15:00-15:59 ET hour in winter.
+  # Cost of full-day per 1y live-faithful backtest (2025-05→2026-05):
+  # 217 trades +$1,282 PF 1.28 vs 213 +$1,385 PF 1.31 with the block (−$103).
+  # NOTE (opt-in, not applied): afternoon entries are the book's weak spot —
+  # 14:xx = −$344 (36% WR), 15:xx = −$262 (12% WR) in the same run. Setting
+  # ft_entry_end_hour: 14 scored +$1,738 PF 1.51 (1y) and +$471 PF 1.37 on the
+  # forward slice. If you ever want profit over coverage, that's the lever.
+  ft_late_afternoon_block_hour_utc: 0
+
+  # JUN 4 2026: Regime entry filter — block entries in no-edge regimes.
+  # Backtest attribution (2025→2026): ~100% of net P&L came from UPTREND;
+  # CHOP_RANGE/WEAK_UP/WEAK_DOWN were net-negative churn. In-sample A/B:
+  # +$1300→+$1554, WR 60.5%→66.7%, Sharpe 3.99→5.36. Forward (Jan18–May22 2026,
+  # out-of-sample): flipped -$110→+$63, PF 0.90→1.07. Applied symmetrically in
+  # live (signal_processor, on hybrid_market_trend) and backtest (engine, on
+  # classify_market_trend). Asymmetric — only removes trades. Set to [] to disable.
+  ft_regime_block_list: ["CHOP_RANGE", "WEAK_UP", "WEAK_DOWN"]
 
   # APR 22 2026: PDH proximity block — configurable.
   # Previously hardcoded 0.25% (~18pt on ES) which vetoed every long pullback
@@ -426,6 +443,11 @@ one_minute:
   # Blocks A/D/A-prime/D-prime overnight when ATR < threshold. Set 0 to disable.
   ft_overnight_min_atr_ad: 6.0
   ft_trend_exhaustion_atr_multiple: 8.0  # MAR 12 2026 Fix #16: Block TREND_CONT if session moved > N×ATR from OR midpoint
+  # JUN 6 2026: dead-zone guard high-ADX exemption. Dead-zone guard blocks TREND_CONT
+  # 10:30-12:59 CST; full ES_1m_1y A/B/C re-run showed full-block costs ~-$120/yr vs no
+  # guard while exempting ADX>=30 is best on every metric (+$139 vs full-block). Threshold
+  # in ADX points; set 0 to disable exemption (old full block). See reports/dead_zone_guard_validation_20260606.md
+  ft_dead_zone_adx_exempt: 30.0
   # MAR 16 2026: Post-exhaustion cooldown — when TREND_EXHAUSTION fires, block ALL
   # same-direction signals for N bars (at 15m timeframe: 4 bars = 60 min).
   # Root cause: Mar 16 09:45 CT — exhaustion fired at 09:15 but only blocked TREND_CONT;
@@ -514,7 +536,6 @@ one_minute:
   #   ft_profit_lock_pts: once unrealized gain >= this many points → lock in 50% via trailing
   ft_breakeven_trigger_pts: 3.0              # RTH: Move SL to breakeven when +3 pts unrealized ($15)
   ft_overnight_breakeven_trigger_pts: 2.0   # MAR 12 2026 Fix #15: Tighter overnight/evening trigger at 2 pts ($10)
-  ft_profit_lock_pts: 5.0                   # Lock in ≥50% of gain when +5 pts unrealized ($25)
   # MAR 12 2026: Signal-flip exit — exit at market when EMA9/EMA21 cross + MACD_H flip against position
   ft_trend_flip_exit_enabled: true          # Exit when indicators reverse against open position
   ft_trend_flip_exit_min_profit_pts: 2.0    # Only exit on flip if open profit >= 2 pts ($10); 0 = always exit
@@ -538,7 +559,26 @@ one_minute:
   # FEB 12 2026: Short-side signals (D, E) — mirror of long signals for bearish markets
   # Signal D: EMA21 pullback short in downtrend (mirror of Signal A)
   # Signal E: OR breakdown short below OR low (mirror of Signal B)
-  ft_shorts_enabled: false           # MAY 25 2026: DISABLED — live-faithful backtest (reports/bt_latest_2026-05-24): shorts -$492/yr, no edge (EMA21_PB_SHORT only +$79 at ADX>=27, OR_BREAK_SHORT -$266 n=19). Disabling lifts longs-only book +$687 -> +$1,249, positive every quarter. Reversible.
+  # MAY 25 2026: shorts DISABLED — live-faithful backtest (reports/bt_latest_2026-05-24):
+  # shorts -$492/yr, no edge in RTH (EMA21_PB_SHORT only +$79 at ADX>=27,
+  # OR_BREAK_SHORT -$266 n=19). Disabling lifted longs-only book +$687 -> +$1,249.
+  # JUL 4 2026: re-confirmed on the true-24h backtest (engine session fix):
+  # overnight shorts are ALSO net-negative → overnight stays long-only.
+  #
+  # JUL 8 2026: shorts RE-ENABLED per user decision (participate in the
+  # week-long down/chop regime rather than sit idle). Scoped to the ONLY
+  # positive short family found in the ADX-bucket backtest:
+  #   • EMA21_PB_SHORT (Signal D) ...... ON  (net flat-to-positive)
+  #   • TREND_CONT_SHORT ............... OFF (−$387/yr, the poison — kept off)
+  #   • OR_BREAK_SHORT ................. OFF (net loser — kept off)
+  #   • overnight shorts ............... OFF (allowlist = EMA9_PB_LONG only)
+  # Validated (live-faithful, ES 15m, MES $5/pt, $5k):
+  #   1y  2025-05→2026-05 : +$835 PF 1.12 (vs long-only +$1,135) — costs ~$300/yr
+  #   fwd 2026-01→2026-05 : −$35  PF 0.99 (vs long-only −$240)   — helps down-regime
+  # This is a REGIME BET: shorts hedge drawdown & trade down-weeks, at the cost
+  # of full-year return. Revert = set ft_shorts_enabled back to false.
+  ft_shorts_enabled: true
+  ft_shorts_overnight_only: false    # RTH shorts fire; overnight blocked by allowlist
   ft_short_pb_stop_mult: 1.5         # Short stop loss = 1.5 × ATR above entry
   ft_short_pb_target_mult: 1.0       # (LEGACY — superseded by fixed-point TP)
   ft_short_or_target_r: 1.0          # (LEGACY — superseded by fixed-point TP)
@@ -616,10 +656,25 @@ one_minute:
   # NOTE: Signal G (LONDON_MOMENTUM) bypasses this gate; addressed in Fix #2.
   # NOTE: rth_start/end_hour below still wrong (midnight) — Fix #3 will
   # restore them so OR computes from 9:30-10:00 ET as designed.
-  ft_entry_start_hour: 9              # 9:30 ET — RTH open
-  ft_entry_start_minute: 30
-  ft_entry_end_hour: 16               # 16:00 ET (exclusive → covers through 15:59)
-  ft_entry_end_minute: 0
+  # JUL 4 2026: Re-opened to 24h per user request (overnight + Sunday-evening
+  # trading). This is safe to do NOW because the root cause of the Feb-May
+  # 24h failure is fixed in code: the Opening Range is anchored at CORE RTH
+  # open (9:30 ET, es_fifteen_min.py) instead of rth_start_hour, so widening
+  # the session no longer corrupts OR_HIGH/OR_LOW or the exhaustion guard.
+  # Overnight protections remain active (SL x1.2 / TP x1.5 scaling, min RR 1.5,
+  # RSI-extreme + MACD-divergence blocks, ATR floor, A/D overnight cap 1/side).
+  # Revert to RTH-only: set entry 9:30-16:00 and rth window 9:30-16:00 below.
+  ft_entry_start_hour: 0              # 00:00 ET — 24h entries (was 9 / 9:30 ET)
+  ft_entry_start_minute: 0
+  ft_entry_end_hour: 23               # 23:59 ET (was 16:00 ET)
+  ft_entry_end_minute: 59
+  # JUL 4 2026: Overnight signal-family allowlist. Outside core RTH
+  # (9:30-16:00 ET) only these families may enter; all RTH behavior unchanged.
+  # True-24h backtest (2025-05→2026-05): unrestricted overnight flipped the
+  # year +$1,360 → −$641 (DD −31%); every overnight family was net-negative
+  # EXCEPT EMA9_PB_LONG (+$96, n=27, 59% WR) — so only it is admitted.
+  # Add families here to widen overnight; empty list [] = allow ALL overnight.
+  ft_overnight_allowed_signals: ["EMA9_PB_LONG"]
   
   # MAY 12 2026 FIX #3: Restore RTH window to 9:30-16:00 ET (the strategy's
   # original design).  These values control TWO things in es_fifteen_min.py:
@@ -640,10 +695,17 @@ one_minute:
   # for SL/TP scaling, ATR floors, and EMA21_PB per-session counters has
   # been quietly working from those.  Fix #3 affects ONLY the OR window
   # and the redundant RTH gate.
-  rth_start_hour: 9                   # RTH open (ET) — restored from 0
-  rth_start_minute: 30
-  rth_end_hour: 16                    # RTH close (ET) — restored from 23
-  rth_end_minute: 0
+  # JUL 4 2026: Widened to 24h per user request. Unlike the Feb 18 change this
+  # NO LONGER moves the Opening Range window — OR collection is anchored at
+  # _core_rth_start (9:30 ET) in code as of JUL 4, so point 1 of the Fix #3
+  # note above is obsolete. This window now controls only which bars the live
+  # session gate + strategy evaluate. classify_session() keeps Saturday and
+  # Sunday-before-18:00-ET as WEEKEND and 17:00-18:00 ET as MAINTENANCE, so
+  # Sunday-evening Globex bars (18:00 ET reopen) become tradable.
+  rth_start_hour: 0                   # session window open (ET) — was 9:30
+  rth_start_minute: 0
+  rth_end_hour: 23                    # session window close (ET) — was 16:00
+  rth_end_minute: 59
   # MES lunch hour is the lowest-quality window for trend entries.
   # Require higher scores to enter during this period.
   scoring_lunch_full_threshold: 72.0     # Lunch: Require strong conviction for full size
@@ -661,14 +723,6 @@ strategies:
       rsi_sell: 54.83  # Optimized value
       sentiment_buy: -0.82  # Optimized value (low bar)
       sentiment_sell: 0.22  # Optimized value
-
-# Risk management
-risk:
-  position_sizing_method: kelly  # Use Kelly Criterion
-  use_dynamic_stops: true  # ATR-based stops
-  atr_multiplier: 2.0
-  max_portfolio_heat: 0.02  # Max 2% risk per position
-
 backtest:
   data_path: "data/es_historical.csv"
   start_date: null
@@ -876,43 +930,6 @@ vix_feed:
   max_retries: 5
   base_delay: 1.0
   max_delay: 60.0
-
-# Hybrid deterministic engine (RSI pullback filter settings)
-# Hybrid RSI Pullback Filter (D-engine component)
-# NOTE: This was renamed from 'hybrid:' to avoid YAML duplicate key collision
-hybrid_rsi_filter:
-  min_confidence_for_trade: 0.45  # STANDARDIZED: Now 0-1 scale (was 45 on 0-100 scale)
-  d_engine:
-    enable_rsi_filter: true
-    enable_session_aware_rsi: true
-    rsi_period: 14
-    ema_trend_period: 50
-    rsi_long_pullback_low: 30
-    rsi_long_pullback_reentry: 40
-    rsi_short_pullback_high: 70
-    rsi_short_pullback_reentry: 60
-    ema_no_trade_band_pct: 0.0005
-    atr_multiplier_sl: 3.0  # Widened from 1.2 to 3.0 (stops were too tight)
-    atr_multiplier_tp: 2.0  # Keep 2:1 R:R with wider stop
-    overnight_rsi_buffer: 2.0  # Reduced from 5.0
-    overnight_tp_multiplier: 0.85
-    overnight_sl_multiplier: 0.9
-  hard_block_when_below: false
-  regime_mode: "relaxed"
-  emergency_signal_generation: true
-  max_consecutive_holds: 8          # Force signals after 8 HOLDs
-  regime_filter:
-    allow_position_exits: true  # Don't block exit signals
-    min_win_rate_for_exits: 0.05  # Much lower threshold for exits
-    min_win_rate: 0.10  # Lower from 0.15
-    emergency_win_rate: 0.05  # For multiple recent losses
-    position_exit_bypass: true  # Bypass all filters for exits
-  emergency_mode:
-    recent_loss_threshold: 8  # Losses in last 10 trades
-    enable_forced_exits: true
-    max_position_duration_hours: 4
-
-# Hybrid RAG + LLM pipeline configuration (used by pipeline integration)
 hybrid:
   # Relax CHOP_RANGE filter to allow overnight/trending trades
   # Set to 0 to disable the EMA-spread chop filter entirely
@@ -922,46 +939,10 @@ hybrid:
   no_signal_allow_weak_signals: true
   no_signal_allow_chop_bias: true
   level_confirmation_enabled: false
-
-hybrid_pipeline:
-  rule_engine:
-    # Less restrictive for futures
-    rag_regime_filter:
-      enabled: true
-      strictness: "medium"  # vs "high"
-      evening_relaxed: true
-    no_signal_gate:
-      enabled: true
-      allow_weak_signals: true      # Allow weak directional signals
-      trending_market_threshold: 0.15  # Lower threshold in trends
-    
-    # Allow more market regimes  
-    allowed_regimes:
-      - "TRENDING"
-      - "RANGING" 
-      - "VOLATILE"
-      - "QUIET"
-      - "UNCERTAIN"  # Add this for low-confidence periods
-  level_confirmation:
-    enabled: false          # Temporarily disable while logic is fixed
-    strict_mode: false
-    timeout_cycles: 10
-    buffer_points: 1.0
-  llm:
-    fallback_technical_signals: true  # Enable technical fallbacks
-    hold_to_signal_conversion: true   # Convert strong HOLDs to weak signals
-
-# Range-bound trading
-range_trading:
-  enabled: true
-  min_range_size: 1.0
-  boundary_threshold: 0.1
-
 futures_trading:
   # === SESSION-AWARE TRADING (24h ES/MES) ===
   # Each session has tuned parameters for liquidity and volatility
   
-  session_manager_enabled: true
   
   active_sessions:
     # RTH - Most Liquid (8:30 AM - 3:00 PM CT)
@@ -1032,159 +1013,8 @@ futures_trading:
       reason: "CME daily maintenance window"
 
   # S3 cache settings
-  s3_cache:
-    trade_logs_ttl_seconds: 1800  # 30 minutes
-    max_cache_size_mb: 50
-    aggressive_caching: true
     
   # Rule engine relaxation
-  rule_relaxation:
-    circuit_breaker_threshold: 5
-    evening_session_relaxation: 0.15
-    low_vol_atr_floor: 0.05
-
-# Autonomous Learning Configuration
-autonomous:
-  # Enable/disable autonomous learning features
-  enabled: false  # Set to true to enable autonomous learning (CAUTION: test thoroughly first)
-  
-  # Daily analysis settings
-  run_daily_analysis: true  # Run daily performance analysis
-  daily_analysis_time: "18:00"  # Time to run daily analysis (after market close)
-  
-  # Parameter adjustment settings
-  auto_apply_changes: false  # Automatically apply parameter changes (false = human approval required)
-  require_human_approval: true  # Require human approval before applying changes
-  auto_approve_threshold: 0.85  # Auto-approve changes with confidence >= 0.85 (if human approval disabled)
-  
-  # Safety constraints for parameter changes
-  safety_constraints:
-    # RSI thresholds
-    rsi_buy_min: 20.0
-    rsi_buy_max: 45.0
-    rsi_sell_min: 55.0
-    rsi_sell_max: 80.0
-    
-    # Sentiment thresholds
-    sentiment_buy_min: -1.0
-    sentiment_buy_max: 0.0
-    sentiment_sell_min: 0.0
-    sentiment_sell_max: 1.0
-    sentiment_weight_min: 0.1
-    sentiment_weight_max: 0.9
-    
-    # Risk management bounds
-    stop_loss_min: 10.0
-    stop_loss_max: 50.0
-    take_profit_min: 15.0
-    take_profit_max: 100.0
-    
-    # LLM confidence bounds
-    min_confidence_min: 0.5
-    min_confidence_max: 0.9
-    
-    # Max change per adjustment (20% = 0.20)
-    max_parameter_change_pct: 0.20
-  
-  # Rollback settings
-  enable_auto_rollback: true  # Automatically rollback on poor performance
-  rollback_threshold_pnl: -500.0  # Rollback if P&L drops by this amount
-  rollback_check_days: 1  # Days to evaluate after parameter change
-  
-  # Weekly review settings
-  run_weekly_review: true  # Run weekly performance reviews
-  weekly_review_day: "sunday"  # Day of week to run weekly review
-  weekly_review_time: "20:00"  # Time to run weekly review
-  apply_weekly_suggestions: false  # Apply weekly optimization suggestions
-  
-  # Reporting
-  save_daily_reports: true  # Save daily analysis reports
-  save_weekly_reports: true  # Save weekly review reports
-  reports_retention_days: 90  # Keep reports for 90 days
-
-# Hybrid Decision Architecture Configuration
-# This section configures the D-engine (deterministic) + H-engine (LLM/RAG) architecture
-# NOTE: Renamed from 'hybrid:' to 'hybrid_decision:' to avoid YAML duplicate key collision
-hybrid_decision:
-  # Master enable/disable
-  enabled: true
-  min_confidence_for_trade: 0.45  # STANDARDIZED: Now 0-1 scale (was 45 on 0-100 scale)
-  # Level confirmation defaults
-  level_confirmation_enabled: true
-  level_confirm_proximity_pct: 0.30
-  level_confirm_buffer_atr_mult: 0.10
-  level_confirm_min_buffer_points: 0.0
-  level_confirm_max_wait_candles: 6
-  level_confirm_timeout_mode: "SOFT_PENALTY"
-  level_confirm_timeout_penalty: 0.12
-  
-  # D-Engine (Deterministic) Configuration
-  d_engine:
-    # Indicator weights (must sum to ~1.0)
-    rsi_weight: 0.25
-    macd_weight: 0.25
-    ema_weight: 0.25
-    atr_weight: 0.15
-    volume_weight: 0.10
-    
-    # RSI thresholds
-    rsi_oversold: 30.0
-    rsi_overbought: 70.0
-    
-    # EMA settings
-    ema_fast: 9
-    ema_slow: 20
-    
-    # ATR thresholds
-    atr_min_threshold: 0.10
-    atr_max_threshold: 90.0
-    
-    # Candidate threshold (minimum score to trigger H-engine)
-    candidate_threshold: 0.55
-    
-    # Risk parameters
-    atr_stop_mult: 3.0   # Widened from 2.0 to 3.0 (stops were too tight)
-    atr_target_mult: 6.0 # Keep 2:1 R:R with wider stop
-  
-  # H-Engine (LLM + RAG) Configuration
-  h_engine:
-    # Rate limiting
-    max_calls_per_hour: 10
-    min_interval_seconds: 60
-    
-    # RAG settings
-    top_k: 5
-    
-    # Cache settings
-    cache_ttl_seconds: 300
-  
-  # Confidence Scoring (ALL VALUES IN 0-1 SCALE)
-  confidence:
-    # Weights for final confidence calculation
-    weights:
-      technical: 0.5  # D-engine score weight
-      model: 0.3      # LLM confidence weight
-      rag: 0.2        # RAG similarity weight
-    
-    # Thresholds (0-1 scale)
-    threshold: 0.60           # Minimum final confidence to trade
-    min_technical_score: 0.50 # Minimum D-engine score
-    min_model_confidence: 0.40 # Minimum LLM confidence
-    
-    # Consensus mode
-    require_consensus: true   # Require D-engine and H-engine agreement
-  
-  # Safety Controls
-  safety:
-    order_cooldown_minutes: 5
-    max_orders_per_15min: 3
-    emergency_pnl_drop_pct: 2.5
-  
-  # Dry-run mode (no real orders)
-  dry_run: false
-
-# AWS Bedrock Agents Configuration
-# Multi-agent orchestration for trading decisions
 aws_agents:
   # Master enable/disable
   enabled: true  # Set to true to enable AWS agent-based trading
@@ -1219,65 +1049,20 @@ aws_agents:
   knowledge_base_id: ""
   
   # Step Functions ARNs
-  step_functions:
-    signal_flow: ""
-    nightly_flow: ""
   
   # Orchestration settings
-  use_step_functions: false  # Use Step Functions vs direct agent invocation
   
   # Agent invocation settings
   max_retries: 3
   timeout_seconds: 30
   
   # Rate limiting
-  max_requests_per_minute: 20
   
   # Confidence thresholds (from agents)
-  min_decision_confidence: 0.60
-  min_risk_approval_threshold: 0.50
   
   # Trade execution settings
-  apply_agent_decision: false  # Apply agent decisions to actual trading
-  require_risk_approval: true  # Require Risk Agent approval for trades
   
   # Logging
-  log_agent_responses: true
-  log_to_s3: true
-
-live_review:
-  # Enable/disable live trading review
-  enabled: true  # Set to false to disable scheduled reviews
-  
-  # Scheduling
-  run_time: "18:00"  # Daily execution time (after market close)
-  analysis_days: 3  # Number of recent days to analyze
-  
-  # Data source
-  use_database: true  # true = use llm_trades.db, false = use CSV logs
-  csv_log_path: "logs/trades.csv"  # Path to CSV trade logs (if use_database=false)
-  
-  # Report settings
-  generate_json: true  # Generate JSON reports
-  generate_markdown: true  # Generate human-readable markdown reports
-  reports_dir: "reports/daily_reviews"  # Directory for daily review reports
-  reports_retention_days: 90  # Keep reports for 90 days
-  
-  # AI insight generation
-  enable_ai_insights: true  # Generate AI-powered insights
-  insight_confidence_threshold: 0.6  # Minimum confidence for recommendations
-  max_recommendations: 10  # Maximum number of recommendations per report
-  
-  # Email notifications (optional)
-  send_email_notifications: false  # Send email after review
-  email_recipients: []  # List of email addresses
-  email_on_warnings_only: true  # Only send email if warnings detected
-  
-  # Integration with autonomous system
-  feed_to_autonomous: false  # Feed insights to autonomous learning system
-  auto_apply_recommendations: false  # Automatically apply recommendations (requires feed_to_autonomous=true)
-
-# Telegram Notifications Configuration
 telegram:
   # Enable/disable Telegram notifications
   enabled: true  # Set to true to enable Telegram alerts
@@ -1323,7 +1108,6 @@ gold:
     news_lockout_windows_et: []
     # Phase 5 — session bucket boundaries (ET)
     bucket_overnight_start_et: "18:00"
-    bucket_pre_comex_start_et: "03:00"
     bucket_comex_open_start_et: "08:20"
     bucket_midday_start_et: "10:30"
     bucket_pre_close_start_et: "12:00"
@@ -1393,6 +1177,11 @@ spy_options:
     strike_pct_range: 0.04
     max_strikes_per_expiry: 30
     num_expiries: 2
+    # JUL 2 2026: was implicitly "monthly" (end-of-month expiry → 13-29 DTE
+    # signals; 123/127 directional signals were 3+ DTE and untradeable by the
+    # execution gate). "nearest" uses SPY dailies/weeklies → 0-2 DTE chains
+    # with the tightest spreads. Set "monthly" to restore legacy behavior.
+    expiry_selection: "nearest"
     exchange: "SMART"
     conid_resolve_delay_s: 0.1
     liquidity_min_oi: 100
@@ -1410,13 +1199,20 @@ spy_options:
     bid_ask_imbalance_threshold: 3.0
     straddle_spike_mult: 3.0
     min_confidence: 0.77  # MAY 2026: Final calibration after OPEN-window fix. Simulation result: bad signal (INSIDE ORB, BELOW_VWAP, neutral context, 10:27 ET) lands at 76.5% → blocked. Good signal (confirmed ORB ABOVE, TREND_UP, ABOVE_VWAP) lands at 90-92% → fires. History: 0.90→0.78 (APR 9), 0.78→0.72 (attempt), 0.72→0.76 (attempt), 0.76→0.77 (MAY 27 final). Root cause fix was the blind OPEN-window +10% boost (10:15-10:30 ET) — now conditional on ORB+VWAP+breadth confirmation.
-    confidence_tier_high: 0.70
-    confidence_tier_extreme: 0.80
+    confidence_tier_high: 0.80   # JUL 2 2026: Restored from 0.70. At 0.70/0.80, 102 of 200 Apr-Jun signals were labelled EXTREME — the tier meant nothing. Execution gate requires HIGH/EXTREME, so tiers must discriminate.
+    confidence_tier_extreme: 0.88  # JUL 2 2026: Restored from 0.80 (same rationale).
     dedup_window_minutes: 90
     max_signals_per_day: 10  # APR 10 2026: Cap total dispatched signals per day. Prevents signal flooding (55 in 3 days).
     sweep_window_minutes: 15
     pc_ratio_min_denom_volume: 200   # APR 8 2026: Both sides must have ≥200 contracts before computing P/C ratio. Prevents nonsense ratios (e.g. 46:1 from 2407 puts / 52 calls).
     pc_ratio_flip_cooldown_minutes: 30  # APR 8 2026: After sending CALL PC_RATIO, suppress PUT PC_RATIO for 30min (and vice versa). Prevents whipsaw flip-flop alerts.
+
+    # JUL 2 2026 profitability review: Apr-Jun exits were ~all time_stop /
+    # vwap_reversion at a loss; profit_target fired once. Wider time stops
+    # give the thesis room; profit target is now evaluated first.
+    exit_time_stop_0dte_min: 45
+    exit_time_stop_swing_min: 90
+    exit_profit_target_pct: 0.5
 
   session:
     rth_only: true
@@ -1485,6 +1281,65 @@ spy_options:
   rules_v2:
     enabled: true
     expected_move_gate_enabled: true   # APR 28 2026: soak on live — skip-on-missing-data safe
+
+  # ── Order execution (JUL 2 2026) ─────────────────────────────────────────
+  # Bracket orders at IB for signals passing the STRICT quality gate:
+  # directional C/P, naked-long structure, HIGH/EXTREME tier, GREEN edge
+  # after costs, 0-2 DTE, |delta| 0.30-0.70, spread ≤5%, no event risk,
+  # before 15:00 ET. Everything else stays Telegram-only.
+  #
+  # ⚠️ LIVE (JUL 2 2026, user decision): paper data is 15-min delayed on this
+  # account, making fills/decisions unrepresentative — went straight to live
+  # with real orders on the same gateway as the data feed (4001).
+  # To revert to paper: ibkr_port: 4002 (requires paper gateway session).
+  execution:
+    enabled: true
+    ibkr_host: "127.0.0.1"
+    ibkr_port: 4001                  # 4001 = LIVE — REAL ORDERS · 4002 = paper
+    ibkr_client_id: 7                # data uses 6; must differ
+    account: ""                      # optional explicit account id (e.g. DU1234567)
+
+    risk_per_trade_usd: 150.0        # max loss at stop per trade
+    max_contracts: 5
+    max_open_positions: 2
+    max_trades_per_day: 4
+    daily_loss_limit_usd: 300.0      # realized; halts new entries
+    max_consecutive_stopouts: 2      # halts new entries for the day
+
+    # Bracket geometry: stop uses the signal's IV-adjusted % (15/20/25 by
+    # IVR band); TP +40% → reward:risk ~1.6-2.6:1, breakeven WR ~38-45%.
+    stop_pct_fallback: 25.0
+    take_profit_pct: 40.0
+    stop_type: "stop_limit"          # "stop" = market stop (guaranteed exit, worse fills)
+    stop_limit_buffer_pct: 10.0
+
+    # Strict quality gate
+    allowed_tiers: ["HIGH", "EXTREME"]
+    require_green_edge: true
+    max_dte: 3                    # 3 accommodates Fri→Mon weekend gap (2 trading days = 3 cal)
+    min_abs_delta: 0.30
+    max_abs_delta: 0.70
+    max_entry_spread_pct: 5.0
+    min_premium: 0.30
+    max_premium: 8.0
+    skip_event_risk: true
+
+    # Timing guards
+    no_new_entries_after_et: "15:00"
+    flatten_0dte_at_et: "15:50"
+    entry_timeout_s: 180
+    max_hold_minutes: 90
+
+  # ── Exit Engine v2 (JUL 14 2026, docs/SPY_EXIT_ENGINE_DESIGN.md) ──────
+  # Confirmation-based multi-stage exits replacing the legacy one-trigger
+  # full-close logic. shadow_mode=false → the engine DRIVES live exits
+  # (activated JUL 14 for the JUL 15 session — evaluate at EOD).
+  # Instant revert: set shadow_mode: true (legacy triggers resume; engine
+  # goes back to log-only). All weights/thresholds default from
+  # SpyOptionsExitEngineConfig; override here only when re-tuning.
+  exit_engine:
+    enabled: true
+    shadow_mode: false
 
   # SPY Options uses its own Telegram bot (@shree_options_bot)
   # so signals go to a separate chat from MES/Gold trade alerts.
