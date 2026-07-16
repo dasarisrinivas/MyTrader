@@ -849,6 +849,89 @@ class SpyOptionsExecutor:
             if not (p.closed and (now_utc - p.placed_at).total_seconds() > 6 * 3600)
         }
 
+    # ── Exit-engine order primitives (JUL 14 2026) ───────────────────────────
+
+    async def move_stop(self, key: str, new_stop: float) -> bool:
+        """Tighten the resting stop-loss child to `new_stop` (premium $).
+
+        Modify-in-place (same orderId re-place). NEVER widens: for our long
+        positions the SL is a SELL stop, so tightening = raising. Returns True
+        when a modify was sent.
+        """
+        pos = self._positions.get(key)
+        if pos is None or pos.closed or not pos.entry_filled:
+            return False
+        sl = pos.stop_loss.order
+        new_stop = _round_tick(new_stop)
+        cur = float(sl.auxPrice or 0.0)
+        if new_stop <= cur + 1e-9:
+            return False                      # would widen or no-op
+        try:
+            sl.auxPrice = new_stop
+            if self._cfg.stop_type != "stop":  # stop-limit: keep the buffer
+                sl.lmtPrice = _round_tick(
+                    new_stop * (1 - self._cfg.stop_limit_buffer_pct / 100.0)
+                )
+            self._ib.placeOrder(pos.contract, sl)
+        except Exception as exc:
+            logger.warning("EXEC move_stop failed ({}): {}", key, exc)
+            return False
+        logger.info("🔒 EXEC STOP MOVED: {} SL ${:.2f} → ${:.2f}",
+                    pos.contract.localSymbol, cur, new_stop)
+        return True
+
+    async def partial_close(self, key: str, fraction: float, reason: str) -> bool:
+        """Scale out `fraction` of the position at market; shrink the bracket
+        children FIRST so the remaining TP/SL quantities always match the
+        remaining position (no oversell window). Full-close when the fraction
+        would leave nothing meaningful."""
+        pos = self._positions.get(key)
+        if pos is None or pos.closed or not pos.entry_filled:
+            return False
+        qty_out = max(1, int(pos.qty * fraction))
+        if qty_out >= pos.qty:
+            return await self.close_position(key, reason)
+        remaining = pos.qty - qty_out
+        try:
+            # 1) Shrink both bracket children to the remaining quantity.
+            for child in (pos.take_profit, pos.stop_loss):
+                if child.orderStatus.status not in ("Filled", "Cancelled",
+                                                    "ApiCancelled", "Inactive"):
+                    child.order.totalQuantity = remaining
+                    self._ib.placeOrder(pos.contract, child.order)
+            # 2) Market-sell the freed quantity (standalone — not in the OCA).
+            mkt = Order(action="SELL", orderType="MKT", totalQuantity=qty_out)
+            if self._cfg.account:
+                mkt.account = self._cfg.account
+            sell_trade = self._ib.placeOrder(pos.contract, mkt)
+        except Exception as exc:
+            logger.opt(exception=True).error("EXEC partial_close failed ({}): {}", key, exc)
+            return False
+
+        pos.qty = remaining
+        # Best-effort realized P&L on the scale-out fill.
+        exit_px = 0.0
+        for _ in range(4):
+            await asyncio.sleep(1.5)
+            exit_px = float(sell_trade.orderStatus.avgFillPrice or 0.0)
+            if exit_px > 0:
+                break
+        entry_px = float(pos.parent.orderStatus.avgFillPrice or pos.entry_mid)
+        pnl = (exit_px - entry_px) * qty_out * 100.0 if exit_px > 0 else 0.0
+        self._realized_pnl_today += pnl
+        logger.info(
+            "💰 EXEC PARTIAL: SOLD {}x {} @{} ({}) — {} remain, P&L ${:+.0f}",
+            qty_out, pos.contract.localSymbol,
+            f"${exit_px:.2f}" if exit_px > 0 else "pending-fill",
+            reason, remaining, pnl,
+        )
+        await self._notify(
+            f"💰 <b>PARTIAL EXIT</b> {qty_out}× {pos.contract.localSymbol} "
+            f"@ {'$%.2f' % exit_px if exit_px > 0 else 'MKT'} — {reason}\n"
+            f"{remaining} remain · bracket resized · P&L ${pnl:+.0f}"
+        )
+        return True
+
     # ── Exits ────────────────────────────────────────────────────────────────
 
     async def close_position(self, key: str, reason: str) -> bool:

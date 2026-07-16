@@ -325,6 +325,59 @@ class SpyOptionsExecutionConfig:
 
 
 @dataclass
+class SpyOptionsExitEngineConfig:
+    """Exit Engine v2 (JUL 14 2026) — multi-stage, confirmation-based exits.
+
+    Replaces the legacy 7-trigger any-one-fires-full-close exit logic with a
+    scored, confirmed, prioritized engine (docs/SPY_EXIT_ENGINE_DESIGN.md).
+    Ships with shadow_mode=True: the engine evaluates and LOGS its decision
+    every poll alongside the legacy triggers, but the legacy triggers keep
+    acting. Flip shadow_mode=False only after the shadow log shows the engine
+    making better calls on real fills.
+    """
+
+    enabled: bool = True
+    shadow_mode: bool = True          # log-only until validated on live fills
+
+    # Grace period — soft exits suppressed after entry; hard exits stay live.
+    grace_min_0dte: int = 6           # ≥ one full closed 5m bar + slack
+    grace_min_swing: int = 10
+
+    # Exit-confidence scoring.
+    base_threshold: int = 55
+    one_shot_margin: int = 15         # score ≥ thr+margin → exit without 2nd eval
+    deescalate_margin: int = 10       # score < thr−margin → leave EXIT_PENDING
+
+    # Confirmation counts (closed 5m bars / consecutive evaluations).
+    vwap_cross_closes: int = 2        # closes across VWAP itself
+    vwap_band_decay_closes: int = 3   # closes with entry band lost
+    ema9_cross_closes: int = 2
+    regime_confirm_evals: int = 3
+
+    # Profit ladder.
+    partial_at_r: float = 1.0         # first scale-out level (R vs premium stop)
+    partial_fraction: float = 0.5
+    trail_giveback_r: float = 0.5     # after BE-lock, give back ≤ this from HWM
+    trail_lock_frac: float = 0.5      # trail locks this fraction of HWM gain
+
+    # Catastrophic overrides (grace does NOT shield these).
+    catastrophic_adverse_spy_pct: float = 1.0
+    catastrophic_premium_buffer_pct: float = 10.0   # premium loss ≥ iv_stop+buffer
+
+    # Factor weights (binary × weight, capped at 100).
+    w_vwap_full_reversion: int = 25
+    w_vwap_band_decay: int = 10
+    w_ema9_cross: int = 15
+    w_ema21_break: int = 20
+    w_regime_flip: int = 20
+    w_momentum_stall: int = 10
+    w_rsi_reversal: int = 10
+    w_tape_flip: int = 10
+    w_atr_adverse_expansion: int = 15
+    w_delta_decay: int = 10
+
+
+@dataclass
 class SpyOptionsExternalConfig:
     """External signal sources (economic calendar, news, social, macro, flow)."""
 
@@ -413,6 +466,7 @@ class SpyOptionsConfig:
     external: SpyOptionsExternalConfig = field(default_factory=SpyOptionsExternalConfig)
     execution: SpyOptionsExecutionConfig = field(default_factory=SpyOptionsExecutionConfig)
     real_flow: SpyOptionsRealFlowConfig = field(default_factory=SpyOptionsRealFlowConfig)
+    exit_engine: SpyOptionsExitEngineConfig = field(default_factory=SpyOptionsExitEngineConfig)
 
     # Regime-first, structure-based rules layer (added Apr 22 2026 after Apr 21 postmortem).
     # Defaults to enabled=False — turning this on replaces the legacy directional

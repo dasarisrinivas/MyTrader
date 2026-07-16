@@ -29,6 +29,16 @@ from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
 from .analytics_db import AnalyticsDB
 from .chain_builder import ChainSnapshot, OptionQuote, VolumeTracker, passes_liquidity
+from .exit_engine import (
+    FULL_EXIT,
+    HOLD,
+    PARTIAL_EXIT,
+    TRAIL_STOP,
+    ExitDecision,
+    ExitEngine,
+    ExitSnapshot,
+    PositionExitState,
+)
 from .edge_reality import (
     compute_edge_reality,
     default_target_pct,
@@ -177,6 +187,18 @@ class SpyOptionsManager:
         # dedup_key → {signal, entry_price, entry_regime, sent_at}
         self._active_signals: Dict[str, Dict] = {}
         self._exit_sent: Set[str] = set()  # dedup_keys for which exit was already sent
+
+        # Exit Engine v2 (JUL 14 2026, docs/SPY_EXIT_ENGINE_DESIGN.md).
+        # shadow_mode=True → evaluates+logs only; legacy triggers keep acting.
+        _ee_cfg = getattr(cfg, "exit_engine", None)
+        self._exit_engine: Optional[ExitEngine] = (
+            ExitEngine(_ee_cfg) if _ee_cfg is not None and _ee_cfg.enabled else None
+        )
+        self._exit_states: Dict[str, PositionExitState] = {}
+        # Per-poll snapshot inputs for the exit engine (stashed in _poll).
+        self._last_bars_5m: List[Dict] = []
+        self._last_rsi_5m: float = 50.0
+        self._last_vix: Optional[float] = None
 
         # Option conid resolution cache: (expiry_month, strike, right) → conid
         self._conid_map: Dict[tuple, int] = {}
@@ -367,6 +389,7 @@ class SpyOptionsManager:
             self._tracker.reset()
             self._sweep_tracker.reset()
             self._tech_tracker.reset()
+            self._exit_states.clear()
             self._conid_map.clear()
             self._conid_details.clear()
             self._vix_history.clear()
@@ -666,6 +689,11 @@ class SpyOptionsManager:
         if _oc and _oc.get("pdh") and _oc.get("pdl") and _oc.get("pdc"):
             _prev_ohlc = (_oc["pdh"], _oc["pdl"], _oc["pdc"])
         tech_levels = self._tech_tracker.update(bars_5m, spy_price, vix, prev_ohlc=_prev_ohlc)
+        # Stash per-poll inputs for the exit engine (closed bars only — the
+        # forming bar is already excluded by get_spy_bars_5m).
+        self._last_bars_5m = bars_5m
+        self._last_rsi_5m = float(getattr(tech_levels, "rsi_5m", 50.0) or 50.0)
+        self._last_vix = vix
 
         # Refresh external signals (TTL-gated; most sources won't re-fetch every 60s)
         ext_ctx = None
@@ -1486,6 +1514,7 @@ class SpyOptionsManager:
                         if ext_ctx_now else "INSIDE_1SD"
                     ),
                     "entry_dte": getattr(sig, "dte", 1),
+                    "entry_rsi": self._last_rsi_5m,
                     "sent_at": now,
                 }
 
@@ -1874,6 +1903,40 @@ class SpyOptionsManager:
                             f"adverse / ${entry_mid:.2f} mid{gam_tag}"
                         )
 
+            # ── Exit Engine v2 (JUL 14 2026) ──────────────────────────────
+            # Shadow mode: evaluate + log next to the legacy decision, then
+            # let the legacy triggers act. Active mode: the engine decision
+            # REPLACES the legacy triggers for this signal entirely.
+            ee_dec: Optional[ExitDecision] = None
+            if self._exit_engine is not None:
+                snap = self._build_exit_snapshot(
+                    key, entry, sig, direction, spy_price, entry_price,
+                    price_chg_pct, minutes_held, regime_ctx, ext_ctx,
+                )
+                if snap is not None:
+                    st = self._exit_states.get(key)
+                    if st is None:
+                        st = PositionExitState()
+                        self._exit_states[key] = st
+                    ee_dec = self._exit_engine.evaluate(st, snap)
+                    _shadow = getattr(self._cfg.exit_engine, "shadow_mode", True)
+                    if ee_dec.action != HOLD or reasons or ee_dec.score >= 25:
+                        logger.info(
+                            "🧭 ExitEngine[{}] {}: {} score={}/{} stage={} "
+                            "[{}] — {}{}",
+                            "SHADOW" if _shadow else "ACTIVE", key,
+                            ee_dec.action, ee_dec.score, ee_dec.threshold,
+                            ee_dec.stage, ee_dec.factors_str(), ee_dec.reason,
+                            (f" | legacy={'EXIT: ' + reasons[0][:60] if reasons else 'hold'}"
+                             if _shadow else ""),
+                        )
+                    if not _shadow:
+                        await self._apply_exit_decision(
+                            key, sig, entry, ee_dec, spy_price, entry_price,
+                            regime_ctx,
+                        )
+                        continue   # legacy triggers fully replaced
+
             if reasons:
                 logger.info(
                     "EXIT trigger for {}: {}", key, " | ".join(reasons),
@@ -1946,6 +2009,186 @@ class SpyOptionsManager:
         for k in expired_keys:
             self._active_signals.pop(k, None)
             self._exit_sent.discard(k)
+            self._exit_states.pop(k, None)
+
+    # ── Exit Engine v2 adapter ────────────────────────────────────────────────
+
+    def _build_exit_snapshot(
+        self,
+        key: str,
+        entry: Dict,
+        sig: SpySignal,
+        direction: str,
+        spy_price: float,
+        entry_price: float,
+        price_chg_pct: float,
+        minutes_held: float,
+        regime_ctx: RegimeContext,
+        ext_ctx,
+    ) -> Optional[ExitSnapshot]:
+        """Assemble the engine's inputs from per-poll data. Returns None when
+        essential inputs (closed bars / regime indicators) are unavailable —
+        the engine then simply doesn't evaluate this poll."""
+        bars = self._last_bars_5m
+        if not bars or not regime_ctx or regime_ctx.ema9 <= 0:
+            return None
+        last_bar = bars[-1]
+        bull = direction == "BULLISH"
+
+        favorable_pct = price_chg_pct if bull else -price_chg_pct
+        spy_adverse_pct = max(0.0, -favorable_pct)
+
+        # Premium economics: executor fill when held, else signal quote.
+        entry_mid = 0.0
+        stop_pct = float(sig.iv_adjusted_stop_pct or 0.0)
+        pos = None
+        if self._executor is not None:
+            pos = self._executor._positions.get(key)  # noqa: SLF001 — same package
+        if pos is not None and not pos.closed and pos.entry_filled:
+            entry_mid = float(pos.parent.orderStatus.avgFillPrice or pos.entry_mid)
+            stop_pct = float(pos.stop_pct or stop_pct)
+        elif sig.bid and sig.ask:
+            entry_mid = (sig.bid + sig.ask) / 2.0
+
+        unrealized_r: Optional[float] = None
+        premium_loss_pct_est = 0.0
+        if entry_mid > 0 and sig.delta:
+            spy_move = spy_price - entry_price
+            est_chg = abs(sig.delta) * (spy_move if bull else -spy_move)
+            if stop_pct > 0:
+                unrealized_r = est_chg / (entry_mid * stop_pct / 100.0)
+            if est_chg < 0:
+                gam = max(1.0, float(sig.gamma_accel_mult or 1.0))
+                premium_loss_pct_est = -est_chg / entry_mid * 100.0 * gam
+
+        now_et = datetime.now(ET)
+        time_stop_min = (
+            getattr(self._cfg.signals, "exit_time_stop_0dte_min", 45)
+            if entry.get("entry_dte", 1) == 0
+            else getattr(self._cfg.signals, "exit_time_stop_swing_min", 90)
+        )
+        tape = None
+        if ext_ctx is not None and getattr(ext_ctx, "tape_available", False):
+            tape = getattr(ext_ctx, "tape_score", None)
+
+        bar_ts = last_bar.get("date")
+        return ExitSnapshot(
+            direction=direction,
+            spy_price=spy_price,
+            entry_spy=entry_price,
+            last_bar_ts=str(bar_ts),
+            last_close=float(last_bar.get("close", spy_price)),
+            last_bar_range=float(last_bar.get("high", 0.0)) - float(last_bar.get("low", 0.0)),
+            vwap=float(regime_ctx.vwap or 0.0),
+            ema9=float(regime_ctx.ema9 or 0.0),
+            ema21=float(regime_ctx.ema21 or 0.0),
+            ema9_slope=float(regime_ctx.ema_slope or 0.0),
+            rsi_5m=self._last_rsi_5m,
+            atr14=float(regime_ctx.atr14 or 0.0),
+            vwap_band=(
+                getattr(ext_ctx, "vwap_band_position", "INSIDE_1SD")
+                if ext_ctx is not None else "INSIDE_1SD"
+            ),
+            regime=regime_ctx.regime,
+            minutes_held=minutes_held,
+            max_hold_min=float(time_stop_min),
+            dte=int(entry.get("entry_dte", 1)),
+            is_late_0dte=(entry.get("entry_dte", 1) == 0 and now_et.time() >= time(14, 0)),
+            vix=self._last_vix,
+            tape_score=tape,
+            delta_now=None,   # live per-position greeks not refreshed; factor inert
+            unrealized_r=unrealized_r,
+            premium_loss_pct_est=premium_loss_pct_est,
+            spy_adverse_pct=spy_adverse_pct,
+            entry_vwap_band=entry.get("entry_vwap_band", "INSIDE_1SD"),
+            entry_regime=entry.get("entry_regime", ""),
+            entry_tier=str(getattr(sig, "confidence_tier", "") or ""),
+            entry_confidence=float(getattr(sig, "confidence", 0.0) or 0.0),
+            entry_rsi=entry.get("entry_rsi"),
+            entry_delta=float(sig.delta or 0.0) or None,
+            iv_stop_pct=stop_pct,
+        )
+
+    async def _apply_exit_decision(
+        self,
+        key: str,
+        sig: SpySignal,
+        entry: Dict,
+        dec: ExitDecision,
+        spy_price: float,
+        entry_price: float,
+        regime_ctx: RegimeContext,
+    ) -> None:
+        """ACTIVE mode: execute the engine's decision with the same
+        bookkeeping the legacy trigger block performs (alert, _exit_sent,
+        executor close, analytics outcome)."""
+        held = (
+            self._executor is not None
+            and self._executor.has_open_position(key)
+        )
+        if dec.action == HOLD:
+            return
+
+        if dec.action in (PARTIAL_EXIT, TRAIL_STOP):
+            if not held:
+                return   # alert-only signal: ladder actions are meaningless
+            pos = self._executor._positions.get(key)  # noqa: SLF001
+            entry_mid = float(pos.parent.orderStatus.avgFillPrice or pos.entry_mid)
+            stop_pct = float(pos.stop_pct or sig.iv_adjusted_stop_pct or 15.0)
+            if dec.new_stop_r is not None:
+                new_stop = entry_mid * (1 + dec.new_stop_r * stop_pct / 100.0)
+                await self._executor.move_stop(key, new_stop)
+            if dec.action == PARTIAL_EXIT and dec.fraction > 0:
+                await self._executor.partial_close(key, dec.fraction, dec.reason)
+            return
+
+        # FULL_EXIT — mirror the legacy action block.
+        reason_line = (
+            f"🧭 ExitEngine: {dec.reason} "
+            f"(score {dec.score}/{dec.threshold}: {dec.factors_str()})"
+        )
+        logger.info("EXIT (engine) for {}: {}", key, reason_line)
+        await self._send_exit_alert(
+            sig, spy_price, entry_price, [reason_line], regime_ctx.regime
+        )
+        self._exit_sent.add(key)
+        if held:
+            try:
+                await self._executor.close_position(key, dec.reason[:120])
+            except Exception as exc:
+                logger.opt(exception=True).error(
+                    "Executor close on engine exit failed for {}: {}", key, exc,
+                )
+        if self._analytics:
+            _r = dec.reason
+            if "max hold" in _r:
+                label = "time_stop"
+            elif "catastrophic" in _r:
+                label = "adverse_move"
+            else:
+                label = "exit_confidence"
+            # Same win/loss/scratch classification as the legacy block.
+            direction = self._signal_direction(sig)
+            raw_pct = (spy_price - entry_price) / entry_price * 100.0
+            fav_pct = raw_pct if direction == "BULLISH" else (
+                -raw_pct if direction == "BEARISH" else 0.0
+            )
+            outcome_label = (
+                "win" if fav_pct > 0.1 else "loss" if fav_pct < -0.1 else "scratch"
+            )
+            try:
+                db_id = self._analytics.find_signal_id(sig)
+                if db_id is not None:
+                    self._analytics.record_outcome(
+                        signal_id=db_id,
+                        outcome=outcome_label,
+                        spy_price_exit=spy_price,
+                        exit_trigger=label,
+                        direction=direction,
+                        entry_price=entry_price,
+                    )
+            except Exception as exc:
+                logger.warning("Engine exit record_outcome failed: {}", exc)
 
     async def _send_exit_alert(
         self,
