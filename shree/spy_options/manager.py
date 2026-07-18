@@ -195,6 +195,12 @@ class SpyOptionsManager:
             ExitEngine(_ee_cfg) if _ee_cfg is not None and _ee_cfg.enabled else None
         )
         self._exit_states: Dict[str, PositionExitState] = {}
+
+        # Shadow book (strategy audit 2026-07-17): BLOCKED signals tracked with
+        # the same simulated-exit semantics as dispatched ones, persisted with
+        # blocked_gate set — the counterfactual data for strategy selection.
+        self._shadow_signals: Dict[str, Dict] = {}
+        self._shadow_cooldown: Dict[str, datetime] = {}
         # Per-poll snapshot inputs for the exit engine (stashed in _poll).
         self._last_bars_5m: List[Dict] = []
         self._last_rsi_5m: float = 50.0
@@ -388,6 +394,82 @@ class SpyOptionsManager:
                 n += 1
         return n
 
+    def _register_shadow(self, sig: SpySignal, gate: str) -> None:
+        """Shadow book: give a BLOCKED signal the same simulated-exit tracking
+        as a dispatched one, persisted with blocked_gate set. 45-min cooldown
+        per (gate, dedup_key) — repeated per-poll kills of the same setup are
+        one sample, not seventy. Best-effort; never blocks the signal path."""
+        try:
+            if sig.right not in ("C", "P") or not sig.spy_price:
+                return
+            direction = self._signal_direction(sig)
+            if direction not in ("BULLISH", "BEARISH"):
+                return
+            key = f"{gate}:{sig.dedup_key}"
+            now = datetime.utcnow()
+            if key in self._shadow_signals:
+                return
+            cd = self._shadow_cooldown.get(key)
+            if cd and (now - cd) < timedelta(minutes=45):
+                return
+            if len(self._shadow_signals) >= 60:      # runaway guard
+                return
+            db_id = None
+            if self._analytics:
+                self._analytics.insert(sig)
+                db_id = self._analytics.find_signal_id(sig)
+                if db_id:
+                    self._analytics.mark_blocked(db_id, gate)
+            self._shadow_cooldown[key] = now
+            self._shadow_signals[key] = {
+                "db_id": db_id,
+                "entry_price": float(sig.spy_price),
+                "direction": direction,
+                "dte": int(sig.dte or 1),
+                "sent_at": now,
+            }
+        except Exception as exc:
+            logger.debug("shadow register failed: {}", exc)
+
+    def _simulate_shadow_exits(self, spy_price: float) -> None:
+        """Resolve shadow-book entries with the SAME trigger semantics as the
+        dispatched-signal simulator (profit +0.5% / adverse −0.5%,−1.0% /
+        time-stop 45|90min, win/loss/scratch at ±0.1%) so blocked-vs-dispatched
+        expectancy is apples-to-apples."""
+        if not self._shadow_signals or spy_price <= 0:
+            return
+        now = datetime.utcnow()
+        for key, se in list(self._shadow_signals.items()):
+            age_min = (now - se["sent_at"]).total_seconds() / 60.0
+            chg = (spy_price - se["entry_price"]) / se["entry_price"] * 100.0
+            fav = chg if se["direction"] == "BULLISH" else -chg
+            trigger = None
+            outcome = "scratch"
+            if fav >= 0.5:
+                trigger, outcome = "profit_target", "win"
+            elif fav <= -1.0:
+                trigger, outcome = "adverse_move", "loss"
+            elif fav <= -0.5:
+                trigger, outcome = "adverse_move", "loss"
+            elif age_min >= (45 if se["dte"] == 0 else 90):
+                trigger = "time_stop"
+                outcome = ("win" if fav > 0.1 else
+                           "loss" if fav < -0.1 else "scratch")
+            if trigger:
+                if self._analytics and se.get("db_id"):
+                    try:
+                        self._analytics.record_outcome(
+                            signal_id=se["db_id"], outcome=outcome,
+                            spy_price_exit=spy_price, exit_trigger=trigger,
+                            direction=se["direction"],
+                            entry_price=se["entry_price"],
+                        )
+                    except Exception as exc:
+                        logger.debug("shadow outcome failed: {}", exc)
+                self._shadow_signals.pop(key, None)
+            elif age_min > 360:                      # stale — drop unresolved
+                self._shadow_signals.pop(key, None)
+
     def _market_open(self) -> bool:
         now = datetime.now(ET)
         if now.weekday() >= 5:
@@ -411,6 +493,8 @@ class SpyOptionsManager:
             self._sweep_tracker.reset()
             self._tech_tracker.reset()
             self._exit_states.clear()
+            self._shadow_signals.clear()
+            self._shadow_cooldown.clear()
             self._conid_map.clear()
             self._conid_details.clear()
             self._vix_history.clear()
@@ -1003,6 +1087,9 @@ class SpyOptionsManager:
                     max_pain_computed = True
 
                 all_signals.extend(self._engine.evaluate(chain, ctx, self._sweep_tracker))
+                # Shadow book: engine-level kills (quality gate / threshold).
+                for _bsig, _bgate in getattr(self._engine, "last_blocked", []):
+                    self._register_shadow(_bsig, _bgate)
             else:
                 logger.info("Chain {}: empty (all options filtered out or no conids)", expiry)
 
@@ -1112,6 +1199,9 @@ class SpyOptionsManager:
         # Check whether any previously-sent signals now warrant an EXIT alert
         await self._check_exit_conditions(spy_price, regime_ctx)
 
+        # Resolve shadow-book (blocked-signal) simulated exits.
+        self._simulate_shadow_exits(spy_price)
+
         # Executor maintenance: fill detection, entry timeouts, position time
         # stops, 0DTE EOD flatten, bracket-exit P&L accounting. Same helper is
         # invoked on the early-return paths above so exits never stall.
@@ -1210,6 +1300,7 @@ class SpyOptionsManager:
                 engine.commit(sig.right, spy_price, now=now)
             else:
                 log_blocked_signal(sig, f"rules_v2:{decision.rule}", decision.reason)
+                self._register_shadow(sig, f"rules_v2:{decision.rule}")
                 logger.info(
                     "rules_v2 BLOCK {} {} @{:.2f}  rule={}  reason={}",
                     sig.signal_type.value, sig.right, spy_price,

@@ -900,6 +900,12 @@ class SignalEngine:
     ) -> List[SpySignal]:
         """Run all signal rules against the chain snapshot.
 
+        Side channel: ``self.last_blocked`` — (sig, gate) tuples for signals
+        killed by the quality gate / confidence threshold this cycle, so the
+        manager can register them in the shadow book (strategy audit
+        2026-07-17: blocked signals get simulated outcomes too, or per-family
+        expectancy is unmeasurable).
+
         Args:
             chain:         Current option chain data for one expiry.
             context:       Per-poll regime, sentiment, IV rank, VIX, SPY price.
@@ -910,6 +916,7 @@ class SignalEngine:
         """
         c = self._cfg
         signals: List[SpySignal] = []
+        self.last_blocked: List[tuple] = []   # (sig, gate) — shadow-book feed
 
         # Sync the intraday high/low tracker with the TRUE session range from
         # bars before any gate reads it (restart-proofing — see SignalContext).
@@ -1161,7 +1168,10 @@ class SignalEngine:
             _regime_up = context.regime.regime == "TREND_UP"
             _vwap_bull = _vwap_pos in ("ABOVE_1SD", "ABOVE_2SD")
             _bull_flags = sum([_regime_up, _vwap_bull, _above_pdh, _orb_bull])
-            if _bull_flags >= 2:
+            # Default OFF: duplicates rules_v2 pc_ratio_alignment with a
+            # DIFFERENT regime classifier (audit CRIT — signal survived only
+            # when classifiers disagreed). rules_v2 is the single authority.
+            if c.pc_structural_block_enabled and _bull_flags >= 2:
                 _pc_put_blocked = [
                     s for s in signals
                     if s.signal_type == SignalType.PC_RATIO_EXTREME and s.right == "P"
@@ -1184,7 +1194,7 @@ class SignalEngine:
                 and getattr(ext, "orb_status", "INSIDE") == "BELOW_ORB"
             )
             _bear_flags = sum([_regime_dn, _vwap_bear, _below_pdl, _orb_bear])
-            if _bear_flags >= 2:
+            if c.pc_structural_block_enabled and _bear_flags >= 2:
                 _pc_call_blocked = [
                     s for s in signals
                     if s.signal_type == SignalType.PC_RATIO_EXTREME and s.right == "C"
@@ -1226,6 +1236,7 @@ class SignalEngine:
                 quality_passed.append(sig)
             else:
                 quality_blocked.append(sig)
+                self.last_blocked.append((sig, "quality_gate"))
                 log_blocked_signal(sig, "quality_gate", "; ".join(fail_reasons))
                 for reason in fail_reasons:
                     logger.info(
@@ -1244,6 +1255,7 @@ class SignalEngine:
         rejected = [s for s in signals if s.confidence < c.min_confidence]
         if rejected:
             for s in rejected:
+                self.last_blocked.append((s, "confidence_threshold"))
                 log_blocked_signal(
                     s, "confidence_threshold",
                     f"conf {s.confidence:.2f} < min {c.min_confidence:.2f}",
@@ -2506,7 +2518,10 @@ class SignalEngine:
         # that loses 3 out of 4 times — hard gate at 11:30 ET instead.
         _ET = ZoneInfo("America/New_York")
         now_et = _dt.datetime.now(_ET)
-        if now_et.time() >= _dt.time(11, 30):
+        # Default OFF: this duplicated rules_v2 orb_gate's window with a
+        # DIFFERENT cutoff (11:30 here vs the v2 window) — ORB paid two time
+        # gates in two files. rules_v2 orb_gate is the single authority.
+        if c.orb_engine_time_gate_enabled and now_et.time() >= _dt.time(11, 30):
             logger.info(
                 "ORB time gate: {} ET is past 11:30 — late breakouts won only "
                 "25% in backtest, suppressing",

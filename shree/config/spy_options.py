@@ -122,6 +122,16 @@ class SpyOptionsSignalConfig:
     # After this limit, all further signals are suppressed until daily reset.
     # Prevents signal flooding (e.g. 55 signals in 3 days).
     max_signals_per_day: int = 10
+    # ── Single-authority regime gating (strategy audit 2026-07-17) ────────
+    # Legacy engine-internal blocks duplicated rules_v2 gates using a DIFFERENT
+    # regime classifier — PC_RATIO survived only when the two classifiers
+    # disagreed (audit CRIT), and ORB paid two time-gates in two files with
+    # different cutoffs (engine 11:30 hard vs rules_v2 window). Default OFF:
+    # rules_v2 (pc_ratio_alignment / orb_gate) is the sole authority.
+    # Set True ONLY if running with rules_v2 disabled.
+    pc_structural_block_enabled: bool = False
+    orb_engine_time_gate_enabled: bool = False
+
     # Dispatch right='BOTH' (straddle) signals? OFF by default — the executor
     # structurally rejects them (51 dispatched all-time, 0 tradeable, 0 decided
     # outcomes) so they only consumed the daily signal cap. Re-enable for

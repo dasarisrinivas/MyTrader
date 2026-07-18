@@ -176,6 +176,20 @@ _MIGRATIONS = [
     "ALTER TABLE spy_signals ADD COLUMN round_trip_cost_pct REAL",
     "ALTER TABLE spy_signals ADD COLUMN net_pl_pct REAL",
     "ALTER TABLE spy_signals ADD COLUMN dollar_net_pnl_1ct REAL",
+    # Strategy audit 2026-07-17: NULL = actually dispatched; 'gate' string =
+    # shadow-book row for a BLOCKED signal (never sent/traded). All expectancy
+    # queries MUST split on this column — never mix live/dispatched/blocked.
+    "ALTER TABLE spy_signals ADD COLUMN blocked_gate TEXT",
+    # v6 REAL executor fills (JUL 2 2026) — actual option premiums and P&L
+    # from live bracket orders, as opposed to the delta×spot ESTIMATES in the
+    # v3/v4 columns. These are the ground truth the empirical WR loop uses.
+    "ALTER TABLE spy_signals ADD COLUMN fill_entry_premium REAL",
+    "ALTER TABLE spy_signals ADD COLUMN fill_exit_premium REAL",
+    "ALTER TABLE spy_signals ADD COLUMN fill_qty INTEGER",
+    "ALTER TABLE spy_signals ADD COLUMN fill_pnl_usd REAL",
+    "ALTER TABLE spy_signals ADD COLUMN fill_exit_reason TEXT",
+    "ALTER TABLE spy_signals ADD COLUMN fill_entry_at TEXT",
+    "ALTER TABLE spy_signals ADD COLUMN fill_exit_at TEXT",
 ]
 
 
@@ -302,6 +316,17 @@ class AnalyticsDB:
         except Exception as exc:
             logger.warning("AnalyticsDB insert failed: {}", exc)
 
+    def mark_blocked(self, signal_id: int, gate: str) -> None:
+        """Tag a freshly inserted row as a shadow-book (blocked) sample."""
+        try:
+            self._conn.execute(
+                "UPDATE spy_signals SET blocked_gate=? WHERE id=?",
+                (gate[:60], signal_id),
+            )
+            self._conn.commit()
+        except Exception as exc:
+            logger.warning("mark_blocked failed: {}", exc)
+
     def find_signal_id(self, sig: "SpySignal") -> Optional[int]:
         """Return the DB row id of the most recently inserted row matching
         this signal's type, strike, right, and expiry.  Returns None if not found.
@@ -320,6 +345,111 @@ class AnalyticsDB:
             return row[0] if row else None
         except Exception as exc:
             logger.warning("find_signal_id failed: {}", exc)
+            return None
+
+    # ── REAL executor fills (v6, JUL 2 2026) ─────────────────────────────────
+
+    def _find_id_any_outcome(self, sig: "SpySignal") -> Optional[int]:
+        """Like find_signal_id but without the outcome='open' filter.
+
+        The exit monitor may classify a spy-move outcome before the executor
+        records its real fill exit in the same poll cycle — the fill data must
+        still land on the row.
+        """
+        try:
+            row = self._conn.execute(
+                """
+                SELECT id FROM spy_signals
+                WHERE signal_type=? AND strike=? AND right=? AND expiry=?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (sig.signal_type.value, sig.strike, sig.right, sig.expiry),
+            ).fetchone()
+            return row[0] if row else None
+        except Exception as exc:
+            logger.warning("_find_id_any_outcome failed: {}", exc)
+            return None
+
+    def record_fill_entry(
+        self, sig: "SpySignal", premium: float, qty: int
+    ) -> Optional[int]:
+        """Record a REAL entry fill from the executor. Returns the row id."""
+        row_id = self._find_id_any_outcome(sig)
+        if row_id is None:
+            logger.warning(
+                "record_fill_entry: no analytics row for {} {}{} {}",
+                sig.signal_type.value, sig.strike, sig.right, sig.expiry,
+            )
+            return None
+        try:
+            self._conn.execute(
+                "UPDATE spy_signals SET fill_entry_premium=?, fill_qty=?, "
+                "fill_entry_at=? WHERE id=?",
+                (premium, qty, datetime.utcnow().isoformat(), row_id),
+            )
+            self._conn.commit()
+            return row_id
+        except Exception as exc:
+            logger.warning("record_fill_entry failed: {}", exc)
+            return None
+
+    def record_fill_exit(
+        self,
+        sig: "SpySignal",
+        exit_premium: float,
+        pnl_usd: float,
+        reason: str,
+    ) -> None:
+        """Record a REAL exit fill (bracket TP/SL, bot exit, EOD flatten)."""
+        row_id = self._find_id_any_outcome(sig)
+        if row_id is None:
+            logger.warning(
+                "record_fill_exit: no analytics row for {} {}{} {}",
+                sig.signal_type.value, sig.strike, sig.right, sig.expiry,
+            )
+            return
+        try:
+            self._conn.execute(
+                "UPDATE spy_signals SET fill_exit_premium=?, fill_pnl_usd=?, "
+                "fill_exit_reason=?, fill_exit_at=? WHERE id=?",
+                (exit_premium, pnl_usd, reason[:120],
+                 datetime.utcnow().isoformat(), row_id),
+            )
+            self._conn.commit()
+            logger.info(
+                "Analytics: REAL fill exit recorded id={} pnl=${:+.0f} ({})",
+                row_id, pnl_usd, reason[:60],
+            )
+        except Exception as exc:
+            logger.warning("record_fill_exit failed: {}", exc)
+
+    def empirical_win_rate(
+        self, signal_type: str, min_n: int = 30
+    ) -> Optional[Dict]:
+        """Empirical win rate from REAL executor fills only (JUL 2 2026).
+
+        Returns {"wr": int_percent, "n": count, "avg_pnl_usd": float} when at
+        least ``min_n`` real closed fills exist for this signal type, else
+        None (caller keeps the doc prior). Deliberately ignores the delta×spot
+        estimated outcomes — those measure SPY direction, not option P&L.
+        """
+        try:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS n,
+                       SUM(CASE WHEN fill_pnl_usd > 0 THEN 1 ELSE 0 END) AS wins,
+                       AVG(fill_pnl_usd) AS avg_pnl
+                FROM spy_signals
+                WHERE signal_type=? AND fill_pnl_usd IS NOT NULL
+                """,
+                (signal_type,),
+            ).fetchone()
+            if not row or row[0] is None or row[0] < min_n:
+                return None
+            n, wins, avg_pnl = int(row[0]), int(row[1] or 0), float(row[2] or 0.0)
+            return {"wr": round(wins / n * 100), "n": n, "avg_pnl_usd": round(avg_pnl, 2)}
+        except Exception as exc:
+            logger.warning("empirical_win_rate failed: {}", exc)
             return None
 
     def record_outcome(
