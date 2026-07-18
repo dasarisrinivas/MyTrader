@@ -122,6 +122,11 @@ class SpyOptionsSignalConfig:
     # After this limit, all further signals are suppressed until daily reset.
     # Prevents signal flooding (e.g. 55 signals in 3 days).
     max_signals_per_day: int = 10
+    # Dispatch right='BOTH' (straddle) signals? OFF by default — the executor
+    # structurally rejects them (51 dispatched all-time, 0 tradeable, 0 decided
+    # outcomes) so they only consumed the daily signal cap. Re-enable for
+    # alert-only straddle ideas. (strategy audit 2026-07-17)
+    dispatch_non_directional: bool = False
 
     # Repeat sweep detection window — same strike flagged N× within this boosts score
     sweep_window_minutes: int = 15

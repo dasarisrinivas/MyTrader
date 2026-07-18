@@ -55,7 +55,7 @@ from .ib_client import IBOptionsClient
 from .regime_detector import RegimeContext, RegimeDetector
 from .rules_v2.engine import EngineInputs, RulesV2Engine
 from .sentiment_engine import SentimentContext, SentimentEngine
-from .signal_engine import SignalContext, SignalEngine, SignalType, SpySignal, _tier
+from .signal_engine import log_blocked_signal, SignalContext, SignalEngine, SignalType, SpySignal, _tier
 from .sweep_tracker import SweepTracker
 from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 from .real_flow import RealFlowFeed, RealFlowState
@@ -1209,6 +1209,7 @@ class SpyOptionsManager:
                 kept.append(sig)
                 engine.commit(sig.right, spy_price, now=now)
             else:
+                log_blocked_signal(sig, f"rules_v2:{decision.rule}", decision.reason)
                 logger.info(
                     "rules_v2 BLOCK {} {} @{:.2f}  rule={}  reason={}",
                     sig.signal_type.value, sig.right, spy_price,
@@ -1371,6 +1372,18 @@ class SpyOptionsManager:
 
         for sig in signals:
             key = sig.dedup_key
+            # ── Non-directional structures never trade — stop burning slots ──
+            # LONG_STRADDLE (right='BOTH'): 51 dispatched all-time, 0 tradeable
+            # (executor structurally rejects right∉{C,P}), 0 decided shadow
+            # outcomes — pure noise consuming the max_signals_per_day cap (9 of
+            # the last 2 weeks' budget). Alert-only value can be re-enabled via
+            # signals.dispatch_non_directional. (strategy audit 2026-07-17)
+            if sig.right not in ("C", "P") and not getattr(
+                self._cfg.signals, "dispatch_non_directional", False
+            ):
+                log_blocked_signal(sig, "non_directional_skip",
+                                   "right=BOTH untradeable — dispatch disabled")
+                continue
             # ── Daily signal cap ──────────────────────────────────────────────
             if self._daily_signal_count >= daily_cap:
                 logger.info(

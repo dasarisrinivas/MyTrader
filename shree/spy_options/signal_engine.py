@@ -313,6 +313,40 @@ class SpySignal:
         return f"{self.signal_type}:{self.strike:.0f}:{self.right}"
 
 
+def log_blocked_signal(sig: "SpySignal", gate: str, reason: str) -> None:
+    """Opportunity-cost ledger: one JSONL line per pre-dispatch kill.
+
+    Strategy-selection audit 2026-07-17: ~2,500 gate kills vs ~40 dispatches
+    in 2 weeks, and the only family allowed to trade (TREND_CONTINUATION) has
+    the WORST shadow win-rate of all families (33% vs ORB 75%). Statistical
+    strategy selection is impossible without recording what the filters
+    rejected — this file is the forward-looking counterfactual record.
+    Best-effort: never raises, never blocks the signal path.
+    """
+    try:
+        import json
+        import os
+        rec = {
+            "ts": datetime.utcnow().isoformat(),
+            "gate": gate,
+            "reason": (reason or "")[:160],
+            "signal_type": getattr(sig.signal_type, "value", str(sig.signal_type)),
+            "right": sig.right,
+            "strike": sig.strike,
+            "expiry": sig.expiry,
+            "confidence": round(float(sig.confidence or 0.0), 4),
+            "tier": getattr(sig, "confidence_tier", ""),
+            "regime": getattr(sig, "regime", ""),
+            "spy_price": sig.spy_price,
+            "dte": getattr(sig, "dte", None),
+        }
+        os.makedirs("logs", exist_ok=True)
+        with open("logs/blocked_signals.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+
+
 def _tier(confidence: float, high: float = 0.80, extreme: float = 0.90) -> str:
     """Return the confidence tier label for a given confidence score.
 
@@ -1192,6 +1226,7 @@ class SignalEngine:
                 quality_passed.append(sig)
             else:
                 quality_blocked.append(sig)
+                log_blocked_signal(sig, "quality_gate", "; ".join(fail_reasons))
                 for reason in fail_reasons:
                     logger.info(
                         "Quality gate BLOCKED: {} {} {}{} conf={:.0f}% — {}",
@@ -1209,6 +1244,10 @@ class SignalEngine:
         rejected = [s for s in signals if s.confidence < c.min_confidence]
         if rejected:
             for s in rejected:
+                log_blocked_signal(
+                    s, "confidence_threshold",
+                    f"conf {s.confidence:.2f} < min {c.min_confidence:.2f}",
+                )
                 logger.info(
                     "Signal below threshold: {} {} {}{} conf={:.1f}% (need {:.0f}%)",
                     s.signal_type.value, s.expiry, s.strike, s.right,
