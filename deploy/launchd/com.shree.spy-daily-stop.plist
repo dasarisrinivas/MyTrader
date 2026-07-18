@@ -7,8 +7,9 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>/Users/svss/Documents/code/ShreeBot/scripts/stop_trading_day.sh</string>
+        <string>/Users/svss/Documents/code/ShreeBot/.venv/bin/python3</string>
+        <string>/Users/svss/Documents/code/ShreeBot/scripts/run_daily.py</string>
+        <string>stop</string>
     </array>
 
     <key>WorkingDirectory</key>

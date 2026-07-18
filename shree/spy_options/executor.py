@@ -74,6 +74,11 @@ class LivePosition:
     close_reason: str = ""
     realized_pnl: float = 0.0
     exit_reported: bool = False
+    # Deferred exit-fill confirmations (JUL 17 2026): closes whose
+    # avgFillPrice hadn't populated inside the synchronous retry window.
+    # Confirmed on later polls so the P&L is never silently lost.
+    # Each: {"trade","label","qty","entry_px","attempts","kind"}.
+    pending_exits: List[dict] = field(default_factory=list)
     # Entry-chase state (JUL 13 2026): bump the resting entry limit toward the
     # live ask while unfilled, bounded by count and a hard % cap.
     orig_entry_limit: float = 0.0            # original entry limit — chase cap anchor
@@ -744,6 +749,43 @@ class SpyOptionsExecutor:
         now_utc = datetime.utcnow()
         now_et = datetime.now(ET).time()
 
+        # 0. Deferred exit-fill confirmation (JUL 17 2026). A close whose fill
+        #    price hadn't populated in the synchronous retry window is confirmed
+        #    here on later polls instead of losing its P&L forever (2-week audit:
+        #    4 of 11 real fills had no recorded exit; 2 closes UNCONFIRMED on
+        #    Jul 17 alone). Runs for CLOSED positions too — the main loop below
+        #    deliberately skips them.
+        for pos in list(self._positions.values()):
+            for pe in list(pos.pending_exits):
+                px = float(pe["trade"].orderStatus.avgFillPrice or 0.0)
+                pe["attempts"] += 1
+                if px > 0:
+                    pnl = (px - pe["entry_px"]) * pe["qty"] * 100.0
+                    if pe["kind"] == "partial":
+                        self._realized_pnl_today += pnl
+                        logger.info(
+                            "💵 EXEC PARTIAL CONFIRMED (deferred): {}x {} @${:.2f} "
+                            "P&L ${:+.0f} (day ${:+.0f})",
+                            pe["qty"], pos.contract.localSymbol, px, pnl,
+                            self._realized_pnl_today,
+                        )
+                    else:
+                        self._register_close(pos, pe["label"], pnl, exit_premium=px)
+                        logger.info(
+                            "💵 EXEC EXIT CONFIRMED (deferred): {} {} @${:.2f} "
+                            "P&L ${:+.0f} (day ${:+.0f})",
+                            pos.contract.localSymbol, pe["label"], px, pnl,
+                            self._realized_pnl_today,
+                        )
+                    pos.pending_exits.remove(pe)
+                elif pe["attempts"] > 40:   # ~50 min of polls — give up loudly
+                    logger.warning(
+                        "EXEC: exit fill for {} ({}) STILL unconfirmed after {} "
+                        "checks — abandoning; reconcile P&L from IB statement",
+                        pos.contract.localSymbol, pe["label"], pe["attempts"],
+                    )
+                    pos.pending_exits.remove(pe)
+
         for pos in list(self._positions.values()):
             if pos.closed:
                 continue
@@ -831,8 +873,30 @@ class SpyOptionsExecutor:
                 if exit_trade is not None:
                     entry_px = pos.parent.orderStatus.avgFillPrice or pos.entry_mid
                     exit_px = exit_trade.orderStatus.avgFillPrice or 0.0
+                    if exit_px <= 0:
+                        # Child filled but price not yet propagated — defer, do
+                        # NOT record a fabricated $0-exit (audit: rows 203/212).
+                        pos.closed = True
+                        pos.close_reason = f"{exit_label} (fill price pending)"
+                        pos.pending_exits.append({
+                            "trade": exit_trade, "label": exit_label,
+                            "qty": pos.qty, "entry_px": entry_px,
+                            "attempts": 0, "kind": "full",
+                        })
+                        logger.info(
+                            "EXEC {}: {} filled at IB, price pending — deferred "
+                            "confirmation armed", exit_label.upper(),
+                            pos.contract.localSymbol,
+                        )
+                        continue
                     pnl = (exit_px - entry_px) * pos.qty * 100.0
                     self._register_close(pos, exit_label, pnl, exit_premium=exit_px)
+                    logger.info(
+                        "{} EXEC {}: {} ${:.2f} → ${:.2f}  P&L ${:+.0f} (day ${:+.0f})",
+                        "🎯" if exit_label == "take_profit" else "🛑",
+                        exit_label.upper(), pos.contract.localSymbol,
+                        entry_px, exit_px, pnl, self._realized_pnl_today,
+                    )
                     await self._notify(
                         f"{'🎯' if exit_label == 'take_profit' else '🛑'} "
                         f"<b>{exit_label.upper()}</b> {pos.contract.localSymbol}\n"
@@ -927,8 +991,17 @@ class SpyOptionsExecutor:
             if exit_px > 0:
                 break
         entry_px = float(pos.parent.orderStatus.avgFillPrice or pos.entry_mid)
-        pnl = (exit_px - entry_px) * qty_out * 100.0 if exit_px > 0 else 0.0
-        self._realized_pnl_today += pnl
+        if exit_px > 0:
+            pnl = (exit_px - entry_px) * qty_out * 100.0
+            self._realized_pnl_today += pnl
+        else:
+            # Scale-out fill price pending — defer so the partial's P&L is
+            # confirmed on a later poll instead of silently booked as $0.
+            pnl = 0.0
+            pos.pending_exits.append({
+                "trade": sell_trade, "label": "partial", "qty": qty_out,
+                "entry_px": entry_px, "attempts": 0, "kind": "partial",
+            })
         logger.info(
             "💰 EXEC PARTIAL: SOLD {}x {} @{} ({}) — {} remain, P&L ${:+.0f}",
             qty_out, pos.contract.localSymbol,
@@ -1005,25 +1078,59 @@ class SpyOptionsExecutor:
                             f"P&L <b>${pnl:+.0f}</b>  (day: ${self._realized_pnl_today:+.0f})"
                         )
                     else:
-                        # Exit fill never confirmed after retries — mark closed to
-                        # avoid re-sending the close, but do NOT record a fabricated
-                        # breakeven. Flag loudly so the real fill is reconciled from
-                        # the IB account rather than trusting a bad record.
+                        # Exit fill not confirmed inside the retry window — mark
+                        # closed (never re-send), arm DEFERRED confirmation so the
+                        # real P&L lands on a later poll instead of being lost.
                         pos.closed = True
-                        pos.close_reason = f"{reason} (exit fill unconfirmed)"
+                        pos.close_reason = f"{reason} (exit fill pending)"
+                        pos.pending_exits.append({
+                            "trade": exit_trade, "label": f"bot exit: {reason}",
+                            "qty": remaining, "entry_px": entry_px,
+                            "attempts": 0, "kind": "full",
+                        })
                         logger.warning(
-                            "EXEC CLOSE {} — {} — exit fill UNCONFIRMED after retries; "
-                            "P&L NOT recorded (reconcile from IB account)",
+                            "EXEC CLOSE {} — {} — exit fill unconfirmed in window; "
+                            "deferred confirmation armed",
                             pos.contract.localSymbol, reason,
                         )
                 else:
-                    # Already exited via a bracket child; that fill's P&L is
-                    # recorded by on_poll's fill detection.
-                    self._register_close(pos, reason, 0.0)
-                    logger.info(
-                        "EXEC CLOSE {} — {} (exited via bracket child)",
-                        pos.contract.localSymbol, reason,
-                    )
+                    # Already exited via a bracket child. Record the CHILD's real
+                    # fill — previously this registered $0.00 with no exit premium
+                    # and on_poll skips closed positions, so the bracket P&L was
+                    # lost forever (audit: row 233, 750P Jul 15). Find which child
+                    # filled and register (or defer) its actual price.
+                    child, label = None, ""
+                    if int(pos.take_profit.orderStatus.filled or 0) > 0:
+                        child, label = pos.take_profit, "take_profit"
+                    elif int(pos.stop_loss.orderStatus.filled or 0) > 0:
+                        child, label = pos.stop_loss, "stop_loss"
+                    entry_px = pos.parent.orderStatus.avgFillPrice or pos.entry_mid
+                    child_px = float(child.orderStatus.avgFillPrice or 0.0) if child else 0.0
+                    if child is not None and child_px > 0:
+                        pnl = (child_px - entry_px) * remaining * 100.0
+                        self._register_close(pos, label, pnl, exit_premium=child_px)
+                        logger.info(
+                            "EXEC CLOSE {} — {} (bracket {} @${:.2f}, P&L ${:+.0f})",
+                            pos.contract.localSymbol, reason, label, child_px, pnl,
+                        )
+                    elif child is not None:
+                        pos.closed = True
+                        pos.close_reason = f"{label} (fill price pending)"
+                        pos.pending_exits.append({
+                            "trade": child, "label": label, "qty": remaining,
+                            "entry_px": entry_px, "attempts": 0, "kind": "full",
+                        })
+                        logger.info(
+                            "EXEC CLOSE {} — {} (bracket {} filled, price pending — "
+                            "deferred)", pos.contract.localSymbol, reason, label,
+                        )
+                    else:
+                        self._register_close(pos, reason, 0.0)
+                        logger.warning(
+                            "EXEC CLOSE {} — {} (bracket-exit inferred but no child "
+                            "shows fills — P&L unknown, reconcile from IB)",
+                            pos.contract.localSymbol, reason,
+                        )
             else:
                 # Entry order NEVER filled — this is a CANCEL, not a position
                 # close. No fill, no P&L, and it must not look like a trade.
