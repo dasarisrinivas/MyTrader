@@ -10,7 +10,7 @@ Uses ib_insync connecting to the same IB Gateway as the MES/Gold bots (port 4001
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 
 @dataclass
@@ -372,6 +372,15 @@ class SpyOptionsExecutionConfig:
     entry_reprice_interval_s: float = 8.0  # re-post toward the live ask this often while unfilled
     entry_max_reprices: int = 4       # bounded chases before giving up (then normal timeout)
     entry_chase_max_pct: float = 6.0  # never chase the limit >this% above the ORIGINAL entry
+
+    # ── Evidence-tier overrides (2026-07-19) ───────────────────────────────
+    # Feature flags for the family→tier map without a code deploy, e.g.:
+    #   family_tier_overrides:
+    #     TREND_CONTINUATION: "pilot"        # further demote
+    #     PC_AFTERNOON_FLOW: "probation"     # ramp after 5 live fills EV>0
+    # Valid tiers: experimental(0) / pilot(1) / probation(2) / production(3) / core.
+    # Defaults live in executor._FAMILY_TIERS; this map wins where set.
+    family_tier_overrides: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

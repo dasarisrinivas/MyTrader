@@ -61,10 +61,21 @@ def _parse_et(hhmm: str, default: dtime) -> dtime:
 # (Wilson-lo 54.9%, n=24, best evidence in repo but zero live fills);
 # VWAP_REVERSION = experimental (FAILED 60d stress: 47% WR, Wilson-lo 32.5%).
 _FAMILY_TIERS = {
-    "TREND_CONTINUATION": "production",
+    # 2026-07-19 incumbency challenge: "would we build TC today?" → NO on
+    # current evidence (shadow 33% WR, live PF 1.00, replay CI spans zero,
+    # Wilson-lo 8%). Not disproven either (11 live fills, CI reaches +0.17R)
+    # → PROBATION: half-size, must earn production back via scorecard.
+    # Its live losses cluster PUT/afternoon/TREND_DOWN (≈1W/7L pooled) —
+    # watchlist, not yet surgery (n=8 across mixed evidence tiers).
+    "TREND_CONTINUATION": "probation",
+    # Strongest evidence in repo (Wilson-lo 54.9%, n=24, all-regime positive)
+    # but ZERO live fills — live-fill count gates the size ramp, Wilson gates
+    # direction. Ramp: pilot→probation after ≥5 live fills with EV>0.
     "PC_AFTERNOON_FLOW": "pilot",
 }
-_TIER_MAX_QTY = {"experimental": 0, "pilot": 1, "production": 3, "core": 99}
+_TIER_MAX_QTY = {
+    "experimental": 0, "pilot": 1, "probation": 2, "production": 3, "core": 99,
+}
 _PILOT_FAMILIES = {f for f, t in _FAMILY_TIERS.items() if t == "pilot"}
 
 
@@ -574,10 +585,13 @@ class SpyOptionsExecutor:
                 bracket_basis = "structural"
 
         qty = self._size(mid, stop_pct)
-        # Evidence-tier size cap: experimental=0, pilot=1, production=3, core=∞.
-        # Unproven families never trade max size (stress test 2026-07-19).
-        _tier_name = _FAMILY_TIERS.get(sig.signal_type.value, "experimental")
-        qty = min(qty, _TIER_MAX_QTY[_tier_name])
+        # Evidence-tier size cap (config override > code default > experimental).
+        # Unproven families never trade max size (incumbency challenge 2026-07-19).
+        _fam = sig.signal_type.value
+        _tier_name = (
+            getattr(self._cfg, "family_tier_overrides", {}) or {}
+        ).get(_fam) or _FAMILY_TIERS.get(_fam, "experimental")
+        qty = min(qty, _TIER_MAX_QTY.get(_tier_name, 0))
         if qty < 1:
             logger.info(
                 "EXEC gate: {} {}{} not traded — 1-contract stop-risk "
