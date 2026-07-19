@@ -50,6 +50,12 @@ def _parse_et(hhmm: str, default: dtime) -> dtime:
         return default
 
 
+# Families in PILOT status: minimum size (1 contract), rolling auto-kill on
+# negative EV, independent metrics via signal_type in analytics/research logs.
+# Promotion out of pilot = scorecard evidence (see scripts/strategy_scorecard.py).
+_PILOT_FAMILIES = {"PC_AFTERNOON_FLOW"}
+
+
 def _round_tick(price: float) -> float:
     """SPY options trade in $0.01 ticks."""
     return max(0.01, round(price + 1e-9, 2))
@@ -461,6 +467,19 @@ class SpyOptionsExecutor:
             return self._halted_reason
         if sig.dedup_key in self._positions and not self._positions[sig.dedup_key].closed:
             return "already holding this signal"
+
+        # Pilot auto-kill (strategy audit 2026-07-19): a pilot family with
+        # rolling negative realized EV stops trading — automatic demotion,
+        # no human in the loop. Re-enable = clear history via restart after
+        # review, or promote out of pilot status in code.
+        if sig.signal_type.value in _PILOT_FAMILIES:
+            hist = getattr(self, "_family_pnls", {}).get(sig.signal_type.value, [])
+            recent = hist[-6:]
+            if len(recent) >= 4 and sum(recent) < 0:
+                return (
+                    f"pilot {sig.signal_type.value} auto-disabled: rolling EV "
+                    f"${sum(recent):+.0f} over last {len(recent)} trades"
+                )
         return None
 
     def _size(self, mid: float, stop_pct: float) -> int:
@@ -543,6 +562,10 @@ class SpyOptionsExecutor:
                 bracket_basis = "structural"
 
         qty = self._size(mid, stop_pct)
+        # Pilot families trade minimum size until promoted (strategy audit
+        # 2026-07-19): capped at 1 contract regardless of risk budget.
+        if sig.signal_type.value in _PILOT_FAMILIES:
+            qty = min(qty, 1)
         if qty < 1:
             logger.info(
                 "EXEC gate: {} {}{} not traded — 1-contract stop-risk "
@@ -1164,6 +1187,13 @@ class SpyOptionsExecutor:
         pos.close_reason = reason
         pos.realized_pnl = pnl
         self._realized_pnl_today += pnl
+
+        # Per-family realized P&L history — feeds the pilot auto-kill gate.
+        if not hasattr(self, "_family_pnls"):
+            self._family_pnls: Dict[str, List[float]] = {}
+        fam = pos.signal.signal_type.value
+        self._family_pnls.setdefault(fam, []).append(pnl)
+        self._family_pnls[fam] = self._family_pnls[fam][-20:]
 
         # REAL fill → analytics (JUL 2 2026, audit item #2). Ground truth for
         # the empirical WR loop — never estimated.

@@ -156,6 +156,7 @@ class SignalType(str, Enum):
     LONG_STRADDLE      = "LONG_STRADDLE"
     HIGH_IV_ALERT      = "HIGH_IV_ALERT"
     PC_RATIO_EXTREME   = "PC_RATIO_EXTREME"
+    PC_AFTERNOON_FLOW  = "PC_AFTERNOON_FLOW"   # pilot 2026-07-19: ≥14:00 ET extreme-P/C put flow-follow
     ORB_BREAKOUT       = "ORB_BREAKOUT"   # Opening Range Breakout — confirmed directional move
     TREND_CONTINUATION = "TREND_CONTINUATION"  # Pullback-to-anchor rejection in TREND_UP/DOWN (rules_v2)
 
@@ -972,6 +973,14 @@ class SignalEngine:
         # ── Rule 7: High IV alert ─────────────────────────────────────────────
         if iv_high or (context.vix is not None and context.vix > c.vix_high):
             signals.extend(self._high_iv_signal(chain, context, c))
+
+        # ── Rule 9: PC_AFTERNOON_FLOW pilot (2026-07-19) ──────────────────────
+        # Log-mined backtest (9 sessions, 2,331 poll prints, ±0.5% barrier walk):
+        # ≥14:00 ET chain-P/C extremes resolved 7W/1L/2S for PUTS across 6
+        # distinct days (+0.34% avg favorable); MIDDAY same trigger = no edge
+        # (rejected). Flow-follow into the close. 1x/day; executor caps size
+        # at 1 contract and auto-kills the family on rolling negative EV.
+        signals.extend(self._pc_afternoon_flow(chain, context, c))
 
         # ── Rule 8: Opening Range Breakout ────────────────────────────────────
         # Fires once the 30-min ORB is established and price has confirmed a
@@ -2449,6 +2458,83 @@ class SignalEngine:
             sig.sentiment_label = context.sentiment.label
             signals.append(sig)
         return signals
+
+    def _pc_afternoon_flow(
+        self,
+        chain: ChainSnapshot,
+        context: SignalContext,
+        c: SpyOptionsSignalConfig,
+    ) -> List[SpySignal]:
+        """Pilot: extreme afternoon put-flow → BUY ATM PUT (see Rule 9 note).
+
+        Fires at most once per day, only in the configured ET window, only on
+        a 1–3 DTE chain (0DTE afternoon theta is the executor-measured trap;
+        the near-dated-but-not-expiring chain keeps delta capture with
+        survivable decay). Confidence is the backtest-derived constant — it
+        represents measured WR, not the additive heuristic stack.
+        """
+        if not getattr(c, "pcaf_enabled", False):
+            return []
+        today = _dt.datetime.now(ZoneInfo("America/New_York"))
+        if getattr(self, "_pcaf_fired_date", "") == today.strftime("%Y-%m-%d"):
+            return []
+        h0, m0 = map(int, c.pcaf_window_start_et.split(":"))
+        h1, m1 = map(int, c.pcaf_window_end_et.split(":"))
+        t = today.time()
+        if not (_dt.time(h0, m0) <= t <= _dt.time(h1, m1)):
+            return []
+        # 1–3 DTE chain only (skip the 0DTE chain when this evaluates on it).
+        chain_dte = -1
+        if chain.expiry_date:
+            try:
+                exp_d = _dt.datetime.strptime(chain.expiry_date, "%Y%m%d").date()
+                chain_dte = (exp_d - today.date()).days
+            except ValueError:
+                pass
+        if not (1 <= chain_dte <= 3):
+            return []
+        pc = chain.put_call_ratio
+        if pc < c.pcaf_min_pc:
+            return []
+        if chain.total_put_volume < c.min_volume_for_signal:
+            return []
+        atm = chain.atm_strike(context.spy_price)
+        q = chain.put_at(atm)
+        if q is None or not (q.bid > 0 and q.ask > 0):
+            return []
+        sig = SpySignal(
+            signal_type=SignalType.PC_AFTERNOON_FLOW,
+            strike=atm, expiry=chain.expiry_month, right="P",
+            confidence=float(c.pcaf_confidence),
+            spy_price=context.spy_price, vix=context.vix,
+            volume=chain.total_put_volume, volume_spike_mult=pc,
+            bid_size=q.bid_size, ask_size=q.ask_size,
+            reasoning=[
+                f"AFTERNOON FLOW pilot: chain P/C {pc:.2f} ≥ {c.pcaf_min_pc:.1f} "
+                f"at {today.strftime('%H:%M')} ET — extreme put flow into close",
+                f"Put vol {chain.total_put_volume:,} vs call vol "
+                f"{chain.total_call_volume:,}",
+                "Backtest (9 sessions, log-mined): ≥14:00 ET events 7W/1L/2S "
+                "puts, +0.34% avg favorable — MIDDAY same trigger no edge",
+                "Pilot discipline: 1 contract, 1/day, rolling auto-kill",
+            ],
+            suggested_trade=(
+                f"BUY {atm:.0f}P {chain.expiry_month} ({chain_dte} DTE) — "
+                "afternoon flow-follow, bracket-managed"
+            ),
+        )
+        sig.confidence_tier = self._tier_cfg(sig.confidence)
+        sig.iv_rank = context.iv_rank
+        sig.regime = context.regime.regime
+        sig.sentiment_score = context.sentiment.score
+        sig.sentiment_label = context.sentiment.label
+        self._enrich(sig, q, context)
+        self._pcaf_fired_date = today.strftime("%Y-%m-%d")
+        logger.info(
+            "PC_AFTERNOON_FLOW pilot fired: {}P {} P/C={:.2f} dte={} conf={:.0%}",
+            atm, chain.expiry_month, pc, chain_dte, sig.confidence,
+        )
+        return [sig]
 
     def _orb_breakout_signal(
         self,

@@ -122,6 +122,22 @@ class SpyOptionsSignalConfig:
     # After this limit, all further signals are suppressed until daily reset.
     # Prevents signal flooding (e.g. 55 signals in 3 days).
     max_signals_per_day: int = 10
+    # ── PC_AFTERNOON_FLOW pilot (2026-07-19, log-mined backtest) ──────────
+    # Evidence: 9 sessions of poll logs (2,331 prints), P/C-extreme events with
+    # 45-min cooldown, ±0.5% barrier walk (same semantics as the shadow sim):
+    #   MIDDAY P/C extremes: NO edge (40% WR puts, −0.07%/event) — rejected.
+    #   ≥14:00 ET extreme-P/C PUTS: 7W/1L/2S (88% of decided), +0.34% avg,
+    #   wins spread over 6 distinct days. Flow-follow into the close.
+    # Complements TREND_CONTINUATION: different information source (chain flow
+    # vs price structure), different window (TC clusters 10:30–13:30), PUT-only.
+    # Pilot discipline: 1 contract, 1/day, executor rolling auto-kill.
+    pcaf_enabled: bool = True
+    pcaf_min_pc: float = 2.0            # chain P/C ratio trigger (backtest range 1.8–52)
+    pcaf_window_start_et: str = "14:00"
+    pcaf_window_end_et: str = "14:55"   # entries hard-stop at 15:00 ET anyway
+    pcaf_confidence: float = 0.80       # from measured WR — sets HIGH tier honestly
+    pcaf_max_per_day: int = 1
+
     # ── Single-authority regime gating (strategy audit 2026-07-17) ────────
     # Legacy engine-internal blocks duplicated rules_v2 gates using a DIFFERENT
     # regime classifier — PC_RATIO survived only when the two classifiers
