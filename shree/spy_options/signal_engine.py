@@ -2566,6 +2566,14 @@ class SignalEngine:
             return []
         if chain.total_put_volume < c.min_volume_for_signal:
             return []
+        # Regime guard: edge proven only for VIX 15.9–22.0 (stress 2026-07-19,
+        # 24 events). Above the guard = unobserved territory, not proven-bad.
+        if context.vix and context.vix > getattr(c, "pcaf_max_vix", 25.0):
+            logger.info(
+                "PC_AFTERNOON_FLOW suppressed: VIX {:.1f} > {:.0f} (outside "
+                "proven regime)", context.vix, c.pcaf_max_vix,
+            )
+            return []
         atm = chain.atm_strike(context.spy_price)
         q = chain.put_at(atm)
         if q is None or not (q.bid > 0 and q.ask > 0):

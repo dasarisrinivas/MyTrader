@@ -137,6 +137,10 @@ class SpyOptionsSignalConfig:
     pcaf_window_end_et: str = "14:55"   # entries hard-stop at 15:00 ET anyway
     pcaf_confidence: float = 0.80       # from measured WR — sets HIGH tier honestly
     pcaf_max_per_day: int = 1
+    # Stress test 2026-07-19 (6wk, 24 events): 16W/5L/3S, Wilson-lo 54.9%,
+    # positive in all 3 regimes and both VIX bands 15-18/18-22. VIX>22 has
+    # n=1 → UNPROVEN, not proven-bad: hard guard until data exists.
+    pcaf_max_vix: float = 25.0
 
     # ── VWAP_REVERSION range engine — SHADOW-INCUBATING (2026-07-19) ──────
     # Log-mined (9 sessions): morning 2SD-stretch + RSI-extreme fades resolved

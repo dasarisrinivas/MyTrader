@@ -50,10 +50,22 @@ def _parse_et(hhmm: str, default: dtime) -> dtime:
         return default
 
 
-# Families in PILOT status: minimum size (1 contract), rolling auto-kill on
-# negative EV, independent metrics via signal_type in analytics/research logs.
-# Promotion out of pilot = scorecard evidence (see scripts/strategy_scorecard.py).
-_PILOT_FAMILIES = {"PC_AFTERNOON_FLOW"}
+# Evidence-tier classification (stress test 2026-07-19). Tier decides size —
+# promotion/demotion by scorecard Wilson math, never by opinion:
+#   experimental — shadow-only; if one ever reaches the executor, size 0 = reject
+#   pilot        — 1 contract, rolling auto-kill (last ≥4 trades EV<0 → halt)
+#   production   — capped below max_contracts (unproven ≠ max size)
+#   core         — full risk-budget sizing (no family has earned this yet)
+# Current placement: TC = production-by-incumbency (live PF 1.00 n=7, replay
+# PF 1.08 CI spans zero — not disproven, not proven); FLOW_PUT = pilot
+# (Wilson-lo 54.9%, n=24, best evidence in repo but zero live fills);
+# VWAP_REVERSION = experimental (FAILED 60d stress: 47% WR, Wilson-lo 32.5%).
+_FAMILY_TIERS = {
+    "TREND_CONTINUATION": "production",
+    "PC_AFTERNOON_FLOW": "pilot",
+}
+_TIER_MAX_QTY = {"experimental": 0, "pilot": 1, "production": 3, "core": 99}
+_PILOT_FAMILIES = {f for f, t in _FAMILY_TIERS.items() if t == "pilot"}
 
 
 def _round_tick(price: float) -> float:
@@ -562,10 +574,10 @@ class SpyOptionsExecutor:
                 bracket_basis = "structural"
 
         qty = self._size(mid, stop_pct)
-        # Pilot families trade minimum size until promoted (strategy audit
-        # 2026-07-19): capped at 1 contract regardless of risk budget.
-        if sig.signal_type.value in _PILOT_FAMILIES:
-            qty = min(qty, 1)
+        # Evidence-tier size cap: experimental=0, pilot=1, production=3, core=∞.
+        # Unproven families never trade max size (stress test 2026-07-19).
+        _tier_name = _FAMILY_TIERS.get(sig.signal_type.value, "experimental")
+        qty = min(qty, _TIER_MAX_QTY[_tier_name])
         if qty < 1:
             logger.info(
                 "EXEC gate: {} {}{} not traded — 1-contract stop-risk "
