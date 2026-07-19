@@ -138,6 +138,21 @@ class SpyOptionsSignalConfig:
     pcaf_confidence: float = 0.80       # from measured WR — sets HIGH tier honestly
     pcaf_max_per_day: int = 1
 
+    # ── VWAP_REVERSION range engine — SHADOW-INCUBATING (2026-07-19) ──────
+    # Log-mined (9 sessions): morning 2SD-stretch + RSI-extreme fades resolved
+    # 3W/1L (+0.15% avg) in 10:30–13:30 ET, but n=4 → Wilson-lo 30% < ~40%
+    # breakeven ⇒ NOT live-qualified. Emitted at confidence 0.60 (honest,
+    # sub-threshold) so the shadow book tracks every occurrence with simulated
+    # exits; scorecard promotes it via Wilson-lo > breakeven at n≥30. The one
+    # late-day fade in the sample lost −0.98% → hard window stop at 13:30 ET.
+    vrev_enabled: bool = True
+    vrev_window_start_et: str = "10:30"
+    vrev_window_end_et: str = "13:30"
+    vrev_rsi_low: int = 32              # BELOW_2SD + RSI ≤ this → fade UP (call)
+    vrev_rsi_high: int = 68             # ABOVE_2SD + RSI ≥ this → fade DOWN (put)
+    vrev_confidence: float = 0.60       # sub-threshold BY DESIGN → shadow-only
+    vrev_cooldown_min: int = 45
+
     # ── Single-authority regime gating (strategy audit 2026-07-17) ────────
     # Legacy engine-internal blocks duplicated rules_v2 gates using a DIFFERENT
     # regime classifier — PC_RATIO survived only when the two classifiers

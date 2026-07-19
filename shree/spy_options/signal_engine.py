@@ -157,6 +157,7 @@ class SignalType(str, Enum):
     HIGH_IV_ALERT      = "HIGH_IV_ALERT"
     PC_RATIO_EXTREME   = "PC_RATIO_EXTREME"
     PC_AFTERNOON_FLOW  = "PC_AFTERNOON_FLOW"   # pilot 2026-07-19: ≥14:00 ET extreme-P/C put flow-follow
+    VWAP_REVERSION     = "VWAP_REVERSION"      # shadow-incubating 2026-07-19: 2SD+RSI-extreme fade (range engine)
     ORB_BREAKOUT       = "ORB_BREAKOUT"   # Opening Range Breakout — confirmed directional move
     TREND_CONTINUATION = "TREND_CONTINUATION"  # Pullback-to-anchor rejection in TREND_UP/DOWN (rules_v2)
 
@@ -981,6 +982,11 @@ class SignalEngine:
         # (rejected). Flow-follow into the close. 1x/day; executor caps size
         # at 1 contract and auto-kills the family on rolling negative EV.
         signals.extend(self._pc_afternoon_flow(chain, context, c))
+
+        # ── Rule 10: VWAP_REVERSION range engine — SHADOW-INCUBATING ─────────
+        # Deliberately sub-threshold confidence: never dispatches, always lands
+        # in the shadow book with simulated exits. Promotion = scorecard math.
+        signals.extend(self._vwap_reversion(chain, context, c))
 
         # ── Rule 8: Opening Range Breakout ────────────────────────────────────
         # Fires once the 30-min ORB is established and price has confirmed a
@@ -2458,6 +2464,68 @@ class SignalEngine:
             sig.sentiment_label = context.sentiment.label
             signals.append(sig)
         return signals
+
+    def _vwap_reversion(
+        self,
+        chain: ChainSnapshot,
+        context: SignalContext,
+        c: SpyOptionsSignalConfig,
+    ) -> List[SpySignal]:
+        """Range engine, SHADOW-INCUBATING: fade a 2SD VWAP stretch confirmed
+        by RSI extreme, morning window only. Confidence is deliberately below
+        min_confidence so this NEVER dispatches — every occurrence lands in the
+        shadow book with simulated exits. Promotion to live goes through the
+        scorecard (Wilson-lo > breakeven WR at n≥30), not through opinion.
+        Backtest basis (n=4, 3W/1L) is directional evidence only."""
+        if not getattr(c, "vrev_enabled", False):
+            return []
+        ext = context.external
+        if ext is None:
+            return []
+        band = getattr(ext, "vwap_band_position", "INSIDE_1SD")
+        rsi = float(getattr(ext, "rsi_5m", 50.0) or 50.0)
+        if band == "BELOW_2SD" and rsi <= c.vrev_rsi_low:
+            right, why = "C", f"BELOW_2SD + RSI {rsi:.0f} ≤ {c.vrev_rsi_low} — fade down-stretch"
+        elif band == "ABOVE_2SD" and rsi >= c.vrev_rsi_high:
+            right, why = "P", f"ABOVE_2SD + RSI {rsi:.0f} ≥ {c.vrev_rsi_high} — fade up-stretch"
+        else:
+            return []
+        now = _dt.datetime.now(ZoneInfo("America/New_York"))
+        h0, m0 = map(int, c.vrev_window_start_et.split(":"))
+        h1, m1 = map(int, c.vrev_window_end_et.split(":"))
+        if not (_dt.time(h0, m0) <= now.time() <= _dt.time(h1, m1)):
+            return []
+        last = getattr(self, "_vrev_last_fire", {})
+        prev = last.get(right)
+        if prev and (now - prev) < _dt.timedelta(minutes=c.vrev_cooldown_min):
+            return []
+        atm = chain.atm_strike(context.spy_price)
+        q = chain.call_at(atm) if right == "C" else chain.put_at(atm)
+        sig = SpySignal(
+            signal_type=SignalType.VWAP_REVERSION,
+            strike=atm, expiry=chain.expiry_month, right=right,
+            confidence=float(c.vrev_confidence),
+            spy_price=context.spy_price, vix=context.vix,
+            volume=(chain.total_call_volume if right == "C" else chain.total_put_volume),
+            volume_spike_mult=0.0,
+            bid_size=q.bid_size if q else 0, ask_size=q.ask_size if q else 0,
+            reasoning=[
+                f"VWAP_REVERSION (shadow-incubating): {why}",
+                "Log-mined n=4 (3W/1L, +0.15%) — below promotion bar; this "
+                "family is measured in the shadow book only",
+            ],
+            suggested_trade="(shadow-only — not dispatched)",
+        )
+        sig.confidence_tier = self._tier_cfg(sig.confidence)
+        sig.iv_rank = context.iv_rank
+        sig.regime = context.regime.regime
+        sig.sentiment_score = context.sentiment.score
+        sig.sentiment_label = context.sentiment.label
+        if q is not None:
+            self._enrich(sig, q, context)
+        last[right] = now
+        self._vrev_last_fire = last
+        return [sig]
 
     def _pc_afternoon_flow(
         self,
