@@ -1,0 +1,36 @@
+# IBC configuration template for MyTrader headless IB Gateway.
+# Rendered at service start by start_ibgateway.sh into
+# ~/.mytrader/runtime/ibc-config.ini (mode 600) with credentials pulled from
+# the macOS Keychain. NEVER put real credentials in this template.
+
+# --- Login -----------------------------------------------------------------
+IbLoginId=__IB_USER__
+IbPassword=__IB_PASSWORD__
+TradingMode=__TRADING_MODE__
+
+# --- Dialog handling (headless operation) ----------------------------------
+AcceptNonBrokerageAccountWarning=yes
+AcceptIncomingConnectionAction=accept
+ReadOnlyLogin=no
+ExistingSessionDetectedAction=primary
+ConfirmCryptoCurrencyOrders=transmit
+DismissPasswordExpiryWarning=yes
+DismissNSEComplianceNotice=yes
+AllowBlindTrading=yes
+MinimizeMainWindow=yes
+
+# --- API -------------------------------------------------------------------
+OverrideTwsApiPort=__API_PORT__
+ReadOnlyApi=no
+AcceptBidAskLastSizeDisplayUpdateNotification=accept
+
+# --- Restart behaviour -----------------------------------------------------
+# Gateway restarts itself daily at this time (keeps sessions fresh); IBC
+# handles the re-login. launchd restarts the whole job if the process dies.
+AutoRestartTime=11:45 PM
+ClosedownAt=
+
+# --- Misc ------------------------------------------------------------------
+IbDir=
+StoreSettingsOnServer=no
+SendTWSLogsToConsole=no
