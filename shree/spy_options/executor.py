@@ -351,6 +351,27 @@ class SpyOptionsExecutor:
                 pass
         self._connected = False
 
+    def _governor_entry(self, family: str) -> Optional[dict]:
+        """Read the family's entry from the weekly governor output
+        (data/family_tiers.json). Cached per day — the file only changes on
+        weekends. Best-effort: missing/corrupt file → None (fall back to
+        config/code tiers)."""
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        if getattr(self, "_gov_cache_day", "") != today:
+            self._gov_cache_day = today
+            self._gov_cache: dict = {}
+            try:
+                import json as _json
+                with open("data/family_tiers.json", encoding="utf-8") as fh:
+                    self._gov_cache = _json.load(fh).get("families", {})
+                logger.info("Governor tiers loaded: {}",
+                            {f: v.get("tier") for f, v in self._gov_cache.items()})
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                logger.warning("Governor tier file unreadable: {}", exc)
+        return self._gov_cache.get(family)
+
     def daily_reset(self) -> None:
         self._trades_today = 0
         self._realized_pnl_today = 0.0
@@ -585,13 +606,20 @@ class SpyOptionsExecutor:
                 bracket_basis = "structural"
 
         qty = self._size(mid, stop_pct)
-        # Evidence-tier size cap (config override > code default > experimental).
+        # Evidence-tier size cap. Precedence: governor file (weekly deterministic
+        # review, data/family_tiers.json) > config override > code default.
         # Unproven families never trade max size (incumbency challenge 2026-07-19).
         _fam = sig.signal_type.value
+        _gov = self._governor_entry(_fam)
         _tier_name = (
-            getattr(self._cfg, "family_tier_overrides", {}) or {}
-        ).get(_fam) or _FAMILY_TIERS.get(_fam, "experimental")
+            (_gov.get("tier") if _gov else None)
+            or (getattr(self._cfg, "family_tier_overrides", {}) or {}).get(_fam)
+            or _FAMILY_TIERS.get(_fam, "experimental")
+        )
         qty = min(qty, _TIER_MAX_QTY.get(_tier_name, 0))
+        # Governor risk scale (0.5–1.25): shrinks size on measured edge decay.
+        if _gov and qty >= 1:
+            qty = max(1, int(qty * float(_gov.get("risk_scale", 1.0))))
         if qty < 1:
             logger.info(
                 "EXEC gate: {} {}{} not traded — 1-contract stop-risk "

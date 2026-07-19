@@ -17,16 +17,19 @@ import sys
 
 ROOT = "/Users/svss/Documents/code/ShreeBot"
 SCRIPTS = {
-    "start": f"{ROOT}/scripts/start_trading_day.sh",
-    "stop": f"{ROOT}/scripts/stop_trading_day.sh",
+    "start": ["/bin/bash", f"{ROOT}/scripts/start_trading_day.sh"],
+    "stop": ["/bin/bash", f"{ROOT}/scripts/stop_trading_day.sh"],
+    # Weekly deterministic portfolio governor (Saturdays; tier review +
+    # Telegram report + data/family_tiers.json for the executor).
+    "weekly": [sys.executable, f"{ROOT}/scripts/portfolio_governor.py"],
 }
 
 
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in SCRIPTS:
-        print("usage: run_daily.py start|stop", file=sys.stderr)
+        print("usage: run_daily.py start|stop|weekly", file=sys.stderr)
         return 2
-    return subprocess.run(["/bin/bash", SCRIPTS[sys.argv[1]]], cwd=ROOT).returncode
+    return subprocess.run(SCRIPTS[sys.argv[1]], cwd=ROOT).returncode
 
 
 if __name__ == "__main__":
