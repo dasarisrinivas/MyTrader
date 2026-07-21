@@ -166,6 +166,14 @@ class SpyOptionsExecutor:
                 timeout=20,
             )
             self._connected = True
+            # Explicit LIVE market data type for this socket — _live_quote's
+            # reqTickersAsync timed out 100% on the executor connection
+            # (2026-07-21 autopsy); the data client sets a type, this one never
+            # did. Harmless if already live.
+            try:
+                self._ib.reqMarketDataType(1)
+            except Exception:
+                pass
             accounts = self._ib.managedAccounts()
             logger.info(
                 "SPY EXECUTOR connected [{}] {}:{} clientId={} accounts={}",
@@ -546,7 +554,7 @@ class SpyOptionsExecutor:
         """
         try:
             tickers = await asyncio.wait_for(
-                self._ib.reqTickersAsync(contract), timeout=3.0
+                self._ib.reqTickersAsync(contract), timeout=5.0
             )
         except Exception as exc:
             logger.warning("EXEC live-quote failed for {}: {}",
@@ -790,16 +798,30 @@ class SpyOptionsExecutor:
         fill)."""
         st = pos.parent.orderStatus.status
         if st not in ("Submitted", "PreSubmitted", "PendingSubmit", "ApiPending"):
+            pos.reprice_count = self._cfg.entry_max_reprices   # terminal → stop loop
             return
         live_bid, live_ask = await self._live_quote(pos.contract)
-        if live_ask <= 0:
-            return
-        new_limit = self._entry_limit_from(live_bid, live_ask)
         cap = _round_tick(pos.orig_entry_limit * (1 + self._cfg.entry_chase_max_pct / 100.0))
-        new_limit = min(new_limit, cap)
         cur = float(pos.parent.order.lmtPrice or pos.orig_entry_limit)
+        if live_ask > 0:
+            new_limit = min(self._entry_limit_from(live_bid, live_ask), cap)
+            mode = f"live ask ${live_ask:.2f}"
+        else:
+            # QUOTE-FAILURE FALLBACK (2026-07-21): _live_quote timed out on 22
+            # consecutive chase attempts while the ask walked away 1.96→2.03
+            # and the order died unfilled at the 230s timeout. When the quote
+            # is unavailable, ladder BLINDLY one step toward the cap — bounded
+            # by entry_chase_max_pct exactly like a quoted chase. A bounded
+            # blind tick-up beats a dead resting order in a moving market.
+            step = max(0.02, _round_tick(pos.orig_entry_limit * 0.01))
+            new_limit = min(_round_tick(cur + step), cap)
+            mode = "quote unavailable — blind ladder"
+        # A failed/no-op chase still consumes an attempt: the loop must stay
+        # bounded at entry_max_reprices, not spin until the entry timeout.
+        pos.reprice_count += 1
+        pos.last_reprice_at = now_utc
         if new_limit <= cur + 1e-9:
-            return  # already at/above the live ask, or capped out — nothing to chase
+            return  # at/above ask or capped out — attempt consumed, no re-place
         try:
             pos.parent.order.lmtPrice = new_limit
             pos.parent.order.transmit = True
@@ -808,13 +830,11 @@ class SpyOptionsExecutor:
             logger.warning("EXEC entry chase failed ({}): {}",
                            pos.contract.localSymbol, exc)
             return
-        pos.reprice_count += 1
-        pos.last_reprice_at = now_utc
         pos.entry_mid = new_limit
         logger.info(
-            "🐎 EXEC CHASE {}/{}: {} entry ${:.2f}→${:.2f} (live ask ${:.2f}, cap ${:.2f})",
+            "🐎 EXEC CHASE {}/{}: {} entry ${:.2f}→${:.2f} ({}, cap ${:.2f})",
             pos.reprice_count, self._cfg.entry_max_reprices,
-            pos.contract.localSymbol, cur, new_limit, live_ask, cap,
+            pos.contract.localSymbol, cur, new_limit, mode, cap,
         )
 
     # ── Poll-cycle maintenance ───────────────────────────────────────────────

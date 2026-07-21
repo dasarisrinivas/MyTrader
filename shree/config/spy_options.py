@@ -370,7 +370,7 @@ class SpyOptionsExecutionConfig:
     entry_cross_frac: float = 0.25    # cross buffer = min(spread*frac, cross_max) beyond ask
     entry_cross_max: float = 0.03     # hard cap on the cross buffer ($/share)
     entry_reprice_interval_s: float = 8.0  # re-post toward the live ask this often while unfilled
-    entry_max_reprices: int = 4       # bounded chases before giving up (then normal timeout)
+    entry_max_reprices: int = 8       # bounded chase attempts (failures count too — 2026-07-21)
     entry_chase_max_pct: float = 6.0  # never chase the limit >this% above the ORIGINAL entry
 
     # ── Evidence-tier overrides (2026-07-19) ───────────────────────────────
