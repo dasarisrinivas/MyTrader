@@ -1372,6 +1372,31 @@ class SpyOptionsManager:
                     structural_stop=cand.stop_price,
                 )
             )
+            # ── TC×DynamicConfidence SIDE-BY-SIDE (2026-07-20, log-only) ──
+            # Validation phase for wiring TC into the confidence pipeline.
+            # Frozen-model replay over 20 decided TC trades: flat-0.82 book
+            # PF 0.72 vs dyn-filtered PF 1.39 @0.77 (0 winners lost, 9/9
+            # filtered were losers, p≈0.07). This logs what dyn WOULD say per
+            # live TC signal — behavior unchanged until side-by-side confirms.
+            try:
+                _ext = getattr(self, "_last_ext_ctx", None)
+                _adj = self._engine._dyn.adjust(
+                    base=cand.confidence, right=cand.direction, dte=2,
+                    ext_ctx=_ext, ib_sentiment_score=0.0, vix=vix,
+                    regime=regime.regime,
+                )
+                _top = sorted(_adj.breakdown.items(), key=lambda kv: -abs(kv[1]))[:4]
+                logger.info(
+                    "🔬 TC-DYN side-by-side {} @{:.2f}: flat={:.2f} dyn={:.2f} "
+                    "(Δ{:+.2f}) [{}] → dyn verdict: {}",
+                    cand.direction, spy_price, cand.confidence, _adj.final,
+                    _adj.final - cand.confidence,
+                    " ".join(f"{k}:{v:+.2f}" for k, v in _top if k != "base"),
+                    ("DISPATCH" if _adj.final >= 0.77 else "FILTER<0.77")
+                    + ("/HIGH" if _adj.final >= 0.80 else "/tier-fail"),
+                )
+            except Exception as _sx:
+                logger.debug("TC-DYN side-by-side failed: {}", _sx)
             logger.info(
                 "rules_v2 CONTINUATION ALLOW {} @{:.2f}  trigger={:.2f} stop={:.2f}",
                 cand.direction, spy_price, cand.trigger_price, cand.stop_price,
