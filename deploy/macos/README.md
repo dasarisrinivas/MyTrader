@@ -32,6 +32,7 @@ handshake + account summary via `ib_insync`) before `run_bot.py` starts.
 | `bin/watchdog.sh` | 60s health monitor, auto-restart, alert dedup |
 | `bin/boot_verify.sh` | boot chain verification + System Ready message |
 | `bin/stop_trading.sh` / `bin/resume_trading.sh` | kill switch (bot only, gateway stays up) |
+| `bin/stop_all.sh` / `bin/start_all.sh` | full stop/start of the entire stack incl. IB Gateway |
 | `bin/status.sh` | one-shot status of everything |
 | `bin/notify.sh` | Telegram sender (best-effort, never blocks) |
 | `launchd/*.plist.template` | rendered into `~/Library/LaunchAgents` by the installer |
@@ -146,11 +147,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mytrader.watchdog.pl
 tail -f logs/launchd/automation.log logs/bot.log             # live logs
 ```
 
-Manual full stop (everything, including gateway):
+Manual full stop (everything, including gateway — nothing auto-restarts):
 
 ```bash
-deploy/macos/uninstall.sh        # unload services + kill processes
-deploy/macos/install.sh          # bring it all back
+./stop_all.sh                        # repo root wrapper (or deploy/macos/bin/stop_all.sh)
+deploy/macos/bin/start_all.sh        # bring the whole stack back
 ```
 
 ## Testing reboot recovery
