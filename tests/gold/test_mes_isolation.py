@@ -162,16 +162,15 @@ class TestMesStrategyUnchanged:
         )
 
     def test_mes_strategy_imports_without_error(self) -> None:
-        from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy  # noqa: F401
+        from shree.strategies.es_fifteen_min import EsFifteenMinStrategy  # noqa: F401
 
     def test_mes_strategy_generates_signal(self) -> None:
         from shree.strategies.base import Signal
-        from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy
+        from shree.strategies.es_fifteen_min import EsFifteenMinStrategy
         from shree.config.strategy import OneMinuteStrategyConfig
 
         cfg = OneMinuteStrategyConfig()
-        cfg.warmup_bars = 100
-        strategy = MesOneMinuteTrendStrategy(cfg)
+        strategy = EsFifteenMinStrategy(cfg)
         df = self._make_mes_features(200)
         sig = strategy.generate(df)
         assert isinstance(sig, Signal)
@@ -184,8 +183,8 @@ class TestMesStrategyUnchanged:
         from shree.execution.gold import GoldTradingManager       # noqa: F401
 
         # Re-import MES — must still work
-        from shree.strategies.mes_one_minute import MesOneMinuteTrendStrategy  # noqa: F401
-        from shree.execution.live_trading_manager import LiveTradingManager    # noqa: F401
+        from shree.strategies.es_fifteen_min import EsFifteenMinStrategy  # noqa: F401
+        from shree.signal_bot import MesSignalBot                          # noqa: F401
 
     def test_settings_validate_mes_risk_limits_still_enforced(self) -> None:
         """Adding gold config must not relax MES risk limits."""

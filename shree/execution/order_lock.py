@@ -21,7 +21,6 @@ from ..utils.logger import logger
 
 if TYPE_CHECKING:
     from ib_insync import Trade
-    from ..monitoring.order_tracker import OrderTracker
 
 
 class OrderLockManager:

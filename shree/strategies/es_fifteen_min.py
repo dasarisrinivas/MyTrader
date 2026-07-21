@@ -76,6 +76,7 @@ Author: Quantitative Trading Redesign — Feb 2026
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import time, timedelta, datetime
 from pathlib import Path
@@ -88,13 +89,6 @@ from loguru import logger
 from ..config import OneMinuteStrategyConfig
 from ..features.feature_engineer import _adx, _atr, _ema, _rsi
 from .base import BaseStrategy, Signal
-
-try:
-    from ..data.sentiment_aggregator import update_price_momentum
-    _PRICE_MOMENTUM_AVAILABLE = True
-except ImportError:
-    _PRICE_MOMENTUM_AVAILABLE = False
-
 
 @dataclass
 class FifteenMinLevels:
@@ -186,9 +180,19 @@ class EsFifteenMinStrategy(BaseStrategy):
         )
 
         # APR 10 2026: Day-of-week + time-of-day entry blocks.
-        # Monday: -$270, 20% win rate across baseline backtest.
         # 20 UTC (3 PM CT / 4 PM ET): -$197, 0% win rate — near-close liquidity drain.
-        self._monday_block_enabled: bool = getattr(config, 'ft_monday_block_enabled', True)
+        # JUN 8 2026: Monday default flipped True→False. The original -$270/20%WR
+        # justification was falsified by backtest+forward A/B, and the flag is now
+        # a real OneMinuteStrategyConfig field so config.yaml drives it. The old
+        # True default silently re-enabled the block whenever the config key was
+        # dropped by settings_loader (which it always was) — do NOT restore True.
+        self._monday_block_enabled: bool = getattr(config, 'ft_monday_block_enabled', False)
+        # JUN 4 2026: env override for clean A/B without editing config.yaml.
+        # SHREE_MONDAY_BLOCK in {0,false,off} forces OFF; {1,true,on} forces ON;
+        # unset → use config. Lets the Monday-block A/B run non-destructively.
+        _mb_env = os.environ.get("SHREE_MONDAY_BLOCK")
+        if _mb_env is not None:
+            self._monday_block_enabled = _mb_env.strip().lower() in ("1", "true", "on", "yes")
         self._late_afternoon_block_hour_utc: int = int(getattr(config, 'ft_late_afternoon_block_hour_utc', 20))
 
         # MAY 24 2026: Opening-range block + Friday trend-continuation block.
@@ -203,6 +207,14 @@ class EsFifteenMinStrategy(BaseStrategy):
         # the Monday/late-afternoon blocks above.
         self._opening_block_minutes: int = int(getattr(config, 'ft_opening_block_minutes', 30))
         self._friday_block_trend_cont: bool = bool(getattr(config, 'ft_friday_block_trend_cont', True))
+
+        # JUN 4 2026: HYBRID 5m entry timing (default-OFF). When enabled, generate()
+        # exposes a box_rng_atr-gated "armed_long" flag in signal metadata so a
+        # 5m-aware consumer can enter earlier within the armed window. Computing/
+        # exposing the flag is harmless; nothing changes unless a consumer acts on it.
+        self._hybrid_enabled: bool = bool(getattr(config, 'ft_hybrid_5m_entry_enabled', False))
+        self._hybrid_box_min: float = float(getattr(config, 'ft_hybrid_box_min', 3.0) or 0.0)
+        self._hybrid_arm_valid_bars: int = int(getattr(config, 'ft_hybrid_arm_valid_bars', 4) or 0)
 
         # MAR 16 2026 Fix #1: A/D per-session overnight cap.
         # Signal A (EMA21_PB_LONG) and D (EMA21_PB_SHORT) have no daily counter,
@@ -230,6 +242,26 @@ class EsFifteenMinStrategy(BaseStrategy):
 
         # FEB 12 2026: Short-side signals (D, E) — mirror of long signals
         self._shorts_enabled: bool = getattr(config, 'ft_shorts_enabled', False)
+        # JUL 7 2026: short-specific ADX floor for EMA21_PB_SHORT (0 = use ft_adx_min).
+        self._short_adx_min: float = float(getattr(config, 'ft_short_adx_min', 0.0) or 0.0)
+        # JUL 4 2026: shorts scoped to overnight bars only (see config comment).
+        self._shorts_overnight_only: bool = bool(
+            getattr(config, 'ft_shorts_overnight_only', False)
+        )
+        # JUL 4 2026: overnight signal-family allowlist (see config comment).
+        self._overnight_allowed_signals: set = {
+            str(s).strip() for s in
+            (getattr(config, 'ft_overnight_allowed_signals', None) or [])
+        }
+        # JUL 8 2026: per-session diagnostics for the end-of-day summary line.
+        # Cheap accumulators updated once per bar; emitted on session rollover so
+        # quiet stretches are readable without grepping every NO_SIGNAL diag.
+        self._day_bars: int = 0
+        self._day_max_adx: float = 0.0
+        self._day_bull_struct_bars: int = 0   # bars with ema9>ema21>ema50
+        self._day_signals: int = 0            # non-HOLD signals produced
+        self._day_hi: float = 0.0
+        self._day_lo: float = 0.0
         self._short_pb_stop_mult: float = getattr(config, 'ft_short_pb_stop_mult', 1.5)
         self._short_pb_target_mult: float = getattr(config, 'ft_short_pb_target_mult', 1.0)
         self._short_or_target_r: float = getattr(config, 'ft_short_or_target_r', 1.0)
@@ -592,8 +624,52 @@ class EsFifteenMinStrategy(BaseStrategy):
             getattr(config, 'ft_htf_filter_mode', 'block_counter') or 'block_counter'
         ).lower()
 
+        # JUL 3 2026: Per-instance counter-file override (ft_counter_file).
+        # The backtest engine points this at its own file so replays never
+        # read/write the live bot's daily signal caps (data/signal_counters.json).
+        _counter_override = getattr(config, 'ft_counter_file', None)
+        if _counter_override:
+            self._COUNTER_FILE = Path(_counter_override)
+
         # MAR 10 2026: Load persisted counters from previous run (same CME session)
         self._load_counters()
+
+    # ------------------------------------------------------------------
+    #  HYBRID 5m entry timing — armed-state probe (JUN 4 2026, default-off)
+    # ------------------------------------------------------------------
+    def compute_hybrid_armed_long(self, features: pd.DataFrame) -> Dict[str, Any]:
+        """Read-only: is a box_rng_atr-gated LONG setup ARMING on the 15m frame?
+
+        Returns {armed, box, atr, ema9, direction}. A 5m-aware consumer (backtest
+        engine / live signal_processor) calls this when ft_hybrid_5m_entry_enabled
+        is True; if armed, it watches 5m bars for a resumption and enters earlier
+        than the 15m confirmation. Does NOT touch generate() — fully inert unless a
+        consumer acts on it. Research-validated config: box_min=3.0 (prod setups +
+        box_rng_atr + 5m timing; FWD OOS +$431/PF1.36 vs 15m-timed -$115).
+        """
+        out = {"armed": False, "box": 0.0, "atr": 0.0, "ema9": 0.0, "direction": "BUY"}
+        if not self._hybrid_enabled or features is None or len(features) < 6:
+            return out
+        try:
+            c = features["close"]; h = features["high"]; l = features["low"]
+            ema9 = float(_ema(c, 9).iloc[-1])
+            ema21 = float(_ema(c, 21).iloc[-1])
+            ema50 = float(_ema(c, 50).iloc[-1])
+            adx = float(_adx(h, l, c, 14).iloc[-1])
+            atr = float(_atr(h, l, c, 14).iloc[-1])
+            if atr <= 0:
+                return out
+            rng6 = float(features["high"].iloc[-6:].max() - features["low"].iloc[-6:].min())
+            box = rng6 / atr
+            # uptrend + recent pullback to EMA21 + box discriminator
+            uptrend = (ema21 > ema50) and (adx >= self._adx_min)
+            touched = bool((features["low"].iloc[-6:] <= ema21).any())
+            armed = uptrend and touched and (box >= self._hybrid_box_min)
+            out.update({"armed": bool(armed), "box": round(box, 2), "atr": round(atr, 2),
+                        "ema9": round(ema9, 2), "direction": "BUY"})
+        except Exception as exc:  # never let the probe break the decision path
+            logger.debug(f"hybrid armed probe skipped: {exc}")
+        return out
 
     # ------------------------------------------------------------------
     #  Higher-TF trend filter (MAY 12 2026 FIX #5)
@@ -659,7 +735,13 @@ class EsFifteenMinStrategy(BaseStrategy):
             self._reset_session(et_date)
 
         # ---- Opening Range collection (first 30 min of RTH) ----
-        or_end = self._add_minutes_to_time(self._rth_start, self._or_minutes)
+        # JUL 4 2026: anchor the OR at CORE RTH open (9:30 ET, hardcoded), not
+        # the configurable session window. When the session is widened for
+        # overnight trading (rth_start_hour: 0), anchoring at _rth_start made
+        # the OR collect 00:00-00:30 ET bars — the exact corruption that forced
+        # the MAY 12 revert to RTH-only. The OR is a market-structure concept
+        # tied to the NYSE open; it must not move with the session config.
+        or_end = self._add_minutes_to_time(self._core_rth_start, self._or_minutes)
 
         # ---- FEB 9 2026: Reconstruct OR from historical bars on mid-day restart ----
         # If we're past the OR window and OR was never computed (e.g. bot restarted
@@ -679,7 +761,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                 pass
             self._reconstruct_or_from_history(enriched, et_date, or_end)
 
-        if self._rth_start <= et_time.time() < or_end:
+        if self._core_rth_start <= et_time.time() < or_end:
             self._collect_opening_bar(latest)
             self._prev_close = float(latest["close"])
             logger.info(
@@ -706,6 +788,15 @@ class EsFifteenMinStrategy(BaseStrategy):
         rsi = float(latest.get("RSI_14", 50))
         macd_hist = float(latest.get("MACDhist_12_26_9", 0))
         pdh = float(latest.get("PDH", 0))
+
+        # JUL 8 2026: accumulate per-session diagnostics (see _reset_session).
+        self._day_bars += 1
+        if adx > self._day_max_adx:
+            self._day_max_adx = adx
+        if ema9 > ema21 > ema50:
+            self._day_bull_struct_bars += 1
+        self._day_hi = high if self._day_hi == 0.0 else max(self._day_hi, high)
+        self._day_lo = low if self._day_lo == 0.0 else min(self._day_lo, low)
         # APR 29 2026: Volume + VWAP for OR breakout confirmation (Signals B/E).
         # Defaults are NEUTRAL (1.0 ratio = at-average, vwap=close = no preference)
         # so missing-data bars don't get auto-blocked.
@@ -843,15 +934,6 @@ class EsFifteenMinStrategy(BaseStrategy):
                         f"— blocking SELL signals for {self._exhaustion_cooldown_bars} bars"
                     )
 
-        # ── Price momentum sentiment (APR 27 2026) ──────────────────────────
-        # Update market-structure sentiment each bar so combined sentiment
-        # reflects actual price structure, not just social media noise.
-        if _PRICE_MOMENTUM_AVAILABLE:
-            try:
-                update_price_momentum(close, ema9, ema21, ema50, adx)
-            except Exception:
-                pass
-
         # ---- Signal A: EMA21 Pullback Long ----
         signal_a = self._check_ema21_pullback(
             close, open_price, low, ema21, ema50, atr, adx,
@@ -892,10 +974,17 @@ class EsFifteenMinStrategy(BaseStrategy):
                 close, ema9, ema21, ema50, atr, adx, rsi,
             )
 
+        # JUL 4 2026: shorts may be scoped to overnight bars only. RTH shorts
+        # dragged both live-faithful test windows; overnight shorts were the
+        # only positive short slice. _is_overnight_pb = outside 9:30-16:00 ET.
+        _shorts_active = self._shorts_enabled and (
+            not self._shorts_overnight_only or _is_overnight_pb
+        )
+
         # ---- Signal D: EMA21 Pullback Short (downtrend mirror of A) ----
         signal_d = None
         signal_dprox = None
-        if self._shorts_enabled:
+        if _shorts_active:
             signal_d = self._check_ema21_pullback_short(
                 close, open_price, high, ema21, ema50, atr, adx,
                 rsi, macd_hist, is_overnight=_is_overnight_pb,
@@ -908,7 +997,7 @@ class EsFifteenMinStrategy(BaseStrategy):
         # ---- Signal E: OR Breakdown Short (downtrend mirror of B) ----
         # MAY 12 2026 FIX #6: also gated by per-direction enable for symmetry.
         signal_e = None
-        if self._shorts_enabled and self._or_break_short_enabled:
+        if _shorts_active and self._or_break_short_enabled:
             signal_e = self._check_or_breakdown(
                 close, low, ema9, ema21, atr, adx, macd_hist, rsi,
                 volume_ratio=volume_ratio, vwap_daily=vwap_daily,
@@ -926,7 +1015,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                     enriched, close, open_price, low, high,
                     ema9, ema21, ema50, atr, adx, rsi, macd_hist,
                 )
-            if (self._shorts_enabled
+            if (_shorts_active
                     and self._trend_cont_short_enabled
                     and signal_f_long is None):
                 signal_f_short = self._check_trend_continuation_short(
@@ -1175,6 +1264,39 @@ class EsFifteenMinStrategy(BaseStrategy):
                 )
                 signal_f_long = signal_f_short = None
 
+        # ── JUL 4 2026: Overnight signal-family allowlist ─────────────────
+        # Outside core RTH (9:30-16:00 ET), only the families listed in
+        # ft_overnight_allowed_signals may fire. True-24h backtest
+        # (2025-05→2026-05, engine session fix): every overnight family was
+        # net-negative except EMA9_PB_LONG (+$96, n=27, 59% WR); unrestricted
+        # overnight flipped the year +$1,360 → −$641. Signal G (London) is
+        # exempt — it is its own calibrated overnight system with its own gate.
+        # Empty list = no restriction.
+        if _is_overnight_pb and self._overnight_allowed_signals:
+            def _overnight_keep(sig):
+                if sig is None:
+                    return None
+                _r = sig[3] if isinstance(sig, (tuple, list)) and len(sig) >= 4 else ""
+                _famname = str(_r).split("|")[0].strip()
+                if _famname in self._overnight_allowed_signals:
+                    return sig
+                logger.info(
+                    f"🚫 OVERNIGHT_ALLOWLIST: blocking {_famname or 'signal'} at "
+                    f"{et_time.strftime('%H:%M')} ET — overnight entries limited "
+                    f"to {sorted(self._overnight_allowed_signals)}"
+                )
+                return None
+            signal_a = _overnight_keep(signal_a)
+            signal_aprox = _overnight_keep(signal_aprox)
+            signal_b = _overnight_keep(signal_b)
+            signal_c = _overnight_keep(signal_c)
+            signal_d = _overnight_keep(signal_d)
+            signal_dprox = _overnight_keep(signal_dprox)
+            signal_e = _overnight_keep(signal_e)
+            signal_f_long = _overnight_keep(signal_f_long)
+            signal_f_short = _overnight_keep(signal_f_short)
+            signal_h = _overnight_keep(signal_h)
+
         # Priority: A (EMA21 PB Long) > A-prime (proximity long)
         #         > C (EMA9 PB Long) > B (OR breakout Long) > F_long
         #         > D (EMA21 PB Short) > D-prime (proximity short)
@@ -1256,7 +1378,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                     elif macd_hist < self._ema9_pb_macd_min:
                         _diag_parts.append(f"C:macd({macd_hist:.2f})<{self._ema9_pb_macd_min:.1f}")
             # Signal D diagnostics (Short EMA21 PB)
-            if self._shorts_enabled:
+            if _shorts_active:
                 if ema21 >= ema50:
                     _diag_parts.append(f"D:ema21({ema21:.1f})>=ema50({ema50:.1f})")
                 else:
@@ -1272,7 +1394,10 @@ class EsFifteenMinStrategy(BaseStrategy):
                     elif self._ema21_macd_divergence_block > 0 and macd_hist > self._ema21_macd_divergence_block:
                         _diag_parts.append(f"D:macd_div({macd_hist:.2f})>+{self._ema21_macd_divergence_block:.1f}")
             else:
-                _diag_parts.append("D:shorts_disabled")
+                _diag_parts.append(
+                    "D:shorts_rth_off" if (self._shorts_enabled and self._shorts_overnight_only)
+                    else "D:shorts_disabled"
+                )
             # Signal A-prime / D-prime proximity diagnostics (only in high-vol)
             if self._proximity_enabled and atr >= self._atr_high:
                 _tlong = self._regime_touch_threshold(ema21, atr, side="long")
@@ -1282,7 +1407,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                         f"Aprox:near(low={low:.1f} thresh={_tlong:.1f} outer={_prox_outer:.1f})"
                     )
             # Signal E diagnostics (Short OR Breakdown)
-            if self._shorts_enabled:
+            if _shorts_active:
                 if not self._or_computed or self._or_low <= 0:
                     _diag_parts.append(f"E:no_OR(computed={self._or_computed},l={self._or_low:.1f})")
                 elif self._or_break_short_count >= self._or_break_max_per_day:
@@ -1506,6 +1631,8 @@ class EsFifteenMinStrategy(BaseStrategy):
         )
 
         self._prev_close = close
+        if action in ("BUY", "SELL", "SCALP_BUY", "SCALP_SELL"):
+            self._day_signals += 1
         return Signal(action=action, confidence=0.7, metadata=metadata)
 
     # ------------------------------------------------------------------
@@ -1974,7 +2101,13 @@ class EsFifteenMinStrategy(BaseStrategy):
             return None
 
         # 5. ADX filter
-        if adx < self._adx_min:
+        # JUL 7 2026: EMA21_PB_SHORT gets its own ADX floor (ft_short_adx_min).
+        # ADX-bucket backtest (2025-05→2026-05): the ADX<22 short pullbacks are
+        # the losing pocket (−$125/yr, 42% WR) while ADX≥22 shorts are net
+        # positive (+$127/yr). Longs keep the lower ft_adx_min (12). Falls back
+        # to ft_adx_min when ft_short_adx_min <= 0.
+        _short_adx_floor = self._short_adx_min if self._short_adx_min > 0 else self._adx_min
+        if adx < _short_adx_floor:
             return None
         if adx > self._adx_max:
             return None
@@ -2627,7 +2760,7 @@ class EsFifteenMinStrategy(BaseStrategy):
 
                 if et_ts.date() != target_date:
                     continue
-                if self._rth_start <= et_ts.time() < or_end:
+                if self._core_rth_start <= et_ts.time() < or_end:
                     or_bars_found.append({
                         'high': float(row['high']),
                         'low': float(row['low']),
@@ -2659,7 +2792,7 @@ class EsFifteenMinStrategy(BaseStrategy):
                     pass
                 logger.warning(
                     f"⚠️ No OR bars found in history for {target_date} "
-                    f"(window {self._rth_start}-{or_end} ET). "
+                    f"(window {self._core_rth_start}-{or_end} ET). "
                     f"DataFrame range: {df.index[0]} to {df.index[-1]}"
                 )
         except Exception as exc:
@@ -2705,6 +2838,33 @@ class EsFifteenMinStrategy(BaseStrategy):
 
     def _reset_session(self, date) -> None:
         """Reset all session state for a new trading day."""
+        # JUL 8 2026: emit a one-line summary of the session that just ended so
+        # quiet no-trade days are readable at a glance (no grepping NO_SIGNAL).
+        if getattr(self, "_day_bars", 0) > 0:
+            _bull_pct = 100 * self._day_bull_struct_bars // max(self._day_bars, 1)
+            if self._day_signals > 0:
+                _verdict = f"{self._day_signals} signal(s) produced"
+            elif self._day_max_adx < 25 and _bull_pct < 25:
+                _verdict = "no setup — chop/no-uptrend (long-only book idle by design)"
+            elif _bull_pct < 25:
+                _verdict = "no setup — no bullish structure (ema9>ema21>ema50 rare)"
+            else:
+                _verdict = "no setup — structure present but entry conditions unmet"
+            _rng = (f"{self._day_lo:.2f}-{self._day_hi:.2f}"
+                    if self._day_hi > 0 else "n/a")
+            logger.info(
+                f"📆 SESSION SUMMARY {self._session_date}: bars={self._day_bars} "
+                f"| range={_rng} | max_ADX={self._day_max_adx:.0f} "
+                f"| bullish_structure={_bull_pct}% of bars | {_verdict}"
+            )
+        # Reset the daily diagnostics accumulators for the new session.
+        self._day_bars = 0
+        self._day_max_adx = 0.0
+        self._day_bull_struct_bars = 0
+        self._day_signals = 0
+        self._day_hi = 0.0
+        self._day_lo = 0.0
+
         self._session_date = date
         self._or_high = 0.0
         self._or_low = 0.0
