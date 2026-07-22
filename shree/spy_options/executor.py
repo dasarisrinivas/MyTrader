@@ -624,17 +624,30 @@ class SpyOptionsExecutor:
             or (getattr(self._cfg, "family_tier_overrides", {}) or {}).get(_fam)
             or _FAMILY_TIERS.get(_fam, "experimental")
         )
-        qty = min(qty, _TIER_MAX_QTY.get(_tier_name, 0))
+        _tier_cap = _TIER_MAX_QTY.get(_tier_name, 0)
+        qty = min(qty, _tier_cap)
         # Governor risk scale (0.5–1.25): shrinks size on measured edge decay.
         if _gov and qty >= 1:
             qty = max(1, int(qty * float(_gov.get("risk_scale", 1.0))))
         if qty < 1:
-            logger.info(
-                "EXEC gate: {} {}{} not traded — 1-contract stop-risk "
-                "${:.0f} exceeds budget ${:.0f}",
-                sig.signal_type.value, sig.strike, sig.right,
-                mid * 100 * stop_pct / 100.0, self._cfg.risk_per_trade_usd,
-            )
+            # Report the ACTUAL cause. A tier cap of 0 (family benched by the
+            # governor / evidence tier) is NOT a budget problem — the old
+            # message blamed "stop-risk exceeds budget" even when the risk-based
+            # size was fine and the tier zeroed it (e.g. TC=experimental after
+            # a demotion). (2026-07-22)
+            if _tier_cap < 1:
+                logger.info(
+                    "EXEC gate: {} {}{} not traded — family tier '{}' size cap "
+                    "= 0 (benched by governor; alert-only until promoted)",
+                    sig.signal_type.value, sig.strike, sig.right, _tier_name,
+                )
+            else:
+                logger.info(
+                    "EXEC gate: {} {}{} not traded — 1-contract stop-risk "
+                    "${:.0f} exceeds budget ${:.0f}",
+                    sig.signal_type.value, sig.strike, sig.right,
+                    mid * 100 * stop_pct / 100.0, self._cfg.risk_per_trade_usd,
+                )
             return False
 
         contract = Option(
