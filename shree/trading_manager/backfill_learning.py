@@ -33,6 +33,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from ..risk.trade_math import is_pnl_plausible
 from .learning import (
     bucketize_time,
     bucketize_vix,
@@ -46,17 +47,19 @@ from .learning import (
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _is_corrupted_pnl(reason: str, pnl: float) -> bool:
+def _is_corrupted_pnl(reason: str, pnl: float, symbol: str = "MES") -> bool:
     """Heuristic for the bot's CORRUPTED_PNL_CUMULATIVE_IBKR rows. These showed
-    up as $17K+ "PnL" entries in early Feb 2026 and would poison the stats."""
+    up as $17K+ "PnL" entries in early Feb 2026 and would poison the stats.
+
+    The magnitude test now delegates to the shared contract-aware guard
+    (``shree.risk.trade_math.is_pnl_plausible``) so the ceiling tracks the
+    contract's point value rather than a hard-coded $500. The default symbol
+    keeps the SPY-options backfill path pinned to the MES ($500) ceiling it
+    used before, since SPY option dollar PnL was already bounded the same way.
+    """
     if "CORRUPTED" in (reason or ""):
         return True
-    # MES: a single contract risking ~$75 cannot legitimately PnL >= $500 on
-    # one trade given our stop/target sizing. Treat anything outside [-500, +500]
-    # as corrupted.
-    if abs(pnl) > 500.0:
-        return True
-    return False
+    return not is_pnl_plausible(pnl, symbol=symbol)
 
 
 def _parse_iso(s: str) -> Optional[datetime]:
@@ -164,7 +167,7 @@ def backfill_mes(
     src = sqlite3.connect(orders_db)
     src.row_factory = sqlite3.Row
     closed = src.execute(
-        """SELECT trade_cycle_id, root_order_id, entry_time, exit_time,
+        """SELECT trade_cycle_id, root_order_id, symbol, entry_time, exit_time,
                   entry_price, exit_price, exit_reason, net_pnl
            FROM trade_outcomes
            WHERE exit_time IS NOT NULL AND net_pnl IS NOT NULL"""
@@ -178,7 +181,7 @@ def backfill_mes(
         processed += 1
         pnl = float(r["net_pnl"] or 0.0)
         reason = r["exit_reason"] or ""
-        if _is_corrupted_pnl(reason, pnl):
+        if _is_corrupted_pnl(reason, pnl, r["symbol"] or "MES"):
             skipped += 1
             continue
         entry_dt = _parse_iso(r["entry_time"])
@@ -259,6 +262,18 @@ def backfill_spy(
             skipped += 1
             continue
         if _is_corrupted_pnl("", pnl):
+            skipped += 1
+            continue
+
+        # SCRATCH exclusion (JUL 22 2026): a breakeven ($0) fill carries no
+        # win/loss signal, but upsert_event classifies pnl<=0 as a LOSS —
+        # so exact-$0 rows inflate the loss count and depress the bucket WR.
+        # Two such rows (spy:203, spy:212) are the old fabricated-$0 logging
+        # bug (fill_entry_premium == fill_exit_premium); they dragged
+        # TREND_CONTINUATION to a reported 27% WR (3W/8L) when the true
+        # stop-loss record is 3W/6L. Skip scratches from the learning feed.
+        # (SPY-only — the shared upsert path is untouched, so MES is unaffected.)
+        if abs(pnl) < 0.01:
             skipped += 1
             continue
 
