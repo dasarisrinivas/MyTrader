@@ -344,10 +344,38 @@ class SpyOptionsManager:
         try:
             while self._running:
                 try:
+                    # An IB Gateway drop mid-poll cancels the in-flight request
+                    # future → CancelledError. That is a BaseException, so the
+                    # broad `except Exception` below NEVER caught it: it
+                    # propagated out of the loop into the finally and KILLED the
+                    # whole bot (reproduced daily 08:01 CST, Jul 20/22/23 — the
+                    # Gateway's auto-restart landed ~60s after the 08:00 start).
+                    # The reconnect the disconnect handler scheduled never ran
+                    # because asyncio.run then cancelled every pending task.
+                    # Now: reconnect BEFORE polling a dead socket, and treat a
+                    # transient CancelledError as recoverable (only a real
+                    # stop() — which sets _running False — ends the bot).
+                    if not self._ib.ib.isConnected():
+                        logger.warning(
+                            "SPY data socket down — reconnecting before poll")
+                        await self._ib.reconnect_now()
+                        if not self._ib.ib.isConnected():
+                            await asyncio.sleep(10)
+                            continue
                     await self._poll(spy_conid)
+                except asyncio.CancelledError:
+                    if not self._running:
+                        raise                       # genuine shutdown — honour it
+                    logger.warning(
+                        "SPY poll cancelled (IB disconnect) — surviving; will "
+                        "reconnect on next loop")
                 except Exception as exc:
                     logger.opt(exception=True).error("Poll error: {}", exc)
-                await asyncio.sleep(self._cfg.session.poll_interval_s)
+                try:
+                    await asyncio.sleep(self._cfg.session.poll_interval_s)
+                except asyncio.CancelledError:
+                    if not self._running:
+                        raise
         finally:
             if self._real_flow is not None:
                 self._real_flow.stop()

@@ -190,6 +190,22 @@ class IBOptionsClient:
         finally:
             self._reconnecting = False
 
+    async def reconnect_now(self) -> None:
+        """Public reconnect entry point for the run loop's survival path
+        (2026-07-23). If a reconnect is already in flight (keepalive/event
+        handler), wait for it to finish; otherwise drive one. Never raises —
+        the loop must keep running regardless."""
+        try:
+            if self._reconnecting:
+                for _ in range(40):
+                    if self._ib.isConnected():
+                        return
+                    await asyncio.sleep(1)
+                return
+            await self._reconnect()
+        except Exception as exc:
+            logger.warning("reconnect_now error: {}", exc)
+
     async def close(self) -> None:
         """Disconnect from IB Gateway, cancelling any active subscriptions."""
         # Cancel keepalive task
