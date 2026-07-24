@@ -62,9 +62,19 @@ class ThetaSubscriptionError(ThetaError):
 
 # ── column alias resolution (header-driven) ──────────────────────────────────
 
+# Confirmed against the live Standard trade_quote schema (2026-07-24):
+#   trade_timestamp, quote_timestamp, sequence, ext_condition1..4, condition,
+#   size, exchange, price, bid_size, bid_exchange, bid, bid_condition,
+#   ask_size, ask_exchange, ask, ask_condition
+# NOTE: `condition`/`exchange` are NUMERIC OPRA codes (e.g. condition=125,
+# exchange=22), not strings — so the string-based spread/auction condition
+# filter (is_clean_print) currently passes everything. That only affects NET
+# measures (may include spread legs = noise, biasing toward FAIL — the safe
+# direction). Aggressor classification (Lee-Ready on bid/ask) is unaffected.
+# Mapping numeric OPRA condition codes is a documented refinement.
 _ALIASES = {
-    "timestamp": ["timestamp", "datetime", "trade_time", "time", "last_trade",
-                  "created"],
+    "timestamp": ["trade_timestamp", "timestamp", "datetime", "trade_time",
+                  "time", "last_trade", "created"],
     "ms_of_day": ["ms_of_day", "trade_ms", "ms"],
     "date": ["date", "trade_date"],
     "price": ["price", "trade_price", "last_trade_price"],
