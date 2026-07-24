@@ -229,6 +229,26 @@ single billing cycle** — that is the core reason one month suffices.
 
 ---
 
+## Free-tier pre-flight (verified 2026-07-23, $0, before subscribing)
+
+Confirmed against the running terminal on the FREE tier, so the paid month is
+pure execution:
+
+- **API shape:** v3 REST on :25503, CSV. Params `symbol/expiration=YYYYMMDD/
+  strike/right/start_date/end_date`. Adapter built + 25 tests green.
+- **Paywall location:** `trade`/`trade_quote` = Standard (403 on free); `quote`/
+  `ohlc`/`open_interest` = Value; discovery + EOD + stock-close = free. → **buy
+  Standard**, Value cannot pull trades.
+- **Venue + condition codes present** (`bid_exchange`/`ask_exchange`/
+  `*_condition`) → real sweeps + spread-leg filtering (IB could not).
+- **Coverage:** every sampled Apr 1–Jul 22 session has 157–238 strikes — window
+  fully populated.
+- **Timezone = ET** (max free-EOD `last_trade` hour = 16, not 20).
+- **Bulk = omit strike/right** → whole chain per call (~240 vs ~5000 requests).
+- **Python 3.9 vs library:** the official `thetadata` pip lib needs Py 3.12; the
+  pipeline runs on 3.9, so we use the REST adapter for this run. Migrate to the
+  library only if a future forward-capture layer is built.
+
 ## Final verdict
 
 **BUY THETADATA FOR ONE-MONTH RESEARCH.**

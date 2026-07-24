@@ -15,9 +15,16 @@ Confirmed empirically 2026-07-23 against a running terminal:
       bid_condition/ask_condition -> venue + condition codes ARE available
       (real sweep detection + spread-leg filtering, unlike IB).
 
-TIMEZONE: ThetaData reports ET (America/New_York). `source_tz` is configurable;
-VERIFY on the first Standard pull by checking a known RTH trade lands 09:30-16:00
-ET. Our flow prints store ts_et in ET, so ET-native means no conversion.
+TIMEZONE: ThetaData reports ET (America/New_York) — CORROBORATED 2026-07-23 on
+free EOD data: max `last_trade` hour across the chain = 16 (ET close), not 20
+(would be UTC). `source_tz` stays configurable; still worth a final glance on the
+first Standard tick pull. Our flow prints store ts_et in ET, so no conversion.
+
+BULK: omitting `strike` (and optionally `right`) returns the WHOLE chain for an
+expiration+date in one call (verified on free EOD: 335 rows calls+puts). Cuts an
+Apr-Jul pull from ~5000 per-contract requests to ~240 whole-chain calls. This
+adapter defaults to per-contract near-ATM (bounded payloads, requests are
+unlimited/local on Standard); switch to chain pulls if request count ever bites.
 
 The exact `trade_quote` column names are gated behind the Standard tier, so the
 row->Print mapper is HEADER-DRIVEN with alias resolution and logs any unmapped
