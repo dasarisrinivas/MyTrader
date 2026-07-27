@@ -1,0 +1,166 @@
+{
+  "engine": "v2.0-real-option-replay",
+  "families": {
+    "CALL_SWEEP": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 60,
+      "n_failed": 0,
+      "direction_hit_rate": 0.5,
+      "option_win_rate": 0.467,
+      "expectancy_pct": 0.0775,
+      "expectancy_dollar": 0.23,
+      "profit_factor": 1.005,
+      "kelly": 0.002,
+      "tail_loss_p95_pct": -0.874,
+      "max_drawdown_dollar": -1078.1,
+      "avg_hold_min": 79.7,
+      "avg_spread_cost_dollar": 3.65,
+      "classification": {
+        "TRUE_EDGE": 28,
+        "EXEC_CONTRACT": 2,
+        "MECH_DOMINATED": 0,
+        "SIGNAL_FAIL": 30
+      },
+      "legacy_barrier_win_rate": 0.5,
+      "legacy_barrier_expectancy_pct": 0.0086
+    },
+    "PUT_SWEEP": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 60,
+      "n_failed": 0,
+      "direction_hit_rate": 0.467,
+      "option_win_rate": 0.35,
+      "expectancy_pct": -0.1519,
+      "expectancy_dollar": -25.2,
+      "profit_factor": 0.527,
+      "kelly": -0.314,
+      "tail_loss_p95_pct": -0.866,
+      "max_drawdown_dollar": -1737.0,
+      "avg_hold_min": 84.6,
+      "avg_spread_cost_dollar": 3.55,
+      "classification": {
+        "TRUE_EDGE": 21,
+        "EXEC_CONTRACT": 7,
+        "MECH_DOMINATED": 0,
+        "SIGNAL_FAIL": 32
+      },
+      "legacy_barrier_win_rate": 0.467,
+      "legacy_barrier_expectancy_pct": -0.0507
+    },
+    "TREND_CONTINUATION": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 32,
+      "n_failed": 6,
+      "direction_hit_rate": 0.406,
+      "option_win_rate": 0.344,
+      "expectancy_pct": -0.0992,
+      "expectancy_dollar": -24.02,
+      "profit_factor": 0.263,
+      "kelly": -0.962,
+      "tail_loss_p95_pct": -0.462,
+      "max_drawdown_dollar": -768.6,
+      "avg_hold_min": 54.8,
+      "avg_spread_cost_dollar": 2.13,
+      "classification": {
+        "TRUE_EDGE": 11,
+        "EXEC_CONTRACT": 2,
+        "MECH_DOMINATED": 0,
+        "SIGNAL_FAIL": 19
+      },
+      "legacy_barrier_win_rate": 0.406,
+      "legacy_barrier_expectancy_pct": -0.0406
+    },
+    "ORB_BREAKOUT": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 60,
+      "n_failed": 0,
+      "direction_hit_rate": 0.35,
+      "option_win_rate": 0.283,
+      "expectancy_pct": -0.1636,
+      "expectancy_dollar": -36.0,
+      "profit_factor": 0.229,
+      "kelly": -0.952,
+      "tail_loss_p95_pct": -0.701,
+      "max_drawdown_dollar": -2404.5,
+      "avg_hold_min": 78.3,
+      "avg_spread_cost_dollar": 3.18,
+      "classification": {
+        "TRUE_EDGE": 16,
+        "EXEC_CONTRACT": 5,
+        "MECH_DOMINATED": 1,
+        "SIGNAL_FAIL": 38
+      },
+      "legacy_barrier_win_rate": 0.35,
+      "legacy_barrier_expectancy_pct": -0.0703
+    },
+    "PC_RATIO_EXTREME": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 60,
+      "n_failed": 0,
+      "direction_hit_rate": 0.467,
+      "option_win_rate": 0.383,
+      "expectancy_pct": -0.0329,
+      "expectancy_dollar": -22.32,
+      "profit_factor": 0.641,
+      "kelly": -0.214,
+      "tail_loss_p95_pct": -0.701,
+      "max_drawdown_dollar": -2287.9,
+      "avg_hold_min": 72.6,
+      "avg_spread_cost_dollar": 14.03,
+      "classification": {
+        "TRUE_EDGE": 23,
+        "EXEC_CONTRACT": 5,
+        "MECH_DOMINATED": 0,
+        "SIGNAL_FAIL": 32
+      },
+      "legacy_barrier_win_rate": 0.467,
+      "legacy_barrier_expectancy_pct": -0.0256
+    },
+    "BULL_CALL_SPREAD": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 60,
+      "n_failed": 0,
+      "direction_hit_rate": 0.65,
+      "option_win_rate": 0.55,
+      "expectancy_pct": 0.1317,
+      "expectancy_dollar": 28.12,
+      "profit_factor": 1.888,
+      "kelly": 0.259,
+      "tail_loss_p95_pct": -0.869,
+      "max_drawdown_dollar": -1446.6,
+      "avg_hold_min": 88.7,
+      "avg_spread_cost_dollar": 3.95,
+      "classification": {
+        "TRUE_EDGE": 33,
+        "EXEC_CONTRACT": 6,
+        "MECH_DOMINATED": 0,
+        "SIGNAL_FAIL": 21
+      },
+      "legacy_barrier_win_rate": 0.65,
+      "legacy_barrier_expectancy_pct": 0.0781
+    },
+    "BEAR_PUT_SPREAD": {
+      "engine_version": "v2.0-real-option-replay",
+      "n_replayed": 60,
+      "n_failed": 0,
+      "direction_hit_rate": 0.3,
+      "option_win_rate": 0.217,
+      "expectancy_pct": -0.3624,
+      "expectancy_dollar": -52.07,
+      "profit_factor": 0.281,
+      "kelly": -0.555,
+      "tail_loss_p95_pct": -0.868,
+      "max_drawdown_dollar": -3161.0,
+      "avg_hold_min": 85.7,
+      "avg_spread_cost_dollar": 3.53,
+      "classification": {
+        "TRUE_EDGE": 13,
+        "EXEC_CONTRACT": 5,
+        "MECH_DOMINATED": 0,
+        "SIGNAL_FAIL": 42
+      },
+      "legacy_barrier_win_rate": 0.3,
+      "legacy_barrier_expectancy_pct": -0.1474
+    }
+  }
+}
