@@ -495,8 +495,35 @@ class IBOptionsClient:
                 regulatorySnapshot=False,
             )
 
-        # Greeks arrive asynchronously from IB's option model — needs extra time
-        await asyncio.sleep(self._cfg.greeks_wait_s)
+        # Greeks arrive asynchronously from IB's option model — needs extra time.
+        # PHASE-1 INSTRUMENTATION (log-only, no behavior change): poll during the
+        # SAME total wait to record when the quote and greeks FIRST arrive per
+        # contract. This tests the timing/race hypothesis for missing greeks —
+        # "quote present, greeks absent" — without changing the wait duration,
+        # the read point, or the returned result. Gated by greeks_quality_log
+        # (default on; getattr keeps it backward-compatible with old configs).
+        _quality = getattr(self._cfg, "greeks_quality_log", True)
+        _wait = self._cfg.greeks_wait_s
+        first_q: Dict[int, Optional[int]] = {c.conId: None for c in contracts}
+        first_g: Dict[int, Optional[int]] = {c.conId: None for c in contracts}
+        if _quality:
+            import time as _t
+            _t0 = _t.monotonic()
+            while True:
+                _el = _t.monotonic() - _t0
+                for _c in contracts:
+                    _tk = tickers[_c.conId]
+                    if first_q[_c.conId] is None:
+                        _b, _a = _safe_float(_tk.bid), _safe_float(_tk.ask)
+                        if _b and _a and _b > 0 and _a > 0:
+                            first_q[_c.conId] = int(_el * 1000)
+                    if first_g[_c.conId] is None and _tk.modelGreeks is not None:
+                        first_g[_c.conId] = int(_el * 1000)
+                if _el >= _wait:
+                    break
+                await asyncio.sleep(min(0.05, max(0.0, _wait - _el)))
+        else:
+            await asyncio.sleep(_wait)
 
         result: Dict[int, Dict] = {}
         for conid, ticker in tickers.items():
@@ -518,6 +545,38 @@ class IBOptionsClient:
                 "impl_vol":      _safe_float(greeks.impliedVol if greeks else None),
                 "open_interest": _safe_int(oi),
             }
+
+        # PHASE-1 INSTRUMENTATION (log-only): record every MISSING-GREEK event
+        # with quote/greek arrival timing + liquidity context, so the timing-vs-
+        # permanent question is answered on live volume (see docs). Never raises.
+        if _quality:
+            try:
+                import json as _json
+                import os as _os
+                from datetime import datetime as _dt, timezone as _tz
+                _os.makedirs("logs", exist_ok=True)
+                with open("logs/greeks_quality.jsonl", "a") as _fh:
+                    for _conid, _r in result.items():
+                        if _r.get("delta") not in (None, 0, 0.0):
+                            continue  # greeks present — not an event of interest
+                        _has_q = bool(_r.get("84") and _r.get("86")
+                                      and _r["84"] > 0 and _r["86"] > 0)
+                        _fh.write(_json.dumps({
+                            "ts": _dt.now(_tz.utc).isoformat(),
+                            "conid": _conid,
+                            "has_quote": _has_q,
+                            "first_quote_ms": first_q.get(_conid),
+                            "first_greek_ms": first_g.get(_conid),
+                            "greeks_wait_s": _wait,
+                            "bid": _r.get("84"), "ask": _r.get("86"),
+                            "volume": _r.get("87"),
+                            "open_interest": _r.get("open_interest"),
+                            # classification hint: quote-but-no-greek within the
+                            # window = candidate timing/race (Phase-3 retry target)
+                            "class": ("quote_no_greek" if _has_q else "no_quote"),
+                        }) + "\n")
+            except Exception:
+                pass  # instrumentation must never affect the data path
 
         # CRITICAL: cancel all live subscriptions to free data lines
         for contract in contracts:

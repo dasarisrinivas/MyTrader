@@ -545,7 +545,17 @@ class SpyOptionsManager:
     # ── IV rank ───────────────────────────────────────────────────────────────
 
     def _compute_iv_rank(self, vix: Optional[float]) -> float:
-        """Compute IV rank (0-100) from cached 52-week VIX range."""
+        """NORMALIZED VIX REGIME SCORE (0-100) — NOT option IV rank/percentile.
+
+        MISNOMER WARNING (do not trust the name in research): this is VIX's
+        position within its own trailing 52-week range, i.e. a coarse
+        vol-regime score derived purely from the VIX index. It is NOT the
+        implied-volatility rank/percentile of the specific option being traded
+        (that would require per-strike IV history, e.g. from ThetaData, and was
+        shown to be non-predictive so is deliberately not computed). The field
+        and DB column are still called `iv_rank` for backward compatibility;
+        read them as `vix_regime_score`. A true rename is a tracked migration.
+        """
         if (
             vix is None
             or self._vix_52w_low is None
