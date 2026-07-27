@@ -68,6 +68,37 @@ execution optimization; it cannot create directional edge that isn't there.
   50%-direction candidate where contract selection could plausibly cross positive.
 - **No new strategies / features / tuning** until signal-generation edge exists.
 
+## Phase 4 — variance decomposition (CALL_SWEEP, 138 signals × 6 contracts)
+Two-way ANOVA on returns (`scripts/phase4_contract_variance.py`):
+
+| Factor | η² |
+|---|---|
+| **Signal direction** | **77.2%** |
+| **Contract choice** | **0.7%** |
+| interaction (idiosyncratic) | 22.1% |
+
+Per-contract: expectancy stays ≈0-to-negative for ALL contracts (mean range
+driven by a Δ25 penny outlier); volatility swings 4× (ATM-2DTE std 28% → Δ25
+118%). **Contract choice is a VOLATILITY lever, not an expectancy lever.**
+
+**Architectural conclusion (generalizes):** for this architecture, signal
+direction dominates P&L variance (77%); contract selection is a second-order
+effect (<1%) that only reshapes risk. Measured on the best, most-liquid,
+50%-direction family — so contract optimization is a second-order avenue for the
+currently-tested families. Empirical, not just the theoretical ceiling.
+Recommendation: freeze contract/execution optimization as a research avenue; the
+first-order lever is signal generation.
+
+## RESEARCH ENGINE v2 — COMPLETE (frozen)
+The engine has answered its architectural question. FREEZE:
+- API (`shree/research/replay_engine.py`) and the evaluation methodology.
+- Every future strategy is graded through this engine UNCHANGED — no weekly
+  drift, so results stay comparable across experiments.
+- Real option dollar-P&L is the canonical metric; SPY barrier is retired.
+
+Known v3 work (only reason to unfreeze): **multi-leg replay** (spreads/straddles
+are currently mis-graded single-leg). Do NOT expand the engine for anything else.
+
 ## Research version lineage
-v1 barrier (deprecated) · **v2 real option replay (current)** · v3 +multi-leg &
-execution latency · v4 +multi-contract default.
+v1 barrier (deprecated) · **v2 real option replay — COMPLETE/FROZEN** ·
+v3 +multi-leg replay (only planned change) · v4 +execution latency (deferred).
