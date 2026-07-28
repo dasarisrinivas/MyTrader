@@ -65,3 +65,40 @@ If NO:  what evidence is still missing
 ## Tool
 `scripts/promotion_scorecard.py` — computes every gate per family and prints the
 PROMOTION REVIEW block. It never promotes anything; it reports the decision.
+
+---
+
+## v2 gates (implemented 2026-07-27)
+Beyond G1–G3 the scorecard now enforces:
+- **G4 MULTI-WINDOW** — +EV at 10d, 30d AND 90d; lifetime non-negative. A family
+  that works in only one window is not stable.
+- **G5 STATISTICAL CONFIDENCE** — bootstrap 95% CI of EV must EXCLUDE zero, and
+  Wilson lower bound on win rate > 0.40. Prevents promoting noise.
+- **G6 ALPHA vs BETA (measurable)** — +EV on both up and down days,
+  |corr(trade P&L, SPY session return)| < 0.50, AND direction-residualized
+  alpha > 0. Turns the qualitative "that's beta" observation into a gate.
+- **G7 ELIGIBILITY** — multi-leg families INELIGIBLE until engine v3.
+- **Lifecycle stages**: research → shadow → candidate → pilot → active;
+  archived (enough evidence, negative) / ineligible (engine limitation).
+- **Machine-enforceable** — emits `data/promotion_scorecard.json`
+  (`{strategy, eligible, stage, failed[], ev, ev_ci95, beta_corr, alpha_residual_ev}`)
+  so production consumes the verdict directly instead of a human reading a report.
+
+## KNOWN METHODOLOGY LIMITATION (must fix before any real promotion)
+`--cap-per-session` SUBSAMPLES signals per session, which makes results vary
+run-to-run: a 30-day run showed CALL_SWEEP EV −$20.53 while a 120-day run's 30d
+window showed +$15.79 — same data, opposite sign. **Any binding promotion
+decision must replay EVERY signal (no cap).** The gates are sound; capped
+sampling makes the inputs unstable. Treat capped runs as indicative only.
+
+## Standing evidence statement (wording discipline)
+Do NOT write "every family is a directional bet, not an edge." The supportable
+claim is: **over the evaluated window, no tested family demonstrated
+regime-independent positive expectancy, and performance is strongly dependent on
+market direction.** Future data in different volatility regimes could change
+this — consistent with "archived under observed conditions."
+
+## Current standing (120d, capped — indicative)
+No family eligible. CALL_SWEEP is the only one with positive residual alpha
+(+$37.42) and positive EV across all windows, but fails sample (44<50), EV CI
+crosses zero, Wilson win-rate, and regime dependence → stays `shadow`, watch only.
