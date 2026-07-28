@@ -336,6 +336,12 @@ def log_blocked_signal(sig: "SpySignal", gate: str, reason: str) -> None:
             "right": sig.right,
             "strike": sig.strike,
             "expiry": sig.expiry,
+            # JUL 27 2026 (audit fix): `expiry` is a MONTH CODE ("AUG26"), which
+            # does not identify a contract — blocked signals were therefore
+            # UNREPLAYABLE (0/508 on 2026-07-27) and gate effectiveness could
+            # never be measured. Record the exact expiration date too, matching
+            # the dispatched-signal column `spy_signals.expiry_date`.
+            "expiry_date": getattr(sig, "expiry_date", "") or "",
             "confidence": round(float(sig.confidence or 0.0), 4),
             "tier": getattr(sig, "confidence_tier", ""),
             "regime": getattr(sig, "regime", ""),
