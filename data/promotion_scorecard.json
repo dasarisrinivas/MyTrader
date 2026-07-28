@@ -1,297 +1,434 @@
 {
-  "engine": "v2.0-real-option-replay",
-  "generated_for_lookback_days": 120,
-  "gates": {
+  "provenance": {
+    "replay_engine_version": "v2.0-real-option-replay",
+    "replay_engine_hash": "4d3239df40707c2a",
+    "promotion_framework_version": "2.0",
+    "constitution_hash": "4184de51a2b24a1d",
+    "scorecard_hash": "7bfd99e1ba9c9a56",
+    "dataset_hash": "574a05b498ce9739",
+    "lookback_days": 120,
+    "signals_attempted": 1035,
+    "signals_replayed": 1031,
+    "replay_completeness": 0.9961,
+    "binding": true
+  },
+  "constitution": {
+    "version": "2.0",
+    "effective": "2026-07-27",
     "min_signals": 50,
-    "min_sessions": 10,
-    "min_consec": 3,
-    "min_wilson_wr": 0.4,
-    "max_beta_corr": 0.5,
-    "windows": [
-      10,
-      30,
-      90
-    ]
+    "min_sessions": 30,
+    "required_regimes": [
+      "bull",
+      "bear",
+      "range",
+      "high_vix",
+      "low_vix"
+    ],
+    "max_beta_corr": 0.5
   },
   "results": [
     {
-      "strategy": "PC_RATIO_EXTREME",
+      "strategy": "CALL_SWEEP",
       "eligible": false,
       "stage": "archived",
       "failed": [
-        "insufficient_consecutive_sessions",
-        "negative_ev",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence",
-        "beta_correlated",
-        "no_residual_alpha"
+        "G8_incomplete_replay",
+        "G2_negative_ev",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G5_window_disagreement",
+        "G6_beta_slope",
+        "COVERAGE_insufficient_sessions"
       ],
-      "n": 91,
-      "sessions": 16,
-      "ev": -33.54,
-      "ev_ci95": [
-        -63.49,
-        -4.75
-      ],
-      "win_rate": 0.33,
-      "wilson_lo": 0.242,
-      "consec_pos_sessions": 2,
-      "window_ev": {
-        "10d": 31.05,
-        "30d": 31.05,
-        "90d": 31.05,
-        "lifetime": -33.54
+      "promotion_metrics": {
+        "n": 204,
+        "sessions": 12,
+        "ev": -11.73,
+        "ev_ci95": [
+          -28.17,
+          5.07
+        ],
+        "wilson_lo": 0.281,
+        "window_ev": {
+          "10d": -14.28,
+          "30d": -14.28,
+          "90d": -14.66,
+          "lifetime": -11.73
+        },
+        "up_ev": 58.22,
+        "dn_ev": -51.2,
+        "beta_corr": 0.335,
+        "beta_slope": 8855.1,
+        "alpha_residual_ev": 22.66,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "high_vix",
+          "low_vix",
+          "range"
+        ]
       },
-      "up_ev": -72.19,
-      "dn_ev": 2.64,
-      "beta_corr": -0.565,
-      "alpha_residual_ev": -16.45
-    },
-    {
-      "strategy": "ORB_BREAKOUT",
-      "eligible": false,
-      "stage": "archived",
-      "failed": [
-        "insufficient_consecutive_sessions",
-        "negative_ev",
-        "window_disagreement",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence",
-        "no_residual_alpha"
-      ],
-      "n": 66,
-      "sessions": 18,
-      "ev": -13.95,
-      "ev_ci95": [
-        -31.35,
-        4.25
-      ],
-      "win_rate": 0.364,
-      "wilson_lo": 0.258,
-      "consec_pos_sessions": 2,
-      "window_ev": {
-        "10d": -9.56,
-        "30d": -7.88,
-        "90d": -7.88,
-        "lifetime": -13.95
-      },
-      "up_ev": 7.8,
-      "dn_ev": -32.08,
-      "beta_corr": 0.099,
-      "alpha_residual_ev": -15.36
+      "exploratory_metrics": {
+        "flat_ev": 34.55,
+        "alpha_residual_sharpe": 0.198,
+        "consec_pos_sessions": 3,
+        "win_rate": 0.343,
+        "avg_hold_min": 83.1
+      }
     },
     {
       "strategy": "PUT_SWEEP",
       "eligible": false,
       "stage": "shadow",
       "failed": [
-        "insufficient_sample",
-        "negative_ev",
-        "window_disagreement",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence",
-        "no_residual_alpha"
+        "G8_incomplete_replay",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G6_beta_slope",
+        "G7_no_residual_alpha",
+        "COVERAGE_insufficient_sessions"
       ],
-      "n": 49,
-      "sessions": 14,
-      "ev": -18.79,
-      "ev_ci95": [
-        -46.98,
-        11.19
-      ],
-      "win_rate": 0.347,
-      "wilson_lo": 0.229,
-      "consec_pos_sessions": 3,
-      "window_ev": {
-        "10d": -21.68,
-        "30d": -20.52,
-        "90d": -18.87,
-        "lifetime": -18.79
+      "promotion_metrics": {
+        "n": 204,
+        "sessions": 14,
+        "ev": 1.79,
+        "ev_ci95": [
+          -14.51,
+          18.17
+        ],
+        "wilson_lo": 0.365,
+        "window_ev": {
+          "10d": 2.27,
+          "30d": 2.38,
+          "90d": 2.5,
+          "lifetime": 1.79
+        },
+        "up_ev": -79.17,
+        "dn_ev": 27.55,
+        "beta_corr": -0.273,
+        "beta_slope": -8034.3,
+        "alpha_residual_ev": -33.43,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "high_vix",
+          "low_vix",
+          "range"
+        ]
       },
-      "up_ev": -105.3,
-      "dn_ev": -9.0,
-      "beta_corr": -0.182,
-      "alpha_residual_ev": -35.76
+      "exploratory_metrics": {
+        "flat_ev": -26.21,
+        "alpha_residual_sharpe": -0.286,
+        "consec_pos_sessions": 3,
+        "win_rate": 0.431,
+        "avg_hold_min": 84.0
+      }
     },
     {
-      "strategy": "LONG_STRADDLE",
+      "strategy": "ORB_BREAKOUT",
       "eligible": false,
-      "stage": "ineligible",
+      "stage": "archived",
       "failed": [
-        "ineligible_multi_leg",
-        "insufficient_sample",
-        "insufficient_consecutive_sessions",
-        "negative_ev",
-        "window_disagreement",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence",
-        "no_residual_alpha"
+        "G8_incomplete_replay",
+        "G2_negative_ev",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G5_window_disagreement",
+        "G7_no_residual_alpha",
+        "COVERAGE_insufficient_sessions"
       ],
-      "n": 48,
-      "sessions": 15,
-      "ev": -20.51,
-      "ev_ci95": [
-        -37.43,
-        -3.98
-      ],
-      "win_rate": 0.375,
-      "wilson_lo": 0.252,
-      "consec_pos_sessions": 2,
-      "window_ev": {
-        "10d": null,
-        "30d": -20.52,
-        "90d": -21.95,
-        "lifetime": -20.51
+      "promotion_metrics": {
+        "n": 163,
+        "sessions": 18,
+        "ev": -10.96,
+        "ev_ci95": [
+          -23.82,
+          1.31
+        ],
+        "wilson_lo": 0.304,
+        "window_ev": {
+          "10d": -9.05,
+          "30d": -8.72,
+          "90d": -8.72,
+          "lifetime": -10.96
+        },
+        "up_ev": -5.36,
+        "dn_ev": 4.5,
+        "beta_corr": -0.09,
+        "beta_slope": -1314.2,
+        "alpha_residual_ev": -13.8,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "high_vix",
+          "low_vix",
+          "range"
+        ]
       },
-      "up_ev": -31.94,
-      "dn_ev": -4.35,
-      "beta_corr": -0.393,
-      "alpha_residual_ev": -12.16
+      "exploratory_metrics": {
+        "flat_ev": -39.89,
+        "alpha_residual_sharpe": -0.165,
+        "consec_pos_sessions": 2,
+        "win_rate": 0.374,
+        "avg_hold_min": 83.3
+      }
     },
     {
-      "strategy": "CALL_SWEEP",
+      "strategy": "PC_RATIO_EXTREME",
       "eligible": false,
-      "stage": "shadow",
+      "stage": "archived",
       "failed": [
-        "insufficient_sample",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence"
+        "G8_incomplete_replay",
+        "G2_negative_ev",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G5_window_disagreement",
+        "G6_beta_slope",
+        "G7_no_residual_alpha",
+        "COVERAGE_insufficient_sessions"
       ],
-      "n": 44,
-      "sessions": 12,
-      "ev": 20.13,
-      "ev_ci95": [
-        -10.96,
-        52.91
-      ],
-      "win_rate": 0.477,
-      "wilson_lo": 0.338,
-      "consec_pos_sessions": 3,
-      "window_ev": {
-        "10d": 15.79,
-        "30d": 15.79,
-        "90d": 11.99,
-        "lifetime": 20.13
+      "promotion_metrics": {
+        "n": 159,
+        "sessions": 17,
+        "ev": -28.63,
+        "ev_ci95": [
+          -49.46,
+          -7.17
+        ],
+        "wilson_lo": 0.3,
+        "window_ev": {
+          "10d": -11.43,
+          "30d": -11.43,
+          "90d": -11.43,
+          "lifetime": -28.63
+        },
+        "up_ev": -73.28,
+        "dn_ev": 1.49,
+        "beta_corr": -0.382,
+        "beta_slope": -8781.6,
+        "alpha_residual_ev": -39.73,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "high_vix",
+          "low_vix",
+          "range"
+        ]
       },
-      "up_ev": 78.27,
-      "dn_ev": -7.0,
-      "beta_corr": 0.457,
-      "alpha_residual_ev": 37.42
-    },
-    {
-      "strategy": "TREND_CONTINUATION",
-      "eligible": false,
-      "stage": "shadow",
-      "failed": [
-        "insufficient_sample",
-        "insufficient_sessions",
-        "insufficient_consecutive_sessions",
-        "negative_ev",
-        "window_disagreement",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence",
-        "no_residual_alpha"
-      ],
-      "n": 31,
-      "sessions": 8,
-      "ev": -13.65,
-      "ev_ci95": [
-        -31.24,
-        4.48
-      ],
-      "win_rate": 0.387,
-      "wilson_lo": 0.237,
-      "consec_pos_sessions": 2,
-      "window_ev": {
-        "10d": -33.3,
-        "30d": -13.65,
-        "90d": -13.65,
-        "lifetime": -13.65
-      },
-      "up_ev": -13.18,
-      "dn_ev": -14.23,
-      "beta_corr": 0.028,
-      "alpha_residual_ev": -13.67
-    },
-    {
-      "strategy": "BEAR_PUT_SPREAD",
-      "eligible": false,
-      "stage": "ineligible",
-      "failed": [
-        "ineligible_multi_leg",
-        "insufficient_sample",
-        "insufficient_sessions",
-        "insufficient_consecutive_sessions",
-        "negative_ev",
-        "window_disagreement",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence",
-        "beta_correlated",
-        "no_residual_alpha"
-      ],
-      "n": 22,
-      "sessions": 6,
-      "ev": -20.8,
-      "ev_ci95": [
-        -68.21,
-        28.52
-      ],
-      "win_rate": 0.273,
-      "wilson_lo": 0.132,
-      "consec_pos_sessions": 1,
-      "window_ev": {
-        "10d": -19.95,
-        "30d": -19.95,
-        "90d": -19.95,
-        "lifetime": -20.8
-      },
-      "up_ev": -89.3,
-      "dn_ev": -5.58,
-      "beta_corr": -0.58,
-      "alpha_residual_ev": -49.95
+      "exploratory_metrics": {
+        "flat_ev": -23.49,
+        "alpha_residual_sharpe": -0.326,
+        "consec_pos_sessions": 1,
+        "win_rate": 0.371,
+        "avg_hold_min": 82.1
+      }
     },
     {
       "strategy": "BULL_CALL_SPREAD",
       "eligible": false,
       "stage": "ineligible",
       "failed": [
-        "ineligible_multi_leg",
-        "insufficient_sample",
-        "insufficient_sessions",
-        "insufficient_consecutive_sessions",
-        "negative_ev",
-        "window_disagreement",
-        "ev_ci_crosses_zero",
-        "win_rate_ci_low",
-        "regime_dependence"
+        "G10_ineligible_multi_leg",
+        "G8_incomplete_replay",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G6_beta_slope",
+        "COVERAGE_insufficient_sessions",
+        "COVERAGE_missing_regimes:high_vix"
       ],
-      "n": 18,
-      "sessions": 7,
-      "ev": -0.19,
-      "ev_ci95": [
-        -72.64,
-        74.76
-      ],
-      "win_rate": 0.5,
-      "wilson_lo": 0.29,
-      "consec_pos_sessions": 2,
-      "window_ev": {
-        "10d": -5.36,
-        "30d": -5.36,
-        "90d": -5.36,
-        "lifetime": -0.19
+      "promotion_metrics": {
+        "n": 107,
+        "sessions": 7,
+        "ev": 4.91,
+        "ev_ci95": [
+          -22.41,
+          32.87
+        ],
+        "wilson_lo": 0.323,
+        "window_ev": {
+          "10d": 4.13,
+          "30d": 4.13,
+          "90d": 4.13,
+          "lifetime": 4.91
+        },
+        "up_ev": 55.7,
+        "dn_ev": -73.1,
+        "beta_corr": 0.315,
+        "beta_slope": 13547.0,
+        "alpha_residual_ev": 21.33,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "low_vix",
+          "range"
+        ]
       },
-      "up_ev": 52.45,
-      "dn_ev": -15.23,
-      "beta_corr": 0.291,
-      "alpha_residual_ev": 19.3
+      "exploratory_metrics": {
+        "flat_ev": 37.89,
+        "alpha_residual_sharpe": 0.157,
+        "consec_pos_sessions": 2,
+        "win_rate": 0.411,
+        "avg_hold_min": 83.5
+      }
+    },
+    {
+      "strategy": "BEAR_PUT_SPREAD",
+      "eligible": false,
+      "stage": "ineligible",
+      "failed": [
+        "G10_ineligible_multi_leg",
+        "G8_incomplete_replay",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G6_beta_slope",
+        "G7_no_residual_alpha",
+        "COVERAGE_insufficient_sessions",
+        "COVERAGE_missing_regimes:high_vix"
+      ],
+      "promotion_metrics": {
+        "n": 99,
+        "sessions": 7,
+        "ev": 2.96,
+        "ev_ci95": [
+          -23.22,
+          28.53
+        ],
+        "wilson_lo": 0.35,
+        "window_ev": {
+          "10d": 3.63,
+          "30d": 3.63,
+          "90d": 3.63,
+          "lifetime": 2.96
+        },
+        "up_ev": -77.73,
+        "dn_ev": 69.25,
+        "beta_corr": -0.489,
+        "beta_slope": -20947.8,
+        "alpha_residual_ev": -29.29,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "low_vix",
+          "range"
+        ]
+      },
+      "exploratory_metrics": {
+        "flat_ev": -17.38,
+        "alpha_residual_sharpe": -0.252,
+        "consec_pos_sessions": 1,
+        "win_rate": 0.444,
+        "avg_hold_min": 85.3
+      }
+    },
+    {
+      "strategy": "LONG_STRADDLE",
+      "eligible": false,
+      "stage": "ineligible",
+      "failed": [
+        "G10_ineligible_multi_leg",
+        "G8_incomplete_replay",
+        "G1_insufficient_sample",
+        "G2_negative_ev",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G5_window_disagreement",
+        "G6_beta_slope",
+        "G7_no_residual_alpha",
+        "COVERAGE_insufficient_sessions",
+        "COVERAGE_missing_regimes:high_vix"
+      ],
+      "promotion_metrics": {
+        "n": 48,
+        "sessions": 15,
+        "ev": -20.51,
+        "ev_ci95": [
+          -36.9,
+          -4.3
+        ],
+        "wilson_lo": 0.252,
+        "window_ev": {
+          "10d": null,
+          "30d": -20.52,
+          "90d": -21.95,
+          "lifetime": -20.51
+        },
+        "up_ev": -81.97,
+        "dn_ev": -37.3,
+        "beta_corr": -0.393,
+        "beta_slope": -8102.0,
+        "alpha_residual_ev": -12.16,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "low_vix",
+          "range"
+        ]
+      },
+      "exploratory_metrics": {
+        "flat_ev": -3.74,
+        "alpha_residual_sharpe": -0.226,
+        "consec_pos_sessions": 2,
+        "win_rate": 0.375,
+        "avg_hold_min": 90.0
+      }
+    },
+    {
+      "strategy": "TREND_CONTINUATION",
+      "eligible": false,
+      "stage": "shadow",
+      "failed": [
+        "G8_incomplete_replay",
+        "G1_insufficient_sample",
+        "G2_negative_ev",
+        "G3_ev_ci_crosses_zero",
+        "G4_win_rate_ci_low",
+        "G5_window_disagreement",
+        "G7_no_residual_alpha",
+        "COVERAGE_insufficient_sessions",
+        "COVERAGE_missing_regimes:high_vix"
+      ],
+      "promotion_metrics": {
+        "n": 47,
+        "sessions": 13,
+        "ev": -24.77,
+        "ev_ci95": [
+          -39.73,
+          -9.32
+        ],
+        "wilson_lo": 0.222,
+        "window_ev": {
+          "10d": -42.34,
+          "30d": -24.77,
+          "90d": -24.77,
+          "lifetime": -24.77
+        },
+        "up_ev": -7.18,
+        "dn_ev": -43.36,
+        "beta_corr": 0.285,
+        "beta_slope": 3280.0,
+        "alpha_residual_ev": -19.33,
+        "replay_completeness": 0.9961,
+        "regime_coverage": [
+          "bear",
+          "bull",
+          "low_vix",
+          "range"
+        ]
+      },
+      "exploratory_metrics": {
+        "flat_ev": -17.95,
+        "alpha_residual_sharpe": -0.382,
+        "consec_pos_sessions": 2,
+        "win_rate": 0.34,
+        "avg_hold_min": 63.4
+      }
     }
   ],
   "any_eligible": false

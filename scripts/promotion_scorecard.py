@@ -1,29 +1,21 @@
 #!/usr/bin/env python3
-"""Promotion Candidate Scorecard v2 — evidence -> machine-enforceable decision.
+"""Promotion Candidate Scorecard v3 — deterministic, versioned, reproducible.
 
-Replays every dispatched signal ONCE through the frozen engine, then evaluates
-each family against objective gates and emits a structured JSON verdict that
-production can consume directly (no human reading a report).
+Enforces the frozen constitution in shree/research/promotion_constitution.py.
+Emits a provenance block (engine version + file hashes + dataset hash + framework
+version) so any verdict is reproducible years later.
 
-GATES
-  G1 SAMPLE        >= MIN_SIGNALS replayed signals
-  G2 SESSIONS      >= MIN_SESSIONS distinct sessions
-  G3 CONSISTENCY   >= MIN_CONSEC consecutive +EV sessions
-  G4 MULTI-WINDOW  +EV at 10d, 30d, 90d; non-negative lifetime
-  G5 STAT-CONF     bootstrap 95% CI of EV excludes 0; Wilson-lo(win) > 0.40
-  G6 ALPHA vs BETA measurable: +EV on up AND down days, |corr(net, SPY ret)|
-                   below MAX_BETA_CORR, and direction-residualized alpha > 0
-  G7 ELIGIBILITY   multi-leg families are INELIGIBLE (engine v2 grades single-leg)
+INVARIANT (G8/G9): promotion decisions require 100% replay completeness.
+Sampling (--cap-per-session) is EXPLORATORY ONLY and automatically marks the run
+non-binding — every family is forced ineligible in that mode.
 
-STAGES  research -> shadow -> candidate -> pilot -> active
-        archived (evidence negative) / ineligible (engine limitation)
-
-Observation only. Promotes nothing; reports the decision.
-  python3 scripts/promotion_scorecard.py --days 120 --json data/promotion_scorecard.json
+  python3 scripts/promotion_scorecard.py --days 120            # binding (no cap)
+  python3 scripts/promotion_scorecard.py --days 120 --cap 25   # exploratory only
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sqlite3
@@ -40,22 +32,12 @@ from shree.flow_research.thetadata import ThetaClient
 from shree.research.replay_engine import (
     QuoteCache, _prevailing, RESEARCH_ENGINE_VERSION,
 )
+from shree.research import promotion_constitution as K
 
 ET = ZoneInfo("America/New_York")
 DB = "/Users/svss/Documents/code/ShreeBot/data/spy_options_signals.db"
 COMM_RT = 1.30
 HORIZON_MIN = 90
-
-MIN_SIGNALS = 50
-MIN_SESSIONS = 10
-MIN_CONSEC = 3
-MIN_WILSON_WR = 0.40
-MAX_BETA_CORR = 0.50
-WINDOWS = (10, 30, 90)
-
-# Engine v2 prices only the recorded leg -> multi-leg EV is meaningless.
-MULTI_LEG = {"BULL_CALL_SPREAD", "BEAR_PUT_SPREAD", "LONG_STRADDLE"}
-
 RNG = np.random.default_rng(20260727)
 
 
@@ -66,6 +48,10 @@ def et(ts):
 
 def key(d):
     return d.replace(tzinfo=None).isoformat(timespec="milliseconds")
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
 
 
 def wilson_lo(w, n, z=1.96):
@@ -82,17 +68,29 @@ def boot_ci(x, n=3000):
     x = np.asarray(x, float)
     if len(x) < 5:
         return float("nan"), float("nan")
-    means = RNG.choice(x, (n, len(x)), replace=True).mean(axis=1)
-    return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+    m = RNG.choice(x, (n, len(x)), replace=True).mean(axis=1)
+    return float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
+
+
+def classify_session(spy_ret, vix):
+    regs = []
+    if spy_ret > K.BULL_BEAR_THRESHOLD:
+        regs.append("bull")
+    elif spy_ret < -K.BULL_BEAR_THRESHOLD:
+        regs.append("bear")
+    else:
+        regs.append("range")
+    if vix is not None:
+        regs.append("high_vix" if vix >= K.HIGH_VIX_THRESHOLD else "low_vix")
+    return regs
 
 
 def replay_all(days, cap):
-    """Replay once over the full lookback; return family -> list of trade dicts."""
     c = sqlite3.connect(f"file:{DB}?mode=ro&immutable=1", uri=True)
     c.row_factory = sqlite3.Row
     sigs = c.execute(
         """SELECT id, sent_at, exit_at, signal_type, strike, right, expiry_date,
-                  confidence, spy_price, spy_price_exit
+                  confidence, spy_price, vix
            FROM spy_signals WHERE expiry_date IS NOT NULL AND expiry_date!=''
            ORDER BY sent_at""").fetchall()
     c.close()
@@ -106,14 +104,20 @@ def replay_all(days, cap):
     client = ThetaClient()
     cache = QuoteCache(client)
     out = defaultdict(list)
+    attempted = replayed = 0
+    ids = []
     for sess in sorted(by_sess):
         rows = by_sess[sess]
         px = [r["spy_price"] for r in rows if r["spy_price"]]
         if len(px) < 2:
             continue
         spy_ret = (px[-1] - px[0]) / px[0]
-        sample = rows[:: max(1, len(rows) // cap)][:cap]
+        vixv = [r["vix"] for r in rows if r["vix"]]
+        vix = sum(vixv) / len(vixv) if vixv else None
+        regimes = classify_session(spy_ret, vix)
+        sample = rows if not cap else rows[:: max(1, len(rows) // cap)][:cap]
         for s in sample:
+            attempted += 1
             e = et(s["sent_at"])
             x = et(s["exit_at"]) if s["exit_at"] else e + timedelta(minutes=HORIZON_MIN)
             if x.date() != e.date():
@@ -129,26 +133,30 @@ def replay_all(days, cap):
             xb = _prevailing(q, k, key(x))[0]
             if not ea or not xb:
                 continue
+            replayed += 1
+            ids.append(s["id"])
             out[s["signal_type"]].append({
                 "session": sess, "date": e.date(), "net": (xb - ea) * 100 - COMM_RT,
-                "spy_ret": spy_ret, "conf": s["confidence"] or 0.0})
-    return out
+                "spy_ret": spy_ret, "regimes": regimes,
+                "hold": (x - e).total_seconds() / 60.0})
+    dataset_hash = hashlib.sha256(
+        ",".join(str(i) for i in sorted(ids)).encode()).hexdigest()[:16]
+    return out, attempted, replayed, dataset_hash
 
 
 def window_ev(trades, days):
     cut = (datetime.now(ET) - timedelta(days=days)).date()
     v = [t["net"] for t in trades if t["date"] >= cut]
-    return (sum(v) / len(v), len(v)) if v else (float("nan"), 0)
+    return sum(v) / len(v) if v else float("nan")
 
 
-def evaluate(fam, trades):
+def evaluate(fam, trades, completeness, binding):
     n = len(trades)
     nets = [t["net"] for t in trades]
     sessions = sorted({t["session"] for t in trades})
     ev = sum(nets) / n if n else float("nan")
     wins = sum(1 for x in nets if x > 0)
 
-    # G3 consecutive +EV sessions
     per = defaultdict(list)
     for t in trades:
         per[t["session"]].append(t["net"])
@@ -160,124 +168,170 @@ def evaluate(fam, trades):
         else:
             streak = 0
 
-    # G4 multi-window
-    win_ev = {f"{d}d": window_ev(trades, d)[0] for d in WINDOWS}
-    win_ev["lifetime"] = ev
-
-    # G5 statistical confidence
+    wev = {f"{d}d": window_ev(trades, d) for d in K.G5_WINDOWS}
+    wev["lifetime"] = ev
     lo, hi = boot_ci(nets)
     wlo = wilson_lo(wins, n)
 
-    # G6 alpha vs beta (measurable)
-    up = [t["net"] for t in trades if t["spy_ret"] > 0]
-    dn = [t["net"] for t in trades if t["spy_ret"] < 0]
-    up_ev = sum(up) / len(up) if up else float("nan")
-    dn_ev = sum(dn) / len(dn) if dn else float("nan")
-    corr = float("nan")
-    alpha = float("nan")
+    up = [t["net"] for t in trades if t["spy_ret"] > K.BULL_BEAR_THRESHOLD]
+    dn = [t["net"] for t in trades if t["spy_ret"] < -K.BULL_BEAR_THRESHOLD]
+    fl = [t["net"] for t in trades if abs(t["spy_ret"]) <= K.BULL_BEAR_THRESHOLD]
+    f = lambda v: (sum(v) / len(v)) if v else float("nan")
+    up_ev, dn_ev, fl_ev = f(up), f(dn), f(fl)
+
+    corr = slope = alpha = alpha_sharpe = float("nan")
     if n >= 5:
         x = np.array([t["spy_ret"] for t in trades], float)
         y = np.array(nets, float)
         if x.std() > 0 and y.std() > 0:
             corr = float(np.corrcoef(x, y)[0, 1])
-            b, a = np.polyfit(x, y, 1)          # net ~ a + b*spy_ret
-            alpha = float(np.mean(y - (b * x)))  # direction-residualized EV
+            slope, icept = np.polyfit(x, y, 1)
+            slope = float(slope)
+            resid = y - (slope * x)
+            alpha = float(resid.mean())
+            if resid.std() > 0:
+                alpha_sharpe = float(resid.mean() / resid.std())
+
+    covered = set()
+    for t in trades:
+        covered.update(t["regimes"])
+    missing_regimes = [r for r in K.REQUIRED_REGIMES if r not in covered]
 
     failed = []
-    if fam in MULTI_LEG:
-        failed.append("ineligible_multi_leg")
-    if n < MIN_SIGNALS:
-        failed.append("insufficient_sample")
-    if len(sessions) < MIN_SESSIONS:
-        failed.append("insufficient_sessions")
-    if best < MIN_CONSEC:
-        failed.append("insufficient_consecutive_sessions")
-    if not (ev > 0):
-        failed.append("negative_ev")
-    if any(not (v > 0) for k, v in win_ev.items() if k != "lifetime" and win_ev[k] == win_ev[k]):
-        failed.append("window_disagreement")
-    if not (lo == lo and lo > 0):
-        failed.append("ev_ci_crosses_zero")
-    if wlo < MIN_WILSON_WR:
-        failed.append("win_rate_ci_low")
-    if not (up_ev > 0 and dn_ev > 0):
-        failed.append("regime_dependence")
-    if corr == corr and abs(corr) > MAX_BETA_CORR:
-        failed.append("beta_correlated")
-    if not (alpha == alpha and alpha > 0):
-        failed.append("no_residual_alpha")
+    if fam in K.G10_MULTI_LEG:
+        failed.append("G10_ineligible_multi_leg")
+    if not binding:
+        failed.append("G9_non_deterministic_sampled_run")
+    if completeness < K.G8_MIN_REPLAY_COMPLETENESS:
+        failed.append("G8_incomplete_replay")
+    if n < K.G1_MIN_SIGNALS:
+        failed.append("G1_insufficient_sample")
+    if not (ev > K.G2_MIN_EV):
+        failed.append("G2_negative_ev")
+    if not (lo == lo and lo > K.G3_CI_LOWER_ABOVE):
+        failed.append("G3_ev_ci_crosses_zero")
+    if wlo <= K.G4_MIN_WILSON_WR:
+        failed.append("G4_win_rate_ci_low")
+    if any(not (v > 0) for k_, v in wev.items() if k_ != "lifetime" and v == v):
+        failed.append("G5_window_disagreement")
+    if corr == corr and abs(corr) >= K.G6_MAX_BETA_CORR:
+        failed.append("G6_beta_correlated")
+    if slope == slope and abs(slope) >= K.G6_MAX_BETA_SLOPE:
+        failed.append("G6_beta_slope")
+    if not (alpha == alpha and alpha > K.G7_MIN_RESIDUAL_ALPHA):
+        failed.append("G7_no_residual_alpha")
+    if len(sessions) < K.MIN_COMPLETE_SESSIONS:
+        failed.append("COVERAGE_insufficient_sessions")
+    if missing_regimes:
+        failed.append("COVERAGE_missing_regimes:" + "|".join(missing_regimes))
 
-    if fam in MULTI_LEG:
+    if fam in K.G10_MULTI_LEG:
         stage = "ineligible"
     elif not failed:
-        stage = "candidate"      # meets evidence bar -> eligible for pilot review
-    elif ev == ev and ev <= 0 and n >= MIN_SIGNALS:
-        stage = "archived"       # enough evidence, negative
+        stage = "candidate"
+    elif ev == ev and ev <= 0 and n >= K.G1_MIN_SIGNALS:
+        stage = "archived"
     else:
-        stage = "shadow"         # still accumulating
+        stage = "shadow"
 
     return {
-        "strategy": fam, "eligible": not failed and fam not in MULTI_LEG,
-        "stage": stage, "failed": failed,
-        "n": n, "sessions": len(sessions),
-        "ev": round(ev, 2) if ev == ev else None,
-        "ev_ci95": [round(lo, 2) if lo == lo else None,
-                    round(hi, 2) if hi == hi else None],
-        "win_rate": round(wins / n, 3) if n else None,
-        "wilson_lo": round(wlo, 3),
-        "consec_pos_sessions": best,
-        "window_ev": {k: (round(v, 2) if v == v else None) for k, v in win_ev.items()},
-        "up_ev": round(up_ev, 2) if up_ev == up_ev else None,
-        "dn_ev": round(dn_ev, 2) if dn_ev == dn_ev else None,
-        "beta_corr": round(corr, 3) if corr == corr else None,
-        "alpha_residual_ev": round(alpha, 2) if alpha == alpha else None,
+        "strategy": fam, "eligible": (not failed), "stage": stage, "failed": failed,
+        "promotion_metrics": {
+            "n": n, "sessions": len(sessions),
+            "ev": round(ev, 2) if ev == ev else None,
+            "ev_ci95": [round(lo, 2) if lo == lo else None,
+                        round(hi, 2) if hi == hi else None],
+            "wilson_lo": round(wlo, 3),
+            "window_ev": {k_: (round(v, 2) if v == v else None) for k_, v in wev.items()},
+            "up_ev": round(up_ev, 2) if up_ev == up_ev else None,
+            "dn_ev": round(dn_ev, 2) if dn_ev == dn_ev else None,
+            "beta_corr": round(corr, 3) if corr == corr else None,
+            "beta_slope": round(slope, 1) if slope == slope else None,
+            "alpha_residual_ev": round(alpha, 2) if alpha == alpha else None,
+            "replay_completeness": round(completeness, 4),
+            "regime_coverage": sorted(covered),
+        },
+        "exploratory_metrics": {
+            "flat_ev": round(fl_ev, 2) if fl_ev == fl_ev else None,
+            "alpha_residual_sharpe": round(alpha_sharpe, 3) if alpha_sharpe == alpha_sharpe else None,
+            "consec_pos_sessions": best,
+            "win_rate": round(wins / n, 3) if n else None,
+            "avg_hold_min": round(sum(t["hold"] for t in trades) / n, 1) if n else None,
+        },
     }
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=120)
-    ap.add_argument("--cap-per-session", type=int, default=30)
+    ap.add_argument("--cap", type=int, default=None,
+                    help="EXPLORATORY ONLY — sampling voids binding promotion")
     ap.add_argument("--json", default="data/promotion_scorecard.json")
     a = ap.parse_args()
 
-    trades = replay_all(a.days, a.cap_per_session)
-    results = [evaluate(f, t) for f, t in sorted(trades.items(), key=lambda kv: -len(kv[1]))]
+    binding = a.cap is None
+    trades, attempted, replayed, dhash = replay_all(a.days, a.cap)
+    completeness = (replayed / attempted) if attempted else 0.0
 
-    print(f"PROMOTION SCORECARD v2  (engine {RESEARCH_ENGINE_VERSION})")
-    print(f"gates: n>={MIN_SIGNALS}, sessions>={MIN_SESSIONS}, consec>={MIN_CONSEC}, "
-          f"multi-window +EV, CI excludes 0, Wilson>{MIN_WILSON_WR}, "
-          f"|beta_corr|<{MAX_BETA_CORR}, alpha>0\n")
-    print(f"{'strategy':<20}{'stage':<11}{'n':>5}{'EV$':>8}{'CI95':>18}"
-          f"{'10d':>8}{'30d':>8}{'90d':>8}{'beta_r':>8}{'alpha$':>8}")
+    results = [evaluate(f, t, completeness, binding)
+               for f, t in sorted(trades.items(), key=lambda kv: -len(kv[1]))]
+
+    prov = {
+        "replay_engine_version": RESEARCH_ENGINE_VERSION,
+        "replay_engine_hash": sha(Path(__file__).parent.parent /
+                                  "shree/research/replay_engine.py"),
+        "promotion_framework_version": K.PROMOTION_FRAMEWORK_VERSION,
+        "constitution_hash": sha(Path(__file__).parent.parent /
+                                 "shree/research/promotion_constitution.py"),
+        "scorecard_hash": sha(__file__),
+        "dataset_hash": dhash,
+        "lookback_days": a.days,
+        "signals_attempted": attempted, "signals_replayed": replayed,
+        "replay_completeness": round(completeness, 4),
+        "binding": binding,
+    }
+
+    print(K.gate_summary())
+    print(f"\nPROVENANCE  engine={prov['replay_engine_version']}"
+          f"({prov['replay_engine_hash']}) framework=v{prov['promotion_framework_version']}"
+          f"({prov['constitution_hash']}) dataset={dhash}")
+    print(f"  replay completeness {completeness:.1%} "
+          f"({replayed}/{attempted})  BINDING={binding}")
+    if not binding:
+        print("  ** SAMPLED RUN — EXPLORATORY ONLY, cannot promote anything (G9) **")
+
+    print(f"\n{'strategy':<20}{'stage':<11}{'n':>5}{'sess':>5}{'EV$':>8}"
+          f"{'CI95':>18}{'beta_r':>8}{'slope':>9}{'alpha$':>8}")
     for r in results:
-        ci = f"[{r['ev_ci95'][0]},{r['ev_ci95'][1]}]"
-        w = r["window_ev"]
-        print(f"{r['strategy']:<20}{r['stage']:<11}{r['n']:>5}"
-              f"{(r['ev'] if r['ev'] is not None else 0):>8.2f}{ci:>18}"
-              f"{(w.get('10d') or 0):>8.2f}{(w.get('30d') or 0):>8.2f}"
-              f"{(w.get('90d') or 0):>8.2f}"
-              f"{(r['beta_corr'] if r['beta_corr'] is not None else 0):>8.2f}"
-              f"{(r['alpha_residual_ev'] if r['alpha_residual_ev'] is not None else 0):>8.2f}")
+        m = r["promotion_metrics"]
+        ci = f"[{m['ev_ci95'][0]},{m['ev_ci95'][1]}]"
+        print(f"{r['strategy']:<20}{r['stage']:<11}{m['n']:>5}{m['sessions']:>5}"
+              f"{(m['ev'] or 0):>8.2f}{ci:>18}{(m['beta_corr'] or 0):>8.2f}"
+              f"{(m['beta_slope'] or 0):>9.0f}{(m['alpha_residual_ev'] or 0):>8.2f}")
+
+    print("\nFAILED GATES (promotion):")
     for r in results:
-        print(f"  {r['strategy']:<20} failed: {', '.join(r['failed']) or 'none'}")
+        print(f"  {r['strategy']:<20} {', '.join(r['failed']) or 'NONE — all gates pass'}")
+
+    print("\nEXPLORATORY (interesting, NOT actionable):")
+    for r in results:
+        e = r["exploratory_metrics"]
+        print(f"  {r['strategy']:<20} alpha_sharpe={e['alpha_residual_sharpe']} "
+              f"flat_ev={e['flat_ev']} consec={e['consec_pos_sessions']} "
+              f"wr={e['win_rate']}")
 
     elig = [r for r in results if r["eligible"]]
     print("\nPROMOTION REVIEW")
-    print(f"  Any shadow strategy eligible for live tomorrow? {'YES' if elig else 'NO'}")
-    if elig:
-        for r in elig:
-            print(f"    {r['strategy']}: EV ${r['ev']} CI {r['ev_ci95']} alpha ${r['alpha_residual_ev']}")
-    else:
-        print("  Missing evidence: see per-strategy failed[] above.")
+    print(f"  Any strategy eligible for live tomorrow? {'YES' if elig else 'NO'}")
+    if not elig:
+        print("  All strategies fail >=1 gate. See FAILED GATES above.")
 
-    out = {"engine": RESEARCH_ENGINE_VERSION,
-           "generated_for_lookback_days": a.days,
-           "gates": {"min_signals": MIN_SIGNALS, "min_sessions": MIN_SESSIONS,
-                     "min_consec": MIN_CONSEC, "min_wilson_wr": MIN_WILSON_WR,
-                     "max_beta_corr": MAX_BETA_CORR, "windows": list(WINDOWS)},
-           "results": results,
-           "any_eligible": bool(elig)}
+    out = {"provenance": prov, "constitution": {
+        "version": K.PROMOTION_FRAMEWORK_VERSION, "effective": K.EFFECTIVE_DATE,
+        "min_signals": K.G1_MIN_SIGNALS, "min_sessions": K.MIN_COMPLETE_SESSIONS,
+        "required_regimes": list(K.REQUIRED_REGIMES),
+        "max_beta_corr": K.G6_MAX_BETA_CORR,
+    }, "results": results, "any_eligible": bool(elig)}
     Path(a.json).parent.mkdir(parents=True, exist_ok=True)
     with open(a.json, "w") as f:
         json.dump(out, f, indent=2)

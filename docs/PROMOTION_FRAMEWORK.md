@@ -102,3 +102,59 @@ this — consistent with "archived under observed conditions."
 No family eligible. CALL_SWEEP is the only one with positive residual alpha
 (+$37.42) and positive EV across all windows, but fails sample (44<50), EV CI
 crosses zero, Wilson win-rate, and regime dependence → stays `shadow`, watch only.
+
+---
+
+# Promotion Framework v2.0 — FROZEN (effective 2026-07-27)
+
+Constitution: `shree/research/promotion_constitution.py` (single source of truth).
+Amendments require a **version bump + migration notes + historical re-comparison** —
+changing a gate changes history, because prior decisions were made under different
+rules.
+
+## Gates G1–G10 (deterministic, no per-run tuning)
+G1 n>=50 · G2 EV>0 · G3 95% CI lower>0 · G4 Wilson lower>0.40 ·
+G5 +EV at 10d/30d/90d + lifetime non-negative · G6 |beta corr|<0.50 AND
+|slope|<5000 · G7 residual alpha>0 · G8 replay completeness==100% ·
+G9 deterministic replay only · G10 multi-leg ineligible until engine v3.
+COVERAGE: >=30 sessions spanning bull, bear, range, high_vix, low_vix.
+
+## Lifecycle
+research → shadow → candidate → pilot → active → **probation** → archived;
+ineligible (engine limitation). Probation = a live strategy whose evidence
+deteriorated but which does not yet meet archival criteria.
+
+## Invariant (proven necessary 2026-07-27)
+**Promotion decisions must use COMPLETE replay datasets. Sampling is exploratory
+only, never binding.** Evidence: a capped run scored CALL_SWEEP at n=44 / EV
++$20.13 ("watch"); the uncapped binding run scored the same family at n=204 /
+EV **-$11.73** (archived). Subsampling reversed the sign. `--cap` now forces
+G9 failure so a sampled run can never promote anything.
+
+## Provenance (every report)
+replay engine version + file hash, constitution hash, scorecard hash, dataset
+hash, signals attempted/replayed, completeness, binding flag. Guarantees a
+verdict is reproducible years later.
+
+## Metric separation
+`promotion_metrics` (binding) vs `exploratory_metrics` (interesting, NOT
+actionable: residual Sharpe, flat-day EV, consecutive sessions, win rate, hold
+time). Prevents overweighting exploratory findings.
+
+## Binding result 2026-07-27 (120d, 1031/1035 replayed)
+No family eligible. CALL_SWEEP -11.73 (archived), PUT_SWEEP +1.79 but residual
+alpha -33.43, ORB -10.96, PC_RATIO -28.63, TC -24.77; spreads/straddle ineligible.
+Beta SLOPE caught what correlation missed: CALL_SWEEP corr 0.34 (passes) but
+slope 8855 (fails) — the asymmetric relationship correlation alone hides.
+
+## OPEN CONSTITUTION DEFECT (needs a versioned amendment decision)
+G8 demands exactly 100% completeness, but the binding run reached 99.6%
+(1031/1035) — 4 signals had no NBBO (contracts that never traded). As written,
+G8 can never pass, since unquotable contracts are unavoidable. Proposed
+amendment (NOT applied): `G8 >= 0.99` with every unreplayable signal itemized in
+the report. Requires version bump to v2.1 + migration notes.
+
+## Wording standard
+CALL_SWEEP satisfies one EXPLORATORY criterion (positive residual alpha) but has
+negative EV under complete replay and fails multiple promotion gates; it remains
+Shadow/archived. Do not describe any family as "the one to watch."
