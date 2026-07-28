@@ -1,0 +1,26 @@
+{
+  "version": "v3.0-multi-leg",
+  "results": {
+    "V1_parser": "PASS",
+    "TESTCASES": "PASS",
+    "V2_sync": "PASS",
+    "V3_entry_pricing": "PASS",
+    "V4_exit_pricing": "PASS",
+    "V5_pnl_math": "PASS",
+    "V6_determinism": "PASS",
+    "V7_provenance": "PASS"
+  },
+  "provenance": {
+    "engine_v2_version": "v2.0-real-option-replay",
+    "engine_v2_hash": "4d3239df40707c2a",
+    "engine_v3_version": "v3.0-multi-leg",
+    "engine_v3_hash": "8eea31d4034adf3c",
+    "constitution_hash": "6e8b87a3d91ae8b2",
+    "config_hash": "4942870d7312d707",
+    "dataset_hash": "b08603fb1a9848d8",
+    "early_assignment_modeled": false,
+    "limitation": "American-style SPY options: early assignment of short legs is NOT modeled."
+  },
+  "limitation": "American-style SPY options: early assignment of short legs is NOT modeled.",
+  "measurement_ready": true
+}
