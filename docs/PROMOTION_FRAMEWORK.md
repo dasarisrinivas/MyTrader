@@ -158,3 +158,46 @@ the report. Requires version bump to v2.1 + migration notes.
 CALL_SWEEP satisfies one EXPLORATORY criterion (positive residual alpha) but has
 negative EV under complete replay and fails multiple promotion gates; it remains
 Shadow/archived. Do not describe any family as "the one to watch."
+
+---
+
+# AMENDMENT v2.1 — APPLIED 2026-07-27 (framework now FROZEN)
+
+**Change:** G8 completeness `1.00 → 0.99`; denominator redefined to ALL in-window
+signals (no pre-count exclusion); itemization of every unreplayable signal made
+mandatory, with a standing upward-bias note.
+
+**Evidence:** 4/1048 signals unreplayable — ALL four from 2026-04-03 (market
+closed, Good Friday; vol=0, oi=0; vendor HTTP 472). Zero vendor gaps on tradeable
+sessions, zero replay-engine defects. v2.0's 100% rule was therefore unsatisfiable
+and blocked every promotion on a technicality.
+
+**Denominator defect also fixed:** v2.0 reported 99.6% (1031/1035) because its
+per-session filter silently dropped 13 signals before counting; true completeness
+was 98.4% (1031/1048). v2.1 counts them — sessions lacking a computable SPY return
+are still replayed and counted, and are excluded from beta/regime math only.
+
+**Historical impact: NONE.** Verified by re-run: every family still fails 4–6
+gates besides G8; verdict unchanged (no strategy promotable).
+
+## v2.1 binding result (120d, completeness 99.6% = 1044/1048, G8 PASSES)
+| Strategy | Stage | n | Sess | EV$ | CI95 | beta_r | slope | alpha$ |
+|---|---|---|---|---|---|---|---|---|
+| PUT_SWEEP | shadow | 209 | 19 | +1.52 | [−14.5, +18.3] | −0.27 | −8034 | −33.43 |
+| CALL_SWEEP | archived | 206 | 14 | −11.99 | [−27.6, +4.9] | 0.34 | 8855 | +22.66 |
+| ORB_BREAKOUT | archived | 163 | 18 | −10.96 | [−23.7, +1.6] | −0.09 | −1314 | −13.80 |
+| PC_RATIO_EXTREME | archived | 160 | 18 | −28.33 | [−48.7, −7.2] | −0.38 | −8782 | −39.73 |
+| TREND_CONTINUATION | shadow | 49 | 15 | −23.12 | [−37.9, −8.2] | 0.28 | 3280 | −19.33 |
+| spreads/straddle | ineligible | — | — | — | — | — | — | — |
+
+**PROMOTION REVIEW: NO strategy eligible.** G8 now passes for all; they fail on
+merit (CI crosses zero, Wilson, beta slope, residual alpha, session coverage).
+
+## FREEZE DECLARATION
+Replay Engine — **FROZEN** (only sanctioned change: v3 multi-leg).
+Promotion Framework — **FROZEN at v2.1**. No new gates, metrics, wording, or
+visualizations. Version bumps only for a verified defect that changes a
+promotion decision.
+Production — **FROZEN**.
+Current strategies — **DONE under observed conditions**.
+**Next work — NEW ALPHA.**

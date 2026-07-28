@@ -8,8 +8,23 @@ Effective 2026-07-27.
 """
 from __future__ import annotations
 
-PROMOTION_FRAMEWORK_VERSION = "2.0"
+PROMOTION_FRAMEWORK_VERSION = "2.1"
 EFFECTIVE_DATE = "2026-07-27"
+
+# ── AMENDMENT LOG ────────────────────────────────────────────────────────────
+# v2.1 (2026-07-27) — G8 completeness 1.00 -> 0.99, denominator redefined,
+#   itemization made mandatory.
+#   Reason: v2.0's G8 was UNSATISFIABLE. Contracts with no market produce no
+#   NBBO, so 100% can never be reached and G8 blocked every promotion on a
+#   technicality. Evidence: 4/1048 signals unreplayable, ALL from 2026-04-03
+#   (market closed — Good Friday; vol=0, oi=0; vendor returned HTTP 472).
+#   0 vendor gaps, 0 replay-engine defects.
+#   Also fixed: the completeness DENOMINATOR silently excluded 13 signals whose
+#   session had <2 price points, so v2.0 reported 99.6% (1031/1035) when true
+#   completeness vs all in-window signals was 98.4% (1031/1048).
+#   HISTORICAL IMPACT: NONE. Every v2.0 verdict was NO for 4-10 gates besides
+#   G8, so no promotion decision changes.
+# v2.0 (2026-07-27) — initial frozen constitution.
 
 # ── The gates (G1..G10). Deterministic thresholds; no per-run tuning. ─────────
 G1_MIN_SIGNALS = 50            # replayed signals
@@ -20,7 +35,11 @@ G5_WINDOWS = (10, 30, 90)      # all must be +EV; lifetime non-negative
 G6_MAX_BETA_CORR = 0.50        # |corr(P&L, SPY session return)|
 G6_MAX_BETA_SLOPE = 5000.0     # |regression slope| ($ per 1.0 SPY return unit)
 G7_MIN_RESIDUAL_ALPHA = 0.0    # direction-residualized EV must exceed this
-G8_MIN_REPLAY_COMPLETENESS = 1.0   # 100% — no sampling for promotion decisions
+G8_MIN_REPLAY_COMPLETENESS = 0.99  # v2.1. Denominator = ALL signals in the window
+# with a resolvable contract; NO signal may be excluded before counting. Every
+# unreplayable signal MUST be itemized (id, contract, reason) in the report.
+# BIAS NOTE: unreplayable contracts skew illiquid/never-traded, so dropping them
+# biases EV UPWARD — itemization exists to keep that skew visible.
 G9_DETERMINISTIC_ONLY = True   # capped/sampled runs are EXPLORATORY, never binding
 G10_MULTI_LEG = {"BULL_CALL_SPREAD", "BEAR_PUT_SPREAD", "LONG_STRADDLE"}
 

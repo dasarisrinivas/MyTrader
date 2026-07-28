@@ -90,7 +90,7 @@ def replay_all(days, cap):
     c.row_factory = sqlite3.Row
     sigs = c.execute(
         """SELECT id, sent_at, exit_at, signal_type, strike, right, expiry_date,
-                  confidence, spy_price, vix
+                  confidence, spy_price, vix, volume, open_interest
            FROM spy_signals WHERE expiry_date IS NOT NULL AND expiry_date!=''
            ORDER BY sent_at""").fetchall()
     c.close()
@@ -106,15 +106,20 @@ def replay_all(days, cap):
     out = defaultdict(list)
     attempted = replayed = 0
     ids = []
+    unreplayable = []   # v2.1: every failure itemized, none silently dropped
     for sess in sorted(by_sess):
         rows = by_sess[sess]
         px = [r["spy_price"] for r in rows if r["spy_price"]]
-        if len(px) < 2:
-            continue
-        spy_ret = (px[-1] - px[0]) / px[0]
-        vixv = [r["vix"] for r in rows if r["vix"]]
-        vix = sum(vixv) / len(vixv) if vixv else None
-        regimes = classify_session(spy_ret, vix)
+        # v2.1 DENOMINATOR FIX: a session with <2 price points is NOT skipped —
+        # its signals are still counted and replayed. spy_ret is unavailable, so
+        # those trades are excluded from beta/regime math only (spy_ret=None).
+        if len(px) >= 2:
+            spy_ret = (px[-1] - px[0]) / px[0]
+            vixv = [r["vix"] for r in rows if r["vix"]]
+            vix = sum(vixv) / len(vixv) if vixv else None
+            regimes = classify_session(spy_ret, vix)
+        else:
+            spy_ret, regimes = None, []
         sample = rows if not cap else rows[:: max(1, len(rows) // cap)][:cap]
         for s in sample:
             attempted += 1
@@ -122,16 +127,29 @@ def replay_all(days, cap):
             x = et(s["exit_at"]) if s["exit_at"] else e + timedelta(minutes=HORIZON_MIN)
             if x.date() != e.date():
                 x = e.replace(hour=15, minute=55, second=0)
+            reason = None
+            q = k = None
             try:
                 q, k = cache.get(s["expiry_date"], float(s["strike"]), s["right"],
                                  e.strftime("%Y%m%d"))
-            except Exception:
-                continue
-            if not q:
-                continue
-            ea = _prevailing(q, k, key(e))[1]
-            xb = _prevailing(q, k, key(x))[0]
-            if not ea or not xb:
+            except Exception as exc:
+                reason = f"vendor_error:{type(exc).__name__}"
+            if reason is None and not q:
+                reason = "no_quote_rows"
+            ea = xb = None
+            if reason is None:
+                ea = _prevailing(q, k, key(e))[1]
+                xb = _prevailing(q, k, key(x))[0]
+                if not ea:
+                    reason = "no_nbbo_at_entry"
+                elif not xb:
+                    reason = "no_nbbo_at_exit"
+            if reason:
+                unreplayable.append({
+                    "id": s["id"], "session": sess, "signal_type": s["signal_type"],
+                    "contract": f"{s['expiry_date']} {s['strike']}{s['right']}",
+                    "volume": s["volume"], "open_interest": s["open_interest"],
+                    "reason": reason})
                 continue
             replayed += 1
             ids.append(s["id"])
@@ -141,7 +159,7 @@ def replay_all(days, cap):
                 "hold": (x - e).total_seconds() / 60.0})
     dataset_hash = hashlib.sha256(
         ",".join(str(i) for i in sorted(ids)).encode()).hexdigest()[:16]
-    return out, attempted, replayed, dataset_hash
+    return out, attempted, replayed, dataset_hash, unreplayable
 
 
 def window_ev(trades, days):
@@ -173,16 +191,19 @@ def evaluate(fam, trades, completeness, binding):
     lo, hi = boot_ci(nets)
     wlo = wilson_lo(wins, n)
 
-    up = [t["net"] for t in trades if t["spy_ret"] > K.BULL_BEAR_THRESHOLD]
-    dn = [t["net"] for t in trades if t["spy_ret"] < -K.BULL_BEAR_THRESHOLD]
-    fl = [t["net"] for t in trades if abs(t["spy_ret"]) <= K.BULL_BEAR_THRESHOLD]
+    # v2.1: trades whose session lacked a computable SPY return (spy_ret None)
+    # are counted in n/EV but excluded from beta/regime math.
+    beta_t = [t for t in trades if t["spy_ret"] is not None]
+    up = [t["net"] for t in beta_t if t["spy_ret"] > K.BULL_BEAR_THRESHOLD]
+    dn = [t["net"] for t in beta_t if t["spy_ret"] < -K.BULL_BEAR_THRESHOLD]
+    fl = [t["net"] for t in beta_t if abs(t["spy_ret"]) <= K.BULL_BEAR_THRESHOLD]
     f = lambda v: (sum(v) / len(v)) if v else float("nan")
     up_ev, dn_ev, fl_ev = f(up), f(dn), f(fl)
 
     corr = slope = alpha = alpha_sharpe = float("nan")
-    if n >= 5:
-        x = np.array([t["spy_ret"] for t in trades], float)
-        y = np.array(nets, float)
+    if len(beta_t) >= 5:
+        x = np.array([t["spy_ret"] for t in beta_t], float)
+        y = np.array([t["net"] for t in beta_t], float)
         if x.std() > 0 and y.std() > 0:
             corr = float(np.corrcoef(x, y)[0, 1])
             slope, icept = np.polyfit(x, y, 1)
@@ -270,7 +291,7 @@ def main():
     a = ap.parse_args()
 
     binding = a.cap is None
-    trades, attempted, replayed, dhash = replay_all(a.days, a.cap)
+    trades, attempted, replayed, dhash, unreplayable = replay_all(a.days, a.cap)
     completeness = (replayed / attempted) if attempted else 0.0
 
     results = [evaluate(f, t, completeness, binding)
@@ -320,6 +341,15 @@ def main():
               f"flat_ev={e['flat_ev']} consec={e['consec_pos_sessions']} "
               f"wr={e['win_rate']}")
 
+    # v2.1 MANDATORY ITEMIZATION — every unreplayable signal, with bias note
+    print(f"\nUNREPLAYABLE SIGNALS (v2.1 mandatory itemization): {len(unreplayable)}")
+    for u in unreplayable:
+        print(f"  id={u['id']} {u['session']} {u['signal_type']} {u['contract']} "
+              f"vol={u['volume']} oi={u['open_interest']} reason={u['reason']}")
+    if unreplayable:
+        print("  BIAS: unreplayable contracts skew illiquid/never-traded; excluding")
+        print("  them biases EV UPWARD.")
+
     elig = [r for r in results if r["eligible"]]
     print("\nPROMOTION REVIEW")
     print(f"  Any strategy eligible for live tomorrow? {'YES' if elig else 'NO'}")
@@ -331,7 +361,8 @@ def main():
         "min_signals": K.G1_MIN_SIGNALS, "min_sessions": K.MIN_COMPLETE_SESSIONS,
         "required_regimes": list(K.REQUIRED_REGIMES),
         "max_beta_corr": K.G6_MAX_BETA_CORR,
-    }, "results": results, "any_eligible": bool(elig)}
+    }, "results": results, "any_eligible": bool(elig),
+        "unreplayable_signals": unreplayable}
     Path(a.json).parent.mkdir(parents=True, exist_ok=True)
     with open(a.json, "w") as f:
         json.dump(out, f, indent=2)
