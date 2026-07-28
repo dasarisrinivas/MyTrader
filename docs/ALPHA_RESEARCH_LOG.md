@@ -36,8 +36,44 @@ side of it.
 
 ---
 
+## #1 Short premium (defined-risk credit spreads) — VERDICT: NO EVIDENCE
+**Date:** 2026-07-27. Instrument: v3.0 (V1-V7 passed). Research only.
+**Method:** 966 SYNTHETIC historical credit spreads (bull put / bear call) across
+92 configs — structure x moneyness (0.3%/0.7%) x width (2/5) x DTE (0/1) x entry
+(10:00/12:00/14:00) x exit (90m/EOD), 20 sessions. Landscape mapped BEFORE any
+tuning. Conservative fills, $2.60 RT, no assignment modeling.
+
+| Filter | Count |
+|---|---|
+| configs mapped | 92 |
+| EV > 0 | 35 (38%) -> **62% NEGATIVE** |
+| + 95% CI excludes 0 | 6 |
+| + \|beta\|<0.5 and alpha>0 | 6 |
+
+**6 survivors vs ~4.6 expected by chance at alpha=0.05 over 92 tests = the null.**
+All survivors n=6-14 (G1 needs >=50); coverage 20 sessions (needs >=30);
+replay completeness 91.5% (G8 needs >=99%). Constitution applied unchanged, no
+exceptions -> nothing promotable, nothing shadow-worthy.
+
+**Mechanism fails independently:** best bear-call configs carry beta -0.58..-0.82
+(they profited because SPY drifted down, not from decay); theta capture is
+erratic (+0.71 .. -0.85), not systematically positive as a decay-harvesting
+hypothesis requires.
+
+**VERDICT: NO — hypothesis CLOSED.** Defined-risk short premium shows no evidence
+of regime-independent positive expectancy under observed conditions.
+
+**Bounded claim:** per-config n is small (6-14); a much larger session count could
+sharpen the estimate. But the landscape is majority-negative and survivors match
+chance, so there is no positive signal to pursue.
+
+**LIMITATION carried:** American-style SPY options — early assignment of short
+legs is NOT modeled. Material for short legs; would only make results WORSE.
+
+---
+
 ## Backlog status
-1. Short-premium (defined-risk) inversion — **BLOCKED on engine v3 multi-leg**. Highest EV.
+1. Short-premium (defined-risk) inversion — **DONE, no evidence (above).**
 2. Holding horizon — **DONE, negative (above).**
 3. Event-conditioned behavior — not started (engine-compatible).
 4. Overnight/globex context — not started (engine-compatible).
