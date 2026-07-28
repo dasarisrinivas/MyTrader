@@ -15,14 +15,28 @@
     <key>WorkingDirectory</key>
     <string>/Users/svss/Documents/code/ShreeBot</string>
 
-    <!-- Weekdays Mon(1)–Fri(5) at 14:00 local (Central) = 15:00 ET entry cutoff. -->
+    <!-- Weekdays Mon(1)–Fri(5) at 15:05 local (Central) = 16:05 ET, just after the
+         16:00 ET close.
+
+         BUG-1 FIX (audit 2026-07-28): this was 14:00 local (=15:00 ET), aligned to
+         the ENTRY CUTOFF (execution.no_new_entries_after_et = 15:00 ET) instead of
+         to the FLATTEN. Consequence: the process was killed 50 minutes BEFORE
+         execution.flatten_0dte_at_et (15:50 ET), so the 0DTE end-of-day flatten
+         (executor.py:1027) and the 15:45 ET rth_stop could NEVER fire — contradicting
+         the documented design assumption in manager.py ("rth_stop 15:45 <
+         flatten_0dte 15:50", audit 2026-07-13 P0-6/P0-7).
+
+         Extending to 16:05 ET adds NO new trades: the executor hard-rejects entries
+         after 15:00 ET (executor.py:427 "after ... ET (theta-kill zone)"). The extra
+         hour is position MANAGEMENT only — it lets the 0DTE flatten and time-stops
+         actually run. Local (Central) = ET − 1. -->
     <key>StartCalendarInterval</key>
     <array>
-        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
-        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
-        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
-        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
-        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>14</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>5</integer></dict>
     </array>
 
     <key>StandardOutPath</key>
