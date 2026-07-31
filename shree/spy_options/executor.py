@@ -36,6 +36,7 @@ from ib_insync import IB, LimitOrder, Option, Order, StopLimitOrder, StopOrder, 
 from ..config.spy_options import SpyOptionsExecutionConfig
 from ..utils.logger import logger
 from ..utils.telegram_notifier import TelegramNotifier
+from . import exec_telemetry
 from .edge_reality import gamma_accel_mult, hourly_theta_dollars
 from .signal_engine import SpySignal
 
@@ -113,6 +114,9 @@ class LivePosition:
     orig_entry_limit: float = 0.0            # original entry limit — chase cap anchor
     reprice_count: int = 0
     last_reprice_at: Optional[datetime] = None   # UTC
+    # Execution-quality telemetry (JUL 31 2026): NBBO mid captured at submit so
+    # realized slippage is measurable at fill time. Log-only; never gates.
+    quote_mid_at_submit: Optional[float] = None
 
 
 class SpyOptionsExecutor:
@@ -740,6 +744,18 @@ class SpyOptionsExecutor:
             logger.opt(exception=True).error("EXEC: bracket placement failed: {}", exc)
             return False
 
+        # Execution-quality telemetry (log-only): record the bracket submit with
+        # the LIVE NBBO used to price it, so realized slippage and fill latency
+        # are measurable at fill time. Never raises, never gates.
+        _q_mid = ((q_bid + q_ask) / 2.0
+                  if (q_bid and q_ask and q_bid > 0 and q_ask > 0) else None)
+        exec_telemetry.submit(
+            key=sig.dedup_key, contract=contract, qty=qty,
+            entry_limit=entry_limit, bid=q_bid, ask=q_ask,
+            order_id=getattr(parent_trade.order, "orderId", None),
+            tp_price=tp_price, sl_stop=sl_stop,
+        )
+
         pos = LivePosition(
             key=sig.dedup_key,
             signal=sig,
@@ -752,6 +768,7 @@ class SpyOptionsExecutor:
             take_profit=tp_trade,
             stop_loss=sl_trade,
             orig_entry_limit=entry_limit,
+            quote_mid_at_submit=_q_mid,
         )
         self._positions[sig.dedup_key] = pos
         self._trades_today += 1
@@ -909,6 +926,16 @@ class SpyOptionsExecutor:
                 logger.info(
                     "✅ EXEC FILL: {}x {} @{:.2f}", filled_qty, pos.contract.localSymbol, avg,
                 )
+                # Telemetry (log-only): realized slippage vs the entry limit and
+                # vs the NBBO mid at submit, plus submit→fill latency.
+                exec_telemetry.fill(
+                    key=pos.key,
+                    order_id=getattr(pos.parent.order, "orderId", None),
+                    qty_filled=filled_qty, qty_ordered=pos.qty,
+                    avg_fill_price=avg, entry_limit=pos.orig_entry_limit,
+                    quote_mid_at_submit=pos.quote_mid_at_submit,
+                    submitted_at=pos.placed_at, reprices=pos.reprice_count,
+                )
                 if self._analytics is not None:
                     try:
                         self._analytics.record_fill_entry(pos.signal, avg, filled_qty)
@@ -1000,6 +1027,10 @@ class SpyOptionsExecutor:
                         )
                         continue
                     pnl = (exit_px - entry_px) * pos.qty * 100.0
+                    exec_telemetry.exit_fill(
+                        key=pos.key, reason=exit_label, exit_price=exit_px,
+                        entry_price=entry_px, qty=pos.qty, opened_at=pos.placed_at,
+                    )
                     self._register_close(pos, exit_label, pnl, exit_premium=exit_px)
                     logger.info(
                         "{} EXEC {}: {} ${:.2f} → ${:.2f}  P&L ${:+.0f} (day ${:+.0f})",
@@ -1025,6 +1056,7 @@ class SpyOptionsExecutor:
 
                 # 5. 0DTE end-of-day flatten
                 if (pos.signal.dte or 0) == 0 and now_et >= self._flatten_0dte_at:
+                    exec_telemetry.flatten(pos.key)
                     await self.close_position(pos.key, "0DTE EOD flatten")
 
         # Purge long-dead entries to keep the dict small
@@ -1173,6 +1205,11 @@ class SpyOptionsExecutor:
                         await asyncio.sleep(1.0)
                     if exit_px > 0:
                         pnl = (exit_px - entry_px) * remaining * 100.0
+                        exec_telemetry.exit_fill(
+                            key=pos.key, reason=reason, exit_price=exit_px,
+                            entry_price=entry_px, qty=remaining,
+                            opened_at=pos.placed_at,
+                        )
                         self._register_close(
                             pos, f"bot exit: {reason}", pnl, exit_premium=exit_px
                         )
