@@ -1301,8 +1301,12 @@ spy_options:
 
     risk_per_trade_usd: 150.0        # max loss at stop per trade
     max_contracts: 5
-    max_open_positions: 2
-    max_trades_per_day: 4
+    # CALL_SWEEP execution-validation pilot (2026-07-31). Purpose is measuring
+    # real fill quality/slippage/latency, NOT profit. 1 position at a time so
+    # every fill is independently attributable; 2 trades/day is the cap-sweep
+    # optimum for EV/trade (cap1 $69.84, cap2 $71.34, cap3 $38.70, cap5 $22.27).
+    max_open_positions: 1
+    max_trades_per_day: 2
     daily_loss_limit_usd: 300.0      # realized; halts new entries
     max_consecutive_stopouts: 2      # halts new entries for the day
 
@@ -1314,7 +1318,15 @@ spy_options:
     stop_limit_buffer_pct: 10.0
 
     # Strict quality gate
-    allowed_tiers: ["HIGH", "EXTREME"]
+    # MEDIUM added 2026-07-31: the confidence tier is INVERTED for CALL_SWEEP —
+    # Spearman(confidence, realized P&L) = -0.232, p<0.0001 OOS (n=445, 18
+    # sessions, 100% replay completeness). HIGH/EXTREME population EV -$4.40
+    # (n=10, 30% win) vs all-qualified +$12.48. Restricting to HIGH/EXTREME was
+    # selecting the WORST signals. This is removal of a proven-harmful filter,
+    # not a relaxation. Containment: only families at governor tier >= pilot can
+    # size >= 1 contract; CALL_SWEEP is the sole such family (verified
+    # 2026-07-31 — PC_AFTERNOON_FLOW demoted to experimental the same day).
+    allowed_tiers: ["HIGH", "EXTREME", "MEDIUM"]
     require_green_edge: true
     max_dte: 3                    # 3 accommodates Fri→Mon weekend gap (2 trading days = 3 cal)
     min_abs_delta: 0.30

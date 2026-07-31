@@ -1,0 +1,354 @@
+{
+  "as_of": "2026-07-25T14:00:05.884307",
+  "families": {
+    "CALL_SWEEP": {
+      "tier": "pilot",
+      "risk_scale": 1.0,
+      "prev_tier": "pilot",
+      "reasons": [],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 0,
+          "pnl": 0,
+          "wins": 0,
+          "wr": null,
+          "pf": null,
+          "expectancy": null,
+          "rolling10_ev": null,
+          "rolling10_sum": null,
+          "max_dd": 0.0,
+          "wilson_lo": 0.0,
+          "avg_win": 0
+        },
+        "shadow_d": {
+          "n": 13,
+          "w": 3,
+          "l": 2,
+          "dec": 5,
+          "wr": 60.0,
+          "avg_pct": 3.47,
+          "wilson_lo": 23.1
+        },
+        "shadow_b": {
+          "n": 137,
+          "w": 52,
+          "l": 39,
+          "dec": 91,
+          "wr": 57.0,
+          "avg_pct": 4.56,
+          "wilson_lo": 46.9
+        },
+        "regimes": {
+          "RANGE_BOUND": "46W/31L",
+          "TREND_DOWN": "6W/0L",
+          "TREND_UP": "3W/10L"
+        },
+        "calibration": {
+          "hi_wr": 75.0,
+          "lo_wr": 57.0,
+          "broken": false
+        }
+      }
+    },
+    "ORB_BREAKOUT": {
+      "tier": "experimental",
+      "risk_scale": 1.0,
+      "prev_tier": "experimental",
+      "reasons": [
+        "D3: shadow Wilson-lo 14.3 < 30 @ n=50"
+      ],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 0,
+          "pnl": 0,
+          "wins": 0,
+          "wr": null,
+          "pf": null,
+          "expectancy": null,
+          "rolling10_ev": null,
+          "rolling10_sum": null,
+          "max_dd": 0.0,
+          "wilson_lo": 0.0,
+          "avg_win": 0
+        },
+        "shadow_d": {
+          "n": 47,
+          "w": 3,
+          "l": 1,
+          "dec": 4,
+          "wr": 75.0,
+          "avg_pct": 13.23,
+          "wilson_lo": 30.1
+        },
+        "shadow_b": {
+          "n": 90,
+          "w": 9,
+          "l": 37,
+          "dec": 46,
+          "wr": 20.0,
+          "avg_pct": -15.74,
+          "wilson_lo": 10.7
+        },
+        "regimes": {
+          "RANGE_BOUND": "7W/25L",
+          "TREND_DOWN": "2W/7L",
+          "TREND_UP": "3W/6L"
+        },
+        "calibration": {
+          "hi_wr": 36.0,
+          "lo_wr": 21.0,
+          "broken": false
+        }
+      }
+    },
+    "PC_AFTERNOON_FLOW": {
+      "tier": "experimental",
+      "risk_scale": 1.0,
+      "prev_tier": "pilot",
+      "reasons": [
+        "CONTAINMENT 2026-07-31: demoted pilot->experimental. Zero evidence (0 signals dispatched of 2037; never replayed, never validated) yet size-1 eligible in BOTH governor JSON and executor._FAMILY_TIERS fallback. Widening allowed_tiers to MEDIUM would have made it order-eligible. CALL_SWEEP must be the ONLY size>=1 family during the execution-validation pilot."
+      ],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 0,
+          "pnl": 0,
+          "wins": 0,
+          "wr": null,
+          "pf": null,
+          "expectancy": null,
+          "rolling10_ev": null,
+          "rolling10_sum": null,
+          "max_dd": 0.0,
+          "wilson_lo": 0.0,
+          "avg_win": 0
+        },
+        "shadow_d": {
+          "n": 0,
+          "w": 0,
+          "l": 0,
+          "dec": 0,
+          "wr": null,
+          "avg_pct": null,
+          "wilson_lo": 0.0
+        },
+        "shadow_b": {
+          "n": 0,
+          "w": 0,
+          "l": 0,
+          "dec": 0,
+          "wr": null,
+          "avg_pct": null,
+          "wilson_lo": 0.0
+        },
+        "regimes": {},
+        "calibration": {
+          "hi_wr": null,
+          "lo_wr": null,
+          "broken": false
+        }
+      }
+    },
+    "PC_RATIO_EXTREME": {
+      "tier": "experimental",
+      "risk_scale": 1.0,
+      "prev_tier": "experimental",
+      "reasons": [],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 0,
+          "pnl": 0,
+          "wins": 0,
+          "wr": null,
+          "pf": null,
+          "expectancy": null,
+          "rolling10_ev": null,
+          "rolling10_sum": null,
+          "max_dd": 0.0,
+          "wilson_lo": 0.0,
+          "avg_win": 0
+        },
+        "shadow_d": {
+          "n": 77,
+          "w": 2,
+          "l": 2,
+          "dec": 4,
+          "wr": 50.0,
+          "avg_pct": 5.45,
+          "wilson_lo": 15.0
+        },
+        "shadow_b": {
+          "n": 65,
+          "w": 17,
+          "l": 21,
+          "dec": 38,
+          "wr": 45.0,
+          "avg_pct": -3.65,
+          "wilson_lo": 30.1
+        },
+        "regimes": {
+          "RANGE_BOUND": "16W/12L",
+          "TREND_DOWN": "0W/5L",
+          "TREND_UP": "3W/6L"
+        },
+        "calibration": {
+          "hi_wr": 50.0,
+          "lo_wr": 44.0,
+          "broken": false
+        }
+      }
+    },
+    "PUT_SWEEP": {
+      "tier": "experimental",
+      "risk_scale": 1.0,
+      "prev_tier": "experimental",
+      "reasons": [],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 0,
+          "pnl": 0,
+          "wins": 0,
+          "wr": null,
+          "pf": null,
+          "expectancy": null,
+          "rolling10_ev": null,
+          "rolling10_sum": null,
+          "max_dd": 0.0,
+          "wilson_lo": 0.0,
+          "avg_win": 0
+        },
+        "shadow_d": {
+          "n": 15,
+          "w": 1,
+          "l": 2,
+          "dec": 3,
+          "wr": 33.0,
+          "avg_pct": -1.42,
+          "wilson_lo": 6.1
+        },
+        "shadow_b": {
+          "n": 144,
+          "w": 41,
+          "l": 47,
+          "dec": 88,
+          "wr": 47.0,
+          "avg_pct": -5.65,
+          "wilson_lo": 36.5
+        },
+        "regimes": {
+          "RANGE_BOUND": "34W/41L",
+          "TREND_DOWN": "0W/4L",
+          "TREND_UP": "8W/4L"
+        },
+        "calibration": {
+          "hi_wr": 0.0,
+          "lo_wr": 47.0,
+          "broken": false
+        }
+      }
+    },
+    "TREND_CONTINUATION": {
+      "tier": "experimental",
+      "risk_scale": 1.0,
+      "prev_tier": "experimental",
+      "reasons": [
+        "D1: rolling-10 live EV $-151 < 0",
+        "D2: live PF 0.73 < 0.8"
+      ],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 10,
+          "pnl": -151.0,
+          "wins": 3,
+          "wr": 30.0,
+          "pf": 0.73,
+          "expectancy": -15.1,
+          "rolling10_ev": -15.1,
+          "rolling10_sum": -151.0,
+          "max_dd": -341.0,
+          "wilson_lo": 10.8,
+          "avg_win": 137.0
+        },
+        "shadow_d": {
+          "n": 36,
+          "w": 4,
+          "l": 9,
+          "dec": 13,
+          "wr": 31.0,
+          "avg_pct": -6.13,
+          "wilson_lo": 12.7
+        },
+        "shadow_b": {
+          "n": 0,
+          "w": 0,
+          "l": 0,
+          "dec": 0,
+          "wr": null,
+          "avg_pct": null,
+          "wilson_lo": 0.0
+        },
+        "regimes": {
+          "RANGE_BOUND": "1W/1L",
+          "TREND_DOWN": "1W/7L",
+          "TREND_UP": "4W/6L"
+        },
+        "calibration": {
+          "hi_wr": 30.0,
+          "lo_wr": null,
+          "broken": false
+        }
+      }
+    },
+    "VWAP_REVERSION": {
+      "tier": "experimental",
+      "risk_scale": 1.0,
+      "prev_tier": "experimental",
+      "reasons": [],
+      "alerts": [],
+      "stats": {
+        "live": {
+          "n": 0,
+          "pnl": 0,
+          "wins": 0,
+          "wr": null,
+          "pf": null,
+          "expectancy": null,
+          "rolling10_ev": null,
+          "rolling10_sum": null,
+          "max_dd": 0.0,
+          "wilson_lo": 0.0,
+          "avg_win": 0
+        },
+        "shadow_d": {
+          "n": 0,
+          "w": 0,
+          "l": 0,
+          "dec": 0,
+          "wr": null,
+          "avg_pct": null,
+          "wilson_lo": 0.0
+        },
+        "shadow_b": {
+          "n": 0,
+          "w": 0,
+          "l": 0,
+          "dec": 0,
+          "wr": null,
+          "avg_pct": null,
+          "wilson_lo": 0.0
+        },
+        "regimes": {},
+        "calibration": {
+          "hi_wr": null,
+          "lo_wr": null,
+          "broken": false
+        }
+      }
+    }
+  }
+}
