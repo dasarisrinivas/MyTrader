@@ -61,6 +61,7 @@ from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 from .real_flow import RealFlowFeed, RealFlowState
 from .cross_asset import CrossAssetFeed, CrossAssetState
 from . import v2_shadow_gate
+from . import v2_shadow_notify
 
 ET = ZoneInfo("America/New_York")
 
@@ -1695,9 +1696,40 @@ class SpyOptionsManager:
             # gates, sizes, prices, or blocks anything — pure observation, and
             # it swallows all exceptions. Hooked here (immediately after the
             # spy_signals insert) so the shadow population matches the study
-            # population by construction. See docs/V2_SHADOW_GATE.md.
+            # population by construction.
+            #
+            # Ordering is deliberate:  V1 decision -> V2 shadow -> Telegram.
+            # Telegram is strictly DOWNSTREAM of both and is never in the
+            # executor path; a notification failure cannot affect trading.
             if sig.signal_type == SignalType.CALL_SWEEP:
                 v2_shadow_gate.record(sig)
+                try:
+                    _dec = v2_shadow_gate.evaluate(sig)
+                    if _dec is not None:
+                        _sid = None
+                        if self._analytics:
+                            try:
+                                _sid = self._analytics.find_signal_id(sig)
+                            except Exception:
+                                _sid = None
+                        _xc = getattr(self._cfg, "execution", None)
+                        _tiers = getattr(_xc, "allowed_tiers", []) or []
+                        _cap = int(getattr(_xc, "max_trades_per_day", 0) or 0)
+                        _used = int(getattr(self._executor, "_trades_today", 0) or 0)
+                        if sig.confidence_tier not in _tiers:
+                            _v1, _why = False, f"tier {sig.confidence_tier} not in {list(_tiers)}"
+                        elif _cap and _used >= _cap:
+                            _v1, _why = False, f"daily cap reached ({_used}/{_cap})"
+                        else:
+                            _v1, _why = True, "CALL_SWEEP qualified (executor risk gates still apply)"
+                        _out = v2_shadow_notify.build(
+                            sig, _dec, _sid, _v1, _why, _cap or 0)
+                        if _out and self._telegram:
+                            await self._telegram.send_message(_out["message"])
+                            for _a in _out["alerts"]:
+                                await self._telegram.send_message(_a)
+                except Exception as _v2err:
+                    logger.warning("V2 shadow notify failed (non-fatal): {}", _v2err)
 
             # Track directional signals for exit monitoring.
             # Store entry-time context so exit triggers can compare against
