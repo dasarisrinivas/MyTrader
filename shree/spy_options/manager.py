@@ -60,6 +60,7 @@ from .sweep_tracker import SweepTracker
 from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 from .real_flow import RealFlowFeed, RealFlowState
 from .cross_asset import CrossAssetFeed, CrossAssetState
+from . import v2_shadow_gate
 
 ET = ZoneInfo("America/New_York")
 
@@ -1688,6 +1689,15 @@ class SpyOptionsManager:
                 self._last_pc_ratio_sent = now
             if self._analytics:
                 self._analytics.insert(sig)
+
+            # V2 directional-composite gate — SHADOW ONLY (2026-08-03).
+            # Logs what the frozen Variant-2 gate WOULD have decided. It never
+            # gates, sizes, prices, or blocks anything — pure observation, and
+            # it swallows all exceptions. Hooked here (immediately after the
+            # spy_signals insert) so the shadow population matches the study
+            # population by construction. See docs/V2_SHADOW_GATE.md.
+            if sig.signal_type == SignalType.CALL_SWEEP:
+                v2_shadow_gate.record(sig)
 
             # Track directional signals for exit monitoring.
             # Store entry-time context so exit triggers can compare against
