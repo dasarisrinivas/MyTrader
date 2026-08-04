@@ -1198,7 +1198,20 @@ spy_options:
     pc_ratio_bullish: 0.5
     bid_ask_imbalance_threshold: 3.0
     straddle_spike_mult: 3.0
-    min_confidence: 0.77  # MAY 2026: Final calibration after OPEN-window fix. Simulation result: bad signal (INSIDE ORB, BELOW_VWAP, neutral context, 10:27 ET) lands at 76.5% → blocked. Good signal (confirmed ORB ABOVE, TREND_UP, ABOVE_VWAP) lands at 90-92% → fires. History: 0.90→0.78 (APR 9), 0.78→0.72 (attempt), 0.72→0.76 (attempt), 0.76→0.77 (MAY 27 final). Root cause fix was the blind OPEN-window +10% boost (10:15-10:30 ET) — now conditional on ORB+VWAP+breadth confirmation.
+    # AUG 3 2026 — confidence gate DISABLED; score kept as a passive metric.
+    # Study: 5,759 signals / 46 sessions, equalized 90-min exits, frozen replay
+    # engine v2.0. AUC(confidence -> win) = 0.4882 dispatched / 0.5013 on the
+    # 0-2DTE single-leg universe; session-bootstrap 95% CI [0.396, 0.598]
+    # spans 0.50 in EVERY window tested -> the score carries no rank
+    # information. Because AUC ~ 0.50, recalibration cannot rescue it: Platt
+    # Brier 0.2446 == base-rate Brier 0.2446 (the optimal calibrated model is a
+    # constant). PF falls monotonically as the cutoff rises: 1.16 @ 0.00 ->
+    # 0.75 @ 0.77 -> 0.61 @ 0.85. 0.77 was never validated out-of-sample.
+    # NOT proven: that removal improves live P&L (that result was 93% one
+    # session, 2026-07-29, and is withdrawn). This is a controlled 30-session
+    # experiment, not a profitability claim. Revert = set this back to true.
+    confidence_gate_enabled: false
+    min_confidence: 0.77  # RETAINED as the passive reference threshold: signals below it are still logged to blocked_signals.jsonl under gate `confidence_threshold_shadow` so the counterfactual series is continuous across the switch. MAY 2026: Final calibration after OPEN-window fix. Simulation result: bad signal (INSIDE ORB, BELOW_VWAP, neutral context, 10:27 ET) lands at 76.5% → blocked. Good signal (confirmed ORB ABOVE, TREND_UP, ABOVE_VWAP) lands at 90-92% → fires. History: 0.90→0.78 (APR 9), 0.78→0.72 (attempt), 0.72→0.76 (attempt), 0.76→0.77 (MAY 27 final). Root cause fix was the blind OPEN-window +10% boost (10:15-10:30 ET) — now conditional on ORB+VWAP+breadth confirmation.
     confidence_tier_high: 0.80   # JUL 2 2026: Restored from 0.70. At 0.70/0.80, 102 of 200 Apr-Jun signals were labelled EXTREME — the tier meant nothing. Execution gate requires HIGH/EXTREME, so tiers must discriminate.
     confidence_tier_extreme: 0.88  # JUL 2 2026: Restored from 0.80 (same rationale).
     dedup_window_minutes: 90

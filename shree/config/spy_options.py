@@ -103,6 +103,29 @@ class SpyOptionsSignalConfig:
     straddle_spike_mult: float = 3.0
 
     # Weighted confidence thresholds (replaces simple 0.55 threshold)
+    #
+    # AUG 3 2026 — confidence gate demoted to a PASSIVE METRIC.
+    # Confidence-model study (5,759 signals / 46 sessions, equalized 90-min
+    # exits, frozen replay engine v2.0) found the score carries no rank
+    # information about outcomes: AUC(confidence -> win) = 0.4882 (dispatched),
+    # 0.5013 (0-2DTE single-leg), session-bootstrap 95% CI [0.396, 0.598]
+    # spans 0.50 in every window tested. Because AUC ~ 0.50, no monotone
+    # recalibration (isotonic/Platt) can help: the best calibrated model is a
+    # constant — Platt Brier 0.2446 vs base-rate Brier 0.2446. Threshold
+    # sensitivity degrades monotonically as the cutoff rises (PF 1.16 at 0.00
+    # -> 0.75 at 0.77 -> 0.61 at 0.85), and 0.77 itself was never derived
+    # out-of-sample (config history: 0.90->0.78->0.72->0.76->0.77 from a
+    # two-example hand simulation).
+    #
+    # NOT established: that removing the gate improves live P&L. That result
+    # was concentrated 93% in a single session (2026-07-29) and is explicitly
+    # WITHDRAWN. This flag exists to run the controlled 30-session experiment,
+    # not because removal is proven profitable.
+    #
+    # When False: confidence is still computed, tiered, persisted and logged —
+    # it simply stops dropping signals. min_confidence below remains the
+    # reference threshold for the counterfactual shadow log.
+    confidence_gate_enabled: bool = True
     min_confidence: float = 0.70          # Drop signals below this
     confidence_tier_high: float = 0.80    # HIGH tier starts here
     confidence_tier_extreme: float = 0.90 # EXTREME tier starts here

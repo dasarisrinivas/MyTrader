@@ -162,6 +162,14 @@ class SignalType(str, Enum):
     TREND_CONTINUATION = "TREND_CONTINUATION"  # Pullback-to-anchor rejection in TREND_UP/DOWN (rules_v2)
 
 
+# Families that generate into the shadow book but must NEVER reach the
+# executor until promoted by the scorecard. Kept here — explicit and
+# confidence-independent — because these were previously held back only by
+# assigning a confidence below min_confidence, which silently coupled their
+# shadow status to the confidence gate (AUG 3 2026).
+_SHADOW_ONLY_FAMILIES = frozenset({SignalType.VWAP_REVERSION})
+
+
 @dataclass
 class SignalContext:
     """Per-poll context passed from manager to signal engine."""
@@ -1272,10 +1280,20 @@ class SignalEngine:
             )
         signals = quality_passed
 
-        filtered = [s for s in signals if s.confidence >= c.min_confidence]
-        rejected = [s for s in signals if s.confidence < c.min_confidence]
-        if rejected:
-            for s in rejected:
+        # ── Confidence gate ───────────────────────────────────────────────
+        # AUG 3 2026: `confidence_gate_enabled=False` demotes confidence to a
+        # passive metric — the score is still computed, tiered and persisted,
+        # it just no longer drops signals (see SpyOptionsSignalConfig for the
+        # AUC ~ 0.50 evidence). Sub-threshold signals are still written to the
+        # blocked ledger under gate `confidence_threshold_shadow` so the
+        # counterfactual record — and therefore the 30-session controlled
+        # experiment — remains continuous across the switch.
+        gate_on = getattr(c, "confidence_gate_enabled", True)
+        below = [s for s in signals if s.confidence < c.min_confidence]
+
+        if gate_on:
+            filtered = [s for s in signals if s.confidence >= c.min_confidence]
+            for s in below:
                 self.last_blocked.append((s, "confidence_threshold"))
                 log_blocked_signal(
                     s, "confidence_threshold",
@@ -1285,6 +1303,43 @@ class SignalEngine:
                     "Signal below threshold: {} {} {}{} conf={:.1f}% (need {:.0f}%)",
                     s.signal_type.value, s.expiry, s.strike, s.right,
                     s.confidence * 100, c.min_confidence * 100,
+                )
+        else:
+            filtered = list(signals)
+            for s in below:
+                # NOT added to last_blocked: nothing was actually blocked.
+                log_blocked_signal(
+                    s, "confidence_threshold_shadow",
+                    f"conf {s.confidence:.2f} < min {c.min_confidence:.2f} "
+                    f"(gate DISABLED — signal dispatched anyway)",
+                )
+            if below:
+                logger.info(
+                    "Confidence gate DISABLED (passive metric): {} of {} signals "
+                    "were sub-{:.0f}% and dispatched anyway (logged as "
+                    "confidence_threshold_shadow)",
+                    len(below), len(signals), c.min_confidence * 100,
+                )
+
+        # ── Shadow-incubating families: STRUCTURAL suppression ────────────
+        # These families were kept undispatchable ONLY by assigning them a
+        # confidence below min_confidence (VWAP_REVERSION: vrev_confidence
+        # 0.60 vs gate 0.77). That made their shadow status an implicit
+        # side-effect of the confidence gate — so disabling the gate would
+        # have silently promoted them to LIVE, bypassing the promotion
+        # scorecard entirely. Suppression is now explicit and independent of
+        # confidence. Promotion still goes through the scorecard (Wilson-lo >
+        # breakeven WR at n>=30), never through a threshold change.
+        incubating = [s for s in filtered if s.signal_type in _SHADOW_ONLY_FAMILIES]
+        if incubating:
+            filtered = [s for s in filtered
+                        if s.signal_type not in _SHADOW_ONLY_FAMILIES]
+            for s in incubating:
+                self.last_blocked.append((s, "shadow_incubating"))
+                log_blocked_signal(
+                    s, "shadow_incubating",
+                    f"{s.signal_type.value} is shadow-only until promoted by "
+                    f"scorecard (confidence-independent)",
                 )
 
         # ── Cross-signal directional conflict filter ──────────────────────
