@@ -437,6 +437,21 @@ def log_blocked_signal(sig: "SpySignal", gate: str, reason: str) -> None:
         for _k, _v in _REJECT_CTX.items():
             rec.setdefault(_k, _v)
 
+        # AUG 4 2026 — do not let a test run pollute the research ledger.
+        # tests/test_spy_options_backtest.py drives the real engine with
+        # synthetic quotes (strike 560 while SPY is ~770) and does not chdir to
+        # a tmp dir, so every pytest run appended fake signals to the REAL
+        # logs/blocked_signals.jsonl — the primary evidence source for the
+        # confidence experiment. Two such rows were found on 2026-08-04,
+        # timestamped exactly when the suite ran.
+        # Only the repo's own logs dir is protected: tests that deliberately
+        # exercise this function chdir to a tmp dir and still work.
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            _repo_logs = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))), "logs")
+            if os.path.abspath("logs") == os.path.abspath(_repo_logs):
+                return
+
         os.makedirs("logs", exist_ok=True)
         with open("logs/blocked_signals.jsonl", "a", encoding="utf-8") as fh:
             # default=str: a single non-serialisable field must never be able to
