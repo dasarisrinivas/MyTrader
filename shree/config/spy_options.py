@@ -126,6 +126,15 @@ class SpyOptionsSignalConfig:
     # it simply stops dropping signals. min_confidence below remains the
     # reference threshold for the counterfactual shadow log.
     confidence_gate_enabled: bool = True
+
+    # AUG 3 2026 — dispatch candidates are ordered by a keyed hash of their own
+    # identity instead of Python iteration order (expiry-dict x rule order),
+    # which systematically starved late-evaluated families of the daily
+    # dispatch budget once the confidence gate stopped filtering. Pure
+    # reordering: adds/removes no signal and touches no risk control.
+    # Set False to restore the previous source-order behaviour.
+    deterministic_dispatch_order: bool = True
+
     min_confidence: float = 0.70          # Drop signals below this
     confidence_tier_high: float = 0.80    # HIGH tier starts here
     confidence_tier_extreme: float = 0.90 # EXTREME tier starts here

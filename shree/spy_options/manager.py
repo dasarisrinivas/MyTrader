@@ -16,6 +16,7 @@ Orchestration loop (every 60 seconds during RTH):
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html as _html
 import math
 from collections import deque
@@ -87,6 +88,51 @@ def _near_strikes(
         step = max(1, len(filtered) // max_n)
         filtered = filtered[::step][:max_n]
     return filtered
+
+
+# ── Deterministic dispatch ordering (AUG 3 2026) ─────────────────────────────
+# With the confidence gate demoted to a passive metric, ~220-630 candidates a
+# day reach dispatch against `max_signals_per_day`. Before this, dispatch order
+# was Python iteration order — expiry-dict order x fixed rule order — so the
+# families evaluated first (PC_RATIO, HIGH_IV, PC_AFTERNOON_FLOW) systematically
+# consumed the budget and later families (ORB, TREND_CONTINUATION) were
+# starved. That is a selection artefact of code layout, not of strategy quality,
+# and it would contaminate the confidence-gate experiment.
+#
+# Fix: order candidates by a keyed hash of their own identity. The hash is
+# uncorrelated with family, rule position and confidence, so the subsample the
+# cap admits is representative of the candidate pool rather than of the source
+# file's ordering.
+#
+# MUST use hashlib, never builtin hash(): str hashing is salted per process by
+# PYTHONHASHSEED, which would make live and replay disagree and make the run
+# irreproducible. blake2b is stable across processes, machines and versions.
+#
+# The key is recomputable from fields already persisted on `spy_signals`
+# (signal_type, strike, right, expiry_date, spy_price), so any historical
+# dispatch decision can be re-derived offline without storing extra state.
+def dispatch_identity(sig) -> str:
+    """Stable identity string for a signal — the hash pre-image.
+
+    spy_price is included so the ordering varies between poll cycles: a fixed
+    key would let the same family win every cycle, re-creating the very bias
+    this removes.
+    """
+    return "|".join((
+        getattr(sig.signal_type, "value", str(sig.signal_type)),
+        f"{float(sig.strike):.2f}",
+        str(sig.right),
+        str(getattr(sig, "expiry_date", "") or ""),
+        f"{float(sig.spy_price):.2f}",
+    ))
+
+
+def dispatch_order_key(sig):
+    """Deterministic, process-independent sort key. Total order (identity is
+    the tie-break), so equal hashes can never fall back on list position."""
+    ident = dispatch_identity(sig)
+    digest = hashlib.blake2b(ident.encode("utf-8"), digest_size=8).hexdigest()
+    return (digest, ident)
 
 
 class SpyOptionsManager:
@@ -1510,6 +1556,13 @@ class SpyOptionsManager:
         now = datetime.utcnow()
         seen_keys: set[str] = set()          # batch-level dedup (cross-expiry)
 
+        # Debias candidate selection — see dispatch_order_key() above. Pure
+        # reordering: every signal still runs the identical downstream logic,
+        # no signal is added or removed here, and nothing below reads list
+        # position. Only which candidates reach the cap first changes.
+        if getattr(self._cfg.signals, "deterministic_dispatch_order", True):
+            signals = sorted(signals, key=dispatch_order_key)
+
         def _v2_rollback(s: SpySignal) -> None:
             # JUL 2 2026: rules_v2 commits at filter time, so any signal
             # suppressed AFTER that point but BEFORE dispatch must be rolled
@@ -1526,7 +1579,7 @@ class SpyOptionsManager:
                 except Exception as _rb_err:
                     logger.warning("rules_v2 rollback error: {}", _rb_err)
 
-        for sig in signals:
+        for idx, sig in enumerate(signals):
             key = sig.dedup_key
             # ── Non-directional structures never trade — stop burning slots ──
             # LONG_STRADDLE (right='BOTH'): 51 dispatched all-time, 0 tradeable
@@ -1543,9 +1596,25 @@ class SpyOptionsManager:
             # ── Daily signal cap ──────────────────────────────────────────────
             if self._daily_signal_count >= daily_cap:
                 logger.info(
-                    "Daily signal cap reached ({}/{}) — suppressing {}",
+                    "Daily signal cap reached ({}/{}) — suppressing {} "
+                    "(+{} more this batch)",
                     self._daily_signal_count, daily_cap, key,
+                    len(signals) - idx - 1,
                 )
+                # AUG 3 2026: record EVERY cap kill, not just the first.
+                # These used to be logged as `confidence_threshold` before the
+                # gate was demoted; without this the counterfactual ledger goes
+                # dark exactly where the cap now binds hardest, and the
+                # confidence-gate experiment loses its rejected arm.
+                # LOG ONLY — rollback below is left exactly as it was (one
+                # call, for `sig`). rules_v2.uncommit() pops the last committed
+                # leg, so rolling back the whole remainder could over-pop and
+                # free leg capacity, which is risk-relevant. Not in scope.
+                for _s in signals[idx:]:
+                    log_blocked_signal(
+                        _s, "daily_signal_cap",
+                        f"daily dispatch cap {daily_cap} exhausted",
+                    )
                 _v2_rollback(sig)
                 break   # no more signals today
             # ── Batch dedup: same key already dispatched this cycle ───────────
