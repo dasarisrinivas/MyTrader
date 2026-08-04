@@ -323,6 +323,65 @@ class SpySignal:
         return f"{self.signal_type}:{self.strike:.0f}:{self.right}"
 
 
+# ── Rejection context (defect D4, 2026-08-04 audit) ─────────────────────────
+# The blocked ledger recorded only a free-text reason string, so ATR, RSI,
+# VWAP, PCR, trend and regime at rejection time were unrecoverable and
+# per-signal gate traces could not be reconstructed. The manager refreshes this
+# snapshot once per poll; log_blocked_signal() merges it into every row.
+# Plain module state, best-effort, never raises — no production behaviour.
+_REJECT_CTX: Dict[str, object] = {}
+
+# Emission-dedup bookkeeping (defect D3). Blocked signals never reach
+# _dispatch_signals, so the dispatch dedup window never applied to them and the
+# research ledger carried a 17.7x duplicate factor on 2026-08-04 — inflating
+# every shadow statistic built on it. Rows are NOT dropped (repeat frequency is
+# itself signal); each row is stamped with a stable opportunity key and an
+# emission sequence so analytics can select first-emission-only for a true 1x
+# unique-opportunity view.
+_EMISSION_SEQ: Dict[str, int] = {}
+_EMISSION_DAY: Dict[str, str] = {}
+
+
+def set_rejection_context(**fields) -> None:
+    """Refresh the per-poll rejection-context snapshot (defect D4). Log-only.
+
+    Values are coerced to JSON-safe primitives. A non-serialisable value here
+    would make json.dumps() raise inside log_blocked_signal(), whose blanket
+    except would then swallow it and silently drop EVERY subsequent blocked
+    row — losing the ledger the whole experiment depends on. Caught by
+    tests/test_confidence_gate_passive.py during Phase 3.
+    """
+    try:
+        clean = {}
+        for k, v in fields.items():
+            if v is None:
+                continue
+            if isinstance(v, (str, int, float, bool)):
+                clean[k] = v
+            else:
+                clean[k] = str(v)[:80]
+        _REJECT_CTX.clear()
+        _REJECT_CTX.update(clean)
+    except Exception:
+        pass
+
+
+def _emission_stamp(sig: "SpySignal", gate: str, day: str) -> tuple:
+    """Return (opportunity_key, seq, is_first) for this emission (defect D3)."""
+    try:
+        key = (f"{getattr(sig.signal_type, 'value', sig.signal_type)}:"
+               f"{float(sig.strike):.0f}:{sig.right}:"
+               f"{getattr(sig, 'expiry_date', '') or ''}:{gate}")
+        if _EMISSION_DAY.get(key) != day:
+            _EMISSION_DAY[key] = day
+            _EMISSION_SEQ[key] = 0
+        _EMISSION_SEQ[key] += 1
+        n = _EMISSION_SEQ[key]
+        return key, n, n == 1
+    except Exception:
+        return "", 1, True
+
+
 def log_blocked_signal(sig: "SpySignal", gate: str, reason: str) -> None:
     """Opportunity-cost ledger: one JSONL line per pre-dispatch kill.
 
@@ -356,9 +415,33 @@ def log_blocked_signal(sig: "SpySignal", gate: str, reason: str) -> None:
             "spy_price": sig.spy_price,
             "dte": getattr(sig, "dte", None),
         }
+
+        # ── D3: emission dedup markers ───────────────────────────────────
+        _day = rec["ts"][:10]
+        _key, _seq, _first = _emission_stamp(sig, gate, _day)
+        rec["opportunity_key"] = _key
+        rec["emission_seq"] = _seq
+        rec["is_first_emission"] = _first
+
+        # ── D4: full rejection context ───────────────────────────────────
+        # Signal-resident features (no plumbing needed).
+        for _f in ("delta", "gamma", "theta", "vega", "impl_vol", "iv_rank",
+                   "vix", "bid", "ask", "spread_pct", "open_interest",
+                   "volume", "volume_spike_mult", "flow_score",
+                   "sentiment_score", "external_composite",
+                   "flow_confirmation_score", "intraday_pc_ratio",
+                   "gex_bias", "dark_pool_bias", "equity_pc", "macro_label",
+                   "tnx_trend", "dxy_trend", "event_risk"):
+            rec[_f] = getattr(sig, _f, None)
+        # Per-poll context snapshot (ATR / RSI / VWAP / trend / regime_v2).
+        for _k, _v in _REJECT_CTX.items():
+            rec.setdefault(_k, _v)
+
         os.makedirs("logs", exist_ok=True)
         with open("logs/blocked_signals.jsonl", "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec) + "\n")
+            # default=str: a single non-serialisable field must never be able to
+            # abort the write and silently blank the research ledger (D4 fix).
+            fh.write(json.dumps(rec, default=str) + "\n")
     except Exception:
         pass
 

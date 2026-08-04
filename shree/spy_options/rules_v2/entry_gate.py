@@ -34,8 +34,14 @@ class EntryGate:
     ) -> EntryGateResult:
         cfg = self._cfg
 
-        # ── Confidence floor ─────────────────────────────────────────────
-        if confidence < cfg.min_confidence:
+        # ── Confidence floor — DISABLED AUG 4 2026 (defect D1) ───────────
+        # Duplicated the engine-level confidence gate on the identical metric
+        # (`sig.confidence`). With the engine gate passive since 2026-08-03,
+        # this was the ONLY active confidence filter and it silently kept the
+        # confidence experiment from running end-to-end: 91 of 125 entry_gate
+        # rejections on 2026-08-04 came from here. See EntryGateConfig.
+        if getattr(cfg, "confidence_floor_enabled", True) and \
+                confidence < cfg.min_confidence:
             return EntryGateResult(
                 allowed=False,
                 reason=f"confidence {confidence:.2f} < min {cfg.min_confidence}",

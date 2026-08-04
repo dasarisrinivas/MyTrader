@@ -186,8 +186,26 @@ class EntryGateConfig:
     rsi_upper: float = 70.0
     rsi_lower: float = 30.0
 
-    # Minimum signal confidence to pass the gate
-    min_confidence: float = 0.70
+    # Minimum signal confidence to pass the gate.
+    #
+    # AUG 4 2026 — DISABLED (defect D1, 2026-08-04 forensic audit Phase 2).
+    # This floor evaluates `sig.confidence`, the SAME value the engine-level
+    # confidence gate uses (manager.py passes `confidence=sig.confidence` into
+    # RulesV2Engine.filter). When the engine gate was demoted to a passive
+    # metric on 2026-08-03, this second, independent gate survived — so
+    # confidence was still blocking trades and the confidence experiment was
+    # not running end-to-end.
+    #
+    # Evidence (2026-08-04 session): 91 of 125 `rules_v2:entry_gate`
+    # rejections (72.8%) were this floor. Rejected confidences ran
+    # min 0.09 / median 0.43 / max 0.70 — and the confidence score itself has
+    # AUC(conf -> win) = 0.4882, i.e. no rank information.
+    #
+    # Production must have exactly ONE confidence decision. The engine gate is
+    # the designated owner and it is passive, so this floor is off.
+    # Revert = set confidence_floor_enabled back to True.
+    confidence_floor_enabled: bool = False
+    min_confidence: float = 0.70   # retained as the reference value only
 
 
 @dataclass

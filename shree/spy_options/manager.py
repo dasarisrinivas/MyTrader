@@ -57,7 +57,8 @@ from .notify_queue import NotifyQueue
 from .regime_detector import RegimeContext, RegimeDetector
 from .rules_v2.engine import EngineInputs, RulesV2Engine
 from .sentiment_engine import SentimentContext, SentimentEngine
-from .signal_engine import log_blocked_signal, SignalContext, SignalEngine, SignalType, SpySignal, _tier
+from .signal_engine import (log_blocked_signal, set_rejection_context, SignalContext,
+                            SignalEngine, SignalType, SpySignal, _tier)
 from .sweep_tracker import SweepTracker
 from .technical_levels import TechnicalLevelsTracker, compute_max_pain
 from .real_flow import RealFlowFeed, RealFlowState
@@ -1233,6 +1234,25 @@ class SpyOptionsManager:
                     )
                     all_signals = ce_puts + ce_both
 
+        # ── V2 shadow gate — record EVERY qualified CALL_SWEEP ───────────────
+        # AUG 4 2026 (defect D2, 2026-08-04 forensic audit Phase 2).
+        # This recorder used to sit inside _dispatch_signals, i.e. DOWNSTREAM of
+        # V1's dispatch decision, so it could only ever observe signals V1 had
+        # already approved. On 2026-08-04 rules_v2:entry_gate killed all 93
+        # CALL_SWEEP candidates before dispatch, so V2 logged nothing at all —
+        # zero rows, zero warning, and logs/v2_shadow_gate.jsonl was never
+        # created. A shadow gate that can only see what production already
+        # takes cannot answer "would V2 have beaten V1".
+        #
+        # Recording here — after signal generation and the engine's quality +
+        # confidence stages, BEFORE rules_v2 and dispatch — means V2 now scores
+        # every qualified signal including those V1 goes on to block.
+        # OBSERVATION ONLY: record() never gates, sizes or blocks anything and
+        # swallows all exceptions.
+        for _s in all_signals:
+            if _s.signal_type == SignalType.CALL_SWEEP:
+                v2_shadow_gate.record(_s)
+
         # ── rules_v2 layer: regime-first filter + continuation generator ─────
         # Feature-flagged. When disabled, all_signals flows straight through to
         # dispatch unchanged.
@@ -1346,6 +1366,26 @@ class SpyOptionsManager:
         now = datetime.now(ET)
 
         regime = engine.classify_regime(bars_5m, spy_price)
+
+        # D4 (2026-08-04 audit): publish the per-poll structural context so every
+        # blocked-signal row carries the ATR / VWAP / RSI / trend state that
+        # produced the rejection. Log-only; cannot affect any trading decision.
+        try:
+            _ext = getattr(self, "_last_ext_ctx", None)
+            set_rejection_context(
+                regime_v2=regime.regime,
+                atr_ratio=getattr(regime, "atr_ratio", None),
+                vwap=getattr(regime, "vwap", None),
+                vwap_slope=getattr(regime, "vwap_slope", None),
+                spy_vs_vwap=getattr(regime, "spy_vs_vwap", None),
+                vwap_crosses_30m=getattr(regime, "vwap_crosses_30m", None),
+                rsi_5m=getattr(_ext, "rsi_5m", None) if _ext else None,
+                vwap_band_position=getattr(_ext, "vwap_band_position", None) if _ext else None,
+                qqq_trend=getattr(_ext, "qqq_trend", None) if _ext else None,
+                spy_price_ctx=spy_price,
+            )
+        except Exception:
+            pass
 
         # Observability (JUL 2 2026): the v2 classifier requires ATR expansion
         # for a trend call, so it drops to TRANSITION on grind days while the
@@ -1792,7 +1832,10 @@ class SpyOptionsManager:
             # Telegram is strictly DOWNSTREAM of both and is never in the
             # executor path; a notification failure cannot affect trading.
             if sig.signal_type == SignalType.CALL_SWEEP:
-                v2_shadow_gate.record(sig)
+                # record() moved UPSTREAM (defect D2) so V2 also sees signals
+                # V1 blocks; it is no longer called here. The V1-vs-V2
+                # comparison below stays, because it needs V1's decision, which
+                # only exists at this point in the pipeline.
                 try:
                     _dec = v2_shadow_gate.evaluate(sig)
                     if _dec is not None:
