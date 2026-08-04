@@ -53,6 +53,7 @@ from .edge_reality import (
 from .executor import SpyOptionsExecutor
 from .external import ExternalDataManager
 from .ib_client import IBOptionsClient
+from .notify_queue import NotifyQueue
 from .regime_detector import RegimeContext, RegimeDetector
 from .rules_v2.engine import EngineInputs, RulesV2Engine
 from .sentiment_engine import SentimentContext, SentimentEngine
@@ -210,12 +211,25 @@ class SpyOptionsManager:
         else:
             self._telegram = TelegramNotifier("", "", enabled=False)
 
+        # AUG 3 2026 — Telegram OFF the order path (dispatch-cap audit).
+        # `_send_signal()` was awaited immediately before `maybe_execute()`, so
+        # a 10s send timeout (or Telegram's ~20 msg/min rate limit) delayed live
+        # entries. `_notify_q` duck-types TelegramNotifier: send_message()
+        # enqueues and returns, one background consumer does the network work.
+        # Every existing call site keeps its `await ... .send_message(...)`
+        # form; only the blocking disappears. Single FIFO consumer => delivery
+        # order is exactly the enqueue order, i.e. unchanged from before.
+        self._notify_q = NotifyQueue(self._telegram)
+
         # Order executor (JUL 2 2026) — bracket orders at IB for signals that
         # pass the strict quality gate. None when execution.enabled is false,
         # in which case the bot behaves exactly as the legacy signal-only feed.
         if cfg.execution.enabled:
+            # Executor is handed the QUEUE, not the raw notifier, so its
+            # "ORDER PLACED" notify is non-blocking too and stays correctly
+            # ordered behind the signal alert. executor.py is unchanged.
             self._executor: Optional[SpyOptionsExecutor] = SpyOptionsExecutor(
-                cfg.execution, telegram=self._telegram, analytics=self._analytics,
+                cfg.execution, telegram=self._notify_q, analytics=self._analytics,
             )
             logger.info(
                 "SPY EXECUTION ENABLED — port={} risk/trade=${:.0f} "
@@ -358,6 +372,9 @@ class SpyOptionsManager:
         else:
             logger.warning("Could not fetch VIX 52w range — IV rank will default to 50")
 
+        # Start the Telegram consumer before anything can emit an alert.
+        self._notify_q.start()
+
         if self._executor is not None:
             await self._executor.start()
 
@@ -430,6 +447,9 @@ class SpyOptionsManager:
             if self._executor is not None:
                 await self._executor.close()
             await self._ib.close()
+            # Deliver any queued alerts BEFORE tearing down the HTTP session,
+            # otherwise a clean shutdown would silently drop pending messages.
+            await self._notify_q.close()
             await self._telegram.close()
             if self._analytics:
                 self._analytics.close()
@@ -776,7 +796,8 @@ class SpyOptionsManager:
             if last_alert is None or (now_alert - last_alert).total_seconds() > 600:
                 self._last_dead_feed_alert = now_alert
                 try:
-                    await self._telegram.send_message(
+                    # Queued: this fires inside _poll(), ahead of dispatch.
+                    await self._notify_q.send_message(
                         f"⚠️ <b>DEAD OPTIONS FEED</b> — SPY {expiry_month}: "
                         f"{len(snaps)} contracts, zero live quotes. Feed outage "
                         f"or IB delayed-data mode — the bot is blind and no "
@@ -1794,9 +1815,12 @@ class SpyOptionsManager:
                         _out = v2_shadow_notify.build(
                             sig, _dec, _sid, _v1, _why, _cap or 0)
                         if _out and self._telegram:
-                            await self._telegram.send_message(_out["message"])
+                            # Queued like every other dispatch-loop alert, so
+                            # V2 messages stay ordered behind the signal alert
+                            # and cannot delay the NEXT signal's execution.
+                            await self._notify_q.send_message(_out["message"])
                             for _a in _out["alerts"]:
-                                await self._telegram.send_message(_a)
+                                await self._notify_q.send_message(_a)
                 except Exception as _v2err:
                     logger.warning("V2 shadow notify failed (non-fatal): {}", _v2err)
 
@@ -2510,7 +2534,9 @@ class SpyOptionsManager:
             sig.signal_type.value, sig.strike, sig.right,
             entry_price, current_price,
         )
-        await self._telegram.send_message(msg)
+        # Queued: exit alerts run in the same poll cycle as dispatch, so a
+        # blocking send here delays the NEXT cycle's entries.
+        await self._notify_q.send_message(msg)
 
     def _format_exit(
         self,
@@ -3130,7 +3156,12 @@ class SpyOptionsManager:
             sig.dte, sig.confidence * 100,
             sig.confidence_tier, sig.regime,
         )
-        await self._telegram.send_message(msg)
+        # AUG 3 2026: enqueue, never await the network. This call sits directly
+        # before maybe_execute() in _dispatch_signals, so a blocking send here
+        # delayed every live entry. The message is FORMATTED here, at the same
+        # point as before, so content is byte-identical; only delivery is
+        # deferred to the queue consumer, which preserves enqueue order.
+        await self._notify_q.send_message(msg)
 
     def _tm_local_kill_check(self) -> Optional[str]:
         """Fallback kill-switch read DIRECTLY from the TM state file, for when
