@@ -32,5 +32,18 @@
 
     <key>RunAtLoad</key>
     <false/>
+
+    <!-- AUG 4 2026 — ROOT CAUSE of the unattended-start failure.
+         run_daily.py exits as soon as start_spy_options.sh returns, and by
+         default launchd then tears down the job's entire process group, taking
+         the backgrounded bot with it. Observed on 2026-08-03 (start 08:00:06,
+         SIGTERM 08:00:13) and 2026-08-04 (start 08:00:03, SIGTERM 08:00:06) —
+         the bot died ~3-7s after every scheduled start, and the sessions only
+         traded because of a manual restart.
+         `nohup` does NOT protect against this: it masks SIGHUP, but launchd
+         sends SIGTERM. AbandonProcessGroup tells launchd to leave the
+         descendants alone when the job exits. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
 </dict>
 </plist>

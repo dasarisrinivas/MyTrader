@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import signal
 import sys
 from pathlib import Path
@@ -100,12 +101,35 @@ def main() -> None:  # noqa: ANN201
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
+    def _clear_pidfile() -> None:
+        """Remove logs/spy_options.pid, but ONLY if it is ours.
+
+        AUG 4 2026 (Phase 4 infra validation): start_spy_options.sh writes the
+        pid file, nothing removed it, so a clean SIGTERM shutdown left a stale
+        pid behind (verified: file still held 27688 after the process exited).
+        The launcher's guard does `kill -0` and clears stale files, so this was
+        never fatal — but on a pid-reuse the guard would refuse to start.
+        Guarded by an ownership check so we can never delete a live bot's file.
+        """
+        try:
+            path = os.path.join("logs", "spy_options.pid")
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as fh:
+                    owner = (fh.read() or "").strip()
+                if owner == str(os.getpid()):
+                    os.remove(path)
+                    logger.info("pid file cleared ({})", path)
+        except Exception as exc:                     # never block shutdown
+            logger.warning("pid file cleanup failed: {}", exc)
+
     try:
         asyncio.run(manager.start())
     except Exception as exc:
         logger.opt(exception=True).error("SPY Options manager terminated: {}", exc)
+        _clear_pidfile()
         sys.exit(1)
 
+    _clear_pidfile()
     logger.info("=== ShreeBot SPY Options Signal Bot stopped ===")
 
 

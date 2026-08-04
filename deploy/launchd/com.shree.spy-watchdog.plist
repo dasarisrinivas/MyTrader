@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.shree.spy-watchdog</string>
+
+    <!-- AUG 4 2026 (Phase 4). Two consecutive sessions lost trading time to a
+         bot that was down with nothing watching:
+           2026-08-03  launchd start died 08:00:13, recovered only by a manual
+                       restart at 08:48
+           2026-08-04  died 08:00:06, then hung twice — ~108 min of session lost
+         The watchdog only ever ADDS a start. It never stops, kills or
+         reconfigures anything and cannot place an order. All window /
+         rate-limit / sentinel guards live in the script so they apply however
+         it is invoked. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/svss/Documents/code/ShreeBot/.venv/bin/python3</string>
+        <string>/Users/svss/Documents/code/ShreeBot/scripts/spy_watchdog.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/svss/Documents/code/ShreeBot</string>
+
+    <!-- Every 5 minutes; the script itself no-ops outside the session window
+         and on weekends. -->
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/svss/Documents/code/ShreeBot/logs/spy_watchdog.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/svss/Documents/code/ShreeBot/logs/spy_watchdog.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Same teardown protection as the daily-start job: the watchdog exits as
+         soon as it has launched the bot, and without this launchd would reap
+         the bot it just started. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+</dict>
+</plist>
