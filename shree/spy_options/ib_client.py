@@ -21,6 +21,24 @@ from ib_insync import IB, Index, Option, Stock
 from ..config.spy_options import SpyOptionsIBConfig
 from ..utils.logger import logger
 
+# AUG 5 2026 — bounds for IB requests that ib_insync exposes with NO timeout.
+# The poll loop is a single coroutine, so any unbounded await freezes the whole
+# bot while leaving the process alive (liveness != health). Every hang observed
+# on 2026-08-04/05 was one of these. Generous enough not to trip on a normal
+# slow response; short enough that a stuck request costs one poll, not a day.
+CHAIN_PARAMS_TIMEOUT_S = 30.0
+QUALIFY_TIMEOUT_S = 20.0
+
+
+async def _bounded(coro, timeout: float, what: str):
+    """Await `coro` with a timeout. Returns None on timeout instead of hanging."""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error("IB request '{}' timed out after {}s — returning None so "
+                     "the poll loop stays responsive", what, timeout)
+        return None
+
 
 def _safe_float(v: Any) -> float:
     """Convert value to float, returning 0.0 for None/NaN/invalid."""
@@ -241,7 +259,8 @@ class IBOptionsClient:
         """Qualify SPY stock contract and return its conId."""
         spy = Stock("SPY", "SMART", "USD")
         try:
-            qualified = await self._ib.qualifyContractsAsync(spy)
+            qualified = await _bounded(self._ib.qualifyContractsAsync(spy),
+                                       QUALIFY_TIMEOUT_S, 'qualify SPY')
         except Exception as exc:
             logger.error("Could not qualify SPY stock contract: {}", exc)
             return None
@@ -273,12 +292,35 @@ class IBOptionsClient:
 
         logger.info("Fetching SPY option chain parameters from IB Gateway...")
         try:
-            chains = await self._ib.reqSecDefOptParamsAsync(
-                underlyingSymbol="SPY",
-                futFopExchange="",
-                underlyingSecType="STK",
-                underlyingConId=spy_conid,
+            # AUG 5 2026 — ROOT CAUSE of the repeated whole-session hang.
+            # ib_insync's reqSecDefOptParamsAsync has NO timeout and awaits
+            # forever if IB never answers. The poll loop is a single coroutine,
+            # so one unanswered request freezes the entire bot: no polls, no
+            # signals, no exits — while the process stays alive, so the
+            # watchdog's liveness check sees nothing wrong.
+            # Observed 3x, always on the first chain build near the open:
+            #   2026-08-04 09:30 ET, 2026-08-04 09:59 ET, 2026-08-05 09:35 ET
+            # (a 2026-08-04 11:18 ET start got a response and ran to the close).
+            # Bounded so a stuck request costs one poll cycle, not the session.
+            chains = await asyncio.wait_for(
+                self._ib.reqSecDefOptParamsAsync(
+                    underlyingSymbol="SPY",
+                    futFopExchange="",
+                    underlyingSecType="STK",
+                    underlyingConId=spy_conid,
+                ),
+                timeout=CHAIN_PARAMS_TIMEOUT_S,
             )
+        except asyncio.TimeoutError:
+            # Deliberately do NOT cache: leaving _chain_params as None means the
+            # next poll retries. Caching an empty result here would silently
+            # disable option trading for the whole session.
+            logger.error(
+                "reqSecDefOptParams timed out after {}s — chain params NOT "
+                "cached, will retry next poll (bot stays responsive)",
+                CHAIN_PARAMS_TIMEOUT_S,
+            )
+            return
         except Exception as exc:
             logger.error("reqSecDefOptParams failed: {}", exc)
             self._chain_params = {"expirations": [], "strikes": []}
@@ -397,7 +439,8 @@ class IBOptionsClient:
 
         opt = Option("SPY", expiry, strike, right, exchange, multiplier="100", currency="USD")
         try:
-            qualified = await self._ib.qualifyContractsAsync(opt)
+            qualified = await _bounded(self._ib.qualifyContractsAsync(opt),
+                                       QUALIFY_TIMEOUT_S, 'qualify option')
         except Exception as exc:
             logger.debug("qualify failed for SPY {} {} {} {}: {}", month, expiry, strike, right, exc)
             return None
@@ -700,7 +743,9 @@ class IBOptionsClient:
         if self._vix_contract is not None:
             return self._vix_contract
         try:
-            qualified = await self._ib.qualifyContractsAsync(Index("VIX", "CBOE"))
+            qualified = await _bounded(
+                self._ib.qualifyContractsAsync(Index("VIX", "CBOE")),
+                QUALIFY_TIMEOUT_S, 'qualify VIX')
             if qualified:
                 self._vix_contract = qualified[0]
         except Exception as exc:

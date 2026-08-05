@@ -33,6 +33,11 @@ SENTINEL = os.path.join(ROOT, "logs", "spy_watchdog.disabled")
 # Machine runs Central Time; the bot's own session gate is ET.
 SESSION_START = dtime(8, 5)      # after the 08:00 launchd start has settled
 SESSION_END = dtime(14, 55)      # before the 15:05 daily-stop job
+# Bot polls every 60s during RTH, so a log that has not grown in this long
+# means the poll loop is wedged (see stalled()). 5x the poll interval.
+POLL_WINDOW_START = dtime(8, 40)   # first poll due 08:35 CDT + margin
+STALL_AFTER_S = 300
+BOTLOG = os.path.join(ROOT, "logs", "spy_options.log")
 MAX_RESTARTS_PER_DAY = 3
 MIN_RESTART_GAP_S = 600          # 10 min
 
@@ -79,6 +84,32 @@ def bot_running() -> bool:
     return r.returncode == 0 and bool(r.stdout.strip())
 
 
+def stalled() -> bool:
+    """True if the bot is alive but has stopped making progress.
+
+    AUG 5 2026 — liveness != health. On 2026-08-04 (x2) and 2026-08-05 the bot
+    froze on an unbounded IB request: the process stayed alive and responsive to
+    signals, so the pgrep liveness check saw nothing wrong, while polling,
+    signals and exits had all stopped. Today that cost the session opening.
+
+    During the polling window the log is written at least once per 60s poll, so
+    a log that has not grown in STALL_AFTER_S means the poll loop is wedged.
+    Only evaluated after the first poll is due — before RTH the bot is
+    legitimately idle and silent.
+    """
+    try:
+        if not (POLL_WINDOW_START <= datetime.now().time() <= SESSION_END):
+            return False
+        age = datetime.now().timestamp() - os.path.getmtime(BOTLOG)
+        if age > STALL_AFTER_S:
+            log(f"bot ALIVE but log silent for {age:.0f}s "
+                f"(> {STALL_AFTER_S}s) — treating as STALLED")
+            return True
+    except Exception as exc:
+        log(f"stall check failed (ignoring): {exc}")
+    return False
+
+
 def main() -> int:
     now = datetime.now()
 
@@ -90,7 +121,26 @@ def main() -> int:
         log("watchdog disabled by sentinel — no action")
         return 0
     if bot_running():
-        return 0
+        if not stalled():
+            return 0
+        # Stalled: stop the wedged process so the normal restart path applies.
+        # SIGTERM first; a wedged bot often cannot finish shutdown, so escalate.
+        try:
+            pids = subprocess.run(
+                ["pgrep", "-f", "run_spy_options[.]py --config"],
+                capture_output=True, text=True).stdout.split()
+            for sig in ("-TERM", "-KILL"):
+                for p in pids:
+                    subprocess.run(["kill", sig, p], capture_output=True)
+                if sig == "-TERM":
+                    import time as _t
+                    _t.sleep(20)
+                    if not bot_running():
+                        break
+            log(f"stalled bot stopped (pids {pids}) — restarting")
+        except Exception as exc:
+            log(f"failed to stop stalled bot: {exc}")
+            return 1
 
     state = load_state()
     if state["restarts"] >= MAX_RESTARTS_PER_DAY:
