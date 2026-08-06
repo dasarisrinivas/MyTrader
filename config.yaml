@@ -674,7 +674,18 @@ one_minute:
   # year +$1,360 → −$641 (DD −31%); every overnight family was net-negative
   # EXCEPT EMA9_PB_LONG (+$96, n=27, 59% WR) — so only it is admitted.
   # Add families here to widen overnight; empty list [] = allow ALL overnight.
-  ft_overnight_allowed_signals: ["EMA9_PB_LONG"]
+  #
+  # AUG 5 2026 — SHADOW RESEARCH MODE (shadow_full_eth). Opened to ALL families.
+  # Rationale: the bot is signal-only (Cash account, places no orders), so the
+  # objective is DATA COLLECTION, not P&L. Suppressing overnight guarantees the
+  # overnight question can never be answered — at the restricted rate the
+  # incremental sample needs ~8 months to reach n=100. Open ETH ~doubles the
+  # signal rate (measured: 43 → 69 signals per 2 months).
+  # Measured cost of this change is HYPOTHETICAL only (no capital at risk):
+  #   ETH_SUPPRESSION_RESEARCH_2026-08-05.md — +26 signals, −$135.20, PF 0.78,
+  #   drawdown −$339 → −$646. Revisit once the ETH set reaches n≈100.
+  # TO REVERT (restores prior production behaviour): ["EMA9_PB_LONG"]
+  ft_overnight_allowed_signals: []
   
   # MAY 12 2026 FIX #3: Restore RTH window to 9:30-16:00 ET (the strategy's
   # original design).  These values control TWO things in es_fifteen_min.py:
