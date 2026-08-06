@@ -1249,9 +1249,9 @@ class SpyOptionsManager:
         # every qualified signal including those V1 goes on to block.
         # OBSERVATION ONLY: record() never gates, sizes or blocks anything and
         # swallows all exceptions.
-        for _s in all_signals:
-            if _s.signal_type == SignalType.CALL_SWEEP:
-                v2_shadow_gate.record(_s)
+        # AUG 6 2026: recorder moved into signal_engine.evaluate() (defect D2,
+        # final placement) so it also sees signals the directional-conflict and
+        # cross-expiry filters remove. Recording here as well would double-log.
 
         # ── rules_v2 layer: regime-first filter + continuation generator ─────
         # Feature-flagged. When disabled, all_signals flows straight through to

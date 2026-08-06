@@ -1440,6 +1440,31 @@ class SignalEngine:
                     f"scorecard (confidence-independent)",
                 )
 
+        # ── V2 shadow gate — record every QUALIFIED signal (defect D2) ────
+        # AUG 6 2026. The recorder has moved twice; this is where it belongs.
+        #   original : inside _dispatch_signals — saw only what V1 dispatched
+        #   Phase 3  : manager._poll after evaluate() — still downstream of the
+        #              directional-conflict filter below and the cross-expiry
+        #              filter in the manager
+        # Measured on 2026-08-05: of 22 unique CALL_SWEEP opportunities, 15 died
+        # at the quality gate (correctly out of scope — "qualified" means
+        # post-quality) and 7 survived, but only 1 reached the V2 ledger. The
+        # other 6 were removed by the conflict filter below, which fired 136
+        # times that session and chose PUT every single time.
+        #
+        # Recording HERE — after the quality and confidence gates, BEFORE any
+        # directional filtering — captures all 7. Matches the Phase 3 directive
+        # ("immediately after signal generation and quality validation").
+        # OBSERVATION ONLY: record() never gates, sizes or blocks, and swallows
+        # every exception.
+        try:
+            from . import v2_shadow_gate as _v2
+            for _s in filtered:
+                if _s.signal_type == SignalType.CALL_SWEEP:
+                    _v2.record(_s)
+        except Exception:
+            pass
+
         # ── Cross-signal directional conflict filter ──────────────────────
         # If both CALL and PUT directional signals passed the threshold in the
         # same cycle, the signals are contradictory.  Keep only the direction

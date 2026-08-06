@@ -94,11 +94,39 @@ class TelegramNotifier:
                 if response.status == 200:
                     logger.debug("✅ Telegram message sent successfully")
                     return True
-                else:
-                    error_text = await response.text()
-                    logger.warning(f"⚠️  Telegram API error ({response.status}): {error_text}")
-                    return False
-                    
+                error_text = await response.text()
+                # AUG 6 2026 — plain-text fallback on an HTML parse failure.
+                # Telegram rejects the whole message with 400 "can't parse
+                # entities" when dynamic text contains a bare '<' (gate and
+                # reason strings routinely do, e.g. "flow +0 < adaptive req
+                # ±25"). On 2026-08-06 this silently dropped BOTH alerts for
+                # the first live fill of the observation period:
+                #   400 ... Unsupported start tag "=" at byte offset 361
+                #   400 ... Unsupported start tag "=" at byte offset 132
+                # Escaping every call site is fragile — any new unescaped field
+                # reintroduces the bug. Re-sending once without parse_mode
+                # guarantees the operator still receives the alert (formatting
+                # tags appear literally, which is strictly better than silence).
+                if (response.status == 400 and parse_mode
+                        and "parse entities" in error_text):
+                    logger.warning(
+                        "⚠️  Telegram HTML parse failed — resending as plain "
+                        "text: {}", error_text[:160])
+                    plain = dict(payload)
+                    plain.pop("parse_mode", None)
+                    async with session.post(self.api_url, json=plain) as r2:
+                        if r2.status == 200:
+                            logger.info("✅ Telegram message delivered "
+                                        "(plain-text fallback)")
+                            return True
+                        logger.warning(
+                            "⚠️  Telegram plain-text fallback also failed "
+                            f"({r2.status}): {(await r2.text())[:160]}")
+                        return False
+                logger.warning(f"⚠️  Telegram API error ({response.status}): {error_text}")
+                return False
+
+
         except asyncio.TimeoutError:
             logger.warning("⚠️  Telegram message timeout (10s exceeded)")
             return False

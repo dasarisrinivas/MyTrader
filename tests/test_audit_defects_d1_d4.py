@@ -62,13 +62,17 @@ def test_d1_only_one_confidence_gate_remains_active():
 # ── D2: V2 evaluates every qualified signal, not just dispatched ones ───────
 
 def test_d2_v2_recorder_runs_before_rules_v2_and_dispatch():
-    src = inspect.getsource(mgr.SpyOptionsManager._poll)
-    rec = src.find("v2_shadow_gate.record(_s)")
-    rules = src.find("self._apply_rules_v2")
-    disp = src.find("await self._dispatch_signals")
-    assert rec != -1, "upstream V2 recorder missing"
-    assert rec < rules, "V2 recorder must run BEFORE rules_v2"
-    assert rec < disp, "V2 recorder must run BEFORE dispatch"
+    """AUG 6 2026: the recorder moved from manager._poll into
+    signal_engine.evaluate(). The Phase 3 placement was still downstream of the
+    directional-conflict filter, which cost 6 of 7 qualified CALL_SWEEP on
+    2026-08-05. Being inside evaluate() is strictly earlier than rules_v2 and
+    dispatch, so the original ordering guarantee still holds — see
+    tests/test_fixes_20260806.py for the finer-grained assertions."""
+    src = inspect.getsource(se.SignalEngine.evaluate)
+    assert "_v2.record(_s)" in src, "V2 recorder missing from evaluate()"
+    mgr_src = inspect.getsource(mgr.SpyOptionsManager._poll)
+    assert "v2_shadow_gate.record(" not in mgr_src, \
+        "manager must not also record — that would double-log"
 
 
 def test_d2_downstream_recorder_removed():

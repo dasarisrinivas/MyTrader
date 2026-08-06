@@ -33,6 +33,19 @@ SENTINEL = os.path.join(ROOT, "logs", "spy_watchdog.disabled")
 # Machine runs Central Time; the bot's own session gate is ET.
 SESSION_START = dtime(8, 5)      # after the 08:00 launchd start has settled
 SESSION_END = dtime(14, 55)      # before the 15:05 daily-stop job
+
+# AUG 6 2026 — FALSE-POSITIVE FIX.
+# The bot stops polling at config `session.rth_stop_et` = 15:45 ET = 14:45 CDT,
+# but stall checking ran until SESSION_END (14:55 CDT). That left a 10-minute
+# window in which the bot's legitimate post-RTH idle looked identical to a hang.
+# On 2026-08-06 the watchdog killed a perfectly healthy bot:
+#   14:45:35  last poll (normal end of RTH)
+#   14:51:16  "bot ALIVE but log silent for 341s (> 300s) — treating as STALLED"
+#   14:51:36  stalled bot stopped (pids ['61721']) — restarting
+# Nothing was open at the time, but the same event during a live position would
+# have SIGKILLed the process managing it. Stall detection now stops BEFORE the
+# bot legitimately goes quiet.
+STALL_CHECK_END = dtime(14, 40)   # < rth_stop_et (14:45 CDT) with 5-min margin
 # Bot polls every 60s during RTH, so a log that has not grown in this long
 # means the poll loop is wedged (see stalled()). 5x the poll interval.
 POLL_WINDOW_START = dtime(8, 40)   # first poll due 08:35 CDT + margin
@@ -98,7 +111,9 @@ def stalled() -> bool:
     legitimately idle and silent.
     """
     try:
-        if not (POLL_WINDOW_START <= datetime.now().time() <= SESSION_END):
+        # Window ends at STALL_CHECK_END, before the bot's own rth_stop_et —
+        # after that a silent log is expected, not a stall (2026-08-06 fix).
+        if not (POLL_WINDOW_START <= datetime.now().time() <= STALL_CHECK_END):
             return False
         age = datetime.now().timestamp() - os.path.getmtime(BOTLOG)
         if age > STALL_AFTER_S:
