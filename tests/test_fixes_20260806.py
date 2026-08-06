@@ -138,6 +138,33 @@ def test_no_duplicate_recorder_in_manager():
     assert "v2_shadow_gate.record(" not in inspect.getsource(mgr.SpyOptionsManager)
 
 
+def test_v2_records_all_families_not_just_call_sweep():
+    """AUG 6 2026: widened so the composite can be evaluated across families."""
+    src = inspect.getsource(se.SignalEngine.evaluate)
+    i = src.find("_v2.record(_s)")
+    block = src[max(0, i - 300):i + 60]
+    assert "for _s in filtered:" in block
+    assert "SignalType.CALL_SWEEP" not in block.split("for _s in filtered:")[1], \
+        "recorder must no longer be gated on CALL_SWEEP"
+
+
+def test_v2_frozen_parameters_are_untouched():
+    """Widening must NOT refit the gate — the pre-registration depends on it."""
+    from shree.spy_options import v2_shadow_gate as v2
+    assert v2.GATE_VERSION == "v2-shadow-1.0-frozen-20260803"
+    assert v2.TRAIN_WINDOW == "82 signals / 11 sessions, < 2026-07-23"
+    feats = {f[0]: (f[1], f[2], f[3]) for f in v2._FEATURES}
+    assert feats["external_composite"] == (-1.0, -0.086618, 0.183650)
+    assert feats["equity_pc"] == (-1.0, 0.578659, 0.253492)
+
+
+def test_v2_rows_carry_signal_type_for_domain_filtering():
+    """The CALL_SWEEP study stays valid only if it can filter other families
+    out — the frozen z-scores are out-of-domain for them."""
+    from shree.spy_options import v2_shadow_gate as v2
+    assert '"signal_type"' in inspect.getsource(v2.record)
+
+
 def test_recorder_is_observation_only():
     """It must not be able to change `filtered`."""
     src = inspect.getsource(se.SignalEngine.evaluate)

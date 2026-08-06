@@ -1457,11 +1457,23 @@ class SignalEngine:
         # ("immediately after signal generation and quality validation").
         # OBSERVATION ONLY: record() never gates, sizes or blocks, and swallows
         # every exception.
+        #
+        # AUG 6 2026 — widened from CALL_SWEEP to ALL families.
+        # ⚠️ DOMAIN WARNING for anyone analysing logs/v2_shadow_gate.jsonl:
+        # the gate's frozen parameters were fitted on CALL_SWEEP ONLY
+        # (TRAIN_WINDOW "82 signals / 11 sessions, < 2026-07-23"). The feature
+        # means/stds in _FEATURES are CALL_SWEEP's distribution, so the z-scores
+        # — and therefore take_B / take_C — are OUT-OF-DOMAIN for every other
+        # family. Rows now carry `signal_type`; the pre-registered CALL_SWEEP
+        # stability study MUST filter signal_type == "CALL_SWEEP" to stay valid.
+        # Other families are exploratory only: they answer "does the composite
+        # generalise", which cannot be answered without collecting them, but
+        # they are NOT evidence for or against the frozen gate.
+        # No frozen parameter is modified, so the pre-registration still holds.
         try:
             from . import v2_shadow_gate as _v2
             for _s in filtered:
-                if _s.signal_type == SignalType.CALL_SWEEP:
-                    _v2.record(_s)
+                _v2.record(_s)
         except Exception:
             pass
 
