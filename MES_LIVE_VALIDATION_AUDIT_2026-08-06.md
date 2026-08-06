@@ -6,27 +6,33 @@ solved/ignored for this design exercise — the question answered here is "if
 execution existed, what is the safest possible path, and does the evidence
 support even a maximally constrained trial?"
 
-> **Revision note (post-review, two rounds):** the original version of this
+> **Revision note (post-review, three rounds):** the original version of this
 > report answered readiness as one binary verdict. That conflated questions that
 > answer differently: engineering readiness is deterministic (the code exists or
 > it doesn't), strategy readiness is probabilistic (evidence accumulates toward
-> a threshold), and — added in the second round — whether *production execution
-> behaves like the research environment it was validated in* is a third,
-> separate question that neither of the first two can answer. §7 is now three
-> checks: 7.1 engineering (checklist), 7.2 strategy (staged checkpoints at
-> 25–30/~50/~100 trades, replacing one hard n=100 bar), and 7.4 shadow-vs-live
-> divergence (continuous from the first live trade, catches "edge measured in
-> research doesn't survive real execution" — a failure mode that can hide behind
-> a clean §7.1 and a healthy §7.2). §4.4's build list is now an explicit, ordered
-> engineering roadmap. Findings and numbers are unchanged throughout.
+> a threshold), whether *production execution behaves like the research
+> environment it was validated in* is continuous once live (round two), and —
+> added in round three — whether the shadow signal that everything else is
+> built on is itself **observable and verified in real time**, since a broken or
+> silently-dropped signal pipeline would invalidate every later live-vs-shadow
+> comparison without anyone knowing. §7 is now four checks: 7.1 engineering
+> (checklist), 7.2 strategy (staged checkpoints at 25–30/~50/~100 trades,
+> replacing one hard n=100 bar), 7.5 shadow observability & alerting
+> (pre-activation, verifies the bridge between research and future live
+> execution is trustworthy), and 7.4 shadow-vs-live divergence (continuous from
+> the first live trade). §7.5 sits physically after §7.4 in this document (added
+> later) but is logically a **pre-activation** gate alongside 7.1/7.2, not a
+> continuous one like 7.4 — see the ordering note at the top of §7. §4.4's build
+> list is an explicit, ordered engineering roadmap. Findings and numbers are
+> unchanged throughout.
 
 ---
 
 ## Executive Summary
 
-This audit answers **three separate questions**, because they have different
-answer types, different owners, and — critically — a strategy can pass the
-first two and still fail the third:
+This audit answers **four separate questions**, because they have different
+answer types, different owners, and — critically — a strategy can pass any
+subset of them and still fail on the rest:
 
 - **Engineering readiness — deterministic, checklist-based.** ❌ **NOT
   PRODUCTION READY.** The live-facing code (`shree/signal_bot/bot.py`, 278 lines)
@@ -52,6 +58,18 @@ first two and still fail the third:
   reconciliation) diverges from what the research environment assumed. Neither
   §7.1 nor §7.2 alone would catch that; §7.4 is what proves the first two gates'
   results actually transfer to production.
+- **Shadow observability readiness — pre-activation, verified today by reading
+  the code.** ❌ **NOT YET RELIABLE.** The current Telegram alert (verified in
+  `shree/signal_bot/bot.py:225-231`) sends on every actionable signal, but: no
+  `signal_id` exists anywhere in the emitted record (§7.5 needs one to link
+  alert → replay → future live execution → P&L), delivery is fire-and-forget
+  (`send_message_background` discards the success/failure result — even
+  *successful* sends go unconfirmed, not just failures), and there is
+  **documented precedent for silent failure in this exact codebase**: a
+  2026-08-06 code comment in `telegram_notifier.py` records that an HTML
+  parse error silently dropped both alerts for the first live fill of an
+  observation period. This is not a hypothetical risk — it already happened
+  once with this infrastructure. Scored in §7.5.
 - **What CAN be done today, safely:** nothing changes about *whether* to go
   live. What changes is *how to find out*, on two independent tracks that should
   run in parallel without being conflated: (1) build and de-risk the execution
@@ -369,12 +387,25 @@ about the strategy itself. Below that, report descriptively only.
 
 ## 7. Go / No-Go Decision Framework
 
-Three checks, because they answer different questions on different timelines.
-**§7.1 and §7.2 are pre-activation gates — both must pass before the first live
-trade, and each can be tracked and worked on without waiting for the other.
-§7.4 is not a pre-activation gate; it runs continuously from the first live
-trade onward**, because it answers a question §7.1/§7.2 cannot: does the built,
-edge-carrying system actually behave in production the way it did in research?
+Four checks, because they answer different questions on different timelines.
+Logical order (not document order — §7.5 was added after §7.4 and is placed
+after it below, but belongs here in the sequence):
+
+1. **§7.1 Engineering Readiness** — can it operate safely?
+2. **§7.2 Strategy Readiness** — is there evidence of edge?
+3. **§7.5 Shadow Observability & Alerting** — can every decision be seen and verified, right now, in shadow?
+4. **§7.4 Shadow vs Live Divergence** — once live, does execution still match research?
+
+**§7.1, §7.2, and §7.5 are pre-activation gates — all three must pass before the
+first live trade**, and each can be tracked and worked on independently. §7.5 in
+particular must clear *before* live trading precisely because it validates the
+research-to-live bridge itself: if shadow alerts are unreliable, later
+live-vs-shadow comparisons (§7.4) cannot be trusted, because you would not know
+whether a discrepancy is a real divergence or a signal that was never correctly
+observed in the first place. **§7.4 is the only continuous check; it runs from
+the first live trade onward**, because it answers a question none of the other
+three can: does the built, edge-carrying, observable system actually behave in
+production the way it did in research?
 
 ### 7.1 Engineering Readiness Gate (deterministic — pass/fail checklist)
 
@@ -422,7 +453,7 @@ This staged structure avoids two failure modes at once: waiting months (a
 single n=100 gate) before learning anything, and scaling prematurely off a
 small, noisy early sample.
 
-### 7.3 Live Operation Rules (apply only once both gates in §7.1/§7.2 have cleared and trading is live)
+### 7.3 Live Operation Rules (apply only once all pre-activation gates — §7.1, §7.2, §7.5 — have cleared and trading is live)
 
 **CONTINUE**
 - Fewer than 2 consecutive live losses, AND
@@ -556,6 +587,122 @@ Both branches read the *same* frozen record; neither is allowed to compare
 against a version of "what the signal said" that has drifted from what was
 actually written at emission time.
 
+### 7.5 Shadow Signal Observability & Alerting Gate
+
+**Purpose:** ensure every actionable shadow signal is visible in real time
+*before* any live execution is enabled. Shadow mode must behave as a
+production-grade signal system even though it places no orders — because it is
+the bridge every later live-vs-shadow comparison (§7.4) depends on. If shadow
+alerts are unreliable, that dependency is broken and nobody would know it.
+
+**Current state (verified against the code, not designed in the abstract):**
+
+| Requirement | Status today | Evidence |
+|---|---|---|
+| Alert fires on every actionable signal | ✅ Present | `bot.py:225-231` — `send_message_background` called on every non-HOLD signal |
+| Unique `signal_id` linking alert → replay → future live record → P&L | ❌ **Does not exist** | The emitted record's field set (`ts, bar_ts, signal, confidence, entry, stop, target, expected_r, regime, adx, atr, htf_30m_trend, supporting_evidence, blocking_evidence, strategy`) has no ID field. Nothing today links a Telegram message back to a specific `logs/mes_signals.jsonl` row programmatically — only by eyeballing timestamps. |
+| Delivery confirmation captured per signal | ❌ **Does not exist** | `send_message_background` (`telegram_notifier.py:137-165`) schedules `_send_message_safe` as a fire-and-forget task; the underlying `send_message`'s `True`/`False` result (`telegram_notifier.py:70-79`) is never read or persisted. A *successful* send is exactly as unconfirmed as a failed one from the log's point of view. |
+| Failure is logged in a way tied to the signal | ⚠️ Partial | `_send_message_safe` logs `❌ Background Telegram send failed: {e}` on exception (`telegram_notifier.py:181-182`), but this is a bare log line — not linked to a `signal_id`, not queryable, not counted anywhere. |
+| **Documented precedent for silent delivery failure** | ⚠️ **Already occurred once** | `telegram_notifier.py:100-112` (comment dated AUG 6 2026): an HTML parse error (`400 Unsupported start tag`) from an unescaped `<` in gate/reason text **silently dropped both alerts for the first live fill of an observation period**. A plain-text retry fallback was added after the fact. This is direct evidence the failure mode §7.5 exists to catch is not hypothetical. |
+
+**Required alert content** (design target — build alongside §4.4's execution
+adapter, since both need the same `signal_id`):
+
+*Signal information:* strategy/family name, instrument, direction, signal
+timestamp, market session (ETH/RTH), entry price assumption, stop level, target
+level, expected R:R, confidence score, signal tier *(note: "tier" does not
+exist as a concept today — confidence is currently a flat 0.70 constant on
+every signal, per §2; a real tier system is a prerequisite for this field to
+mean anything, not just a display change)*, reason codes / contributing factors.
+
+*Market context:* current price, trend state, volatility state, volume/flow
+information if available, time remaining in session, current open shadow
+position state.
+
+*Replay tracking:* the `signal_id` linking:
+```
+signal_id
+ |
+ +-- shadow alert
+ +-- replay result
+ +-- future live execution record (if enabled)
+ +-- P&L attribution
+```
+
+**Shadow Alert Reliability Gate (verify before live activation):**
+- [ ] 100% of actionable shadow signals generate a Telegram alert (measured over the full pre-activation shadow window, not spot-checked)
+- [ ] Zero duplicate alerts for the same `signal_id`
+- [ ] Zero missing alerts (cross-reference `logs/mes_signals.jsonl` actionable rows against sent-alert records — this cross-reference does not exist today and must be built)
+- [ ] Alert timestamp matches signal timestamp within a defined tolerance
+- [ ] Delivery latency is measured, not assumed
+
+**Latency tracked per alert** (mirrors the §7.4 signal-to-fill breakdown — same
+principle, applied to the alert pipeline instead of the order pipeline):
+
+| Timestamp | Captured today? |
+|---|---|
+| `signal_generated_time` | ✅ (the record's `ts` field) |
+| `telegram_created_time` | ❌ not captured |
+| `telegram_sent_time` | ❌ not captured |
+| `telegram_delivery_time` | ❌ not captured (Telegram Bot API confirms send, not end-user delivery — capture what the API confirms and label it accordingly) |
+
+Derived: signal→alert-creation latency, alert-creation→send latency, send→confirmed-delivery latency, failed-alert count. None of these four are measurable today because none of the three missing timestamps are logged.
+
+**Alert failures are operational events, not cosmetic ones:**
+
+| Event | Severity |
+|---|---|
+| Missing shadow alert | Warning / investigate |
+| Duplicate shadow alert | Warning |
+| Incorrect signal details in the alert (mismatch vs the frozen record) | **Critical** |
+| Alert system unavailable while live trading is active | **STOP condition** (§7.3) — if the observability layer that later proves execution-fidelity is itself down, live trading has no verification path and must not continue |
+
+**Why this is a separate gate from §7.4, not folded into it:** §7.4 asks "did
+execution match research?" — a question that only exists once live trades
+exist. §7.5 asks "did humans/systems actually see the signal in the first
+place?" — a question that must already be answered **during shadow-only
+operation**, before there is anything to execute. A signal pipeline that is
+silently broken (per the documented 2026-08-06 precedent above) could sit
+undetected through the entirety of §7.2's checkpoint accumulation, since a
+missing alert does not stop the signal from being written to
+`logs/mes_signals.jsonl` and used in replay — the *research* evidence stays
+intact even while the *observability* layer is broken. §7.5 is what catches that
+specific gap, which neither §7.1, §7.2, nor §7.4 would.
+
+**Complete operating model** (supersedes the narrower diagram in §7.4, which
+remains valid for illustrating the frozen-record baseline rule specifically):
+
+```
+                    Shadow Engine
+                         |
+                 Frozen Signal Record
+             (logs/mes_signals.jsonl —
+            the binding baseline, §7.4)
+                         |
+             +-----------+-----------+
+             |                       |
+       Telegram Alert          Research Replay
+        (§7.5 — must be            (§2, §3)
+       100% reliable pre-
+          activation)
+             |                       |
+     Human Observability       Strategy Metrics
+      (signal_id links               |
+      alert->replay->live)           |
+             |                       |
+             +-----------+-----------+
+                         |
+                 Future Live Execution
+                    (once §7.1, §7.2,
+                     §7.5 all clear)
+                         |
+              §7.4 Divergence Monitor
+                    (continuous)
+                         |
+                  Continue / Pause / Stop
+                        (§7.3)
+```
+
 ---
 
 ## 8. Monitoring Dashboard — daily metrics to track
@@ -578,6 +725,9 @@ actually written at emission time.
 | Execution journal completeness (any trade missing a required field) | the journal (§4.4.5) is only useful if every trade is fully captured — track gaps as their own health metric |
 | Divergence gate status (§7.4): duplicate trades, position mismatches, slippage-band violations | the one gate that runs every trade, not just at checkpoints — surfaces execution-reality problems before they're mistaken for "no edge" |
 | Signal-to-fill latency, broken into 4 stages (§7.4) | attributes slowness to strategy decision, adapter, or broker separately instead of one blended "execution is slow" number |
+| Shadow alert delivery rate (%), by day (§7.5) | must be 100% before activation; a silent drop here invalidates the research-to-live bridge without anyone noticing |
+| Shadow alert latency, 3 stages: creation / send / delivery (§7.5) | mirrors the execution-latency breakdown but for the observability pipeline — same attribution logic |
+| Alert-vs-frozen-record content mismatches (§7.5) | a Critical-severity event even pre-live — the alert must always agree with the record it's reporting on |
 
 ---
 
@@ -590,21 +740,22 @@ parallel and are owned/paced independently.
 
 | # | Recommendation | Priority | Why |
 |---|---|---|---|
-| 1 | Build the three-way heartbeat (process/data/broker, §4.4.3) | **Critical** | Currently zero detection if the bot hangs while (hypothetically) holding a live position. Worst failure mode in the whole design. |
-| 2 | Build persistent position state with startup broker-reconciliation (§4.4.2) | **Critical** | Second-worst failure mode: a restart that "forgets" an open position. |
-| 3 | Build the execution adapter + execution journal together, broker-agnostic (§4.4.1, §4.4.5) | High | The journal is the primary debugging tool once live validation starts — build it alongside the adapter, not bolted on after. |
-| 4 | Wire all five kill-switch triggers independently (§4.4.4) | High | Each must halt trading without requiring the others to be diagnosed first. |
-| 5 | Run the full build in paper/simulated mode for ≥2 weeks, zero anomalies, before touching real capital | High | Separates "does the execution layer work" from "does the strategy have edge" — never test both with real money at once. |
-| 6 | Wire the §7.4 divergence gate (slippage-band, duplicate-order, position-mismatch checks) as part of the same build, not a later add-on | High | It's the check that catches "edge is real but production doesn't behave like research" — needs to be live from trade 1, not retrofitted after a problem is already suspected. |
+| 1 | Add `signal_id` to the emitted record and delivery-confirmation logging to `TelegramNotifier` (§7.5) | **Critical, and start immediately** | Unlike every other item in this track, this does **not** depend on execution capability or account type — it can be built and verified today, against the shadow bot that is already running, with zero blockers. Every day this is delayed, checkpoint-accumulating signals (§7.2) go unverified against the documented 2026-08-06 silent-delivery-failure precedent. |
+| 2 | Build the three-way heartbeat (process/data/broker, §4.4.3) | **Critical** | Currently zero detection if the bot hangs while (hypothetically) holding a live position. Worst failure mode in the whole design. |
+| 3 | Build persistent position state with startup broker-reconciliation (§4.4.2) | **Critical** | Second-worst failure mode: a restart that "forgets" an open position. |
+| 4 | Build the execution adapter + execution journal together, broker-agnostic (§4.4.1, §4.4.5) | High | The journal is the primary debugging tool once live validation starts — build it alongside the adapter, not bolted on after. |
+| 5 | Wire all five kill-switch triggers independently (§4.4.4) | High | Each must halt trading without requiring the others to be diagnosed first. |
+| 6 | Run the full build in paper/simulated mode for ≥2 weeks, zero anomalies, before touching real capital | High | Separates "does the execution layer work" from "does the strategy have edge" — never test both with real money at once. |
+| 7 | Wire the §7.4 divergence gate (slippage-band, duplicate-order, position-mismatch checks) as part of the same build, not a later add-on | High | It's the check that catches "edge is real but production doesn't behave like research" — needs to be live from trade 1, not retrofitted after a problem is already suspected. |
 
 ### Strategy track
 
 | # | Recommendation | Priority | Why |
 |---|---|---|---|
 | 1 | Continue shadow (now full ETH) — this is the single highest-value, zero-cost action available today | High | Directly resolves the open statistical question; no capital risk. |
-| 2 | Do NOT activate live trading until both §7.1 and Checkpoint 1's prerequisites are ready | **Critical** | CI for mean R includes zero; execution layer doesn't exist yet. Neither gate is a judgment call — both are checklist/threshold-based. |
+| 2 | Do NOT activate live trading until §7.1, §7.5, and Checkpoint 1's prerequisites are all ready | **Critical** | CI for mean R includes zero; execution layer doesn't exist yet; shadow alerting isn't yet reliable. None of these three is a judgment call — all are checklist/threshold-based. |
 | 3 | Hold the strategy engine fixed while the engineering track builds (§4.0) | High | Prevents conflating "execution problem" with "strategy problem" once live trades start. |
-| 4 | When both gates clear, start RTH-only (§4.1) | Medium | RTH slice has the larger, less-clustered sample (§2); ETH's apparent edge is not trusted yet (§3). |
+| 4 | When all pre-activation gates clear, start RTH-only (§4.1) | Medium | RTH slice has the larger, less-clustered sample (§2); ETH's apparent edge is not trusted yet (§3). |
 | 5 | Run Checkpoints 1/2/3 as scheduled (§7.2), not ad hoc | Medium | Pre-registered checkpoints prevent "peeking and stopping early" bias in either direction. |
 
 ---
@@ -627,7 +778,7 @@ parallel and are owned/paced independently.
 
 ## Caveman verdict
 
-Three different question, three different gate. Not one "not ready."
+Four different question, four different gate. Not one "not ready."
 
 **Engine gate — yes or no, no gray.** Bot only look and log, no hand to trade.
 No order arm, no memory across restart, no watchdog, no reconcile with broker,
@@ -645,27 +796,39 @@ twenty-five-thirty trade: check execution work, not check edge yet. Next fifty:
 recheck box, recheck slip. Near hundred: real answer on edge, real answer on
 scale.
 
-**Third gate — the one that never sleep once live start.** Engine can pass all
-eight box. Number box can look healthy. And STILL — real trade in real world not
-match paper trade in shadow world. Fill different, timing different, broker
-count different from what bot think. That third gate watch EVERY live trade, not
-just at checkpoint: any duplicate order, any position bot-count not match
-broker-count — **stop same second, no waiting for pattern.** Small slip drift —
-watch three-in-row before act. This gate exist because good edge can still lose
-real money if real world don't behave like paper world did.
+**See gate — can eye actually watch every signal, right now, today, no live
+money need.** Look in code: bot DOES send message on every real signal — good.
+But no ID tag on signal, so cannot chain alert → replay → later live trade →
+money. And send is fire-forget: even GOOD send never confirm back. Worse — comb
+find real proof already: one day (AUG 6) bad character in message text made
+Telegram **silently eat two alert whole**, nobody see, code comment only place
+it written down. Ghost signal already walk once in this exact camp. This gate
+fix cheap and fix now — no wait for other gate, no wait for live, shadow bot
+already run today, fix beside it same day.
 
-Move all three gate same time, don't tangle: build engine arm in paper while
-shadow keep counting bone. But when finally go live — touch **one** thing at a
-time. Don't open night AND flip live switch AND change broker AND change risk
-number all same day. Tangle wire, tangle blame — good result or bad, cannot tell
-which wire did it.
+**Trip-wire gate — the one that never sleep once live start.** Other three gate
+all pass clean. And STILL — real trade in real world not match paper trade in
+shadow world. Fill different, timing different, broker count different from
+what bot think. This gate watch EVERY live trade, not just at checkpoint: any
+duplicate order, any position bot-count not match broker-count — **stop same
+second, no waiting for pattern.** Broker count always win over bot count, never
+other way — bot memory just guess, broker book is truth. Small slip drift —
+watch three-in-row before act. Compare only against frozen signal wrote at
+birth, never against signal someone touch up after the fact.
+
+Move all four gate, don't tangle: fix see-gate now in shadow, build engine arm
+in paper, shadow keep counting bone same time. But when finally go live —
+touch **one** thing at a time. Don't open night AND flip live switch AND change
+broker AND change risk number all same day. Tangle wire, tangle blame — good
+result or bad, cannot tell which wire did it.
 
 Journal every live trade start to finish — signal time, decision time, order
-time, ack time, fill time, slip, exit why. That journal feed the third gate and
-save more headache than any other piece once live start.
+time, ack time, fill time, slip, exit why. Same idea feed the see-gate too:
+signal-made time, alert-made time, alert-sent time, alert-land time. Both
+journal save more headache than any other piece once live start.
 
 Bottom line: **build gate is checklist, flip when built. Number gate is
-staircase, climb at twenty-five, fifty, hundred. Third gate is trip-wire, never
-off once live. Walk all three same time, keep wire separate, trade real money
-only after first two stand clear — and watch third gate every single trade
-after that.**
+staircase, climb at twenty-five, fifty, hundred. See gate is cheap fix, do
+today, no excuse to wait. Trip-wire gate never off once live. Walk all four
+together, keep wire separate, trade real money only after first three stand
+clear — and watch trip-wire every single trade after that.**
